@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+jobs:
+  cpu:
+    runs-on: linux-amd64-cpu8
+    steps:
+      - name: Get PR info
+        id: get-pr-info
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Run wheel build
+        run: |
+          echo "Building wheels..."
+          # Add your wheel build commands here
+
+      - name: Run doc build
+        run: |
+          echo "Building documentation..."
+          # Add your doc build commands here
+
+  gpu:
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    steps:
+      - name: Get PR info
+        id: get-pr-info
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Verify GPU availability
+        run: |
+          echo "Verifying GPU access..."
+          nvidia-smi
+
+      - name: Run world model diffusion
+        run: |
+          echo "Running world model diffusion workloads..."
+          # Add your world model diffusion commands here
