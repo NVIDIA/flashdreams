@@ -10,6 +10,17 @@ on:
       - '**'
 
 jobs:
+  lint:
+    runs-on: linux-amd64-cpu8
+    container:
+      image: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run linter checks
+        run: uv run --only-group lint pre-commit run -a
+
   cpu:
     runs-on: linux-amd64-cpu8
     steps:
