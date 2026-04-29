@@ -121,6 +121,29 @@ class AlpadreamsPipeline(
 
         transformer = self.diffusion_model.transformer
         self._len_t_latent: int = transformer.config.len_t
+        # Pre-patchify number of latent frames committed per AR step, i.e.
+        # ``len_t - kv_drop_t``. Used downstream to split the decoder input
+        # window from the DiT query window when ``kv_drop_t > 0``.
+        self._len_t_commit: int = transformer.config._len_t_commit
+        self._kv_drop_t: int = transformer.config.kv_drop_t
+
+        # FIXME: stateful HDMap encoders (Wan VAE) advance their conv
+        # state by the number of pixel-frames they see per call. With
+        # ``kv_drop_t > 0`` consecutive HDMap input windows OVERLAP by
+        # ``kv_drop_t * temporal_compression`` frames (see ``get_num_input_frames``
+        # vs ``get_num_output_frames``), and the encoder cache would
+        # double-process the overlapping region, corrupting the
+        # conditioning. PixelShuffle is stateless w.r.t. temporal context
+        # and is safe. Until a proper fix lands (cache reset / reuse),
+        # gate ``kv_drop_t > 0`` to PixelShuffle-encoder configs only.
+        if self._kv_drop_t > 0 and isinstance(self.encoder, WanVAEEncoder):
+            raise NotImplementedError(
+                "kv_drop_t > 0 is not yet supported with a stateful Wan VAE "
+                "HDMap encoder. Use a PixelShuffle encoder recipe (e.g. "
+                "build_sv_2steps_chunk4_loc8_pshuffle_lighttae) or set "
+                "kv_drop_t=0."
+            )
+
         decoder = self.decoder
         assert decoder is not None and hasattr(decoder, "TEMPORAL_COMPRESSION_RATIO"), (
             f"Decoder {type(decoder).__name__} must expose "
@@ -197,13 +220,75 @@ class AlpadreamsPipeline(
             input=hdmap,
         )
 
-    def get_num_frames(self, autoregressive_index: int) -> int:
-        """Number of decoded video frames produced by AR step ``autoregressive_index``.
+    def get_num_input_frames(self, autoregressive_index: int) -> int:
+        """Number of HDMap pixel frames the pipeline expects as input per AR step.
 
-        AR step 0 emits the streaming-VAE anchor frame plus
-        ``(len_t - 1) * temporal_compression`` decoded frames; subsequent
-        steps emit ``len_t * temporal_compression`` frames each.
+        The DiT always consumes ``len_t`` latent frames per AR step
+        regardless of ``kv_drop_t`` (the trailing ``kv_drop_t`` latents
+        are denoised and used as a transient self-attention tail before
+        being discarded). So the per-AR-step HDMap input window is
+        always sized by ``len_t``:
+
+        - AR step 0: ``1 + (len_t - 1) * temporal_compression`` frames
+          (anchor frame + denoised tail).
+        - Steady-state: ``len_t * temporal_compression`` frames.
+
+        Consecutive input windows overlap by
+        ``kv_drop_t * temporal_compression`` frames when ``kv_drop_t > 0``;
+        callers should advance their AR pointer using
+        :meth:`get_num_output_frames` instead.
         """
         if autoregressive_index == 0:
             return 1 + (self._len_t_latent - 1) * self._decoder_temporal_compression
         return self._len_t_latent * self._decoder_temporal_compression
+
+    def get_num_output_frames(self, autoregressive_index: int) -> int:
+        """Number of decoded video frames emitted per AR step (= AR pointer advance).
+
+        Sized by ``_len_t_commit = len_t - kv_drop_t`` because only the
+        committed prefix of each AR step's clean latent reaches the
+        streaming decoder:
+
+        - AR step 0: ``1 + (_len_t_commit - 1) * temporal_compression``
+          frames (anchor frame + committed tail).
+        - Steady-state: ``_len_t_commit * temporal_compression`` frames.
+
+        Equals :meth:`get_num_input_frames` when ``kv_drop_t == 0``.
+        """
+        if autoregressive_index == 0:
+            return 1 + (self._len_t_commit - 1) * self._decoder_temporal_compression
+        return self._len_t_commit * self._decoder_temporal_compression
+
+    # Back-compat alias: most callers want the output count (it doubles
+    # as the AR pointer advance). Pre-``kv_drop_t`` callers wrote loops
+    # like ``end = start + get_num_frames(i); ...; start = end`` which
+    # only stays correct when ``kv_drop_t == 0``; with the experiment
+    # turned on, callers should split into
+    # ``get_num_input_frames`` / ``get_num_output_frames`` (see
+    # ``examples/run_alpadreams.py``).
+    def get_num_frames(self, autoregressive_index: int) -> int:
+        return self.get_num_output_frames(autoregressive_index)
+
+    def _pre_decode_hook(
+        self,
+        clean_latent: Tensor,
+        autoregressive_index: int,
+    ) -> Tensor:
+        """Slice the clean latent to the committed prefix before the decoder.
+
+        ``DiffusionModel.generate`` returns the unpatchified clean latent
+        for all ``len_t`` denoised positions, but with ``kv_drop_t > 0``
+        only the first ``_len_t_commit`` are committed to the decoder.
+        Streaming decoders (TAEHV, Wan VAE) advance their conv-state cache
+        by however many latent frames they see per call, so we must drop
+        the trailing ``kv_drop_t`` frames here -- otherwise the decoder
+        time index would race past the AR pointer by ``kv_drop_t`` per
+        step.
+
+        For ``kv_drop_t == 0`` this is a no-op (slice covers the full T).
+        """
+        del autoregressive_index  # decoder slicing is uniform across steps
+        if self._len_t_commit == self._len_t_latent:
+            return clean_latent
+        # Latent layout from ``unpatchify_and_maybe_gather_cp``: [B, V, T, C, H, W].
+        return clean_latent[:, :, : self._len_t_commit]

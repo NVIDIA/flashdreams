@@ -179,6 +179,24 @@ class CosmosTransformerConfig(TransformerConfig):
     window_size_t: int = 8
     sink_size_t: int = 0
 
+    # KV drop overlap (in pre-patchify T frames). Trailing ``kv_drop_t``
+    # latent frames per AR step are NOT committed to the persistent KV
+    # cache; they participate as a transient tail in the current step's
+    # self-attention only and are re-rolled / re-denoised as the head of
+    # the next AR step's query window. ``0`` reproduces the legacy
+    # non-overlapping AR rollout.
+    #
+    # Constraints (asserted in ``__post_init__``):
+    #   * ``0 <= kv_drop_t < len_t``
+    #   * ``(len_t - kv_drop_t) % patch_temporal == 0``
+    #
+    # First-cut limitations (enforced in ``CosmosTransformer.__init__``):
+    #   * No T-axis context parallelism when ``kv_drop_t > 0``.
+    #   * No ``torch.compile`` when ``kv_drop_t > 0``.
+    #   * The per-AR-step HDMap encoder must be stateless (PixelShuffle);
+    #     stateful Wan VAE encoders are gated at the pipeline layer.
+    kv_drop_t: int = 1
+
     # Speedup.
     compile_network: bool = True
 
@@ -204,6 +222,19 @@ class CosmosTransformerConfig(TransformerConfig):
         self._pT = self.len_t // kt
         self._pH = self.height // kh
         self._pW = self.width // kw
+
+        assert 0 <= self.kv_drop_t < self.len_t, (
+            f"kv_drop_t ({self.kv_drop_t}) must be in [0, len_t={self.len_t})"
+        )
+        commit_t = self.len_t - self.kv_drop_t
+        assert commit_t % kt == 0, (
+            f"(len_t - kv_drop_t) ({commit_t}) must be divisible by "
+            f"patch_temporal ({kt})"
+        )
+        self._len_t_commit = commit_t
+        """Pre-patchify number of latent frames committed per AR step."""
+        self._pT_commit = commit_t // kt
+        """Post-patchify temporal stride per AR step (== ``_pT - kv_drop_t // kt``)."""
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +287,27 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 f"mode (got {config.cp_size})"
             )
             self.cp_groups = HierarchicalCPGroups(rank=0)
+
+        # FIXME: First-cut `kv_drop_t > 0` does not handle T-axis context
+        # parallelism: each rank's local temporal prefix slice no longer
+        # corresponds to the global temporal prefix, so commit/drop
+        # decisions would be wrong on ranks that own dropped tail frames.
+        if config.kv_drop_t > 0 and self.cp_groups.T_size > 1:
+            raise NotImplementedError(
+                f"kv_drop_t > 0 is not yet supported with T-axis context "
+                f"parallelism (cp_groups.T_size={self.cp_groups.T_size}). "
+                f"HW-axis CP is also gated for now until tested."
+            )
+
+        # FIXME: First-cut `kv_drop_t > 0` introduces non-divisible
+        # rolling KV windows, transient attention tails, and dynamic
+        # attention-visible lengths, none of which have been validated
+        # under torch.compile. Use ``--no_compile`` for the experiment.
+        if config.kv_drop_t > 0 and config.compile_network:
+            raise NotImplementedError(
+                "kv_drop_t > 0 with torch.compile is not validated yet; "
+                "pass compile_network=False (e.g. --no_compile)."
+            )
 
         self.network = CosmosDiTNetwork(config=config.network)
         if device is not None:
@@ -381,8 +433,14 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         num_tokens_per_view_per_step = cfg._pH * cfg._pW
         if self.cp_groups.THW_group is not None:
             num_tokens_per_view_per_step //= self.cp_groups.THW_group.size()
+        # ``chunk_size`` is the per-AR-step COMMIT size (post-patchify
+        # ``_pT_commit`` temporal frames), not the full denoising window
+        # (``_pT``). With ``kv_drop_t > 0`` the trailing ``kv_drop_t``
+        # latent frames are excluded from the persistent cache; they
+        # participate in the current step's self-attention as a transient
+        # tail (see ``SelfAttention.forward``) and are then discarded.
         network_cache = self.network.initialize_cache(
-            chunk_size=num_tokens_per_view_per_step * cfg._pT,
+            chunk_size=num_tokens_per_view_per_step * cfg._pT_commit,
             window_size=num_tokens_per_view_per_step * cfg.window_size_t,
             sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
             context=text_embeddings,
@@ -478,7 +536,15 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "CosmosTransformerCache.start(autoregressive_index) must be called "
             "before predict_flow (DiffusionModel.generate handles this)."
         )
-        rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * self.config._pT)
+        # The AR pointer advances by ``_pT_commit`` (post-patchify temporal
+        # stride per committed step), not by ``_pT``: with ``kv_drop_t > 0``
+        # the next step's query window overlaps the current step's tail by
+        # ``kv_drop_t`` latent frames, so its RoPE positions start at
+        # ``ar_idx * _pT_commit``. Equal to the legacy ``ar_idx * _pT``
+        # when ``kv_drop_t == 0``.
+        rope_freqs = cache.rope_adapter.shift_t(
+            offset=ar_idx * self.config._pT_commit
+        )
 
         # AR step 0: inject the encoded first-frame latent into the noisy input.
         noisy_latent = self._maybe_inject_image(noisy_latent, cache)

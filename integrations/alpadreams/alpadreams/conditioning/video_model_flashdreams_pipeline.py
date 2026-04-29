@@ -242,6 +242,11 @@ class FlashDreamsPipelineVideoModelAPI(VideoModelAPI[FlashDreamsPipelineLatentCa
             len_t=len_t,
             checkpoint_path=checkpoint_path,
             compile_network=compile_net,
+            # Server pins legacy non-overlapping rollout: the production
+            # checkpoints were trained without ``kv_drop_t > 0``, and the
+            # gRPC server has not been adapted to the kv_drop_t experiment
+            # yet (e.g. encoder caveats, frame-count split, decoder slice).
+            kv_drop_t=0,
         )
 
         scheduler_config = FlowMatchSchedulerConfig(

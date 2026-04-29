@@ -96,6 +96,7 @@ def _transformer_config(
     len_t_latent: int,
     window_size_t: int,
     encode_with_pixel_shuffle: bool,
+    kv_drop_t: int = 1,
 ) -> CosmosTransformerConfig:
     return CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(),
@@ -112,6 +113,7 @@ def _transformer_config(
         w_extrapolation_ratio=3.0,
         window_size_t=window_size_t,
         sink_size_t=0,
+        kv_drop_t=kv_drop_t,
         compile_network=compile_network,
     )
 
@@ -132,6 +134,13 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    # FIXME: this recipe uses a stateful Wan VAE HDMap encoder, which the
+    # ``kv_drop_t > 0`` first-cut does not support (see
+    # ``AlpadreamsPipeline.__init__`` for the gate). Default to the
+    # legacy non-overlapping rollout here so this recipe keeps working;
+    # ``kv_drop_t > 0`` only defaults to 1 on the PixelShuffle chunk4
+    # recipes where it is safe.
+    kv_drop_t: int = 0,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, chunk2, light Wan VAE HDMap encoder + LightTAE decoder."""
     return AlpadreamsPipelineConfig(
@@ -153,6 +162,7 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
                 len_t_latent=2,
                 window_size_t=6,
                 encode_with_pixel_shuffle=False,
+                kv_drop_t=kv_drop_t,
             ),
             scheduler=_scheduler_config(),
         ),
@@ -164,6 +174,10 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    # See note in ``build_sv_2steps_chunk2_loc6_lightvae_lighttae``: this
+    # recipe also uses a stateful Wan VAE HDMap encoder, so the
+    # ``kv_drop_t > 0`` path is gated and we default to legacy rollout.
+    kv_drop_t: int = 0,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, chunk2, full Wan VAE for both HDMap encoding and decoding."""
     return AlpadreamsPipelineConfig(
@@ -185,6 +199,7 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
                 len_t_latent=2,
                 window_size_t=6,
                 encode_with_pixel_shuffle=False,
+                kv_drop_t=kv_drop_t,
             ),
             scheduler=_scheduler_config(),
         ),
@@ -196,6 +211,10 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    # See note in ``build_sv_2steps_chunk2_loc6_lightvae_lighttae``: this
+    # recipe also uses a stateful Wan VAE HDMap encoder, so the
+    # ``kv_drop_t > 0`` path is gated and we default to legacy rollout.
+    kv_drop_t: int = 0,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, chunk3, full Wan VAE for both HDMap encoding and decoding."""
     return AlpadreamsPipelineConfig(
@@ -217,6 +236,7 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
                 len_t_latent=3,
                 window_size_t=6,
                 encode_with_pixel_shuffle=False,
+                kv_drop_t=kv_drop_t,
             ),
             scheduler=_scheduler_config(),
         ),
@@ -228,6 +248,7 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    kv_drop_t: int = 1,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder."""
     return AlpadreamsPipelineConfig(
@@ -249,6 +270,7 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
                 len_t_latent=4,
                 window_size_t=8,
                 encode_with_pixel_shuffle=True,
+                kv_drop_t=kv_drop_t,
             ),
             scheduler=_scheduler_config(),
         ),
@@ -260,6 +282,7 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    kv_drop_t: int = 1,
 ) -> AlpadreamsPipelineConfig:
     """4-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder."""
     return AlpadreamsPipelineConfig(
@@ -281,6 +304,7 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
                 len_t_latent=4,
                 window_size_t=8,
                 encode_with_pixel_shuffle=True,
+                kv_drop_t=kv_drop_t,
             ),
             scheduler=_scheduler_config(),
         ),

@@ -234,20 +234,47 @@ class StreamInferencePipeline(
         if events is not None:
             events.record("diffuse")
 
+        # Optional subclass hook between the diffusion model and the decoder.
+        # Default is identity. The :class:`FinalState` stashed on the cache
+        # already holds the unsliced clean_latent, so subclasses are free
+        # to return a sliced view here without affecting the AR cache or
+        # the finalize path.
+        decoder_input = self._pre_decode_hook(
+            clean_latent=clean_latent,
+            autoregressive_index=autoregressive_index,
+        )
+
         if self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder
             output = self.decoder(
-                input=clean_latent,
+                input=decoder_input,
                 autoregressive_index=autoregressive_index,
                 cache=cache.decoder_cache,
             )
         else:
-            output = clean_latent
+            output = decoder_input
 
         if events is not None:
             events.record("decode")
 
         return output
+
+    def _pre_decode_hook(
+        self,
+        clean_latent: Tensor,
+        autoregressive_index: int,
+    ) -> Tensor:
+        """Optional transform applied to ``clean_latent`` before the decoder.
+
+        Default returns ``clean_latent`` unchanged. Subclasses can override
+        to slice / re-shape the latent without touching
+        :attr:`StreamInferencePipelineCache.final_state`. Used by
+        :class:`AlpadreamsPipeline` to drop the trailing ``kv_drop_t``
+        latent frames from the streaming decoder's input so that the
+        stateful decoder cache advances by the committed prefix only.
+        """
+        del autoregressive_index  # unused in the default identity hook
+        return clean_latent
 
     @torch.no_grad()
     def finalize(

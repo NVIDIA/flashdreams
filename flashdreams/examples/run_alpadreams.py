@@ -117,6 +117,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable torch.compile of the DiT network.",
     )
+    parser.add_argument(
+        "--kv_drop_t",
+        type=int,
+        default=None,
+        help=(
+            "Override `CosmosTransformerConfig.kv_drop_t` (number of "
+            "trailing latent frames per AR step that are NOT committed to "
+            "the persistent KV cache and decoder; the X tail still "
+            "participates in the current step's self-attention as a "
+            "transient, then is re-rolled and re-denoised next step). "
+            "Defaults to the builder's value (1). Pass 0 for the legacy "
+            "non-overlapping rollout. Currently requires --no_compile, no "
+            "T-axis context parallelism, and a PixelShuffle HDMap encoder "
+            "config (chunk4)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -172,11 +188,17 @@ def main() -> None:
         print("HF_TOKEN detected; using env-var auth for huggingface_hub")
 
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
-    pipeline_config = builder(
+    builder_kwargs: dict[str, int | bool] = dict(
         cp_size=world_size,
         compile_network=not args.no_compile,
         seed=42 + rank,
     )
+    # Pass the CLI override straight to the builder rather than mutating
+    # the config after construction, so the recipe's other knobs (e.g.
+    # ``window_size_t``) can react to ``kv_drop_t`` consistently.
+    if args.kv_drop_t is not None:
+        builder_kwargs["kv_drop_t"] = args.kv_drop_t
+    pipeline_config = builder(**builder_kwargs)
     pipeline = pipeline_config.setup()
     pipeline.to(device=device)
 
@@ -234,12 +256,21 @@ def main() -> None:
     stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_frames(i)
-        end = start + num_frames
+        # The DiT still consumes a full ``len_t``-sized HDMap window per
+        # AR step (so it can denoise N latent positions, including the
+        # trailing ``kv_drop_t`` transient tail). The AR pointer only
+        # advances by the COMMITTED frame count -- with ``kv_drop_t > 0``
+        # consecutive input windows therefore overlap by
+        # ``kv_drop_t * temporal_compression`` frames.
+        input_frames = pipeline.get_num_input_frames(i)
+        output_frames = pipeline.get_num_output_frames(i)
+        end = start + input_frames
         if end > hdmap_num_frames:
             break
         print(
-            f"autoregressive_index: {i}, num_frames: {num_frames}, start: {start}, end: {end}"
+            f"autoregressive_index: {i}, "
+            f"input_frames: {input_frames}, output_frames: {output_frames}, "
+            f"start: {start}, end: {end}"
         )
         generated_video.append(
             pipeline.generate(
@@ -248,7 +279,7 @@ def main() -> None:
                 hdmap=hdmap_videos_t[:, :, start:end],
             ).cpu()
         )
-        start = end
+        start += output_frames
         stats = pipeline.finalize(i, cache)
         if stats is not None:
             stats_history.append({"autoregressive_index": i, **stats})

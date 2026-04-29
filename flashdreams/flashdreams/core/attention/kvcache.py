@@ -13,17 +13,28 @@ class BlockKVCache:
     Keys and values can have arbitrary shape ``[..., total_size, ...]``; the sequence
     (rolling) dimension is given by ``seq_dim`` (dimension index, can be negative).
     Layout along that dimension: [sink tokens | local window tokens]. Sink tokens are
-    never evicted; the local window rolls left as new chunks are added if full. Chunks are
-    non-overlapping: each update adds one chunk of ``chunk_size`` tokens at the
-    next logical position in the full sequence.
+    never evicted; the local window rolls left as new chunks are added if full.
 
-    Note: Currently only support total_size (sink_size + window_size) divisible by chunk_size.
+    There are two write paths internally:
 
-    Phases:
+    - **Sink-aware chunk-aligned** (when ``sink_size > 0``): preserves the
+      original behavior where each update writes exactly ``chunk_size``
+      tokens, the rolling window is rolled left by ``chunk_size`` whenever
+      the buffer is full, and ``(window_size + sink_size)`` must be a
+      multiple of ``chunk_size``. New chunks that would overlap the sink
+      region drop their leading tokens.
+    - **Roll-and-append** (when ``sink_size == 0``): unifies filling and
+      steady-state writes. Before each new chunk, evict exactly
+      ``max(0, n_cached + chunk_size - window_size)`` of the oldest
+      rolling tokens, then append the new chunk at the right edge.
+      ``window_size`` is no longer required to be a multiple of
+      ``chunk_size``; ``chunk_size <= window_size`` is required.
+
+    Phases (descriptive only; not enforced as a state machine):
         - Filling: cache not yet full; tokens are written contiguously;
           ``cached_k()`` / ``cached_v()`` return only the valid prefix.
-        - Steady-state: cache full; each new chunk triggers a left-roll of the
-          local window and overwrites the rightmost positions;
+        - Steady-state: cache full; each new chunk triggers a left-roll of
+          the local window and overwrites the rightmost positions;
           ``cached_k()`` / ``cached_v()`` return the full buffer.
 
     The argument ``chunk_idx`` (0, 1, 2, ...) is the index of the new chunk in the full
@@ -78,6 +89,13 @@ class BlockKVCache:
     _v: Tensor = field(init=False)
     """Cached values. shape ``[..., total_size, ..., Dv]``, where the ``total_size`` is the length of the cache buffer at ``seq_dim`` dimension."""
 
+    _last_write_start: int = 0
+    """Start index of the most recent successful write along ``seq_dim``.
+    Re-used by same-``chunk_idx`` overwrites in the roll-and-append path."""
+
+    _last_write_end: int = 0
+    """End index of the most recent successful write along ``seq_dim``."""
+
     @classmethod
     def from_tensor(cls, k: Tensor, v: Tensor, seq_dim: int) -> Self:
         cache = cls(
@@ -117,10 +135,35 @@ class BlockKVCache:
             f"k_shape[seq_dim] ({self.k_shape[self.seq_dim]}) must equal sink_size + window_size ({expected_length})"
         )
 
-        # check window_size + sink_size should be divisible by chunk_size
-        assert (self.window_size + self.sink_size) % self.chunk_size == 0, (
-            f"window_size + sink_size ({self.window_size + self.sink_size}) must be divisible by chunk_size ({self.chunk_size})"
-        )
+        if self.sink_size > 0:
+            # Sink-aware chunk-aligned path: keep the original divisibility
+            # requirement so the rolling window stays chunk-aligned and
+            # incoming chunks that overlap the sink region can drop their
+            # leading tokens deterministically.
+            #
+            # FIXME: extend the roll-and-append path to support a non-zero
+            # sink (e.g. by always preserving slots [0:sink_size] and
+            # rolling only the [sink_size:] subrange). Not needed for the
+            # alpadreams ``kv_drop_t`` experiment because alpadreams sets
+            # ``sink_size_t == 0``.
+            assert (
+                self.window_size + self.sink_size
+            ) % self.chunk_size == 0, (
+                f"window_size + sink_size ({self.window_size + self.sink_size}) "
+                f"must be divisible by chunk_size ({self.chunk_size}) when "
+                f"sink_size > 0; non-divisible rolling windows with non-zero "
+                f"sink are not implemented yet."
+            )
+        else:
+            # Roll-and-append path: ``window_size`` does not need to be a
+            # multiple of ``chunk_size``, but each chunk must fit inside
+            # the rolling window so we never have to drop leading tokens
+            # from the incoming chunk itself.
+            assert self.chunk_size <= self.window_size, (
+                f"chunk_size ({self.chunk_size}) must be <= window_size "
+                f"({self.window_size}) in the roll-and-append path "
+                f"(sink_size == 0)."
+            )
 
         # initialize k and v
         self._k = torch.empty(self.k_shape, device=self.device, dtype=self.dtype)
@@ -199,6 +242,50 @@ class BlockKVCache:
         self._k[sl] = k
         self._v[sl] = v
 
+    def _roll_and_append(self, k: Tensor, v: Tensor) -> None:
+        """Unified roll-and-append for ``sink_size == 0`` (handles non-divisible windows).
+
+        Evicts exactly ``max(0, _n_cached + chunk_size - window_size)`` of the
+        oldest rolling tokens, shifts the remaining valid prefix left to cover
+        the eviction, and writes the incoming chunk at the right edge of the
+        valid region. ``_n_cached`` itself is bumped in :meth:`after_update`.
+        """
+        chunk_size = self.chunk_size
+        window = self.window_size
+
+        excess = self._n_cached + chunk_size - window
+        if excess > 0:
+            # Shift the (n_cached - excess) trailing rolling tokens to the
+            # front, freeing space at the right edge for the new chunk.
+            keep = self._n_cached - excess
+            if keep > 0:
+                src = self._seq_slice(excess, self._n_cached)
+                dst = self._seq_slice(0, keep)
+                self._k[dst] = self._k[src].clone()
+                self._v[dst] = self._v[src].clone()
+            write_start = keep
+        else:
+            write_start = self._n_cached
+
+        write_end = write_start + chunk_size
+        sl = self._seq_slice(write_start, write_end)
+        self._k[sl] = k
+        self._v[sl] = v
+
+        self._last_write_start = write_start
+        self._last_write_end = write_end
+
+    def _overwrite_last_write(self, k: Tensor, v: Tensor) -> None:
+        """Re-write the slice of the most recent successful write.
+
+        Used by same-``chunk_idx`` updates in the roll-and-append path,
+        which can be triggered by repeated ``predict_flow`` calls inside
+        one AR step (denoising loop iterations + the finalize pass).
+        """
+        sl = self._seq_slice(self._last_write_start, self._last_write_end)
+        self._k[sl] = k
+        self._v[sl] = v
+
     def is_steady_state(self) -> bool:
         """Return True if the cache is full (steady-state phase)."""
         assert self._curr_chunk_idx is not None, (
@@ -237,7 +324,12 @@ class BlockKVCache:
             "Expected the new chunk_idx to be +1 from the previous chunk_idx, "
             f"got {chunk_idx} != {self._prev_chunk_idx} + 1"
         )
-        if self.is_steady_state():
+        # The roll-and-append path (sink_size == 0) folds the eviction into
+        # ``update`` itself so the eviction count can depend on the actual
+        # incoming chunk size and the buffer can be non-divisible. The
+        # sink-aware chunk-aligned path keeps the original split of
+        # before_update-rolls / update-writes.
+        if self.sink_size > 0 and self.is_steady_state():
             self._roll_local_window_left()
 
     def update(self, k: Tensor, v: Tensor) -> None:
@@ -264,11 +356,31 @@ class BlockKVCache:
             f"Expected input v to have chunk_size ({chunk_size_v}) at seq_dim ({self.seq_dim}), "
             f"got {chunk_size_v} != {self.chunk_size}"
         )
-        if self.is_steady_state():
+        if self.sink_size == 0:
+            # Roll-and-append path: support non-divisible windows.
+            if self._curr_chunk_idx == self._prev_chunk_idx + 1:
+                self._roll_and_append(k, v)
+            elif self._curr_chunk_idx == self._prev_chunk_idx:
+                # Repeated predict_flow within the same AR step (denoising
+                # loop iterations + finalize pass) write to the same slice.
+                self._overwrite_last_write(k, v)
+            else:
+                raise ValueError(
+                    f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
+                )
+        elif self.is_steady_state():
             self._overwrite_rightmost_steady(k, v)
+            # Track the slice we just overwrote so external observers can
+            # introspect it; same-chunk_idx overwrites take the same path
+            # and produce the same result either way.
+            total = self._k.shape[self.seq_dim]
+            self._last_write_end = total
+            self._last_write_start = max(self.sink_size, total - self.chunk_size)
         else:
             if self._curr_chunk_idx == self._prev_chunk_idx + 1:
                 self._append_to_end(k, v)
+                self._last_write_start = self._n_cached
+                self._last_write_end = self._n_cached + self.chunk_size
             elif self._curr_chunk_idx == self._prev_chunk_idx:
                 self._overwrite_rightmost_filling(k, v)
             else:
@@ -290,10 +402,12 @@ class BlockKVCache:
         )
 
         if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            if self.is_steady_state():
-                pass
-            else:
-                self._n_cached += self.chunk_size
+            total = self._k.shape[self.seq_dim]
+            # ``_n_cached`` is the post-update count of valid tokens.
+            # For both write paths, the right edge of the last write is
+            # exactly the right edge of the valid region (and is bounded
+            # by the buffer size).
+            self._n_cached = min(self._n_cached + self.chunk_size, total)
             self._prev_chunk_idx += 1
         elif self._curr_chunk_idx == self._prev_chunk_idx:
             pass
@@ -311,8 +425,10 @@ class BlockKVCache:
         """
         if self.is_steady_state():
             return self._k
+        total = self._k.shape[self.seq_dim]
         if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            return self._k[self._seq_slice(0, self._n_cached + self.chunk_size)]
+            end = min(self._n_cached + self.chunk_size, total)
+            return self._k[self._seq_slice(0, end)]
         elif self._curr_chunk_idx == self._prev_chunk_idx:
             return self._k[self._seq_slice(0, self._n_cached)]
         else:
@@ -326,8 +442,10 @@ class BlockKVCache:
         """
         if self.is_steady_state():
             return self._v
+        total = self._v.shape[self.seq_dim]
         if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            return self._v[self._seq_slice(0, self._n_cached + self.chunk_size)]
+            end = min(self._n_cached + self.chunk_size, total)
+            return self._v[self._seq_slice(0, end)]
         elif self._curr_chunk_idx == self._prev_chunk_idx:
             return self._v[self._seq_slice(0, self._n_cached)]
         else:
@@ -339,3 +457,5 @@ class BlockKVCache:
         """Reset the cache to its initial empty state."""
         self._prev_chunk_idx = -1
         self._n_cached = 0
+        self._last_write_start = 0
+        self._last_write_end = 0

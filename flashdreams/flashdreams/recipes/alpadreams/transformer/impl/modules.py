@@ -374,7 +374,23 @@ class MultiHeadAttention(nn.Module):
 
 
 class SelfAttention(MultiHeadAttention):
-    """Self-attention: queries and K/V are derived from the same ``x`` each step."""
+    """Self-attention: queries and K/V are derived from the same ``x`` each step.
+
+    Supports the alpadreams ``kv_drop_t`` experiment: the persistent
+    ``kv_cache`` only stores the leading ``kv_cache.chunk_size`` K/V tokens
+    of the current step (the "commit prefix"), but during this forward the
+    trailing ``L - chunk_size`` tokens (the "transient X tail") still
+    participate in self-attention so the trained chunk-internal attention
+    pattern is preserved. The attention-visible K/V is capped at
+    ``kv_cache.window_size + kv_cache.sink_size`` (the buffer's full
+    locality budget) by temporarily hiding the oldest cached tokens from
+    this attention view -- the persistent buffer is never modified by the
+    hiding.
+
+    When ``chunk_size == L`` (i.e. ``kv_drop_t == 0`` for alpadreams) this
+    collapses to the legacy behavior bit-for-bit: the entire current K/V
+    is committed, no transient tail, no eviction-from-view.
+    """
 
     def initialize_cache(
         self,
@@ -416,8 +432,75 @@ class SelfAttention(MultiHeadAttention):
         kv_cache: BlockKVCache,
         rope_freqs: Tensor,
     ) -> Tensor:
-        """Same as base ``forward`` with ``update_kv_cache=True``."""
-        return super().forward(x, kv_cache, rope_freqs=rope_freqs, update_kv_cache=True)
+        """Self-attention with KV-drop-aware commit prefix and transient tail.
+
+        See the class docstring for the contract. ``kv_cache.chunk_size`` is
+        treated as the commit prefix length; the remaining ``L - chunk_size``
+        tokens of the current step's K/V are the transient tail.
+
+        Note: this overrides the base ``MultiHeadAttention.forward`` instead
+        of calling ``super().forward(...)`` because the base path always
+        writes the full K/V into the cache. Putting the commit-prefix logic
+        in :class:`SelfAttention` keeps :class:`CrossAttention` -- which
+        runs with ``update_kv_cache=False`` and a one-shot text K/V cache
+        of a different feature dimension -- on the original code path.
+        """
+        batch_shape = x.shape[:-2]
+        batch_size = math.prod(batch_shape)
+        L, D = x.shape[-2:]
+        n, d = self.n_heads, self.head_dim
+        assert n * d == D, "n * d must be equal to D"
+
+        # Project full-N current K/V (with RoPE).
+        k_full = self.k_norm(self.k_proj(x).reshape(batch_size, L, n, d))
+        v_full = self.v_proj(x).reshape(batch_size, L, n, d)
+        if rope_freqs is not None:
+            k_full = apply_rope_freqs(k_full, rope_freqs)
+
+        # Persistent cache only stores the leading ``commit_len`` tokens.
+        commit_len = kv_cache.chunk_size
+        assert commit_len <= L, (
+            f"kv_cache.chunk_size ({commit_len}) must be <= L ({L}) for "
+            "the SelfAttention KV-drop path."
+        )
+        kv_cache.update(
+            k_full[..., :commit_len, :, :],
+            v_full[..., :commit_len, :, :],
+        )
+
+        cached_k = kv_cache.cached_k()
+        cached_v = kv_cache.cached_v()
+
+        if commit_len < L:
+            # X-tail transient: present in attention this forward only,
+            # never persisted.
+            k_trans = k_full[..., commit_len:, :, :]
+            v_trans = v_full[..., commit_len:, :, :]
+            # Cap attention-visible K/V to the buffer's locality budget
+            # (sink + rolling window) by temporarily slicing off the
+            # oldest cached tokens FROM THE ATTENTION VIEW ONLY. The
+            # persistent buffer behind ``cached_k``/``cached_v`` is
+            # untouched.
+            cap = kv_cache.window_size + kv_cache.sink_size
+            cached_len = cached_k.shape[-3]
+            trans_len = k_trans.shape[-3]
+            excess = cached_len + trans_len - cap
+            if excess > 0:
+                cached_k = cached_k[..., excess:, :, :]
+                cached_v = cached_v[..., excess:, :, :]
+            full_k = torch.cat([cached_k, k_trans], dim=-3)
+            full_v = torch.cat([cached_v, v_trans], dim=-3)
+        else:
+            full_k = cached_k
+            full_v = cached_v
+
+        # Compute Q + attention (same projection / RoPE as the base path).
+        q = self.q_norm(self.q_proj(x).reshape(batch_size, L, n, d))
+        if rope_freqs is not None:
+            q = apply_rope_freqs(q, rope_freqs)
+        out = self.attn_op(q, full_k, full_v)
+        out = out.reshape(batch_shape + (L, n * d))
+        return self.output_proj(out)
 
 
 class CrossAttention(MultiHeadAttention):
