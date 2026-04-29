@@ -14,6 +14,7 @@ jobs:
     runs-on: linux-amd64-cpu8
     steps:
       - name: Get PR info
+        if: startsWith(github.ref_name, 'pull-request/')
         id: get-pr-info
         uses: nv-gha-runners/get-pr-info@main
 
@@ -37,6 +38,7 @@ jobs:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     steps:
       - name: Get PR info
+        if: startsWith(github.ref_name, 'pull-request/')
         id: get-pr-info
         uses: nv-gha-runners/get-pr-info@main
 
