@@ -105,8 +105,8 @@ class Wan21TransformerConfig(TransformerConfig):
     Each instance is bound to one ``(batch_shape, height, width, len_t)``
     layout AND to one context-parallel size (``cp_size``). The per-rank
     token shape lives on :attr:`Wan21Transformer.latent_shape` (a property
-    derived from runtime CP groups), since it depends on the hierarchical
-    V→T→HW split chosen by :func:`create_hierarchical_cp_groups`.
+    derived from runtime CP groups), since Wan shards the flattened
+    ``(T*H*W)`` token axis with one THW context-parallel group.
     """
 
     _target: type["Wan21Transformer"] = field(default_factory=lambda: Wan21Transformer)
@@ -193,6 +193,9 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self.config: Wan21TransformerConfig = config
 
         # Context-parallel groups -------------------------------------------------
+        #
+        # Same launcher contract as AlpaDreams (cp_size == world_size), but now wire
+        # Wan's THW CP group to WORLD so all existing CP-aware Wan plumbing works.
         self.cp_group = None
         self.cp_size = 1
         if torch.distributed.is_initialized():
@@ -202,15 +205,27 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
                 f"torch.distributed.get_world_size() ({world_size})"
             )
             if world_size > 1:
-                raise NotImplementedError(
-                    "Wan21Transformer does not support distributed inference"
-                )
+                self.cp_group = torch.distributed.group.WORLD
+                assert self.cp_group is not None, "WORLD group is not set"
+                self.cp_size = self.cp_group.size()
+        else:
+            assert config.cp_size == 1, (
+                f"WanTransformerConfig.cp_size must be 1 in non-distributed mode "
+                f"(got {config.cp_size})"
+            )
 
         # Token layout (pre-CP). Per-rank token count is on self.latent_shape[-2].
         kt, kh, kw = config.network.patch_size
         self._pT = config.len_t // kt
         self._pH = config.height // kh
         self._pW = config.width // kw
+        total_tokens = self._pT * self._pH * self._pW
+        assert total_tokens % self.cp_size == 0, (
+            f"Wan token length ({total_tokens} from len_t={config.len_t}, "
+            f"height={config.height}, width={config.width}, "
+            f"patch_size={config.network.patch_size}) must be divisible by "
+            f"cp_size={self.cp_size}"
+        )
 
         # Network ----------------------------------------------------------------
         self.network = config.network.setup()
@@ -274,7 +289,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         sizes, different image embedding, etc.) themselves and stitch them
         directly into a :class:`Wan21TransformerCache`.
         """
-        cp_size = self.config.cp_size
+        cp_size = self.cp_size
         chunk_size = self.latent_shape[-2]  # already CP-divided
         window_size = (self.config.window_size_t * self._pH * self._pW) // cp_size
         sink_size = (self.config.sink_size_t * self._pH * self._pW) // cp_size

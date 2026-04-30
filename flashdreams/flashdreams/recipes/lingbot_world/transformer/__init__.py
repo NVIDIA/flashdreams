@@ -76,7 +76,7 @@ class LingbotWorldTransformer(Wan21Transformer):
         config: LingbotWorldTransformerConfig,
         device: torch.device | None = None,
     ) -> None:
-        super().__init__(config)
+        super().__init__(config, device=device)
 
     def predict_flow(
         self,
