@@ -18,11 +18,11 @@ override-dependencies = ["nvidia-cublas>=13.4"]
 no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
-extraPaths = ["flashdreams", "integrations/alpadreams"]
+extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = ["flashdreams", "integrations/alpadreams"]
+extra-paths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to

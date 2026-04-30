@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lingbot WebRTC Viewer</title>
+  <link rel="stylesheet" href="/static/request_session.css">
+</head>
+<body>
+  <main class="container">
+    <section class="controls">
+      <h1>Lingbot WebRTC Viewer</h1>
+      <p class="hint">
+        WS for fwd/bck, AD for turn left/right, QE for strafe left/right, IK for
+        pitch up/down.
+      </p>
+      <button id="connectButton" type="button">Connect Session</button>
+      <div class="status">
+        <span>Status:</span>
+        <strong id="statusText">idle</strong>
+      </div>
+      <div class="status">
+        <span>Control flow:</span>
+        <strong id="flowText">waiting</strong>
+      </div>
+    </section>
+
+    <section class="videoPane">
+      <video id="remoteVideo" autoplay playsinline muted></video>
+    </section>
+
+    <section class="logPane">
+      <h2>Event Log</h2>
+      <pre id="eventLog"></pre>
+    </section>
+  </main>
+
+  <script src="/static/request_session.js" type="module"></script>
+</body>
+</html>
