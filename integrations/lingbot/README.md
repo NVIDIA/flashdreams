@@ -51,8 +51,15 @@ Browser -> server:
 ```
 
 - Supported `event` values:
-  - `keydown` / `keyup` (requires `key` in `w,a,s,d,q,e`)
+  - `keydown` / `keyup` (requires `key` in `w,a,s,d,q,e,i,j,k,l`)
   - `step` (no key required; generates a chunk using current key state)
+- Key mapping:
+  - `w/s`: forward/backward
+  - `a/d` (or `j/l`): yaw left/right
+  - `q/e`: strafe left/right
+  - `i/k`: pitch up/down
+- If multiple key events arrive before the next chunk starts, the server aggregates them and
+  applies latest-pressed precedence per component (forward/backward, turn, strafe, pitch).
 
 Server -> browser:
 

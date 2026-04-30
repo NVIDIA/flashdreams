@@ -4,9 +4,8 @@ const flowText = document.getElementById("flowText")
 const eventLog = document.getElementById("eventLog")
 const remoteVideo = document.getElementById("remoteVideo")
 
-const allowedKeys = new Set(["w", "a", "s", "d", "q", "e"])
+const allowedKeys = new Set(["w", "a", "s", "d", "q", "e", "i", "j", "k", "l"])
 const activeKeys = new Set()
-let pendingAction = null
 
 let peerConnection = null
 let controlChannel = null
@@ -30,24 +29,10 @@ function normalizeKey(rawKey) {
   return String(rawKey || "").toLowerCase()
 }
 
-function enqueueAction(action) {
-  pendingAction = action
-  setFlow(
-    `pending=${action.event}${action.key ? `:${action.key}` : ""}, waiting=${inferenceInFlight}`
-  )
-  flushActionQueue()
-}
-
-function flushActionQueue() {
+function sendControlAction(action) {
   if (!connected || !controlChannel || controlChannel.readyState !== "open") {
-    return
+    return false
   }
-  if (inferenceInFlight || pendingAction === null) {
-    return
-  }
-
-  const action = pendingAction
-  pendingAction = null
   inferenceInFlight = true
   controlChannel.send(
     JSON.stringify({
@@ -55,7 +40,15 @@ function flushActionQueue() {
       action,
     })
   )
-  setFlow(`sent ${action.event}${action.key ? `:${action.key}` : ""}`)
+  setFlow(`sent ${action.event}${action.key ? `:${action.key}` : ""}, waiting=${inferenceInFlight}`)
+  return true
+}
+
+function enqueueAction(action) {
+  const sent = sendControlAction(action)
+  if (!sent) {
+    setFlow(`not_sent ${action.event}${action.key ? `:${action.key}` : ""}`)
+  }
 }
 
 function handleControlMessage(rawMessage) {
@@ -72,11 +65,9 @@ function handleControlMessage(rawMessage) {
     logEvent(
       `chunk_done index=${payload.chunk_index}, frames=${payload.num_frames}, enqueued=${payload.enqueued_frames}`
     )
-    if (pendingAction === null && activeKeys.size > 0) {
+    if (activeKeys.size > 0) {
       enqueueAction({ event: "step" })
-      return
     }
-    flushActionQueue()
     return
   }
 
@@ -88,7 +79,6 @@ function handleControlMessage(rawMessage) {
   if (payload.type === "error") {
     inferenceInFlight = false
     logEvent(`server error: ${payload.message}`)
-    flushActionQueue()
     return
   }
 
@@ -186,9 +176,10 @@ function handleKeyDown(event) {
   }
   event.preventDefault()
 
-  if (!event.repeat) {
-    activeKeys.add(key)
+  if (event.repeat) {
+    return
   }
+  activeKeys.add(key)
   enqueueAction({ event: "keydown", key })
 }
 

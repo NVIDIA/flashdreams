@@ -6,18 +6,9 @@ from typing import Any
 
 import numpy as np
 import torch
-
-try:
-    from aiortc import MediaStreamTrack
-    from aiortc.mediastreams import MediaStreamError
-    from av import VideoFrame
-
-    AIORTC_AVAILABLE = True
-except ModuleNotFoundError:
-    MediaStreamTrack = object  # type: ignore[assignment]
-    VideoFrame = Any  # type: ignore[assignment]
-    MediaStreamError = RuntimeError  # type: ignore[assignment]
-    AIORTC_AVAILABLE = False
+from aiortc import MediaStreamTrack
+from aiortc.mediastreams import MediaStreamError
+from av import VideoFrame
 
 
 def tensor_chunk_to_rgb_frames(video_chunk: torch.Tensor) -> list[np.ndarray]:
@@ -38,8 +29,6 @@ class LingbotVideoTrack(MediaStreamTrack):
     kind = "video"
 
     def __init__(self, fps: int = 16) -> None:
-        if not AIORTC_AVAILABLE:
-            raise RuntimeError("aiortc is not installed. Install aiortc to use WebRTC.")
         super().__init__()
         if fps <= 0:
             raise ValueError("fps must be > 0")

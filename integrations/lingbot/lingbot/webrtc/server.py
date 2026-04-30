@@ -7,7 +7,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .session import (
+from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,
     SessionBusyError,
@@ -149,6 +149,10 @@ def build_runtime_config(args: argparse.Namespace) -> LingbotRuntimeConfig:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
     args = parse_args()
     runtime_config = build_runtime_config(args)
     session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
