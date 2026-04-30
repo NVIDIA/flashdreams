@@ -457,7 +457,7 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">AlpadreamsPipeline</span>
-    <span class="p">)</span>
+    <span class="p">)</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">CosmosReason1TextEncoderConfig</span>
@@ -502,8 +502,8 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
 
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;AlpadreamsPipeline requires a per-AR-step HDMap encoder; &quot;</span>
@@ -511,19 +511,19 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
         <span class="n">transformer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
         <span class="n">decoder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span>
         <span class="k">assert</span> <span class="n">decoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">decoder</span><span class="p">,</span> <span class="s2">&quot;TEMPORAL_COMPRESSION_RATIO&quot;</span><span class="p">),</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Decoder </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must expose &quot;</span>
             <span class="s2">&quot;TEMPORAL_COMPRESSION_RATIO (e.g. WanVAEDecoder, TeahvVAEDecoder).&quot;</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
 
         <span class="c1"># Take the view split outside of the transformer, so that VAE does not do duplicated job.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_size</span>
-        <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">num_views</span> <span class="o">//=</span> <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_size</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">num_views</span> <span class="o">//=</span> <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
@@ -564,12 +564,16 @@ SPDX-License-Identifier: Apache-2.0
 
         <span class="c1"># distribute multi-view</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
-            <span class="n">text_embeddings</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span>
+            <span class="n">text_embeddings</span><span class="p">,</span>
+            <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
         <span class="p">)</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
-            <span class="n">image_embeddings</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span>
+            <span class="n">image_embeddings</span><span class="p">,</span>
+            <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
         <span class="p">)</span>
-        <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
+        <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
 
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
             <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span>
@@ -603,7 +607,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            ``[-1, 1]``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># distribute multi-view</span>
-        <span class="n">hdmap</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span><span class="n">hdmap</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
+        <span class="n">hdmap</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span><span class="n">hdmap</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
 
         <span class="c1"># generate</span>
         <span class="n">output</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
@@ -613,7 +617,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
         <span class="c1"># gather multi-view</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">cat_outputs_cp</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">cat_outputs_cp</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
         <span class="k">return</span> <span class="n">output</span></div>
 
 

@@ -415,7 +415,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipelineCache</span><span class="p">(</span>
     <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
-        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT</span>
+        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT  # ty:ignore[invalid-type-arguments]</span>
         <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
         <span class="n">WanVAECache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
     <span class="p">]</span>
@@ -484,7 +484,7 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipeline</span><span class="p">(</span>
     <span class="n">StreamInferencePipeline</span><span class="p">[</span>
-        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT</span>
+        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT  # ty:ignore[invalid-type-arguments]</span>
         <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
         <span class="n">WanVAECache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
     <span class="p">]</span>
@@ -521,8 +521,8 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">WanInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
             <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
 
@@ -559,7 +559,7 @@ SPDX-License-Identifier: Apache-2.0
 
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>  <span class="c1"># [B, L, D]</span>
 
-        <span class="n">guidance_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">guidance_scale</span>
+        <span class="n">guidance_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">guidance_scale</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
         <span class="k">if</span> <span class="n">guidance_scale</span> <span class="o">&gt;</span> <span class="mf">1.0</span><span class="p">:</span>
             <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">([</span><span class="n">NEGATIVE_PROMPT</span><span class="p">]</span> <span class="o">*</span> <span class="n">n</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -679,8 +679,8 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_input_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of input video frames accepted by the model.&quot;&quot;&quot;</span>
-        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
         <span class="k">else</span><span class="p">:</span>
@@ -691,8 +691,8 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_output_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of output video frames produced by the model.&quot;&quot;&quot;</span>
-        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
         <span class="k">else</span><span class="p">:</span>

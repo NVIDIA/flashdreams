@@ -444,7 +444,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="DiffusionModel.FinalState">
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">[docs]</a>
     <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-    <span class="k">class</span><span class="w"> </span><span class="nc">FinalState</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">TransformerCacheT</span><span class="p">]):</span>
+    <span class="k">class</span><span class="w"> </span><span class="nc">FinalState</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">TransformerCacheT</span><span class="p">]):</span>  <span class="c1"># ty:ignore[shadowed-type-variable]</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;State passed from :meth:`generate` to :meth:`finalize`.&quot;&quot;&quot;</span>
 
         <span class="n">clean_latent</span><span class="p">:</span> <span class="n">Tensor</span>
@@ -466,7 +466,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DiffusionModelConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scheduler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">scheduler</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
@@ -566,7 +566,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
         <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">clean_latent</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">clean_latent</span><span class="p">,</span> <span class="n">final_state</span></div>
+        <span class="k">return</span> <span class="n">clean_latent</span><span class="p">,</span> <span class="n">final_state</span>  <span class="c1"># ty:ignore[invalid-return-type]</span></div>
 
 
 <div class="viewcode-block" id="DiffusionModel.finalize">

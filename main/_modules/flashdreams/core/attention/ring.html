@@ -406,11 +406,11 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        Attention output, or ``(output, lse)`` when ``return_lse=True``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_cudnn_attention</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
-        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>
-        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
-        <span class="n">attn_bias</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">compute_log_sumexp</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">attn_bias</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">compute_log_sumexp</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">out</span><span class="p">,</span> <span class="p">(</span><span class="n">lse</span> <span class="k">if</span> <span class="n">return_lse</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
@@ -430,9 +430,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        Attention output, or ``(output, lse)`` when ``return_lse=True``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_flash_attention</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
-        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>
-        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">out</span><span class="p">,</span> <span class="p">(</span><span class="n">lse</span> <span class="k">if</span> <span class="n">return_lse</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
