@@ -1,0 +1,725 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../../../genindex.html"><link rel="search" title="Search" href="../../../../../search.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>flashdreams.infra.diffusion.scheduler.fm_unipc - flashdreams 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../../../index.html"><div class="brand">flashdreams 0.1.0 documentation</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../../../index.html">
+  
+  <span class="sidebar-brand-text">flashdreams 0.1.0 documentation</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Supported Autoregressive Models</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/alpadreams.html">AlpaDreams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/lingbot_world.html">Lingbot-World</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/wan21.html">Wan2.1 (bidirectional)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FlashDreams Inference API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../apis/core.html">Core</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../apis/infra.html">Infra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../apis/recipes.html">Recipes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../apis/serving.html">Serving</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for flashdreams.infra.diffusion.scheduler.fm_unipc</h1><div class="highlight"><pre>
+<span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);</span>
+<span class="c1"># you may not use this file except in compliance with the License.</span>
+<span class="c1"># You may obtain a copy of the License at</span>
+<span class="c1">#</span>
+<span class="c1"># http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c1"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS,</span>
+<span class="c1"># WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span>
+<span class="c1"># See the License for the specific language governing permissions and</span>
+<span class="c1"># limitations under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Flow-matching UniPC multistep scheduler&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FlowPredictor</span><span class="p">,</span>
+    <span class="n">Scheduler</span><span class="p">,</span>
+    <span class="n">SchedulerConfig</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_per_step_coefs</span><span class="p">(</span><span class="n">sigmas</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Pre-bake every per-step UniPC scalar from the sigma schedule.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        sigmas: ``[N+1]`` fp32 inference sigma schedule with the</span>
+<span class="sd">            mandatory trailing ``0.0`` (``final_sigmas_type=&quot;zero&quot;``).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dict of ``[N]`` fp32 arrays, with the order pattern</span>
+<span class="sd">        ``[1, 2, ..., 2, 1]`` already folded in:</span>
+
+<span class="sd">        - ``a_pred`` -- predictor coef on ``x_i``.</span>
+<span class="sd">        - ``b_pred_m0`` -- predictor coef on ``m_curr`` (current</span>
+<span class="sd">          step&#39;s ``x0`` estimate).</span>
+<span class="sd">        - ``b_pred_dprev`` -- predictor coef on ``m_prev - m_curr``</span>
+<span class="sd">          (zero on the order-1 warmup ``i=0`` and order-1 final</span>
+<span class="sd">          ``i=N-1``).</span>
+<span class="sd">        - ``a_corr`` -- corrector coef on ``last_sample`` (zero at</span>
+<span class="sd">          ``i=0`` since no corrector runs on the first step).</span>
+<span class="sd">        - ``b_corr_m0`` -- corrector coef on ``m_prev``.</span>
+<span class="sd">        - ``b_corr_dprev`` -- corrector coef on</span>
+<span class="sd">          ``m_prev_prev - m_prev`` (zero at ``i in {0, 1}``).</span>
+<span class="sd">        - ``b_corr_dt`` -- corrector coef on ``m_curr - m_prev``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">sigmas</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">sigmas</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>  <span class="c1"># do scalar math in fp64; downcast at end</span>
+
+    <span class="c1"># Predictor at step i: x_{i+1} = a * x_i - alpha_t * h_phi_1 * (m0 + 0.5/rks_p * (m_prev - m0))</span>
+    <span class="c1"># where:</span>
+    <span class="c1">#   sigma_s0, sigma_t = s[i], s[i+1]</span>
+    <span class="c1">#   alpha_t = 1 - sigma_t</span>
+    <span class="c1">#   h_p     = log(1 - sigma_t) - log(sigma_t) - log(1 - sigma_s0) + log(sigma_s0)</span>
+    <span class="c1">#   h_phi_1 = expm1(-h_p)</span>
+    <span class="c1"># The expm1(-h) form gracefully handles the i = N-1 step where</span>
+    <span class="c1"># sigma_t = 0 (h -&gt; +inf, h_phi_1 -&gt; -1, alpha_t = 1, final</span>
+    <span class="c1"># x_t = m0).</span>
+    <span class="n">sigma_s0_p</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">sigma_t_p</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+    <span class="n">alpha_t_p</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_t_p</span>
+    <span class="n">a_pred</span> <span class="o">=</span> <span class="n">sigma_t_p</span> <span class="o">/</span> <span class="n">sigma_s0_p</span>
+
+    <span class="c1"># Avoid log(0) at the last step (sigma_t_p[-1] == 0). The order-1</span>
+    <span class="c1"># tail ignores h_phi_1 anyway via b_pred_dprev[-1] = 0, and the</span>
+    <span class="c1"># m0 coefficient is -alpha_t * h_phi_1 = -1 * (-1) = 1 there.</span>
+    <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">divide</span><span class="o">=</span><span class="s2">&quot;ignore&quot;</span><span class="p">):</span>
+        <span class="n">log_alpha_t_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">alpha_t_p</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
+        <span class="n">log_sigma_t_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_t_p</span><span class="p">)</span>
+    <span class="n">log_alpha_s0_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_s0_p</span><span class="p">)</span>
+    <span class="n">log_sigma_s0_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_s0_p</span><span class="p">)</span>
+    <span class="n">h_p</span> <span class="o">=</span> <span class="p">(</span><span class="n">log_alpha_t_p</span> <span class="o">-</span> <span class="n">log_sigma_t_p</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">log_alpha_s0_p</span> <span class="o">-</span> <span class="n">log_sigma_s0_p</span><span class="p">)</span>
+    <span class="n">h_phi_1_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">expm1</span><span class="p">(</span><span class="o">-</span><span class="n">h_p</span><span class="p">)</span>
+    <span class="c1"># Replace the last entry (sigma_t = 0 -&gt; h = +inf -&gt; -alpha_t*h_phi_1 = 1).</span>
+    <span class="n">b_pred_m0</span> <span class="o">=</span> <span class="o">-</span><span class="n">alpha_t_p</span> <span class="o">*</span> <span class="n">h_phi_1_p</span>
+    <span class="n">b_pred_m0</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>  <span class="c1"># closed-form limit at sigma_t = 0</span>
+
+    <span class="c1"># rks_p[i] = (lambda(sigmas[i-1]) - lambda(sigmas[i])) / h_p[i],</span>
+    <span class="c1"># only defined for i in [1, N-1); only used when the predictor is</span>
+    <span class="c1"># order-2. (Step 0 is order-1 warmup, step N-1 is order-1 due to</span>
+    <span class="c1"># lower_order_final; both leave b_pred_dprev = 0.)</span>
+    <span class="n">b_pred_dprev</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">b_pred_m0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">N</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="n">sigma_prev_p</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]</span>  <span class="c1"># i runs 1..N-2, prev is s[i-1] = s[0..N-3]</span>
+        <span class="n">log_alpha_prev_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_prev_p</span><span class="p">)</span>
+        <span class="n">log_sigma_prev_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_prev_p</span><span class="p">)</span>
+        <span class="n">lambda_prev</span> <span class="o">=</span> <span class="n">log_alpha_prev_p</span> <span class="o">-</span> <span class="n">log_sigma_prev_p</span>
+        <span class="n">lambda_s0</span> <span class="o">=</span> <span class="p">(</span><span class="n">log_alpha_s0_p</span> <span class="o">-</span> <span class="n">log_sigma_s0_p</span><span class="p">)[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>  <span class="c1"># i = 1..N-2</span>
+        <span class="n">rks_p</span> <span class="o">=</span> <span class="p">(</span><span class="n">lambda_prev</span> <span class="o">-</span> <span class="n">lambda_s0</span><span class="p">)</span> <span class="o">/</span> <span class="n">h_p</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">b_pred_dprev</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_pred_m0</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.5</span> <span class="o">/</span> <span class="n">rks_p</span>
+
+    <span class="c1"># Corrector at step i (i &gt;= 1): operates on sigmas[i-1] -&gt; sigmas[i].</span>
+    <span class="c1"># For i = 0 we leave the corrector slot zeroed and skip the call</span>
+    <span class="c1"># in sample().</span>
+    <span class="n">a_corr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">a_pred</span><span class="p">)</span>
+    <span class="n">b_corr_m0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">a_pred</span><span class="p">)</span>
+    <span class="n">b_corr_dprev</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">a_pred</span><span class="p">)</span>
+    <span class="n">b_corr_dt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">a_pred</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">N</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">sigma_s0_c</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>  <span class="c1"># corrector at step i uses s[i-1]; i runs 1..N-1</span>
+        <span class="n">sigma_t_c</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>  <span class="c1"># corrector at step i uses s[i]</span>
+        <span class="n">alpha_t_c</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_t_c</span>
+        <span class="n">a_corr</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">=</span> <span class="n">sigma_t_c</span> <span class="o">/</span> <span class="n">sigma_s0_c</span>
+        <span class="n">log_alpha_t_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">alpha_t_c</span><span class="p">)</span>
+        <span class="n">log_sigma_t_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_t_c</span><span class="p">)</span>
+        <span class="n">log_alpha_s0_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_s0_c</span><span class="p">)</span>
+        <span class="n">log_sigma_s0_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_s0_c</span><span class="p">)</span>
+        <span class="n">h_c</span> <span class="o">=</span> <span class="p">(</span><span class="n">log_alpha_t_c</span> <span class="o">-</span> <span class="n">log_sigma_t_c</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">log_alpha_s0_c</span> <span class="o">-</span> <span class="n">log_sigma_s0_c</span><span class="p">)</span>
+        <span class="n">h_phi_1_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">expm1</span><span class="p">(</span><span class="o">-</span><span class="n">h_c</span><span class="p">)</span>
+        <span class="n">b_corr_m0</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">=</span> <span class="o">-</span><span class="n">alpha_t_c</span> <span class="o">*</span> <span class="n">h_phi_1_c</span>
+
+        <span class="c1"># Order-1 corrector: only used at step 1 (the very first</span>
+        <span class="c1"># corrector call, since step 0&#39;s predictor was order 1).</span>
+        <span class="c1"># rhos_c = [0.5] hardcoded; b_corr_dprev[1] stays 0,</span>
+        <span class="c1"># b_corr_dt[1] = -alpha_t * h_phi_1 * 0.5.</span>
+        <span class="n">b_corr_dt</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_corr_m0</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.5</span>
+
+        <span class="c1"># Order-2 corrector: steps 2..N-1. rhos_c is the solution of</span>
+        <span class="c1">#   [[1, 1], [rks_c, 1]] @ rhos_c = b</span>
+        <span class="c1"># with b derived from the same recurrence as upstream:</span>
+        <span class="c1">#   B_h     = expm1(-h_c) = h_phi_1_c</span>
+        <span class="c1">#   hh      = -h_c</span>
+        <span class="c1">#   k0      = h_phi_1_c / hh - 1                    -&gt; b[0] = k0      / B_h</span>
+        <span class="c1">#   k1      = k0 / hh - 1/2                         -&gt; b[1] = 2 * k1  / B_h</span>
+        <span class="c1"># Closed-form solve of the 2x2 system:</span>
+        <span class="c1">#   det = 1 - rks_c</span>
+        <span class="c1">#   r0  = (b0 - b1) / det</span>
+        <span class="c1">#   r1  = (b1 - rks_c * b0) / det</span>
+        <span class="k">if</span> <span class="n">N</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">sigma_prev_c</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]</span>  <span class="c1"># rks uses s[i-2]; i runs 2..N-1</span>
+            <span class="n">log_alpha_prev_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma_prev_c</span><span class="p">)</span>
+            <span class="n">log_sigma_prev_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma_prev_c</span><span class="p">)</span>
+            <span class="n">lambda_prev_c</span> <span class="o">=</span> <span class="n">log_alpha_prev_c</span> <span class="o">-</span> <span class="n">log_sigma_prev_c</span>
+            <span class="n">lambda_s0_c</span> <span class="o">=</span> <span class="p">(</span><span class="n">log_alpha_s0_c</span> <span class="o">-</span> <span class="n">log_sigma_s0_c</span><span class="p">)[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">rks_c</span> <span class="o">=</span> <span class="p">(</span><span class="n">lambda_prev_c</span> <span class="o">-</span> <span class="n">lambda_s0_c</span><span class="p">)</span> <span class="o">/</span> <span class="n">h_c</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">hh</span> <span class="o">=</span> <span class="o">-</span><span class="n">h_c</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">B_h</span> <span class="o">=</span> <span class="n">h_phi_1_c</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">k0</span> <span class="o">=</span> <span class="n">h_phi_1_c</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">/</span> <span class="n">hh</span> <span class="o">-</span> <span class="mf">1.0</span>
+            <span class="n">k1</span> <span class="o">=</span> <span class="n">k0</span> <span class="o">/</span> <span class="n">hh</span> <span class="o">-</span> <span class="mf">0.5</span>
+            <span class="n">b0</span> <span class="o">=</span> <span class="n">k0</span> <span class="o">/</span> <span class="n">B_h</span>
+            <span class="n">b1</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">k1</span> <span class="o">/</span> <span class="n">B_h</span>
+            <span class="n">det</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">rks_c</span>
+            <span class="n">r0</span> <span class="o">=</span> <span class="p">(</span><span class="n">b0</span> <span class="o">-</span> <span class="n">b1</span><span class="p">)</span> <span class="o">/</span> <span class="n">det</span>
+            <span class="n">r1</span> <span class="o">=</span> <span class="p">(</span><span class="n">b1</span> <span class="o">-</span> <span class="n">rks_c</span> <span class="o">*</span> <span class="n">b0</span><span class="p">)</span> <span class="o">/</span> <span class="n">det</span>
+            <span class="c1"># corr coefficients fold the leading -alpha_t * B_h.</span>
+            <span class="c1"># Reference forms ``D1s = (m_prev_prev - m_prev) / rks_c``</span>
+            <span class="c1"># and then ``corr_res = r0 * D1s[0]``, so the final m_pp-m_p</span>
+            <span class="c1"># coefficient is ``-alpha_t * B_h * r0 / rks_c``.</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="o">-</span><span class="n">alpha_t_c</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">*</span> <span class="n">B_h</span>
+            <span class="n">b_corr_dprev</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span> <span class="o">=</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">r0</span> <span class="o">/</span> <span class="n">rks_c</span>
+            <span class="n">b_corr_dt</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span> <span class="o">=</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">r1</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;a_pred&quot;</span><span class="p">:</span> <span class="n">a_pred</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;b_pred_m0&quot;</span><span class="p">:</span> <span class="n">b_pred_m0</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;b_pred_dprev&quot;</span><span class="p">:</span> <span class="n">b_pred_dprev</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;a_corr&quot;</span><span class="p">:</span> <span class="n">a_corr</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;b_corr_m0&quot;</span><span class="p">:</span> <span class="n">b_corr_m0</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;b_corr_dprev&quot;</span><span class="p">:</span> <span class="n">b_corr_dprev</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+        <span class="s2">&quot;b_corr_dt&quot;</span><span class="p">:</span> <span class="n">b_corr_dt</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">}</span>
+
+
+<div class="viewcode-block" id="FlowMatchUniPCSchedulerConfig">
+<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchUniPCSchedulerConfig</span><span class="p">(</span><span class="n">SchedulerConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hyperparameters for :class:`FlowMatchUniPCScheduler`.</span>
+
+<span class="sd">    Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,</span>
+<span class="sd">    order 2, ``shift=5.0``). Override ``shift`` per checkpoint as</span>
+<span class="sd">    recommended upstream (e.g. ``3.0`` for Wan 2.1 14B I2V 480P).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;FlowMatchUniPCScheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">FlowMatchUniPCScheduler</span>
+    <span class="p">)</span>
+
+    <span class="n">num_inference_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of UniPC denoising steps.&quot;&quot;&quot;</span>
+
+    <span class="n">shift</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Schedule warp factor (``shift * s / (1 + (shift - 1) * s)``).&quot;&quot;&quot;</span>
+
+    <span class="n">num_train_timesteps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table; scales ``sigma -&gt; timestep``.&quot;&quot;&quot;</span>
+
+    <span class="n">solver_order</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;UniPC solver order. Only ``2`` is supported by this slim impl.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="FlowMatchUniPCScheduler">
+<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchUniPCScheduler</span><span class="p">(</span><span class="n">Scheduler</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Order-2 UniPC predictor-corrector for flow-matching.</span>
+
+<span class="sd">    Specialized + pre-baked variant of the upstream Wan 2.1 UniPC</span>
+<span class="sd">    solver -- see the module docstring for the locked-in config.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        scheduler = FlowMatchUniPCSchedulerConfig(</span>
+<span class="sd">            num_inference_steps=50, shift=5.0,</span>
+<span class="sd">        ).setup().to(&quot;cuda&quot;)</span>
+<span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=fn)</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        Schedule buffers (sigmas + per-step coefficients) stay fp32</span>
+<span class="sd">        regardless of ``module.to(dtype)`` -- see :meth:`_apply`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">FlowMatchUniPCSchedulerConfig</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">solver_order</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Only solver_order=2 is supported (got </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">solver_order</span><span class="si">}</span><span class="s2">); &quot;</span>
+            <span class="s2">&quot;the slim UniPC bakes coefficients for the order-1/order-2 &quot;</span>
+            <span class="s2">&quot;warmup+steady-state pattern. Use the legacy scheduler if you &quot;</span>
+            <span class="s2">&quot;need other orders.&quot;</span>
+        <span class="p">)</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">num_inference_steps</span>
+
+        <span class="c1"># Schedule build: identical to upstream</span>
+        <span class="c1"># ``set_timesteps(num_inference_steps, shift=config.shift)``:</span>
+        <span class="c1">#</span>
+        <span class="c1">#   sigmas = linspace(sigma_max, sigma_min, N + 1)[:-1]</span>
+        <span class="c1">#   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)</span>
+        <span class="c1">#   sigmas = concat(sigmas, [0.0])</span>
+        <span class="c1">#</span>
+        <span class="c1"># where (sigma_min, sigma_max) come from the</span>
+        <span class="c1"># ``alphas = linspace(1, 1/num_train_timesteps, num_train_timesteps)[::-1]``</span>
+        <span class="c1"># / ``sigmas = 1 - alphas`` table built at construction.</span>
+        <span class="c1"># Training-time sigma table: ``alphas = linspace(1, 1/N, N)[::-1]``</span>
+        <span class="c1"># then ``sigmas = 1 - alphas``. Reference builds this with</span>
+        <span class="c1"># ``shift=1.0`` (no warp); only the inference schedule below</span>
+        <span class="c1"># gets warped with ``config.shift``.</span>
+        <span class="n">N_train</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">num_train_timesteps</span>
+        <span class="n">train_alphas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">N_train</span><span class="p">,</span> <span class="n">N_train</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">train_sigmas</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">train_alphas</span>
+        <span class="n">sigma_min</span><span class="p">,</span> <span class="n">sigma_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">*</span> <span class="n">sigmas_inf</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigmas_inf</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="c1"># Match reference: timesteps come from the fp64 ``sigmas * N``</span>
+        <span class="c1"># cast directly to int64 (truncation), not via fp32. The fp32</span>
+        <span class="c1"># round-trip can shift entries by 1 LSB and break the</span>
+        <span class="c1"># exact-match index lookup in ``add_noise``.</span>
+        <span class="n">timesteps_fp64</span> <span class="o">=</span> <span class="n">sigmas_inf</span> <span class="o">*</span> <span class="n">N_train</span>
+        <span class="n">sigmas_full</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">sigmas_inf</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]])</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+        <span class="n">coefs</span> <span class="o">=</span> <span class="n">_build_per_step_coefs</span><span class="p">(</span><span class="n">sigmas_full</span><span class="p">)</span>
+
+        <span class="c1"># Buffers move with .to(device) but the float ones are pinned</span>
+        <span class="c1"># to fp32 by the ``_apply`` override below -- a stray</span>
+        <span class="c1"># ``model.to(bf16)`` would otherwise quantize the snap table</span>
+        <span class="c1"># and the per-step coefficients. ``timesteps`` stays int64</span>
+        <span class="c1"># (PyTorch already skips int casts in ``module.to(dtype)``).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;timesteps&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">timesteps_fp64</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># ``sigmas[i]`` is the noise level at step i (used for convert</span>
+        <span class="c1"># = sample - sigma * model_output).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;sigmas&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">sigmas_full</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()),</span>
+            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;_sigmas_full&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">sigmas_full</span><span class="p">),</span>
+            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">coefs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_FP32_BUFFERS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;sigmas&quot;</span><span class="p">,</span> <span class="s2">&quot;_sigmas_full&quot;</span><span class="p">,</span> <span class="o">*</span><span class="n">coefs</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>  <span class="c1"># type: ignore[override]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Move buffers with the parent ``.to(...)`` but keep them fp32.</span>
+
+<span class="sd">        ``fn`` may be a lossy bf16 cast; we snapshot the fp32 originals</span>
+<span class="sd">        before super() (which would overwrite the buffer slots) and</span>
+<span class="sd">        restore them with a pure device move on the way out.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">saved</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_FP32_BUFFERS</span><span class="p">}</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_apply</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="n">recurse</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">original</span> <span class="ow">in</span> <span class="n">saved</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">target_device</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">device</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">target_device</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+<div class="viewcode-block" id="FlowMatchUniPCScheduler.sample">
+<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_noise</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">predict_flow</span><span class="p">:</span> <span class="n">FlowPredictor</span><span class="p">,</span>
+        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the order-2 UniPC predictor-corrector denoising loop.</span>
+
+<span class="sd">        Per iteration: network produces a flow estimate -&gt; converted</span>
+<span class="sd">        to ``x0`` -&gt; plugged into the corrector (skipped at step 0)</span>
+<span class="sd">        -&gt; advanced by the predictor. All per-step coefficients are</span>
+<span class="sd">        pre-baked at construction; the loop is pure tensor ops with</span>
+<span class="sd">        no Python-level linear solves or list shuffling.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            initial_noise: ``[...]`` Gaussian noise on any device/dtype.</span>
+<span class="sd">            predict_flow: Closure called ``num_inference_steps`` times.</span>
+<span class="sd">                Its ``timestep`` arg is a 0-d ``int64`` tensor (the</span>
+<span class="sd">                schedule&#39;s per-step value).</span>
+<span class="sd">            rng: Unused (deterministic ODE solver); accepted for</span>
+<span class="sd">                interface conformance.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ``[...]`` clean latent with the same shape/device/dtype as</span>
+<span class="sd">            ``initial_noise``.</span>
+
+<span class="sd">        Note:</span>
+<span class="sd">            Internal arithmetic is fp32 (matches upstream&#39;s</span>
+<span class="sd">            ``model_output.to(torch.float32)`` before convert); the</span>
+<span class="sd">            result is cast back to ``initial_noise.dtype``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">input_dtype</span> <span class="o">=</span> <span class="n">initial_noise</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="n">sample</span> <span class="o">=</span> <span class="n">initial_noise</span>
+        <span class="n">m_prev</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">m_prev_prev</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">last_sample</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+            <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="c1"># Network forward (heavy compute -- everything else here is</span>
+            <span class="c1"># ~free relative to this).</span>
+            <span class="n">flow</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">sample</span><span class="p">,</span> <span class="n">timestep</span><span class="p">)</span>
+
+            <span class="c1"># Convert to x0 estimate (predict_x0 + flow_prediction):</span>
+            <span class="c1">#   m_curr = sample - sigma_i * flow</span>
+            <span class="c1"># Promote to fp32 to match upstream&#39;s</span>
+            <span class="c1"># ``model_output = model_output.to(dtype=torch.float32)``</span>
+            <span class="c1"># before convert_model_output.</span>
+            <span class="n">m_curr</span> <span class="o">=</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">flow</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+            <span class="c1"># Corrector (skip on first step).</span>
+            <span class="c1">#</span>
+            <span class="c1"># last_sample is the sample saved before the previous</span>
+            <span class="c1"># predictor (matches upstream ``self.last_sample``).</span>
+            <span class="c1"># m_prev is model_outputs[-1] (previous step&#39;s m_curr),</span>
+            <span class="c1"># m_prev_prev is model_outputs[-2] (2 steps back).</span>
+            <span class="c1"># b_corr_dprev[1] = 0 (order-1 corrector) so the</span>
+            <span class="c1"># m_prev_prev term vanishes at i=1; we alias it to m_prev</span>
+            <span class="c1"># there to skip the zero-tensor allocation.</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">last_sample</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">m_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="n">m_pp</span> <span class="o">=</span> <span class="n">m_prev_prev</span> <span class="k">if</span> <span class="n">m_prev_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">m_prev</span>
+                <span class="n">corrected</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">a_corr</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">last_sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_prev</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_pp</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_curr</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">sample</span> <span class="o">=</span> <span class="n">corrected</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
+
+            <span class="c1"># Save sample BEFORE the predictor so the next iteration&#39;s</span>
+            <span class="c1"># corrector can use it as &quot;last_sample&quot;.</span>
+            <span class="n">last_sample</span> <span class="o">=</span> <span class="n">sample</span>
+
+            <span class="c1"># Predictor advances sample to next sigma:</span>
+            <span class="c1">#   x_{i+1} = a_pred[i] * x_i + b_pred_m0[i] * m0</span>
+            <span class="c1">#            + b_pred_dprev[i] * (m_prev - m0)</span>
+            <span class="c1"># b_pred_dprev[0] = 0 (order-1 warmup) and</span>
+            <span class="c1"># b_pred_dprev[-1] = 0 (order-1 final) so the same line</span>
+            <span class="c1"># serves both order branches; alias m_prev to m_curr at</span>
+            <span class="c1"># the warmup step to skip a zero-tensor allocation.</span>
+            <span class="n">m_p</span> <span class="o">=</span> <span class="n">m_prev</span> <span class="k">if</span> <span class="n">m_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">m_curr</span>
+            <span class="n">predicted</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">a_pred</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_curr</span>
+                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_p</span> <span class="o">-</span> <span class="n">m_curr</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">sample</span> <span class="o">=</span> <span class="n">predicted</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
+
+            <span class="c1"># Roll the model-output history.</span>
+            <span class="n">m_prev_prev</span> <span class="o">=</span> <span class="n">m_prev</span>
+            <span class="n">m_prev</span> <span class="o">=</span> <span class="n">m_curr</span>
+
+        <span class="k">return</span> <span class="n">sample</span></div>
+
+
+<div class="viewcode-block" id="FlowMatchUniPCScheduler.add_noise">
+<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.add_noise">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_noise</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">clean_input</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward corruption at an arbitrary timestep.</span>
+
+<span class="sd">        ``timestep`` is snapped to the nearest entry of the inference</span>
+<span class="sd">        schedule :attr:`timesteps` (on-device, no Python sync); the</span>
+<span class="sd">        corresponding sigma drives the standard lerp.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            clean_input: ``[...]`` clean latent on any device/dtype.</span>
+<span class="sd">            timestep: 0-d numeric tensor on the same device. Any value</span>
+<span class="sd">                in ``[0, num_train_timesteps]`` works.</span>
+<span class="sd">            rng: Generator on the same device as ``clean_input``.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ``[...]`` noisy latent with the same shape/device/dtype as</span>
+<span class="sd">            ``clean_input``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">timestep</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(),</span> <span class="sa">f</span><span class="s2">&quot;expected scalar timestep, got </span><span class="si">{</span><span class="n">timestep</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">ts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmin</span><span class="p">((</span><span class="n">ts</span> <span class="o">-</span> <span class="n">timestep</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">ts</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span><span class="o">.</span><span class="n">abs</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">sigma</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sigmas_full</span><span class="o">.</span><span class="n">index_select</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>
+        <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">clean_input</span><span class="p">,</span> <span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean_input</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">clean_input</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, NVIDIA
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../../../_static/copybutton.js?v=ccdb6887"></script>
+    <script src="../../../../../_static/design-tabs.js?v=f930bc37"></script>
+    </body>
+</html>
