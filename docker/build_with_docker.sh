@@ -71,11 +71,16 @@ set -eu -o pipefail
 
 TAG=base-v0.3-$(date +%Y%m%d)-$(git rev-parse --short HEAD)
 
+REGISTRIES=${@:-ghcr.io/nvidia/flashdreams}
+REGISTRIES_ARGS=()
+for registry in $REGISTRIES; do
+    REGISTRIES_ARGS+=(-t $registry:$TAG)
+done
+
 docker buildx build \
     --platform linux/arm64,linux/amd64 \
     --allow network.host \
     --network host \
     --push \
-    -t ghcr.io/nvidia/flashdreams:$TAG \
-    -t gitlab-master.nvidia.com:5005/sil/flashdreams:$TAG \
+    "${REGISTRIES_ARGS[@]}" \
     -f docker/Dockerfile .
