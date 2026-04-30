@@ -103,20 +103,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _should_init_distributed() -> bool:
+    return os.getenv("RANK") is not None and os.getenv("WORLD_SIZE") is not None
+
+
 def main() -> None:
     args = parse_args()
     print(f"Running Lingbot World inference with config: {args.config_name}")
 
     local_rank = int(os.getenv("LOCAL_RANK", 0))
-    distributed_init()
-    world_size = torch.distributed.get_world_size()
-    rank = torch.distributed.get_rank()
+    if _should_init_distributed():
+        distributed_init()
+        world_size = torch.distributed.get_world_size()
+        rank = torch.distributed.get_rank()
+        print(
+            f"initialized distributed inference with world size {world_size} "
+            f"and rank {rank}"
+        )
+    else:
+        world_size = 1
+        rank = 0
+        print("running single-process inference (torch.distributed disabled)")
+
     device = torch.device(f"cuda:{local_rank}")
     dtype = torch.bfloat16
-    print(
-        f"initialized distributed inference with world size {world_size} "
-        f"and rank {rank}"
-    )
 
     credential_path = str(REPO_ROOT / "credentials/s3_checkpoint.secret")
     assert os.path.exists(credential_path), (

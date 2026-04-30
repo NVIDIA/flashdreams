@@ -204,10 +204,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
                 f"WanTransformerConfig.cp_size ({config.cp_size}) must match "
                 f"torch.distributed.get_world_size() ({world_size})"
             )
-            if world_size > 1:
-                self.cp_group = torch.distributed.group.WORLD
-                assert self.cp_group is not None, "WORLD group is not set"
-                self.cp_size = self.cp_group.size()
+            self.cp_size = world_size
+            self.cp_group = torch.distributed.group.WORLD if world_size > 1 else None
         else:
             assert config.cp_size == 1, (
                 f"WanTransformerConfig.cp_size must be 1 in non-distributed mode "
