@@ -201,10 +201,13 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
                 f"WanTransformerConfig.cp_size ({config.cp_size}) must match "
                 f"torch.distributed.get_world_size() ({world_size})"
             )
-            if world_size > 1:
-                raise NotImplementedError(
-                    "Wan21Transformer does not support distributed inference"
-                )
+            self.cp_size = world_size
+            self.cp_group = torch.distributed.group.WORLD if world_size > 1 else None
+        else:
+            assert config.cp_size == 1, (
+                f"WanTransformerConfig.cp_size must be 1 in non-distributed mode "
+                f"(got {config.cp_size})"
+            )
 
         # Token layout (pre-CP). Per-rank token count is on self.latent_shape[-2].
         kt, kh, kw = config.network.patch_size
