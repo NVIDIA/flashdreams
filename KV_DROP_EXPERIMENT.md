@@ -311,21 +311,3 @@ The 4-view config is also supported:
 - Concrete numbers used in this report come from the chunk4 recipe
   (`len_t = 4`, `pH * pW = 45 * 80`, `window_size_t = 8`,
   `temporal_compression = 4`, `patch_temporal = 1`).
-
-## Command to run the experiment
-
-Experiment command:
-```bash
-torchrun --nproc_per_node=1 examples/run_alpadreams.py \
-    --n_cameras 1 --total_blocks 60 \
-    --overwrite_config_name sv_2steps_chunk4_loc8_pshuffle_lighttae \
-    --no_compile --kv_drop_t 1
-```
-
-Baseline command:
-```bash
-torchrun --nproc_per_node=1 examples/run_alpadreams.py \
-    --n_cameras 1 --total_blocks 60 \
-    --overwrite_config_name sv_2steps_chunk4_loc8_pshuffle_lighttae \
-    --no_compile --kv_drop_t 0
-```
