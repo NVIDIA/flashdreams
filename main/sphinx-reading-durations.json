@@ -1,13 +1,13 @@
 {
-    "apis/core": 0.31,
-    "apis/infra": 0.582,
-    "apis/recipes": 0.718,
-    "apis/serving": 0.002,
+    "apis/core": 0.325,
+    "apis/infra": 0.573,
+    "apis/recipes": 0.749,
+    "apis/serving": 0.001,
     "examples/alpadreams": 0.005,
     "examples/causal_forcing": 0.003,
     "examples/causal_wan22": 0.002,
     "examples/lingbot_world": 0.002,
     "examples/self_forcing": 0.002,
-    "examples/wan21": 0.003,
-    "index": 0.007
+    "examples/wan21": 0.004,
+    "index": 0.006
 }
