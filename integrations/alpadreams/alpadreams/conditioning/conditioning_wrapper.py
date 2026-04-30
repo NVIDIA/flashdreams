@@ -219,7 +219,7 @@ class AlpadreamsConditioningWrapper(nn.Module):
                     )
                 checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "vae_encoding"
-                ][f"chunk{len_t}"]
+                ][f"chunk{len_t}"]  # ty:ignore[invalid-argument-type]
                 tokenizer_key = "vae" if no_tae else "lightvae"
                 hdmap_encoder_config = WanVAEEncoderConfig(
                     checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[tokenizer_key],
@@ -267,7 +267,7 @@ class AlpadreamsConditioningWrapper(nn.Module):
             window_size_t=local_attn_size,
             sink_size_t=sink_size,
             len_t=len_t,
-            checkpoint_path=checkpoint_path,
+            checkpoint_path=checkpoint_path,  # ty:ignore[invalid-argument-type]
             compile_network=compile_net,
         )
 

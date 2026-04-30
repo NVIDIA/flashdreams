@@ -62,11 +62,11 @@ def main() -> None:
     # one-shot scalar construction in the test driver).
     fm_t = torch.empty((), dtype=torch.int64, device=device)
     fm_t.fill_(128)
-    unipc_t = unipc.timesteps[0]
+    unipc_t = unipc.timesteps[0]  # ty:ignore[not-subscriptable]
 
     # warm-up (allocators, autograd state, etc.) without sync mode on
-    fm.sample(noise, _stub)
-    unipc.sample(noise, _stub)
+    fm.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
+    unipc.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
     fm.add_noise(clean, fm_t)
     unipc.add_noise(clean, unipc_t)
     torch.cuda.synchronize()
@@ -74,9 +74,9 @@ def main() -> None:
     # Now turn sync detection on. ``"error"`` raises on any sync op.
     torch.cuda.set_sync_debug_mode("error")
     try:
-        out = fm.sample(noise, _stub)
+        out = fm.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
         print(f"  FlowMatch.sample      -> ok ({tuple(out.shape)} {out.dtype})")
-        out = unipc.sample(noise, _stub)
+        out = unipc.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
         print(f"  FlowUniPC.sample      -> ok ({tuple(out.shape)} {out.dtype})")
         out = fm.add_noise(clean, fm_t)
         print(f"  FlowMatch.add_noise   -> ok ({tuple(out.shape)} {out.dtype})")

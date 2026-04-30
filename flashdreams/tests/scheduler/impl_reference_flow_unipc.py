@@ -65,7 +65,7 @@ class FlowUniPCSchedulerReference(nn.Module):
                 model_output=flow,
                 timestep=timestep,
                 sample=x,
-            ).prev_sample
+            ).prev_sample  # ty:ignore[unresolved-attribute]
         return x
 
     def add_noise(
@@ -80,5 +80,5 @@ class FlowUniPCSchedulerReference(nn.Module):
             noise=noise,
             timesteps=timestep.reshape(1).to(
                 device=clean_input.device, dtype=torch.int64
-            ),
+            ),  # ty:ignore[invalid-argument-type]
         )

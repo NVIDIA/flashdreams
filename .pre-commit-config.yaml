@@ -39,3 +39,11 @@ repos:
         args: [--add-noqa]
         stages: [manual]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty type check
+        entry: ty check
+        language: system
+        types: [python]
+        pass_filenames: false

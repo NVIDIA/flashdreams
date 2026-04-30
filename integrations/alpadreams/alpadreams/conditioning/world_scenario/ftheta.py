@@ -473,7 +473,7 @@ class FThetaCamera(CameraBase):
 
         elif self.reference_poly == "fw":
             fw_poly_coef = self._fw_poly.coef.copy()
-            fw_poly_coef /= 1 / avg_ratio
+            fw_poly_coef /= 1 / avg_ratio  # ty:ignore[unsupported-operator]
 
             self._intrinsics = np.array(
                 [
@@ -599,7 +599,7 @@ class FThetaCamera(CameraBase):
     def _update_calibrated_camera(self) -> None:
         """Updates the internals of this object after calulating various properties."""
         self._compute_fov()
-        self._max_ray_angle = self._max_angle.copy()
+        self._max_ray_angle = self._max_angle.copy()  # ty:ignore[unresolved-attribute]
         is_fw_poly_slope_negative_in_domain = False
         ray_angle = self._max_ray_angle.copy()
         assert ray_angle is not None

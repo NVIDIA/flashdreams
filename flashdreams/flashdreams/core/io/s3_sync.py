@@ -71,7 +71,7 @@ def sync_s3_dir_to_local(
     show_progress: bool = True,
     verify_checksum: bool = True,
     desc: str = "Syncing from S3",
-) -> str:
+) -> str:  # ty:ignore[invalid-return-type]
     """Download an S3 directory to local cache (rank 0 only) and optionally verify checksums."""
     if not s3_dir.startswith("s3://"):
         assert os.path.exists(s3_dir), f"{s3_dir} is not a S3 path or a local path."

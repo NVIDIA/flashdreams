@@ -50,7 +50,7 @@ def _build_pair(
     legacy constructor runs first.
     """
     weights = load_checkpoint(checkpoint_path)
-    weights = {k: v.to(dtype) for k, v in weights.items()}
+    weights = {k: v.to(dtype) for k, v in weights.items()}  # ty:ignore[call-non-callable]
 
     def _cached(_path):
         return copy.copy(weights)

@@ -185,7 +185,7 @@ def main() -> None:
 
         # Only needed for the world-scale normalizer; the actual Plücker
         # volume is rendered per-AR-step inside I2VCamCtrlEncoder.
-        _, trans_normalizer = compute_relative_poses(c2ws_t, framewise=True)
+        _, trans_normalizer = compute_relative_poses(c2ws_t, framewise=True)  # ty:ignore[invalid-assignment]
 
         with open(entry["text_prompt_path"], "r") as f:
             prompts.append(f.readlines()[0])
@@ -219,7 +219,7 @@ def main() -> None:
         .setup()
         .to(device=device)
     )
-    cache = pipeline.initialize_cache(text=prompts, image=first_frames_t)
+    cache = pipeline.initialize_cache(text=prompts, image=first_frames_t)  # ty:ignore[unknown-argument]
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -230,7 +230,7 @@ def main() -> None:
     stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_output_frames(i)
+        num_frames = pipeline.get_num_output_frames(i)  # ty:ignore[call-non-callable]
         end = start + num_frames
         if end > total_camera_frames:
             break

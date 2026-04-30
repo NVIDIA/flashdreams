@@ -199,9 +199,9 @@ def main() -> None:
     # all pixel-space inputs (first frame, HDMap video) to the matching
     # pixel-space resolution before feeding them to the pipeline.
     transformer_cfg = pipeline.diffusion_model.transformer.config
-    decoder_sp = pipeline.decoder.SPATIAL_COMPRESSION_RATIO
-    pixel_h = transformer_cfg.height * decoder_sp
-    pixel_w = transformer_cfg.width * decoder_sp
+    decoder_sp = pipeline.decoder.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
+    pixel_h = transformer_cfg.height * decoder_sp  # ty:ignore[unresolved-attribute]
+    pixel_w = transformer_cfg.width * decoder_sp  # ty:ignore[unresolved-attribute]
 
     first_frames: list[torch.Tensor] = []
     hdmap_videos: list[torch.Tensor] = []
@@ -238,7 +238,9 @@ def main() -> None:
     print("loaded hdmap_videos.shape:", hdmap_videos_t.shape)
 
     cache = pipeline.initialize_cache(
-        text=prompts_2d, image=first_frames_t, view_names=camera_names
+        text=prompts_2d,  # ty:ignore[unknown-argument]
+        image=first_frames_t,  # ty:ignore[unknown-argument]
+        view_names=camera_names,  # ty:ignore[unknown-argument]
     )
 
     torch.cuda.synchronize()
@@ -249,7 +251,7 @@ def main() -> None:
     stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_frames(i)
+        num_frames = pipeline.get_num_frames(i)  # ty:ignore[call-non-callable]
         end = start + num_frames
         if end > hdmap_num_frames:
             break
@@ -259,7 +261,7 @@ def main() -> None:
         video_chunk = pipeline.generate(
             autoregressive_index=i,
             cache=cache,
-            hdmap=hdmap_videos_t[:, :, start:end],
+            hdmap=hdmap_videos_t[:, :, start:end],  # ty:ignore[unknown-argument]
         )
         stats = pipeline.finalize(i, cache)
         if stats is not None:

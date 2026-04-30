@@ -202,7 +202,7 @@ class WanDiTNetwork(nn.Module):
         This must be called before ``initialize_cache`` when CP is used.
         """
         for block in self.blocks:
-            block.set_context_parallel_group(cp_group)
+            block.set_context_parallel_group(cp_group)  # ty:ignore[call-non-callable]
 
     def patchify_and_maybe_split_cp(
         self,
@@ -321,7 +321,7 @@ class WanDiTNetwork(nn.Module):
             block_caches=[
                 block.initialize_cache(
                     chunk_size, window_size, sink_size, context_text, context_img
-                )
+                )  # ty:ignore[call-non-callable]
                 for block in self.blocks
             ],
         )
@@ -334,7 +334,7 @@ class WanDiTNetwork(nn.Module):
 
         self._fuse_shuffle_op_into_last_layer()
         for block in self.blocks:
-            block.update_parameters_after_loading_checkpoint()
+            block.update_parameters_after_loading_checkpoint()  # ty:ignore[call-non-callable]
         self.head.update_parameters_after_loading_checkpoint()
 
         self._parameters_updated_after_loading_checkpoint = True
@@ -471,7 +471,7 @@ if __name__ == "__main__":
     t2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
     )
-    t2v_network.load_state_dict(t2v_state_dict)
+    t2v_network.load_state_dict(t2v_state_dict)  # ty:ignore[invalid-argument-type]
     print("Test T2V network loading done")
 
     i2v_network_config = WanDiTNetwork14BConfig(
@@ -481,5 +481,5 @@ if __name__ == "__main__":
     i2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P/blob/main/diffusion_pytorch_model.safetensors.index.json"
     )
-    i2v_network.load_state_dict(i2v_state_dict)
+    i2v_network.load_state_dict(i2v_state_dict)  # ty:ignore[invalid-argument-type]
     print("Test I2V network loading done")

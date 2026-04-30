@@ -44,7 +44,7 @@ class _FakePipeline:
     ) -> torch.Tensor:
         # Mirror StreamInferencePipeline behavior: generate() records the latest AR
         # index on the cache so callers can derive the next step.
-        cache.autoregressive_index = autoregressive_index
+        cache.autoregressive_index = autoregressive_index  # ty:ignore[unresolved-attribute]
         # Return model-range tensor in [-1, 1] so wrapper conversion can be validated.
         return torch.linspace(
             -1.0,
@@ -121,7 +121,7 @@ def test_start_continue_and_finalize_flow() -> None:
     start_output = wrapper.start_generation(
         text_prompts=text_prompts,
         initial_rgb_frames=torch.zeros((1, 1, 3, 6, 8), dtype=torch.uint8),
-        renderer=renderer,
+        renderer=renderer,  # ty:ignore[invalid-argument-type]
         camera_names=camera_names,
         camera_poses_per_view=_make_camera_poses(camera_names, num_frames=1),
         frame_timestamps_us=[1_000_000],
@@ -167,7 +167,7 @@ def test_skip_generation_and_cleanup() -> None:
     output = wrapper.start_generation(
         text_prompts=[TextPrompt(positive="drive")],
         initial_rgb_frames=torch.zeros((1, 1, 3, 6, 8), dtype=torch.uint8),
-        renderer=renderer,
+        renderer=renderer,  # ty:ignore[invalid-argument-type]
         camera_names=camera_names,
         camera_poses_per_view=_make_camera_poses(camera_names, num_frames=1),
         frame_timestamps_us=[1_000_000],
@@ -198,7 +198,7 @@ def test_start_generation_rejects_mismatched_timestamp_length() -> None:
         wrapper.start_generation(
             text_prompts=[TextPrompt(positive="drive")],
             initial_rgb_frames=torch.zeros((1, 1, 3, 6, 8), dtype=torch.uint8),
-            renderer=renderer,
+            renderer=renderer,  # ty:ignore[invalid-argument-type]
             camera_names=camera_names,
             camera_poses_per_view=_make_camera_poses(camera_names, num_frames=2),
             frame_timestamps_us=[1, 2],

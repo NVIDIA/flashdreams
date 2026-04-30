@@ -80,9 +80,9 @@ def _remap_self_or_causal_forcing_state_dict(
     matches the keys ``WanDiTNetwork.state_dict()`` exposes.
     """
     if "generator_ema" in state_dict:
-        state_dict = state_dict["generator_ema"]  # type: ignore[assignment]
+        state_dict = state_dict["generator_ema"]  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     elif "generator" in state_dict:
-        state_dict = state_dict["generator"]  # type: ignore[assignment]
+        state_dict = state_dict["generator"]  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
 
     out: dict[str, Tensor] = {}
     for k, v in state_dict.items():
@@ -224,7 +224,7 @@ def build_self_forcing(
         diffusion_model=DiffusionModelConfig(
             seed=seed,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]
+                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -252,7 +252,7 @@ def build_self_forcing_lighttae(
         diffusion_model=DiffusionModelConfig(
             seed=seed,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]
+                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -282,7 +282,7 @@ def build_causal_forcing_chunkwise(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
-                ]["chunkwise"],  # type: ignore[index]
+                ]["chunkwise"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -312,7 +312,7 @@ def build_causal_forcing_framewise(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
-                ]["framewise"],  # type: ignore[index]
+                ]["framewise"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 # framewise: one latent frame per chunk.

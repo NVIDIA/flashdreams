@@ -132,9 +132,9 @@ class StreamInferencePipeline(
     def __init__(self, config: StreamInferencePipelineConfig) -> None:
         super().__init__()
         self.config = config
-        self.encoder = config.encoder.setup() if config.encoder is not None else None
-        self.decoder = config.decoder.setup() if config.decoder is not None else None
-        self.diffusion_model = config.diffusion_model.setup()
+        self.encoder = config.encoder.setup() if config.encoder is not None else None  # ty:ignore[invalid-assignment]
+        self.decoder = config.decoder.setup() if config.decoder is not None else None  # ty:ignore[invalid-assignment]
+        self.diffusion_model = config.diffusion_model.setup()  # ty:ignore[invalid-assignment]
 
     @property
     def device(self) -> torch.device:

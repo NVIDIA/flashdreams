@@ -363,7 +363,7 @@ def load_distributed_checkpoint(
         checkpoint_path, credential_path=credential_path
     )
     state_dict = model.state_dict()
-    torch.distributed.checkpoint.load(
+    torch.distributed.checkpoint.load(  # ty:ignore[possibly-missing-submodule]
         state_dict,
         storage_reader=storage_reader,
         planner=DefaultLoadPlanner(allow_partial_load=True),

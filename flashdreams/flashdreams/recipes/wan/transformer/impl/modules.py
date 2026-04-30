@@ -120,7 +120,9 @@ class Head(nn.Module):
             "before running the forward pass"
         )
         assert x.ndim == e.ndim, "x and e must have the same number of dimensions"
-        e = (self.modulation + e).chunk(2, dim=-2)  # [..., 1, D] each
+        e = (self.modulation + e).chunk(
+            2, dim=-2
+        )  # [..., 1, D] each  # ty:ignore[invalid-assignment]
         x = self.norm(x) * (1 + e[1]) + e[0]  # [..., L, D]
         x = self.head(x)
         return x
@@ -386,7 +388,7 @@ class CrossAttention(MultiHeadAttention):
         """
         text_cache = self.compute_kv(context_text)
         if self.i2v:
-            img_cache = self.compute_kv_image(context_img)
+            img_cache = self.compute_kv_image(context_img)  # ty:ignore[invalid-argument-type]
         else:
             img_cache = None
         return CrossAttnCache(text=text_cache, img=img_cache)
@@ -555,7 +557,9 @@ class Block(nn.Module):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        e = (self.modulation + e).chunk(6, dim=-2)  # [..., 1, D] each
+        e = (self.modulation + e).chunk(
+            6, dim=-2
+        )  # [..., 1, D] each  # ty:ignore[invalid-assignment]
 
         y = self.norm1(x) * (1 + e[1]) + e[0]  # [..., L, D]
         y = self.self_attn(

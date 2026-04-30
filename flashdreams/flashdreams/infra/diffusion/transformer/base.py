@@ -183,7 +183,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
         Returns:
             A fresh :class:`TransformerAutoregressiveCache` (or subclass).
         """
-        return TransformerAutoregressiveCache()  # type: ignore[return-value]
+        return TransformerAutoregressiveCache()  # type: ignore[return-value]  # ty:ignore[invalid-return-type]
 
     def postprocess_clean_latent(
         self,

@@ -102,9 +102,9 @@ class LingbotWorldTransformer(Wan21Transformer):
                 return x
             else:
                 return I2VCamCtrlEmbeddings(
-                    i2v=super().patchify_and_maybe_split_cp(x.i2v),
-                    plucker=super().patchify_and_maybe_split_cp(x.plucker),
+                    i2v=super().patchify_and_maybe_split_cp(x.i2v),  # ty:ignore[invalid-argument-type]
+                    plucker=super().patchify_and_maybe_split_cp(x.plucker),  # ty:ignore[invalid-argument-type]
                     _is_patchified=True,
                 )
         else:
-            return super().patchify_and_maybe_split_cp(x)
+            return super().patchify_and_maybe_split_cp(x)  # ty:ignore[invalid-return-type]

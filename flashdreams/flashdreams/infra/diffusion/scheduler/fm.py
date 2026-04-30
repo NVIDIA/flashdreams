@@ -219,16 +219,16 @@ class FlowMatchScheduler(Scheduler):
 
         noisy = initial_noise
         clean: Tensor | None = None
-        for i in range(timesteps.shape[0]):
-            sigma = sigmas[i]
+        for i in range(timesteps.shape[0]):  # ty:ignore[not-subscriptable]
+            sigma = sigmas[i]  # ty:ignore[not-subscriptable]
             # Schedule buffers are pinned to fp32 (to preserve integer
             # timestep values under a stray `module.to(bf16)`), but the
             # network expects timesteps in the input dtype so that
             # downstream modulation / Linear layers stay consistent.
-            timestep = timesteps[i].to(dtype=input_dtype)
+            timestep = timesteps[i].to(dtype=input_dtype)  # ty:ignore[not-subscriptable]
             if i > 0:
                 noise = torch.randn_like(noisy, generator=rng)
-                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)  # type: ignore[operator]
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)  # type: ignore[operator]  # ty:ignore[unsupported-operator]
             flow = predict_flow(noisy, timestep)
             clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
@@ -258,7 +258,7 @@ class FlowMatchScheduler(Scheduler):
         """
         assert timestep.shape == (), f"expected scalar timestep, got {timestep.shape}"
         full_t = self._full_timesteps
-        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)
-        sigma = self._full_sigmas.index_select(0, idx).reshape(())
+        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)  # ty:ignore[no-matching-overload]
+        sigma = self._full_sigmas.index_select(0, idx).reshape(())  # ty:ignore[call-non-callable]
         noise = torch.randn_like(clean_input, generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

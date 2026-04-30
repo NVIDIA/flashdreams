@@ -20,8 +20,28 @@ no-build-isolation-package = ["transformer-engine-torch"]
 [tool.pyright]
 extraPaths = ["flashdreams", "integrations/alpadreams"]
 
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = ["flashdreams", "integrations/alpadreams"]
+
+[tool.ty.src]
+# Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
+# protobuf's EnumTypeWrapper pattern (known ty limitation).
+exclude = [
+    "**/protos/*pb2*",
+]
+
+[tool.ty.rules]
+# Intentional pattern: recipe subclasses override base methods with more specific
+# signatures (violates Liskov but is the established design in this codebase).
+invalid-method-override = "ignore"
+
+[tool.ty.analysis]
+# These packages have no type stubs or are unavailable in CI; treat imports as Any
+replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**"]
+
 [dependency-groups]
-lint = ["pre-commit>=4.3.0"]
+lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [

@@ -45,11 +45,11 @@ class CausalConv3d(nn.Conv3d):
 
     def forward(self, x, cache_x=None):
         padding = list(self._padding)
-        if cache_x is not None and self._padding[4] > 0:
+        if cache_x is not None and self._padding[4] > 0:  # ty:ignore[unsupported-operator]
             cache_x = cache_x.to(x.device)
             x = torch.cat([cache_x, x], dim=2)
             padding[4] -= cache_x.shape[2]
-        x = F.pad(x, padding)
+        x = F.pad(x, padding)  # ty:ignore[invalid-argument-type]
 
         return super().forward(x)
 
@@ -922,7 +922,9 @@ class WanVAE_(nn.Module):
         return mu
 
     def encode(self, x, scale, return_mu=False, cache: Optional[WanVAECache] = None):
-        if cache.enc_feat_map[0] is not None:  # not the first chunk
+        if (
+            cache.enc_feat_map[0] is not None  # ty: ignore[unresolved-attribute]
+        ):  # not the first chunk
             t = x.shape[2]
             iter_ = t // 4
             results = []
@@ -1204,10 +1206,10 @@ def _video_vae(
     # load checkpoint
     if pretrained_path is not None:
         weights_dict = load_checkpoint(pretrained_path)
-        for k in weights_dict.keys():
-            if weights_dict[k].dtype != dtype:
-                weights_dict[k] = weights_dict[k].to(dtype)
-        model.load_state_dict(weights_dict, assign=True)
+        for k in weights_dict.keys():  # ty:ignore[call-non-callable]
+            if weights_dict[k].dtype != dtype:  # ty:ignore[not-subscriptable]
+                weights_dict[k] = weights_dict[k].to(dtype)  # ty:ignore[invalid-assignment, not-subscriptable]
+        model.load_state_dict(weights_dict, assign=True)  # ty:ignore[invalid-argument-type]
 
     return model
 

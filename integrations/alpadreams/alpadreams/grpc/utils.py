@@ -565,5 +565,5 @@ def proto_to_dict(proto_msg) -> dict:
         return MessageToDict(
             proto_msg,
             preserving_proto_field_name=True,
-            including_default_value_fields=True,
+            including_default_value_fields=True,  # ty:ignore[unknown-argument]
         )

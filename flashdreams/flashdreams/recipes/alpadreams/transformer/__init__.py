@@ -321,12 +321,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         if config.checkpoint_path is not None:
             transform = config.state_dict_transform or _strip_net_prefix
             state_dict = load_checkpoint(config.checkpoint_path)
-            state_dict = transform(state_dict)
+            state_dict = transform(state_dict)  # ty:ignore[invalid-argument-type]
             self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
-            self.network = torch.compile(  # type: ignore[assignment]
+            self.network = torch.compile(  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
                 self.network, mode="max-autotune-no-cudagraphs"
             )
 
@@ -501,7 +501,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # which the freshly-initialised network_cache invalidates.
         # Warmup + capture re-run on the next steady-state predict_flow.
         if self._use_cuda_graph:
-            self._network_call.reset()  # type: ignore[union-attr]
+            self._network_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
 
         return CosmosTransformerCache(
             network_cache=network_cache,
@@ -571,7 +571,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # per-rollout dispatch contract.
         if self._use_cuda_graph:
             network = (
-                self._network_call.drain  # type: ignore[union-attr]
+                self._network_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
                 if ar_idx < self.config._steady_ar_idx
                 else self._network_call
             )

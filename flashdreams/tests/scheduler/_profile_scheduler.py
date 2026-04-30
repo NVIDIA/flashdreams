@@ -88,7 +88,7 @@ def _build_fm_pair() -> tuple[FlowMatchSchedulerReference, FlowMatchScheduler]:
         shift=_FM_SHIFT,
         denoising_timesteps=list(_FM_DENOISING),
     ).setup()
-    return ref, new
+    return ref, new  # ty:ignore[invalid-return-type]
 
 
 def _build_unipc_pair() -> tuple[FlowUniPCSchedulerReference, FlowMatchUniPCScheduler]:
@@ -104,7 +104,7 @@ def _build_unipc_pair() -> tuple[FlowUniPCSchedulerReference, FlowMatchUniPCSche
         shift=_UNIPC_SHIFT,
         solver_order=_UNIPC_ORDER,
     ).setup()
-    return ref, new
+    return ref, new  # ty:ignore[invalid-return-type]
 
 
 def _make_stub_predict_flow():
@@ -127,7 +127,7 @@ def _time_sample(
     predict_flow = _make_stub_predict_flow()
 
     for _ in range(n_warmup):
-        scheduler.sample(noise, predict_flow)
+        scheduler.sample(noise, predict_flow)  # ty:ignore[call-non-callable]
     torch.cuda.synchronize()
 
     times_ms = []
@@ -137,7 +137,7 @@ def _time_sample(
             torch.cuda.Event(enable_timing=True),
         )
         start.record()
-        scheduler.sample(noise, predict_flow)
+        scheduler.sample(noise, predict_flow)  # ty:ignore[call-non-callable]
         end.record()
         torch.cuda.synchronize()
         times_ms.append(start.elapsed_time(end))

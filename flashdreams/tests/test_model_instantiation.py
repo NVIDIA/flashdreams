@@ -144,7 +144,7 @@ class TestDiTNetwork:
         state_dict = load_checkpoint(
             "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
         )
-        network.load_state_dict(state_dict)
+        network.load_state_dict(state_dict)  # ty:ignore[invalid-argument-type]
 
         assert network is not None
 
@@ -164,6 +164,6 @@ class TestDiTNetwork:
         state_dict = load_checkpoint(
             "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P/blob/main/diffusion_pytorch_model.safetensors.index.json"
         )
-        network.load_state_dict(state_dict)
+        network.load_state_dict(state_dict)  # ty:ignore[invalid-argument-type]
 
         assert network is not None

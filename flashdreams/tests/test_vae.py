@@ -120,4 +120,4 @@ def test_tokenizer(
 if __name__ == "__main__":
     for tokenizer_choice in ["lightvae", "vae"]:
         for detokenizer_choice in ["lighttae", "lightvae", "vae"]:
-            test_tokenizer(tokenizer_choice, detokenizer_choice)
+            test_tokenizer(tokenizer_choice, detokenizer_choice)  # ty:ignore[invalid-argument-type]

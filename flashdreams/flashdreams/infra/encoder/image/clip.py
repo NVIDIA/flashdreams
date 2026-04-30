@@ -91,7 +91,8 @@ class CLIPImageEncoder(Encoder):
             ),
         ).to(device, dtype=self.image_encoder.dtype)
         image_embeds: BaseModelOutputWithPooling = self.image_encoder(
-            **images, output_hidden_states=True
+            **images,  # ty: ignore[invalid-argument-type]
+            output_hidden_states=True,
         )
 
         assert image_embeds.hidden_states is not None

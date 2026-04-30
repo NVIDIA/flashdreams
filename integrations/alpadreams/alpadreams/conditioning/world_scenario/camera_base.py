@@ -491,8 +491,8 @@ class CameraBase:
 
                     _, pixel1, pixel2 = cv2.clipLine(
                         (0, 0, W, H),
-                        pixel1.astype(np.int32),  # pyright: ignore[reportArgumentType]
-                        pixel2.astype(np.int32),  # pyright: ignore[reportArgumentType]
+                        pixel1.astype(np.int32),  # pyright: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
+                        pixel2.astype(np.int32),  # pyright: ignore[reportArgumentType]  # ty:ignore[invalid-argument-type]
                     )
 
                     depth_mean = (depth[i] + depth[i + 1]) / 2

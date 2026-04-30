@@ -122,7 +122,7 @@ class FlowUniPCMultistepScheduler:
             num_train_timesteps=num_train_timesteps,
             solver_order=solver_order,
             prediction_type=prediction_type,
-            shift=shift,
+            shift=shift,  # ty:ignore[invalid-argument-type]
             use_dynamic_shifting=use_dynamic_shifting,
             thresholding=thresholding,
             dynamic_thresholding_ratio=dynamic_thresholding_ratio,
@@ -147,7 +147,7 @@ class FlowUniPCMultistepScheduler:
 
         if not use_dynamic_shifting:
             # when use_dynamic_shifting is True, we apply the timestep shifting on the fly based on the image resolution
-            sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)
+            sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)  # ty:ignore[unsupported-operator]
 
         self.sigmas = sigmas
         self.timesteps = sigmas * num_train_timesteps
@@ -195,15 +195,17 @@ class FlowUniPCMultistepScheduler:
 
         if sigmas is None:
             sigmas = np.linspace(
-                self.sigma_max, self.sigma_min, num_inference_steps + 1
+                self.sigma_max,
+                self.sigma_min,
+                num_inference_steps + 1,  # ty:ignore[unsupported-operator]
             ).copy()[:-1]  # pyright: ignore
 
         if self.config.use_dynamic_shifting:
-            sigmas = self.time_shift(mu, 1.0, sigmas)  # pyright: ignore
+            sigmas = self.time_shift(mu, 1.0, sigmas)  # pyright: ignore  # ty:ignore[invalid-argument-type]
         else:
             if shift is None:
                 shift = self.config.shift
-            sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)  # pyright: ignore
+            sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)  # pyright: ignore  # ty:ignore[unsupported-operator]
 
         if self.config.final_sigmas_type == "sigma_min":
             # NOTE: upstream references ``self.alphas_cumprod`` here which
@@ -221,7 +223,7 @@ class FlowUniPCMultistepScheduler:
             )
 
         timesteps = sigmas * self.config.num_train_timesteps
-        sigmas = np.concatenate([sigmas, [sigma_last]]).astype(np.float32)  # pyright: ignore
+        sigmas = np.concatenate([sigmas, [sigma_last]]).astype(np.float32)  # pyright: ignore  # ty:ignore[invalid-assignment]
 
         self.sigmas = torch.from_numpy(sigmas)
         self.timesteps = torch.from_numpy(timesteps).to(
@@ -255,7 +257,7 @@ class FlowUniPCMultistepScheduler:
                 sample.float()
             )  # upcast for quantile calculation, and clamp not implemented for cpu half
 
-        sample = sample.reshape(batch_size, channels * np.prod(remaining_dims))
+        sample = sample.reshape(batch_size, channels * np.prod(remaining_dims))  # ty:ignore[invalid-argument-type]
 
         abs_sample = sample.abs()  # "a certain percentile absolute pixel value"
 
@@ -364,7 +366,7 @@ class FlowUniPCMultistepScheduler:
             lambda_si = torch.log(alpha_si) - torch.log(sigma_si)
             rk = (lambda_si - lambda_s0) / h
             rks.append(rk)
-            D1s.append((mi - m0) / rk)  # pyright: ignore
+            D1s.append((mi - m0) / rk)  # pyright: ignore  # ty:ignore[unsupported-operator]
 
         rks.append(1.0)
         rks = torch.tensor(rks, device=device)
@@ -460,7 +462,7 @@ class FlowUniPCMultistepScheduler:
             lambda_si = torch.log(alpha_si) - torch.log(sigma_si)
             rk = (lambda_si - lambda_s0) / h
             rks.append(rk)
-            D1s.append((mi - m0) / rk)  # pyright: ignore
+            D1s.append((mi - m0) / rk)  # pyright: ignore  # ty:ignore[unsupported-operator]
 
         rks.append(1.0)
         rks = torch.tensor(rks, device=device)
@@ -507,7 +509,7 @@ class FlowUniPCMultistepScheduler:
                 corr_res = torch.einsum("k,bkc...->bc...", rhos_c[:-1], D1s)
             else:
                 corr_res = 0
-            D1_t = model_t - m0
+            D1_t = model_t - m0  # ty:ignore[unsupported-operator]
             x_t = x_t_ - alpha_t * B_h * (corr_res + rhos_c[-1] * D1_t)
         else:
             x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
@@ -515,7 +517,7 @@ class FlowUniPCMultistepScheduler:
                 corr_res = torch.einsum("k,bkc...->bc...", rhos_c[:-1], D1s)
             else:
                 corr_res = 0
-            D1_t = model_t - m0
+            D1_t = model_t - m0  # ty:ignore[unsupported-operator]
             x_t = x_t_ - sigma_t * B_h * (corr_res + rhos_c[-1] * D1_t)
         x_t = x_t.to(x.dtype)
         return x_t
@@ -608,7 +610,7 @@ class FlowUniPCMultistepScheduler:
             self.lower_order_nums += 1
 
         # upon completion increase step index by one
-        self._step_index += 1  # pyright: ignore
+        self._step_index += 1  # pyright: ignore  # ty:ignore[unsupported-operator]
 
         if not return_dict:
             return (prev_sample,)
@@ -634,10 +636,10 @@ class FlowUniPCMultistepScheduler:
             schedule_timesteps = self.timesteps.to(
                 original_samples.device, dtype=torch.float32
             )
-            timesteps = timesteps.to(original_samples.device, dtype=torch.float32)
+            timesteps = timesteps.to(original_samples.device, dtype=torch.float32)  # ty:ignore[invalid-assignment]
         else:
             schedule_timesteps = self.timesteps.to(original_samples.device)
-            timesteps = timesteps.to(original_samples.device)
+            timesteps = timesteps.to(original_samples.device)  # ty:ignore[invalid-assignment]
 
         step_indices = [
             self.index_for_timestep(t, schedule_timesteps) for t in timesteps

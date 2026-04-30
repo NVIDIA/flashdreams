@@ -166,8 +166,8 @@ class FlowMatchSchedulerReference(nn.Module):
     ) -> Tensor:
         noisy = initial_noise
         clean: Tensor | None = None
-        for i, t_cpu in enumerate(self.denoising_step_list):
-            timestep = t_cpu.to(device=initial_noise.device, dtype=initial_noise.dtype)
+        for i, t_cpu in enumerate(self.denoising_step_list):  # ty:ignore[invalid-argument-type]
+            timestep = t_cpu.to(device=initial_noise.device, dtype=initial_noise.dtype)  # ty:ignore[unresolved-attribute]
             sigma = self._timestep_to_sigma(timestep, like=noisy)
             if i > 0:
                 assert clean is not None

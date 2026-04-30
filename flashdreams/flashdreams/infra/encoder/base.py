@@ -74,7 +74,7 @@ class Encoder(ABC, nn.Module, Generic[EncCacheT]):
         Returns:
             A fresh :class:`EncoderAutoregressiveCache` (or subclass).
         """
-        return EncoderAutoregressiveCache()  # type: ignore[return-value]
+        return EncoderAutoregressiveCache()  # type: ignore[return-value]  # ty:ignore[invalid-return-type]
 
 
 @dataclass(kw_only=True)

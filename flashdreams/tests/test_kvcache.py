@@ -38,7 +38,7 @@ class _NaiveKVCache:
             self._total_v = v
         else:
             self._total_k = torch.cat([self._total_k, k], dim=1)
-            self._total_v = torch.cat([self._total_v, v], dim=1)
+            self._total_v = torch.cat([self._total_v, v], dim=1)  # ty:ignore[no-matching-overload]
 
     def ovewrite_rightmost(self, k: torch.Tensor, v: torch.Tensor) -> None:
         assert self._total_k is not None

@@ -361,7 +361,7 @@ class Wan22Transformer(Transformer[Wan22TransformerCache]):
         )
 
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
-        return self.transformer_high_noise.patchify_and_maybe_split_cp(x)
+        return self.transformer_high_noise.patchify_and_maybe_split_cp(x)  # ty:ignore[invalid-return-type]
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
         return self.transformer_high_noise.unpatchify_and_maybe_gather_cp(x)

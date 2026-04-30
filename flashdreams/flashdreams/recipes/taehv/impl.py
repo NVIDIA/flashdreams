@@ -344,7 +344,7 @@ class TAEHV(nn.Module):
                 if k.startswith("decoder.") and not k.startswith("decoder.blocks.")
                 else k
             ): v
-            for k, v in sd.items()
+            for k, v in sd.items()  # ty:ignore[call-non-callable]
         }
         sd = _patch_tgrow_state_dict(sd, self.decoder.blocks)
         # ``assign=True``: meta params become the checkpoint tensors as-is;
@@ -373,7 +373,7 @@ class TAEHV(nn.Module):
         next decode of each shape.
         """
         if self._use_cuda_graph:
-            self._decoder_call.reset()  # type: ignore[union-attr]
+            self._decoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
         return TAEHVCache()
 
     @torch.inference_mode()
@@ -395,7 +395,7 @@ class TAEHV(nn.Module):
         # path.
         if self._use_cuda_graph:
             decoder = (
-                self._decoder_call.drain  # type: ignore[union-attr]
+                self._decoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
                 if first_decode
                 else self._decoder_call
             )

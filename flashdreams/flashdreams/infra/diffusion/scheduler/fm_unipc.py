@@ -330,7 +330,7 @@ class FlowMatchUniPCScheduler(Scheduler):
             result is cast back to ``initial_noise.dtype``.
         """
         input_dtype = initial_noise.dtype
-        N = self.timesteps.shape[0]
+        N = self.timesteps.shape[0]  # ty:ignore[not-subscriptable]
 
         sample = initial_noise
         m_prev: Tensor | None = None
@@ -338,7 +338,7 @@ class FlowMatchUniPCScheduler(Scheduler):
         last_sample: Tensor | None = None
 
         for i in range(N):
-            timestep = self.timesteps[i]
+            timestep = self.timesteps[i]  # ty:ignore[not-subscriptable]
             # Network forward (heavy compute -- everything else here is
             # ~free relative to this).
             flow = predict_flow(sample, timestep)
@@ -348,7 +348,7 @@ class FlowMatchUniPCScheduler(Scheduler):
             # Promote to fp32 to match upstream's
             # ``model_output = model_output.to(dtype=torch.float32)``
             # before convert_model_output.
-            m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(torch.float32)
+            m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(torch.float32)  # ty:ignore[not-subscriptable]
 
             # Corrector (skip on first step).
             #
@@ -363,10 +363,10 @@ class FlowMatchUniPCScheduler(Scheduler):
                 assert last_sample is not None and m_prev is not None
                 m_pp = m_prev_prev if m_prev_prev is not None else m_prev
                 corrected = (
-                    self.a_corr[i] * last_sample.to(torch.float32)
-                    + self.b_corr_m0[i] * m_prev
-                    + self.b_corr_dprev[i] * (m_pp - m_prev)
-                    + self.b_corr_dt[i] * (m_curr - m_prev)
+                    self.a_corr[i] * last_sample.to(torch.float32)  # ty:ignore[not-subscriptable]
+                    + self.b_corr_m0[i] * m_prev  # ty:ignore[not-subscriptable]
+                    + self.b_corr_dprev[i] * (m_pp - m_prev)  # ty:ignore[not-subscriptable]
+                    + self.b_corr_dt[i] * (m_curr - m_prev)  # ty:ignore[not-subscriptable]
                 )
                 sample = corrected.to(input_dtype)
 
@@ -383,9 +383,9 @@ class FlowMatchUniPCScheduler(Scheduler):
             # the warmup step to skip a zero-tensor allocation.
             m_p = m_prev if m_prev is not None else m_curr
             predicted = (
-                self.a_pred[i] * sample.to(torch.float32)
-                + self.b_pred_m0[i] * m_curr
-                + self.b_pred_dprev[i] * (m_p - m_curr)
+                self.a_pred[i] * sample.to(torch.float32)  # ty:ignore[not-subscriptable]
+                + self.b_pred_m0[i] * m_curr  # ty:ignore[not-subscriptable]
+                + self.b_pred_dprev[i] * (m_p - m_curr)  # ty:ignore[not-subscriptable]
             )
             sample = predicted.to(input_dtype)
 
@@ -419,7 +419,7 @@ class FlowMatchUniPCScheduler(Scheduler):
         """
         assert timestep.shape == (), f"expected scalar timestep, got {timestep.shape}"
         ts = self.timesteps
-        idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)
-        sigma = self._sigmas_full.index_select(0, idx).reshape(())
+        idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)  # ty:ignore[no-matching-overload]
+        sigma = self._sigmas_full.index_select(0, idx).reshape(())  # ty:ignore[call-non-callable]
         noise = torch.randn_like(clean_input, generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

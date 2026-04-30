@@ -182,7 +182,7 @@ class CosmosDiTNetwork(nn.Module):
         cross_view_attn_group: ProcessGroup | None = None,
     ) -> None:
         for block in self.blocks:
-            block.set_context_parallel_group(self_attn_group, cross_view_attn_group)
+            block.set_context_parallel_group(self_attn_group, cross_view_attn_group)  # ty:ignore[call-non-callable]
 
     def _fuse_shuffle_op_into_last_layer(self):
         """
@@ -260,11 +260,11 @@ class CosmosDiTNetwork(nn.Module):
         self.x_embedder.in_channels -= 1
         in_channels_to_keep = self.x_embedder.get_linear_in_channels()
         self.x_embedder.proj[1].weight.data = (
-            self.x_embedder.proj[1].weight.data[:, :in_channels_to_keep].contiguous()
+            self.x_embedder.proj[1].weight.data[:, :in_channels_to_keep].contiguous()  # ty:ignore[not-subscriptable]
         )
         if self.x_embedder.proj[1].bias is not None:
             self.x_embedder.proj[1].bias.data = (
-                self.x_embedder.proj[1].bias.data[:in_channels_to_keep].contiguous()
+                self.x_embedder.proj[1].bias.data[:in_channels_to_keep].contiguous()  # ty:ignore[not-subscriptable]
             )
 
         self._is_padding_mask_fused = True
@@ -377,7 +377,7 @@ class CosmosDiTNetwork(nn.Module):
 
         return CosmosDiTNetworkCache(
             block_caches=[
-                block.initialize_cache(chunk_size, window_size, sink_size, context)
+                block.initialize_cache(chunk_size, window_size, sink_size, context)  # ty:ignore[call-non-callable]
                 for block in self.blocks
             ],
         )

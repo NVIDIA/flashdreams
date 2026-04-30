@@ -73,7 +73,7 @@ class Timesteps(nn.Module):
         Returns:
             Embedded tensor of shape (..., num_channels).
         """
-        emb = timesteps.unsqueeze(-1) * self.emb
+        emb = timesteps.unsqueeze(-1) * self.emb  # ty:ignore[unsupported-operator]
         emb = torch.cat([torch.cos(emb), torch.sin(emb)], dim=-1)
         return emb
 

@@ -5,7 +5,7 @@
 Install all workspace packages (flashdreams core + every integration) into a venv:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --group lint
 ```
 
 Then run commands with `uv run` (auto-activates the venv):
@@ -13,6 +13,56 @@ Then run commands with `uv run` (auto-activates the venv):
 ```bash
 uv run pytest flashdreams/tests
 uv run --package flashdreams --extra examples flashdreams/examples/run_alpadreams.py --help
+```
+
+## Development
+
+### Linting and type checking
+
+The project uses [ruff](https://docs.astral.sh/ruff/) for formatting/linting and
+[ty](https://docs.astral.sh/ty/) for static type checking, both enforced via
+pre-commit:
+
+```bash
+# Run all checks (ruff + ty)
+uv run pre-commit run -a
+
+# Run ty type checker directly
+uv run ty check
+```
+
+### IDE setup (VS Code)
+
+Install the [ty extension](https://marketplace.visualstudio.com/items?itemName=astral-sh.ty)
+for VS Code.
+
+To use ty as the primary language server (replaces Pylance):
+
+```jsonc
+// .vscode/settings.json
+{
+    "python.languageServer": "None"
+}
+```
+
+To use ty only for type checking alongside Pylance (completions, hover, etc.):
+
+```jsonc
+// .vscode/settings.json
+{
+    "python.languageServer": "Pylance",
+    "ty.disableLanguageServices": true
+}
+```
+
+### Tests
+
+```bash
+# CPU-safe tests (excludes GPU-dependent tests)
+uv run pytest -m "not manual"
+
+# Single test file
+uv run pytest flashdreams/tests/test_attention.py
 ```
 
 ## Instructions to run Alpadreams Inference

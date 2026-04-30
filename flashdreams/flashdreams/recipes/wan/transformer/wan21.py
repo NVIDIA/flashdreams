@@ -226,8 +226,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         if config.checkpoint_path is not None:
             state_dict = load_checkpoint(config.checkpoint_path)
             if config.state_dict_transform is not None:
-                state_dict = config.state_dict_transform(state_dict)
-            self.network.load_state_dict(state_dict)
+                state_dict = config.state_dict_transform(state_dict)  # ty:ignore[invalid-argument-type]
+            self.network.load_state_dict(state_dict)  # ty:ignore[invalid-argument-type]
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
@@ -281,7 +281,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         chunk_size = self.latent_shape[-2]  # already CP-divided
         window_size = (self.config.window_size_t * self._pH * self._pW) // cp_size
         sink_size = (self.config.sink_size_t * self._pH * self._pW) // cp_size
-        return self.network.initialize_cache(
+        return self.network.initialize_cache(  # ty:ignore[unresolved-attribute]
             chunk_size=chunk_size,
             window_size=window_size,
             sink_size=sink_size,
@@ -502,18 +502,18 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
                 return x
             else:
                 return I2VCtrl(
-                    latent=self.patchify_and_maybe_split_cp(x.latent),
-                    mask=self.patchify_and_maybe_split_cp(x.mask),
+                    latent=self.patchify_and_maybe_split_cp(x.latent),  # ty:ignore[invalid-argument-type]
+                    mask=self.patchify_and_maybe_split_cp(x.mask),  # ty:ignore[invalid-argument-type]
                     _is_patchified=True,
                 )
-        return self.network.patchify_and_maybe_split_cp(
+        return self.network.patchify_and_maybe_split_cp(  # ty:ignore[unresolved-attribute]
             x,
             process_groups=[self.cp_group],
             cp_dims=[-2],
         )
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
-        return self.network.unpatchify_and_maybe_gather_cp(
+        return self.network.unpatchify_and_maybe_gather_cp(  # ty:ignore[unresolved-attribute]
             pH=self._pH,
             pW=self._pW,
             x=x,

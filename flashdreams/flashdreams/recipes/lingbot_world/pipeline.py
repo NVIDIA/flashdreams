@@ -95,6 +95,6 @@ class LingbotWorldInferencePipeline(WanInferencePipeline):
         return StreamInferencePipeline.generate(
             self,
             autoregressive_index=autoregressive_index,
-            cache=cache,
+            cache=cache,  # ty:ignore[invalid-argument-type]
             input=camctrl_input,
         )

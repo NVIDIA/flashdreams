@@ -33,7 +33,7 @@ try:
 
     _CUDA_AVAILABLE = torch.cuda.is_available()
 except Exception:
-    torch = None  # type: ignore[assignment]
+    torch = None  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
     _CUDA_AVAILABLE = False
 
 # Thread-local storage for passing profiling context through nested calls

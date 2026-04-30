@@ -175,7 +175,7 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]
+                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -212,7 +212,7 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]
+                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -244,7 +244,7 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]
+                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -276,7 +276,7 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "vae_encoding"
-                ]["chunk3"],  # type: ignore[index]
+                ]["chunk3"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -308,7 +308,7 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
                     "pixel_shuffle"
-                ],  # type: ignore[index]
+                ],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -340,7 +340,7 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
                     "pixel_shuffle"
-                ],  # type: ignore[arg-type]
+                ],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=4,

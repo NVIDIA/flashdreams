@@ -39,11 +39,11 @@ def torch_sdpa_cudnn(
         Attention output, or ``(output, lse)`` when ``return_lse=True``.
     """
     out, lse, *_ = torch.ops.aten._scaled_dot_product_cudnn_attention(
-        query=query,
-        key=key,
-        value=value,
-        attn_bias=None,
-        compute_log_sumexp=True,
+        query=query,  # ty:ignore[invalid-argument-type]
+        key=key,  # ty:ignore[invalid-argument-type]
+        value=value,  # ty:ignore[invalid-argument-type]
+        attn_bias=None,  # ty:ignore[invalid-argument-type]
+        compute_log_sumexp=True,  # ty:ignore[invalid-argument-type]
     )
     return out, (lse if return_lse else None)
 
@@ -63,9 +63,9 @@ def torch_sdpa_flash(
         Attention output, or ``(output, lse)`` when ``return_lse=True``.
     """
     out, lse, *_ = torch.ops.aten._scaled_dot_product_flash_attention(
-        query=query,
-        key=key,
-        value=value,
+        query=query,  # ty:ignore[invalid-argument-type]
+        key=key,  # ty:ignore[invalid-argument-type]
+        value=value,  # ty:ignore[invalid-argument-type]
     )
     return out, (lse if return_lse else None)
 

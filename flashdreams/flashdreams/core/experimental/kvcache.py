@@ -166,8 +166,8 @@ class BlockKVCache:
             # write the tokens to new positions.
             dst_slice = self._seq_slice(dst_start, dst_end)
             src_slice = self._seq_slice(src_start, src_end)
-            self._k[dst_slice] = self._k[src_slice].clone()
-            self._v[dst_slice] = self._v[src_slice].clone()
+            self._k[dst_slice] = self._k[src_slice].clone()  # ty:ignore[invalid-assignment, not-subscriptable]
+            self._v[dst_slice] = self._v[src_slice].clone()  # ty:ignore[invalid-assignment, not-subscriptable]
             self._n_cached -= evict_size
 
     def _append_to_end(self, k: Tensor, v: Tensor) -> None:
@@ -179,7 +179,7 @@ class BlockKVCache:
         After the write:
         | -- sink tokens -- | -- local window tokens -- | -- new chunk -- |
         """
-        total_size = self._k.shape[self.seq_dim]
+        total_size = self._k.shape[self.seq_dim]  # ty:ignore[unresolved-attribute]
         chunk_size = k.shape[self.seq_dim]
 
         write_start = self._n_cached
@@ -189,8 +189,8 @@ class BlockKVCache:
         read_end = chunk_size
         read_start = chunk_size - (write_end - write_start)
         sl_read = self._seq_slice(read_start, read_end)
-        self._k[sl_write] = k[sl_read]
-        self._v[sl_write] = v[sl_read]
+        self._k[sl_write] = k[sl_read]  # ty:ignore[invalid-assignment]
+        self._v[sl_write] = v[sl_read]  # ty:ignore[invalid-assignment]
         self._n_cached += read_end - read_start
 
     def _write_to_rightmost(self, k: Tensor, v: Tensor, chunk_start: int) -> None:
@@ -222,13 +222,13 @@ class BlockKVCache:
                 read_end = read_start + sink_capacity
                 sl_read = self._seq_slice(read_start, read_end)
                 sl_write = self._seq_slice(write_start, write_end)
-                self._k[sl_write] = k[sl_read]
-                self._v[sl_write] = v[sl_read]
+                self._k[sl_write] = k[sl_read]  # ty:ignore[invalid-assignment]
+                self._v[sl_write] = v[sl_read]  # ty:ignore[invalid-assignment]
                 self._n_cached += sink_capacity
                 # 2. the rest of the tokens should be written to the
                 # rightmost positions of the valid tokens.
                 sl_read = self._seq_slice(read_end, chunk_size)
-                self._write_to_rightmost(k[sl_read], v[sl_read])
+                self._write_to_rightmost(k[sl_read], v[sl_read])  # ty:ignore[missing-argument]
 
         else:
             # If the sink is full.
@@ -238,8 +238,8 @@ class BlockKVCache:
                 # The input token does not overlap with the sink tokens. Simply write to the
                 # rightmost positions of the valid tokens.
                 sl = self._seq_slice(write_start, write_end)
-                self._k[sl] = k
-                self._v[sl] = v
+                self._k[sl] = k  # ty:ignore[invalid-assignment]
+                self._v[sl] = v  # ty:ignore[invalid-assignment]
             else:
                 # The input token overlaps with the sink tokens, so we only keep partial of it.
                 # Here we can safely assume the sink tokens have already been filled up because
@@ -249,16 +249,16 @@ class BlockKVCache:
                 read_start = read_end - (write_end - write_start)
                 sl_read = self._seq_slice(read_start, read_end)
                 sl_write = self._seq_slice(write_start, write_end)
-                self._k[sl_write] = k[sl_read]
-                self._v[sl_write] = v[sl_read]
+                self._k[sl_write] = k[sl_read]  # ty:ignore[invalid-assignment]
+                self._v[sl_write] = v[sl_read]  # ty:ignore[invalid-assignment]
 
                 # We might also need to update the sink tokens.
                 if chunk_start < self.sink_size:
                     sl_read = sl_write = self._seq_slice(chunk_start, self.sink_size)
-                    self._k[sl_write] = k[sl_read]
-                    self._v[sl_write] = v[sl_read]
+                    self._k[sl_write] = k[sl_read]  # ty:ignore[invalid-assignment]
+                    self._v[sl_write] = v[sl_read]  # ty:ignore[invalid-assignment]
 
-    def is_steady_state(self, chunk_start: int) -> bool:
+    def is_steady_state(self, chunk_start: int) -> bool:  # ty:ignore[invalid-return-type]
         """If this update will write to the same positions as the rest of the updates."""
         is_overlapping_with_sink = chunk_start < self.sink_size
         if is_overlapping_with_sink:
@@ -276,7 +276,7 @@ class BlockKVCache:
             chunk_size = k.shape[self.seq_dim]
             chunk_end = chunk_start + chunk_size
 
-            total_size = self._k.shape[self.seq_dim]
+            total_size = self._k.shape[self.seq_dim]  # ty:ignore[unresolved-attribute]
             evict_size = self._n_cached + chunk_size - total_size
             self._roll_local_window_left(evict_size)
             self._append_to_end(k, v)
@@ -285,15 +285,15 @@ class BlockKVCache:
             self._prev_chunk_end = chunk_end
 
     def cached_v(self) -> Tensor:
-        total_size = self._k.shape[self.seq_dim]
+        total_size = self._k.shape[self.seq_dim]  # ty:ignore[unresolved-attribute]
         if self._n_cached == total_size:
-            return self._v
+            return self._v  # ty:ignore[invalid-return-type]
         else:
-            return self._v[self._seq_slice(0, self._n_cached)]
+            return self._v[self._seq_slice(0, self._n_cached)]  # ty:ignore[not-subscriptable]
 
     def cached_k(self) -> Tensor:
-        total_size = self._k.shape[self.seq_dim]
+        total_size = self._k.shape[self.seq_dim]  # ty:ignore[unresolved-attribute]
         if self._n_cached == total_size:
-            return self._k
+            return self._k  # ty:ignore[invalid-return-type]
         else:
-            return self._k[self._seq_slice(0, self._n_cached)]
+            return self._k[self._seq_slice(0, self._n_cached)]  # ty:ignore[not-subscriptable]

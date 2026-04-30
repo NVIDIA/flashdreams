@@ -129,7 +129,7 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
         z = input.reshape(batch_size, T, C, H, W)
 
         if self.need_scaled:
-            z = z * self.std
+            z = z * self.std  # ty:ignore[unsupported-operator]
             z = z + self.mean
 
         x = self.taehv.decode(z, cache=cache).mul_(2).sub_(1)

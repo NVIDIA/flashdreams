@@ -70,7 +70,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     """
 
     @dataclass(kw_only=True)
-    class FinalState(Generic[TransformerCacheT]):
+    class FinalState(Generic[TransformerCacheT]):  # ty:ignore[shadowed-type-variable]
         """State passed from :meth:`generate` to :meth:`finalize`."""
 
         clean_latent: Tensor
@@ -91,7 +91,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     def __init__(self, config: DiffusionModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.transformer = self.config.transformer.setup()
+        self.transformer = self.config.transformer.setup()  # ty:ignore[invalid-assignment]
         self.scheduler = self.config.scheduler.setup()
         self._rng: torch.Generator | None = None
 
@@ -189,7 +189,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         )
 
         clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(clean_latent)
-        return clean_latent, final_state
+        return clean_latent, final_state  # ty:ignore[invalid-return-type]
 
     def finalize(
         self,

@@ -145,7 +145,7 @@ def main() -> None:
         .to(device=device)
     )
 
-    cache = pipeline.initialize_cache(text=[prompt], image=None)
+    cache = pipeline.initialize_cache(text=[prompt], image=None)  # ty:ignore[unknown-argument]
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -155,7 +155,7 @@ def main() -> None:
     chunks: list[torch.Tensor] = []
     stats_history: list[dict[str, float]] = []
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_output_frames(i)
+        num_frames = pipeline.get_num_output_frames(i)  # ty:ignore[call-non-callable]
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
         video_chunk = pipeline.generate(i, cache)
         stats = pipeline.finalize(i, cache)

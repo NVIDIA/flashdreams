@@ -38,7 +38,7 @@ from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoder
 def test_video_vae_config_cli_defaults(config_cls: type, target_cls: type) -> None:
     config = tyro.cli(config_cls, args=[])
     assert isinstance(config, config_cls)
-    assert config._target is target_cls
+    assert config._target is target_cls  # ty:ignore[unresolved-attribute]
 
 
 def test_pixelshuffle_cli_accepts_frame_selection_override() -> None:

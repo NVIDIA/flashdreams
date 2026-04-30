@@ -94,7 +94,7 @@ class I2VCamCtrlEncoderCache:
     camera_last_pose: Tensor
 
 
-class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
+class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-type-arguments]
     """Per-AR-step I2V control encoder with camera control."""
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
@@ -104,9 +104,9 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
 
     def initialize_autoregressive_cache(self) -> I2VCamCtrlEncoderCache:
         return I2VCamCtrlEncoderCache(
-            i2v=self.i2v_encoder.initialize_autoregressive_cache(),
-            plucker=self.plucker_encoder.initialize_autoregressive_cache(),
-            camera_last_pose=None,
+            i2v=self.i2v_encoder.initialize_autoregressive_cache(),  # ty:ignore[invalid-argument-type]
+            plucker=self.plucker_encoder.initialize_autoregressive_cache(),  # ty:ignore[invalid-argument-type]
+            camera_last_pose=None,  # ty:ignore[invalid-argument-type]
         )
 
     @torch.no_grad()
@@ -116,11 +116,11 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
         autoregressive_index: int = 0,
         cache: I2VCtrlEncoderCache | None = None,
     ) -> I2VCamCtrlEmbeddings:
-        height, width = input.i2v.shape[-2:]
+        height, width = input.i2v.shape[-2:]  # ty:ignore[unresolved-attribute]
         i2v = self.i2v_encoder(
             input=input.i2v,
             autoregressive_index=autoregressive_index,
-            cache=cache.i2v,
+            cache=cache.i2v,  # ty:ignore[unresolved-attribute]
         )
         plucker = self._render_plucker(
             height=height,
@@ -128,22 +128,22 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
             intrinsics=input.camctrl.intrinsics,
             poses=input.camctrl.poses,
             world_scale=input.camctrl.world_scale,
-            cache=cache,
+            cache=cache,  # ty:ignore[invalid-argument-type]
         )
         plucker = self.plucker_encoder(
             input=plucker,
             autoregressive_index=autoregressive_index,
-            cache=cache.plucker,
+            cache=cache.plucker,  # ty:ignore[unresolved-attribute]
         )
         return I2VCamCtrlEmbeddings(i2v=i2v, plucker=plucker)
 
     @property
     def temporal_compression_ratio(self) -> int:
-        return self.i2v_encoder.temporal_compression_ratio
+        return self.i2v_encoder.temporal_compression_ratio  # ty:ignore[invalid-return-type]
 
     @property
     def spatial_compression_ratio(self) -> int:
-        return self.i2v_encoder.spatial_compression_ratio
+        return self.i2v_encoder.spatial_compression_ratio  # ty:ignore[invalid-return-type]
 
     @torch.no_grad()
     def _render_plucker(

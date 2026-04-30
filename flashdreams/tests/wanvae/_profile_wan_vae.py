@@ -65,7 +65,7 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 # relative import used by `test_wan_vae_equivalence.py` doesn't apply
 # here because `__name__ == "__main__"` and there is no parent package.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import impl_reference as _impl_reference  # noqa: E402
+import impl_reference as _impl_reference  # noqa: E402  # ty:ignore[unresolved-import]
 
 WanVAELegacy = _impl_reference.WanVAE
 
@@ -79,7 +79,7 @@ def _build_pair(
 ) -> tuple[WanVAELegacy, WanVAENew]:
     use_lightvae = "lightvae" in checkpoint_path
     weights = load_checkpoint(checkpoint_path)
-    weights = {k: v.to(dtype) for k, v in weights.items()}
+    weights = {k: v.to(dtype) for k, v in weights.items()}  # ty:ignore[call-non-callable]
 
     def _cached(_path):
         return weights

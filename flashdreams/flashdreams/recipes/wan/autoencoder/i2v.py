@@ -96,10 +96,10 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
     def __init__(self, config: I2VCtrlEncoderConfig) -> None:
         super().__init__(config)
         self.config: I2VCtrlEncoderConfig = config
-        self.encoder = config.encoder.setup()
+        self.encoder = config.encoder.setup()  # ty:ignore[invalid-assignment]
 
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
-        return self.encoder.initialize_autoregressive_cache()
+        return self.encoder.initialize_autoregressive_cache()  # ty:ignore[invalid-return-type]
 
     @torch.no_grad()
     def forward(

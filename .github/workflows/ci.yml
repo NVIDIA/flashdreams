@@ -18,8 +18,18 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v6
 
+      - name: Install dependencies
+        run: |
+          # ty needs third-party packages to resolve imports. Skip packages
+          # that cannot be installed on CPU-only runners:
+          # - transformer-engine-torch: source-only, requires CUDA to compile
+          # - ludus-renderer: unavailable in CI
+          uv sync --extra dev --group lint \
+            --no-install-package transformer-engine-torch \
+            --no-install-package ludus-renderer
+
       - name: Run linter checks
-        run: uv run --only-group lint pre-commit run -a
+        run: uv run --no-sync pre-commit run -a
 
   cpu:
     runs-on: linux-amd64-cpu8

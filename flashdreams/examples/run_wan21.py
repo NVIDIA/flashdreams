@@ -155,7 +155,7 @@ def main() -> None:
             torch.from_numpy(first_frame).to(device=device, dtype=dtype) / 127.5 - 1.0
         )  # [H, W, 3] in range [-1, 1]
         image = rearrange(first_frame, "h w c -> 1 c h w")  # [T, 3, H, W]
-        cache = pipeline.initialize_cache(text=[prompt], image=image)
+        cache = pipeline.initialize_cache(text=[prompt], image=image)  # ty:ignore[unknown-argument]
     else:
         pipeline = (
             build_wan21_t2v_1pt3b_480p(
@@ -167,7 +167,7 @@ def main() -> None:
             .to(device=device)
         )
 
-        cache = pipeline.initialize_cache(text=[prompt])
+        cache = pipeline.initialize_cache(text=[prompt])  # ty:ignore[unknown-argument]
 
     generated_video = pipeline.generate(autoregressive_index=0, cache=cache)
     # Single-AR-step rollouts don't need finalize; run it for API

@@ -187,7 +187,7 @@ def capture_exceptions(func: Callable) -> Callable:
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"Error in {func.__name__}: {e}")
+            logger.error(f"Error in {func.__name__}: {e}")  # ty:ignore[unresolved-attribute]
 
             # print stack trace
             traceback.print_exc()
@@ -418,20 +418,20 @@ class WorldModelEngine:
         return_hdmap_frames = kwargs.get("return_hdmap_frames")
         effective_seed = kwargs.get("effective_seed")
         # -------------------------------------------------------------------
-        assert len(text_prompts) == 1, (
-            f"[rank {self.rank}] Expected 1 text prompt, got {len(text_prompts)}"
+        assert len(text_prompts) == 1, (  # ty:ignore[invalid-argument-type]
+            f"[rank {self.rank}] Expected 1 text prompt, got {len(text_prompts)}"  # ty:ignore[invalid-argument-type]
         )
-        assert self.n_cameras == len(camera_names), (
-            f"[rank {self.rank}] Expected {self.n_cameras} camera names, got {len(camera_names)}"
+        assert self.n_cameras == len(camera_names), (  # ty:ignore[invalid-argument-type]
+            f"[rank {self.rank}] Expected {self.n_cameras} camera names, got {len(camera_names)}"  # ty:ignore[invalid-argument-type]
         )
-        assert self.n_cameras == len(camera_models_from_client), (
-            f"[rank {self.rank}] Expected {self.n_cameras} camera models, got {len(camera_models_from_client)}"
+        assert self.n_cameras == len(camera_models_from_client), (  # ty:ignore[invalid-argument-type]
+            f"[rank {self.rank}] Expected {self.n_cameras} camera models, got {len(camera_models_from_client)}"  # ty:ignore[invalid-argument-type]
         )
-        assert self.n_cameras == len(rig_to_camera_transforms), (
-            f"[rank {self.rank}] Expected {self.n_cameras} rig_to_camera transforms, got {len(rig_to_camera_transforms)}"
+        assert self.n_cameras == len(rig_to_camera_transforms), (  # ty:ignore[invalid-argument-type]
+            f"[rank {self.rank}] Expected {self.n_cameras} rig_to_camera transforms, got {len(rig_to_camera_transforms)}"  # ty:ignore[invalid-argument-type]
         )
-        assert len(hdmap_parquets) > 0, (
-            f"[rank {self.rank}] Expected non-empty HD map parquets, got {len(hdmap_parquets)}"
+        assert len(hdmap_parquets) > 0, (  # ty:ignore[invalid-argument-type]
+            f"[rank {self.rank}] Expected non-empty HD map parquets, got {len(hdmap_parquets)}"  # ty:ignore[invalid-argument-type]
         )
 
         def short_text(text: str) -> str:
@@ -463,18 +463,20 @@ class WorldModelEngine:
 
         # Retrieve profiler and start time
         profiler = get_profiler()
-        chunk_idx = profiler.get_chunk_idx(session_id)
+        chunk_idx = profiler.get_chunk_idx(session_id)  # ty:ignore[invalid-argument-type]
 
         # 1. Convert to RGB tensor
         res_W, res_H = self.api.video_resolution_wh
         decoded_frames: list[torch.Tensor] = []
         with profiler.measure(
-            "decode_initial_frames", session_id=session_id, chunk_idx=chunk_idx
+            "decode_initial_frames",
+            session_id=session_id,  # ty: ignore[invalid-argument-type]
+            chunk_idx=chunk_idx,
         ):
-            for i, img_msg in enumerate(initial_frames_list):
+            for i, img_msg in enumerate(initial_frames_list):  # ty:ignore[invalid-argument-type]
                 frame_tensor = decode_image(
-                    img_msg.data,
-                    video_model_pb2.ImageFormat.Name(img_msg.format),
+                    img_msg.data,  # ty:ignore[unresolved-attribute]
+                    video_model_pb2.ImageFormat.Name(img_msg.format),  # ty:ignore[unresolved-attribute]
                     target_resolution_hw=(res_H, res_W),
                 )  # [3, H, W]
                 decoded_frames.append(frame_tensor)
@@ -485,11 +487,13 @@ class WorldModelEngine:
 
         # 2. Load static world map from zip bytes
         with profiler.measure(
-            "load_static_world_map", session_id=session_id, chunk_idx=chunk_idx
+            "load_static_world_map",
+            session_id=session_id,  # ty: ignore[invalid-argument-type]
+            chunk_idx=chunk_idx,
         ):
             scene_data = load_static_world_from_zip_bytes(
-                hdmap_parquets,
-                camera_names=camera_names,
+                hdmap_parquets,  # ty:ignore[invalid-argument-type]
+                camera_names=camera_names,  # ty:ignore[invalid-argument-type]
                 target_resolution_hw=(res_H, res_W),
             )
         logger.info(
@@ -497,30 +501,30 @@ class WorldModelEngine:
         )
 
         # Store client-provided intrinsics on scene_data so create_renderer can find them
-        for cam_name, cam_model in camera_models_from_client.items():
+        for cam_name, cam_model in camera_models_from_client.items():  # ty:ignore[unresolved-attribute]
             scene_data.camera_models[cam_name] = cam_model
 
         # 3. Create multi-camera renderer
-        renderer = self.api.create_renderer(scene_data, camera_names)
+        renderer = self.api.create_renderer(scene_data, camera_names)  # ty:ignore[invalid-argument-type]
 
         # 4. Store session state (generation deferred to first render_video_chunk)
-        for cam_name, rig_to_cam in rig_to_camera_transforms.items():
-            rig_to_camera_transforms[cam_name] = torch.tensor(
+        for cam_name, rig_to_cam in rig_to_camera_transforms.items():  # ty:ignore[unresolved-attribute]
+            rig_to_camera_transforms[cam_name] = torch.tensor(  # ty:ignore[invalid-assignment]
                 rig_to_cam, device=self.device
             )
         session_state = SessionState(
-            session_id=session_id,
-            camera_names=camera_names,
-            rig_to_camera_transforms=rig_to_camera_transforms,
+            session_id=session_id,  # ty:ignore[invalid-argument-type]
+            camera_names=camera_names,  # ty:ignore[invalid-argument-type]
+            rig_to_camera_transforms=rig_to_camera_transforms,  # ty:ignore[invalid-argument-type]
             scene_data=scene_data,
             renderer=renderer,
             initial_rgb_frames=initial_rgb_frames,
-            text_prompts=text_prompts,
-            skip_video_generation=skip_video_generation,
-            return_hdmap_frames=return_hdmap_frames,
+            text_prompts=text_prompts,  # ty:ignore[invalid-argument-type]
+            skip_video_generation=skip_video_generation,  # ty:ignore[invalid-argument-type]
+            return_hdmap_frames=return_hdmap_frames,  # ty:ignore[invalid-argument-type]
             effective_seed=effective_seed,
         )
-        self.sessions[session_id] = session_state
+        self.sessions[session_id] = session_state  # ty:ignore[invalid-assignment]
         logger.info(
             f"[Rank {self.rank}] Session initialized, generation deferred to first render_video_chunk call"
         )
@@ -556,10 +560,10 @@ class WorldModelEngine:
 
         # Retrieve profiler and start time
         profiler = get_profiler()
-        chunk_idx = profiler.get_chunk_idx(session_id)
+        chunk_idx = profiler.get_chunk_idx(session_id)  # ty:ignore[invalid-argument-type]
 
         # Get session state
-        session_state = self.sessions[session_id]
+        session_state = self.sessions[session_id]  # ty:ignore[invalid-argument-type]
         skip_video_generation = session_state.skip_video_generation
 
         # multiGPU: split views to all ranks.
@@ -573,7 +577,9 @@ class WorldModelEngine:
 
         # 3. Parse rig trajectory (FLU) and derive per-camera poses
         with profiler.measure(
-            "parse_trajectory_continuation", session_id=session_id, chunk_idx=chunk_idx
+            "parse_trajectory_continuation",
+            session_id=session_id,  # ty: ignore[invalid-argument-type]
+            chunk_idx=chunk_idx,
         ):
             # Compute per-camera trajectories:  camera_to_world[t] = rig_to_world[t] @ rig_to_camera
             camera_poses_per_view: dict[str, torch.Tensor] = {}
@@ -581,7 +587,7 @@ class WorldModelEngine:
                 rig_to_cam = session_state.rig_to_camera_transforms[cam_name]
                 camera_poses_per_view[cam_name] = compute_camera_poses_from_rig(
                     rig_poses_flu, rig_to_cam
-                )
+                )  # ty:ignore[invalid-assignment]
 
         # Do a sanity check on the camera poses
         for cam_name, camera_pose in camera_poses_per_view.items():
@@ -589,8 +595,8 @@ class WorldModelEngine:
             assert camera_pose.device == self.device, (
                 f"Camera pose for {cam_name} is on device {camera_pose.device}, expected {self.device}"
             )
-            assert camera_pose.shape == (len(frame_timestamps_us), 4, 4), (
-                f"Camera pose for {cam_name} has shape {camera_pose.shape}, expected ({len(frame_timestamps_us), 4, 4})"
+            assert camera_pose.shape == (len(frame_timestamps_us), 4, 4), (  # ty:ignore[invalid-argument-type]
+                f"Camera pose for {cam_name} has shape {camera_pose.shape}, expected ({len(frame_timestamps_us), 4, 4})"  # ty:ignore[invalid-argument-type]
             )
         assert len(camera_poses_per_view) == len(camera_names), (
             f"[Rank {self.rank}] Expected {len(camera_names)} camera poses, got {len(camera_poses_per_view)}"
@@ -600,19 +606,19 @@ class WorldModelEngine:
         is_first_chunk = not session_state.generation_started
         if is_first_chunk:
             logger.info(
-                f"[Rank {self.rank}] Starting generation with {len(frame_timestamps_us)} frames (skip_video={skip_video_generation})..."
+                f"[Rank {self.rank}] Starting generation with {len(frame_timestamps_us)} frames (skip_video={skip_video_generation})..."  # ty:ignore[invalid-argument-type]
             )
             self._set_rollout_seed_for_next_generation(session_state.effective_seed)
             logger.info(
                 f"[Rank {self.rank}] Using session random seed: {session_state.effective_seed} "
                 "(None means no explicit per-rollout seed)"
             )
-            with profiling_context(session_id, chunk_idx):
+            with profiling_context(session_id, chunk_idx):  # ty:ignore[invalid-argument-type]
                 with profiler.measure(
                     "start_generation_total",
-                    session_id=session_id,
+                    session_id=session_id,  # ty:ignore[invalid-argument-type]
                     chunk_idx=chunk_idx,
-                    num_frames=len(frame_timestamps_us),
+                    num_frames=len(frame_timestamps_us),  # ty:ignore[invalid-argument-type]
                 ):
                     output = self.api.start_generation(
                         text_prompts=session_state.text_prompts,
@@ -620,7 +626,7 @@ class WorldModelEngine:
                         renderer=session_state.renderer,
                         camera_names=camera_names,
                         camera_poses_per_view=camera_poses_per_view,
-                        frame_timestamps_us=frame_timestamps_us,
+                        frame_timestamps_us=frame_timestamps_us,  # ty:ignore[invalid-argument-type]
                         skip_video_generation=skip_video_generation,
                     )
             session_state.bbox_state = output.state
@@ -631,20 +637,20 @@ class WorldModelEngine:
             )
 
             logger.info(
-                f"[Rank {self.rank}] Continuing generation with {len(frame_timestamps_us)} frames (skip_video={skip_video_generation})..."
+                f"[Rank {self.rank}] Continuing generation with {len(frame_timestamps_us)} frames (skip_video={skip_video_generation})..."  # ty:ignore[invalid-argument-type]
             )
-            with profiling_context(session_id, chunk_idx):
+            with profiling_context(session_id, chunk_idx):  # ty:ignore[invalid-argument-type]
                 with profiler.measure(
                     "continue_generation_total",
-                    session_id=session_id,
+                    session_id=session_id,  # ty:ignore[invalid-argument-type]
                     chunk_idx=chunk_idx,
-                    num_frames=len(frame_timestamps_us),
+                    num_frames=len(frame_timestamps_us),  # ty:ignore[invalid-argument-type]
                 ):
                     output = self.api.continue_generation(
                         state=session_state.bbox_state,
                         camera_names=camera_names,
                         camera_poses_per_view=camera_poses_per_view,
-                        frame_timestamps_us=frame_timestamps_us,
+                        frame_timestamps_us=frame_timestamps_us,  # ty:ignore[invalid-argument-type]
                         object_info_per_frame=object_info_per_frame,
                         skip_video_generation=skip_video_generation,
                     )
@@ -661,7 +667,9 @@ class WorldModelEngine:
         # output.rgb_frames: [B, V, T, 3, H, W], output.condition_frames: [B, V, T, 3, H, W]
         camera_outputs = []
         with profiler.measure(
-            "encode_output_frames", session_id=session_id, chunk_idx=chunk_idx
+            "encode_output_frames",
+            session_id=session_id,  # ty: ignore[invalid-argument-type]
+            chunk_idx=chunk_idx,
         ):
             for v_idx, cam_name in enumerate(camera_names):
                 cam_output = {
@@ -794,7 +802,7 @@ class WorldModelEngine:
 
         # Clean up session resources (just session state)
         logger.info(f"[Rank {self.rank}] Closing session {session_id} on all ranks")
-        self._cleanup_session(session_id)
+        self._cleanup_session(session_id)  # ty:ignore[invalid-argument-type]
         logger.info(
             f"[Rank {self.rank}] Session {session_id} closed and removed from storage"
         )

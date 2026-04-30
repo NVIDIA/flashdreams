@@ -117,7 +117,7 @@ class CausalConv3d(nn.Conv3d):
         super().__init__(*args, **kwargs)
         ph, pw = self.padding[1], self.padding[2]
         self._spatial_pad = (pw, pw, ph, ph)
-        self._has_spatial_pad = ph > 0 or pw > 0
+        self._has_spatial_pad = ph > 0 or pw > 0  # ty:ignore[unsupported-operator]
         self._time_pad = 2 * self.padding[0]
         self.padding = (0, 0, 0)
 
@@ -125,11 +125,11 @@ class CausalConv3d(nn.Conv3d):
         self, x: torch.Tensor, prev: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         time_pad = self._time_pad
-        if prev is not None and time_pad > 0:
+        if prev is not None and time_pad > 0:  # ty:ignore[unsupported-operator]
             x = torch.cat([prev, x], dim=2)
-            time_pad = max(0, time_pad - prev.shape[2])
+            time_pad = max(0, time_pad - prev.shape[2])  # ty:ignore[unsupported-operator]
         if time_pad or self._has_spatial_pad:
-            x = F.pad(x, (*self._spatial_pad, time_pad, 0))
+            x = F.pad(x, (*self._spatial_pad, time_pad, 0))  # ty:ignore[invalid-argument-type]
         return super().forward(x)
 
     def cache_step(
@@ -395,7 +395,7 @@ class Encoder3d(nn.Module):
         for layer in self.middle:
             x = layer(x, state)
         norm, act, conv = self.head
-        return conv.cache_step(act(norm(x)), state)
+        return conv.cache_step(act(norm(x)), state)  # ty:ignore[call-non-callable]
 
 
 class Decoder3d(nn.Module):
@@ -454,7 +454,7 @@ class Decoder3d(nn.Module):
         for layer in self.upsamples:
             x = layer(x, state)
         norm, act, conv = self.head
-        return conv.cache_step(act(norm(x)), state)
+        return conv.cache_step(act(norm(x)), state)  # ty:ignore[call-non-callable]
 
 
 class WanVAE(nn.Module):
@@ -524,21 +524,21 @@ class WanVAE(nn.Module):
                 self.encoder = Encoder3d(
                     z_dim=self.Z_DIM * 2,
                     temperal_downsample=(False, True, True),
-                    **common,
+                    **common,  # ty:ignore[invalid-argument-type]
                 )
                 self.conv1 = CausalConv3d(self.Z_DIM * 2, self.Z_DIM * 2, 1)
             if enable_decoder:
                 self.decoder = Decoder3d(
                     z_dim=self.Z_DIM,
                     temperal_upsample=(True, True, False),
-                    **common,
+                    **common,  # ty:ignore[invalid-argument-type]
                 )
                 self.conv2 = CausalConv3d(self.Z_DIM, self.Z_DIM, 1)
 
         # `assign=True`: meta params become the checkpoint tensors as-is;
         # caller does `.to(device, dtype)` afterward. `strict=False`
         # tolerates the missing half (encoder-only or decoder-only).
-        self.load_state_dict(load_checkpoint(vae_path), strict=False, assign=True)
+        self.load_state_dict(load_checkpoint(vae_path), strict=False, assign=True)  # ty:ignore[invalid-argument-type]
 
         self.register_buffer(
             "mean",
@@ -587,9 +587,9 @@ class WanVAE(nn.Module):
         """
         if self._use_cuda_graph:
             if self._enable_encoder:
-                self._encoder_call.reset()  # type: ignore[union-attr]
+                self._encoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
             if self._enable_decoder:
-                self._decoder_call.reset()  # type: ignore[union-attr]
+                self._decoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
         return WanVAECache()
 
     @torch.inference_mode()
@@ -614,7 +614,7 @@ class WanVAE(nn.Module):
         # before the seed call populates `state`.
         if self._use_cuda_graph:
             encoder_body = (
-                self._encoder_call.drain  # type: ignore[union-attr]
+                self._encoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
                 if not state
                 else self._encoder_call
             )
@@ -650,11 +650,11 @@ class WanVAE(nn.Module):
             "WanVAE.decode called but the model was constructed with "
             "enable_decoder=False"
         )
-        z = z / self.inv_std + self.mean
+        z = z / self.inv_std + self.mean  # ty:ignore[unsupported-operator]
         # See `encode` for rollout 1 vs 2+ dispatch rationale.
         if self._use_cuda_graph:
             decoder = (
-                self._decoder_call.drain  # type: ignore[union-attr]
+                self._decoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
                 if not cache.dec_state
                 else self._decoder_call
             )

@@ -88,7 +88,7 @@ class AlpadreamsPipelineConfig(StreamInferencePipelineConfig):
 
     _target: type["StreamInferencePipeline"] = field(
         default_factory=lambda: AlpadreamsPipeline
-    )
+    )  # ty:ignore[invalid-assignment]
 
     text_encoder: CosmosReason1TextEncoderConfig = field(
         default_factory=CosmosReason1TextEncoderConfig
@@ -130,8 +130,8 @@ class AlpadreamsPipeline(
 
     def __init__(self, config: AlpadreamsPipelineConfig) -> None:
         super().__init__(config)
-        self.text_encoder = config.text_encoder.setup()
-        self.image_encoder = config.image_encoder.setup()
+        self.text_encoder = config.text_encoder.setup()  # ty:ignore[invalid-assignment]
+        self.image_encoder = config.image_encoder.setup()  # ty:ignore[invalid-assignment]
 
         assert self.encoder is not None, (
             "AlpadreamsPipeline requires a per-AR-step HDMap encoder; "
@@ -139,19 +139,19 @@ class AlpadreamsPipeline(
         )
 
         transformer = self.diffusion_model.transformer
-        self._len_t_latent: int = transformer.config.len_t
+        self._len_t_latent: int = transformer.config.len_t  # ty:ignore[unresolved-attribute]
         decoder = self.decoder
         assert decoder is not None and hasattr(decoder, "TEMPORAL_COMPRESSION_RATIO"), (
             f"Decoder {type(decoder).__name__} must expose "
             "TEMPORAL_COMPRESSION_RATIO (e.g. WanVAEDecoder, TeahvVAEDecoder)."
         )
-        self._decoder_temporal_compression: int = decoder.TEMPORAL_COMPRESSION_RATIO
+        self._decoder_temporal_compression: int = decoder.TEMPORAL_COMPRESSION_RATIO  # ty:ignore[invalid-assignment]
 
         # Take the view split outside of the transformer, so that VAE does not do duplicated job.
-        self.V_group = transformer.cp_groups.V_group
-        self.V_size = transformer.cp_groups.V_size
-        transformer.cp_groups.V_group = None
-        transformer.config.num_views //= self.V_size
+        self.V_group = transformer.cp_groups.V_group  # ty:ignore[unresolved-attribute]
+        self.V_size = transformer.cp_groups.V_size  # ty:ignore[unresolved-attribute]
+        transformer.cp_groups.V_group = None  # ty:ignore[invalid-assignment]
+        transformer.config.num_views //= self.V_size  # ty:ignore[unresolved-attribute]
 
     @property
     def device(self) -> torch.device:
@@ -190,12 +190,16 @@ class AlpadreamsPipeline(
 
         # distribute multi-view
         text_embeddings = split_inputs_cp(
-            text_embeddings, seq_dim=1, cp_group=self.V_group
+            text_embeddings,
+            seq_dim=1,
+            cp_group=self.V_group,  # ty:ignore[invalid-argument-type]
         )
         image_embeddings = split_inputs_cp(
-            image_embeddings, seq_dim=1, cp_group=self.V_group
+            image_embeddings,
+            seq_dim=1,
+            cp_group=self.V_group,  # ty:ignore[invalid-argument-type]
         )
-        view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)
+        view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
 
         return super().initialize_cache(
             transformer_context={
@@ -226,7 +230,7 @@ class AlpadreamsPipeline(
             ``[-1, 1]``.
         """
         # distribute multi-view
-        hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)
+        hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
 
         # generate
         output = super().generate(
@@ -236,7 +240,7 @@ class AlpadreamsPipeline(
         )
 
         # gather multi-view
-        output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)
+        output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
         return output
 
     def get_num_frames(self, autoregressive_index: int) -> int:

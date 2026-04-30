@@ -71,7 +71,11 @@ class TGrow(nn.Module):
 
 
 def apply_model_with_memblocks(
-    model, x, parallel, show_progress_bar, cache_mem: List | None = None
+    model,
+    x,
+    parallel,
+    show_progress_bar,
+    cache_mem: List | None = None,  # ty:ignore[unsupported-operator]
 ):
     """
     Apply a sequential model with memblocks to the given input.
@@ -91,7 +95,7 @@ def apply_model_with_memblocks(
         # parallel over input timesteps, iterate over blocks
         for idx, b in enumerate(model):
             if isinstance(b, MemBlock):
-                prev_mem = cache_mem[idx]
+                prev_mem = cache_mem[idx]  # ty:ignore[not-subscriptable]
                 NT, C, H, W = x.shape
                 T = NT // N
                 _x = x.reshape(N, T, C, H, W)
@@ -102,7 +106,7 @@ def apply_model_with_memblocks(
                     # roll to the right and left pad with the last frame in previous mem
                     curr_mem = torch.cat([prev_mem[:, -1:], _x[:, :-1]], dim=1)
                 x = b(x, curr_mem.reshape(x.shape))
-                cache_mem[idx] = _x
+                cache_mem[idx] = _x  # ty:ignore[invalid-assignment]
             else:
                 x = b(x)
         NT, C, H, W = x.shape

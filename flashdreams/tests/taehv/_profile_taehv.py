@@ -60,7 +60,7 @@ from flashdreams.recipes.taehv.impl import TAEHV as TAEHVNew  # noqa: E402
 # relative import used by `test_taehv_equivalence.py` doesn't apply here
 # because `__name__ == "__main__"` and there is no parent package.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import impl_reference as _impl_reference  # noqa: E402
+import impl_reference as _impl_reference  # noqa: E402  # ty:ignore[unresolved-import]
 
 TAEHVLegacy = _impl_reference.TAEHV
 
@@ -75,7 +75,7 @@ def _build_pair(
     import copy
 
     weights = load_checkpoint(checkpoint_path)
-    weights = {k: v.to(dtype) for k, v in weights.items()}
+    weights = {k: v.to(dtype) for k, v in weights.items()}  # ty:ignore[call-non-callable]
 
     # Return a fresh shallow copy each call: the legacy ``patch_tgrow_layers``
     # mutates the dict in place, which would otherwise feed the new impl

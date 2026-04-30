@@ -73,7 +73,7 @@ class CamCtrlBlock(Block):
         Returns:
             Updated hidden states with shape ``[..., L, D]``.
         """
-        e = (self.modulation + e).chunk(6, dim=-2)
+        e = (self.modulation + e).chunk(6, dim=-2)  # ty:ignore[invalid-assignment]
 
         y = self.norm1(x) * (1 + e[1]) + e[0]
         y = self.self_attn(

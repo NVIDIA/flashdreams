@@ -61,7 +61,7 @@ def _build_pair(
     """
     use_lightvae = "lightvae" in checkpoint_path
     weights = load_checkpoint(checkpoint_path)
-    weights = {k: v.to(dtype) for k, v in weights.items()}
+    weights = {k: v.to(dtype) for k, v in weights.items()}  # ty:ignore[call-non-callable]
 
     def _cached(_path):
         return weights

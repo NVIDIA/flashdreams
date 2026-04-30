@@ -141,7 +141,7 @@ def main() -> None:
     b_desc = full_t_desc.shape[0] - 1 - b
     print(
         f"  (sanity: argmin={a}, search_asc={b} -> desc={b_desc}; "
-        f"vals={full_t_desc[a].item():.2f} vs {full_t_desc[b_desc].item():.2f})"
+        f"vals={full_t_desc[a].item():.2f} vs {full_t_desc[b_desc].item():.2f})"  # ty:ignore[invalid-argument-type]
     )
 
 

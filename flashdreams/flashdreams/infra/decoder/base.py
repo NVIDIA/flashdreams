@@ -76,4 +76,4 @@ class Decoder(ABC, nn.Module, Generic[DecCacheT]):
         Returns:
             A fresh :class:`DecoderAutoregressiveCache` (or subclass).
         """
-        return DecoderAutoregressiveCache()  # type: ignore[return-value]
+        return DecoderAutoregressiveCache()  # type: ignore[return-value]  # ty:ignore[invalid-return-type]
