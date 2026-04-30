@@ -507,8 +507,8 @@ encoder slot.</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">decoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="infra.html#flashdreams.infra.decoder.DecoderConfig" title="flashdreams.infra.decoder.DecoderConfig"><span class="pre">DecoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="infra.html#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.EncoderConfig"><span class="pre">EncoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">enable_sync_and_profile</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">text_encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">CosmosReason1TextEncoderConfig</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">image_encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">WanVAEEncoderConfig</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">text_encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">CosmosReason1TextEncoderConfig</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">image_encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">WanVAEEncoderConfig</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/alpadreams/pipeline.html#AlpadreamsPipelineConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig" title="Link to this definition">#</a></dt>
@@ -521,16 +521,22 @@ per-AR-step HDMap encoder); <code class="docutils literal notranslate"><span cla
 a <code class="xref py py-class docutils literal notranslate"><span class="pre">CosmosTransformerConfig</span></code>.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.text_encoder">
-<span class="sig-name descname"><span class="pre">text_encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">CosmosReason1TextEncoderConfig</span></span><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.text_encoder" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">text_encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">CosmosReason1TextEncoderConfig</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.text_encoder" title="Link to this definition">#</a></dt>
 <dd><p>Cosmos-Reason1 text encoder, run once at the start of each rollout.</p>
+<p>Set to <code class="docutils literal notranslate"><span class="pre">None</span></code> to skip loading the encoder entirely; in that case
+rollouts must be initialized via
+<a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings"><code class="xref py py-meth docutils literal notranslate"><span class="pre">AlpadreamsPipeline.initialize_cache_from_embeddings()</span></code></a> with
+embeddings precomputed elsewhere (e.g. by
+<a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings"><code class="xref py py-meth docutils literal notranslate"><span class="pre">AlpadreamsPipeline.precompute_embeddings()</span></code></a>).</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.image_encoder">
-<span class="sig-name descname"><span class="pre">image_encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">WanVAEEncoderConfig</span></span><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.image_encoder" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">image_encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">WanVAEEncoderConfig</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.image_encoder" title="Link to this definition">#</a></dt>
 <dd><p>One-shot Wan VAE encoder used to encode the first-frame image
 (per-rollout, NOT per-AR-step). Pin its checkpoint to the same VAE
-that produced the network’s training distribution.</p>
+that produced the network’s training distribution. Set to <code class="docutils literal notranslate"><span class="pre">None</span></code>
+to skip loading; see <code class="docutils literal notranslate"><span class="pre">text_encoder</span></code> above.</p>
 </dd></dl>
 
 </dd></dl>
@@ -585,6 +591,87 @@ in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <spa
 </ul>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings">
+<span class="sig-name descname"><span class="pre">initialize_cache_from_embeddings</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">text_embeddings</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git7e49a76 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">image_embeddings</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git7e49a76 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">view_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="infra.html#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><span class="pre">EncoderAutoregressiveCache</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">CosmosTransformerCache</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="infra.html#flashdreams.infra.decoder.DecoderAutoregressiveCache" title="flashdreams.infra.decoder.base.DecoderAutoregressiveCache"><span class="pre">DecoderAutoregressiveCache</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/alpadreams/pipeline.html#AlpadreamsPipeline.initialize_cache_from_embeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings" title="Link to this definition">#</a></dt>
+<dd><p>Initialize the per-rollout cache from precomputed embeddings.</p>
+<p>Use this when <code class="docutils literal notranslate"><span class="pre">text_encoder</span></code> / <code class="docutils literal notranslate"><span class="pre">image_encoder</span></code> are not loaded
+(e.g. the pipeline was built with both configs set to <code class="docutils literal notranslate"><span class="pre">None</span></code> to
+save VRAM, and embeddings were computed offline by
+<a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings"><code class="xref py py-meth docutils literal notranslate"><span class="pre">precompute_embeddings()</span></code></a>).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>text_embeddings</strong> – <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">V,</span> <span class="pre">L,</span> <span class="pre">D]</span></code> tensor as produced by the
+Cosmos-Reason1 text encoder. Will be moved to
+<code class="docutils literal notranslate"><span class="pre">self.device</span></code> if needed. NOT yet CP-split: pass the
+full multi-view tensor; the split is applied here.</p></li>
+<li><p><strong>image_embeddings</strong> – <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">V,</span> <span class="pre">1,</span> <span class="pre">Cl,</span> <span class="pre">Hl,</span> <span class="pre">Wl]</span></code> tensor as
+produced by the Wan VAE first-frame encoder. Same
+device / split contract as <code class="docutils literal notranslate"><span class="pre">text_embeddings</span></code>.</p></li>
+<li><p><strong>view_names</strong> – List of view names (length <code class="docutils literal notranslate"><span class="pre">V</span></code>); required when
+<code class="docutils literal notranslate"><span class="pre">num_views</span> <span class="pre">&gt;</span> <span class="pre">1</span></code>.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings">
+<span class="sig-name descname"><span class="pre">precompute_embeddings</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">image</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git7e49a76 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git7e49a76 ))"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/alpadreams/pipeline.html#AlpadreamsPipeline.precompute_embeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings" title="Link to this definition">#</a></dt>
+<dd><p>Run only the one-shot encoders and return their outputs on CPU.</p>
+<p>Pair with <a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache_from_embeddings()</span></code></a>: <code class="docutils literal notranslate"><span class="pre">torch.save</span></code>
+the returned dict, then in a separate process build a pipeline
+with <code class="docutils literal notranslate"><span class="pre">text_encoder=None</span></code> / <code class="docutils literal notranslate"><span class="pre">image_encoder=None</span></code> and rebuild
+the cache from the loaded tensors. The returned tensors are NOT
+CP-split; the split happens inside
+<a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache_from_embeddings()</span></code></a> at load time, so the
+same precomputed file works for any CP world size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>text</strong> – <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">V]</span></code> nested list of prompts (one per view).</p></li>
+<li><p><strong>image</strong> – <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">V,</span> <span class="pre">1,</span> <span class="pre">3,</span> <span class="pre">H,</span> <span class="pre">W]</span></code> first-frame pixel tensor in
+<code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">{&quot;text_embeddings&quot;</span> <span class="pre">--</span> <span class="pre">[B,</span> <span class="pre">V,</span> <span class="pre">L,</span> <span class="pre">D],</span>
+<span class="pre">&quot;image_embeddings&quot;:</span> <span class="pre">[B,</span> <span class="pre">V,</span> <span class="pre">1,</span> <span class="pre">Cl,</span> <span class="pre">Hl,</span> <span class="pre">Wl]}</span></code> on CPU.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders">
+<span class="sig-name descname"><span class="pre">release_oneshot_encoders</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/alpadreams/pipeline.html#AlpadreamsPipeline.release_oneshot_encoders"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders" title="Link to this definition">#</a></dt>
+<dd><p>Free the per-rollout text and first-frame image encoders.</p>
+<p>Both encoders are only needed inside <a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache()</span></code></a>; the
+AR loop reads their outputs from <code class="docutils literal notranslate"><span class="pre">cache.transformer_context</span></code>.
+Cosmos-Reason1-7B alone is ~14 GB in bf16, so dropping it after
+<code class="docutils literal notranslate"><span class="pre">initialize_cache</span></code> reclaims significant VRAM for the AR rollout.</p>
+<p>Idempotent. After calling this, <a class="reference internal" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache" title="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache()</span></code></a> will
+raise a clear assertion (the encoders are now <code class="docutils literal notranslate"><span class="pre">None</span></code>); only
+call it from contexts that run a single rollout per pipeline
+instance (e.g. one-shot demos). Long-lived hosts that reuse the
+pipeline across sessions (e.g. the gRPC server) must not call it.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1135,6 +1222,9 @@ registered hooks while the latter silently ignores them.</p>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline"><code class="docutils literal notranslate"><span class="pre">AlpadreamsPipeline</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache"><code class="docutils literal notranslate"><span class="pre">initialize_cache()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings"><code class="docutils literal notranslate"><span class="pre">initialize_cache_from_embeddings()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings"><code class="docutils literal notranslate"><span class="pre">precompute_embeddings()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders"><code class="docutils literal notranslate"><span class="pre">release_oneshot_encoders()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.generate"><code class="docutils literal notranslate"><span class="pre">generate()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.get_num_frames"><code class="docutils literal notranslate"><span class="pre">get_num_frames()</span></code></a></li>
 </ul>

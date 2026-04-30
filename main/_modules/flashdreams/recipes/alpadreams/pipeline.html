@@ -405,6 +405,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeAlias</span>
 
@@ -459,15 +460,24 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">AlpadreamsPipeline</span>
     <span class="p">)</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
 
-    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">CosmosReason1TextEncoderConfig</span>
     <span class="p">)</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Cosmos-Reason1 text encoder, run once at the start of each rollout.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Cosmos-Reason1 text encoder, run once at the start of each rollout.</span>
 
-    <span class="n">image_encoder</span><span class="p">:</span> <span class="n">WanVAEEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span><span class="p">)</span>
+<span class="sd">    Set to ``None`` to skip loading the encoder entirely; in that case</span>
+<span class="sd">    rollouts must be initialized via</span>
+<span class="sd">    :meth:`AlpadreamsPipeline.initialize_cache_from_embeddings` with</span>
+<span class="sd">    embeddings precomputed elsewhere (e.g. by</span>
+<span class="sd">    :meth:`AlpadreamsPipeline.precompute_embeddings`).&quot;&quot;&quot;</span>
+
+    <span class="n">image_encoder</span><span class="p">:</span> <span class="n">WanVAEEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span>
+    <span class="p">)</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One-shot Wan VAE encoder used to encode the first-frame image</span>
 <span class="sd">    (per-rollout, NOT per-AR-step). Pin its checkpoint to the same VAE</span>
-<span class="sd">    that produced the network&#39;s training distribution.&quot;&quot;&quot;</span></div>
+<span class="sd">    that produced the network&#39;s training distribution. Set to ``None``</span>
+<span class="sd">    to skip loading; see ``text_encoder`` above.&quot;&quot;&quot;</span></div>
 
 
 
@@ -497,13 +507,17 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            pipeline.finalize(i, cache)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoder</span>
-    <span class="n">image_encoder</span><span class="p">:</span> <span class="n">WanVAEEncoder</span>
+    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoder</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">image_encoder</span><span class="p">:</span> <span class="n">WanVAEEncoder</span> <span class="o">|</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
 
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;AlpadreamsPipeline requires a per-AR-step HDMap encoder; &quot;</span>
@@ -553,6 +567,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            view_names: List of view names (length ``V``); required when</span>
 <span class="sd">                ``num_views &gt; 1``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;initialize_cache(text=, image=) requires text_encoder and &quot;</span>
+            <span class="s2">&quot;image_encoder to be loaded. They are None either because the &quot;</span>
+            <span class="s2">&quot;configs were set to None at construction or because &quot;</span>
+            <span class="s2">&quot;release_oneshot_encoders() has been called. If you have &quot;</span>
+            <span class="s2">&quot;precomputed embeddings, use initialize_cache_from_embeddings().&quot;</span>
+        <span class="p">)</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">list</span><span class="p">),</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;text must be a [B, V] nested list of prompts, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">text</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
@@ -561,6 +582,43 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">text</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span>
         <span class="p">)</span>  <span class="c1"># [B, V, L, D]</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>  <span class="c1"># [B, V, 1, Cl, Hl, Wl]</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">initialize_cache_from_embeddings</span><span class="p">(</span>
+            <span class="n">text_embeddings</span><span class="o">=</span><span class="n">text_embeddings</span><span class="p">,</span>
+            <span class="n">image_embeddings</span><span class="o">=</span><span class="n">image_embeddings</span><span class="p">,</span>
+            <span class="n">view_names</span><span class="o">=</span><span class="n">view_names</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="AlpadreamsPipeline.initialize_cache_from_embeddings">
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache_from_embeddings">[docs]</a>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache_from_embeddings</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">text_embeddings</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">image_embeddings</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">view_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineCache</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache from precomputed embeddings.</span>
+
+<span class="sd">        Use this when ``text_encoder`` / ``image_encoder`` are not loaded</span>
+<span class="sd">        (e.g. the pipeline was built with both configs set to ``None`` to</span>
+<span class="sd">        save VRAM, and embeddings were computed offline by</span>
+<span class="sd">        :meth:`precompute_embeddings`).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            text_embeddings: ``[B, V, L, D]`` tensor as produced by the</span>
+<span class="sd">                Cosmos-Reason1 text encoder. Will be moved to</span>
+<span class="sd">                ``self.device`` if needed. NOT yet CP-split: pass the</span>
+<span class="sd">                full multi-view tensor; the split is applied here.</span>
+<span class="sd">            image_embeddings: ``[B, V, 1, Cl, Hl, Wl]`` tensor as</span>
+<span class="sd">                produced by the Wan VAE first-frame encoder. Same</span>
+<span class="sd">                device / split contract as ``text_embeddings``.</span>
+<span class="sd">            view_names: List of view names (length ``V``); required when</span>
+<span class="sd">                ``num_views &gt; 1``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">text_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
 
         <span class="c1"># distribute multi-view</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
@@ -582,6 +640,79 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="s2">&quot;view_names&quot;</span><span class="p">:</span> <span class="n">view_names</span><span class="p">,</span>
             <span class="p">},</span>
         <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="AlpadreamsPipeline.precompute_embeddings">
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.precompute_embeddings">[docs]</a>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">precompute_embeddings</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+        <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run only the one-shot encoders and return their outputs on CPU.</span>
+
+<span class="sd">        Pair with :meth:`initialize_cache_from_embeddings`: ``torch.save``</span>
+<span class="sd">        the returned dict, then in a separate process build a pipeline</span>
+<span class="sd">        with ``text_encoder=None`` / ``image_encoder=None`` and rebuild</span>
+<span class="sd">        the cache from the loaded tensors. The returned tensors are NOT</span>
+<span class="sd">        CP-split; the split happens inside</span>
+<span class="sd">        :meth:`initialize_cache_from_embeddings` at load time, so the</span>
+<span class="sd">        same precomputed file works for any CP world size.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            text: ``[B, V]`` nested list of prompts (one per view).</span>
+<span class="sd">            image: ``[B, V, 1, 3, H, W]`` first-frame pixel tensor in</span>
+<span class="sd">                ``[-1, 1]``.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ``{&quot;text_embeddings&quot;: [B, V, L, D],</span>
+<span class="sd">            &quot;image_embeddings&quot;: [B, V, 1, Cl, Hl, Wl]}`` on CPU.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;precompute_embeddings requires text_encoder and image_encoder &quot;</span>
+            <span class="s2">&quot;to be loaded; build the pipeline with both configs non-None.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">list</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;text must be a [B, V] nested list of prompts, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">text</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
+            <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">text</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span>
+        <span class="p">)</span>  <span class="c1"># [B, V, L, D]</span>
+        <span class="n">image_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>  <span class="c1"># [B, V, 1, Cl, Hl, Wl]</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span>
+            <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="AlpadreamsPipeline.release_oneshot_encoders">
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">release_oneshot_encoders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Free the per-rollout text and first-frame image encoders.</span>
+
+<span class="sd">        Both encoders are only needed inside :meth:`initialize_cache`; the</span>
+<span class="sd">        AR loop reads their outputs from ``cache.transformer_context``.</span>
+<span class="sd">        Cosmos-Reason1-7B alone is ~14 GB in bf16, so dropping it after</span>
+<span class="sd">        ``initialize_cache`` reclaims significant VRAM for the AR rollout.</span>
+
+<span class="sd">        Idempotent. After calling this, :meth:`initialize_cache` will</span>
+<span class="sd">        raise a clear assertion (the encoders are now ``None``); only</span>
+<span class="sd">        call it from contexts that run a single rollout per pipeline</span>
+<span class="sd">        instance (e.g. one-shot demos). Long-lived hosts that reuse the</span>
+<span class="sd">        pipeline across sessions (e.g. the gRPC server) must not call it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Set to None (not delattr) so that ``initialize_cache``&#39;s</span>
+        <span class="c1"># existing ``is not None`` guard fires with a useful message</span>
+        <span class="c1"># instead of an AttributeError.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># nn.Module instances commonly form reference cycles (parent &lt;-&gt;</span>
+        <span class="c1"># child, hooks, etc.) that the refcount path alone won&#39;t break,</span>
+        <span class="c1"># so force a GC pass before asking the allocator to release the</span>
+        <span class="c1"># freed CUDA blocks.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="AlpadreamsPipeline.generate">
