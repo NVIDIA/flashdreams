@@ -210,6 +210,10 @@ SPDX-License-Identifier: Apache-2.0
   
 
   
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
 </div>
 
     </header>
@@ -370,13 +374,29 @@ SPDX-License-Identifier: Apache-2.0
 Reference:
 <a class="reference external" href="https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference">lingbot-world fast inference</a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
-
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams/examples/run_lingbot_world.py<span class="w"> </span><span class="se">\</span>
+</pre></div>
+</div>
+<section id="single-gpu">
+<h2>Single GPU<a class="headerlink" href="#single-gpu" title="Link to this heading">#</a></h2>
+<p>Currently, even single GPU inference requires <cite>torchrun</cite> to be used (in order to set the right env variables).</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-m<span class="w"> </span>flashdreams.examples.run_lingbot_world<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
+</section>
+<section id="multi-gpu">
+<h2>Multi GPU<a class="headerlink" href="#multi-gpu" title="Link to this heading">#</a></h2>
+<p>Wan 2.1 context parallel assumes <cite>cp_size == world_size</cite>, so Lingbot World can be launched
+with <cite>torchrun</cite> across multiple GPUs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-m<span class="w"> </span>flashdreams.examples.run_lingbot_world<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">21</span>
+</pre></div>
+</div>
+</section>
 </section>
 
 
@@ -414,9 +434,26 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
             
             
 
-<div class="bd-sidebar-secondary"></div>
+
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
 
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#single-gpu">Single GPU</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-gpu">Multi GPU</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
 
