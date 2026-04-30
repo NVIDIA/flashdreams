@@ -1,0 +1,11 @@
+/*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+*/
+
+/* Custom CSS overrides for FlashDreams documentation */
+
+/* Hide the "Table of Contents" heading in the primary sidebar. */
+.bd-links__title {
+    display: none;
+}
