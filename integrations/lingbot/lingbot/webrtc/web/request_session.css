@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0e1116;
+  color: #dfe7f3;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.controls h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.hint {
+  margin: 0;
+  color: #9fb1cb;
+}
+
+kbd {
+  display: inline-block;
+  margin: 0 0.1rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid #46526a;
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+button {
+  width: fit-content;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #45526d;
+  border-radius: 8px;
+  background: #1f2a3f;
+  color: #f2f6ff;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.status {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.videoPane {
+  border: 1px solid #2b3344;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #030406;
+}
+
+#remoteVideo {
+  display: block;
+  width: 100%;
+  max-height: 65vh;
+  background: #030406;
+}
+
+.logPane {
+  border: 1px solid #2b3344;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.logPane h2 {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid #2b3344;
+  font-size: 1rem;
+}
+
+#eventLog {
+  margin: 0;
+  padding: 0.9rem;
+  min-height: 7rem;
+  max-height: 14rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}

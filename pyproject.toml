@@ -18,7 +18,7 @@ override-dependencies = ["nvidia-cublas>=13.4"]
 no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
-extraPaths = ["flashdreams", "integrations/alpadreams"]
+extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 
 [tool.ty.environment]
 python-version = "3.12"
