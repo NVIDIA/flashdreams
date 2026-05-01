@@ -90,11 +90,13 @@ def _teahv_vae_decoder_config(
     )
 
 
-def _scheduler_config() -> FlowMatchSchedulerConfig:
+def _scheduler_config(
+    denoising_timesteps: list[int] = _DEFAULT_DENOISING_TIMESTEPS,
+) -> FlowMatchSchedulerConfig:
     """Alpadreams 2-step Self-Forcing flow-match scheduler defaults."""
     return FlowMatchSchedulerConfig(
-        num_inference_steps=len(_DEFAULT_DENOISING_TIMESTEPS),
-        denoising_timesteps=_DEFAULT_DENOISING_TIMESTEPS,
+        num_inference_steps=len(denoising_timesteps),
+        denoising_timesteps=denoising_timesteps,
         warp_denoising_step=True,
         shift=5.0,
         sigma_min=0.0,
@@ -112,6 +114,7 @@ def _transformer_config(
     len_t_latent: int,
     window_size_t: int,
     encode_with_pixel_shuffle: bool,
+    skip_finalize_kv_cache: bool = False,
 ) -> CosmosTransformerConfig:
     return CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(),
@@ -129,6 +132,8 @@ def _transformer_config(
         window_size_t=window_size_t,
         sink_size_t=0,
         compile_network=compile_network,
+        use_cuda_graph=True,
+        skip_finalize_kv_cache=skip_finalize_kv_cache,
     )
 
 
@@ -188,6 +193,8 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
     cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
+    skip_finalize_kv_cache: bool = False,
+    denoising_timesteps: list[int] = _DEFAULT_DENOISING_TIMESTEPS,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, chunk2, light Wan VAE HDMap encoder + LightTAE decoder."""
     return AlpadreamsPipelineConfig(
@@ -213,8 +220,9 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
                 len_t_latent=2,
                 window_size_t=6,
                 encode_with_pixel_shuffle=False,
+                skip_finalize_kv_cache=skip_finalize_kv_cache,
             ),
-            scheduler=_scheduler_config(),
+            scheduler=_scheduler_config(denoising_timesteps=denoising_timesteps),
         ),
     )
 
@@ -347,6 +355,103 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
     )
 
 
+# experiments1
+def experiment1_baseline(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 450]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=False,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
+def experiment1_skip_finalize_kv_cache(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 450]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=True,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
+def experiment1_skip_finalize_kv_cache_noise350(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 350]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=True,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
+def experiment1_skip_finalize_kv_cache_noise250(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 250]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=True,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
+def experiment1_skip_finalize_kv_cache_noise150(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 150]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=True,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
+def experiment1_skip_finalize_kv_cache_noise100(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+) -> AlpadreamsPipelineConfig:
+    denoising_timesteps = [1000, 100]
+    return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
+        cp_size=cp_size,
+        compile_network=compile_network,
+        seed=seed,
+        skip_finalize_kv_cache=True,
+        denoising_timesteps=denoising_timesteps,
+    )
+
+
 ALPADREAMS_CONFIG_BUILDERS: dict[str, Callable[..., AlpadreamsPipelineConfig]] = {
     "sv_2steps_chunk2_loc6_lightvae_lighttae": build_sv_2steps_chunk2_loc6_lightvae_lighttae,
     "sv_2steps_chunk2_loc6_lightvae_lighttae_perf": build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf,
@@ -354,4 +459,11 @@ ALPADREAMS_CONFIG_BUILDERS: dict[str, Callable[..., AlpadreamsPipelineConfig]] =
     "sv_2steps_chunk3_loc6_vae_vae": build_sv_2steps_chunk3_loc6_vae_vae,
     "sv_2steps_chunk4_loc8_pshuffle_lighttae": build_sv_2steps_chunk4_loc8_pshuffle_lighttae,
     "mv_2steps_chunk4_loc8_pshuffle_lighttae": build_mv_2steps_chunk4_loc8_pshuffle_lighttae,
+    # experiments
+    "experiment1_baseline": experiment1_baseline,
+    "experiment1_skip_finalize_kv_cache": experiment1_skip_finalize_kv_cache,
+    "experiment1_skip_finalize_kv_cache_noise350": experiment1_skip_finalize_kv_cache_noise350,
+    "experiment1_skip_finalize_kv_cache_noise250": experiment1_skip_finalize_kv_cache_noise250,
+    "experiment1_skip_finalize_kv_cache_noise150": experiment1_skip_finalize_kv_cache_noise150,  # rec
+    "experiment1_skip_finalize_kv_cache_noise100": experiment1_skip_finalize_kv_cache_noise100,  # rec
 }
