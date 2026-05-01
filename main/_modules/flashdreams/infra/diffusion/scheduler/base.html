@@ -385,8 +385,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Protocol</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -400,47 +399,15 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">FlowPredictor</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Closure ``(noisy_latent, timestep) -&gt; predicted_flow``.</span>
 
-<span class="sd">    Built by :class:`DiffusionModel.generate` by binding the per-AR-step</span>
-<span class="sd">    ``cache`` / ``input`` and :meth:`Transformer.predict_flow`. A scheduler</span>
-<span class="sd">    invokes it once per denoising iteration.</span>
-
-<span class="sd">    Note: the scheduler decides the dtype of the ``timestep`` scalar --</span>
-<span class="sd">    UniPC uses ``int64``, flow-match uses ``float`` -- and places it on</span>
-<span class="sd">    the same device as ``noisy_latent``. The transformer must accept</span>
-<span class="sd">    either dtype.</span>
+<span class="sd">    Built by ``DiffusionModel.generate`` by binding the per-AR-step ``cache``</span>
+<span class="sd">    / ``input`` to the transformer&#39;s ``predict_flow``. A scheduler invokes</span>
+<span class="sd">    it once per denoising iteration. The scheduler decides the timestep</span>
+<span class="sd">    dtype (UniPC uses int64, flow-match uses float).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Predict the flow at ``timestep``.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            noisy_latent: ``[...]`` tensor on the model&#39;s device/dtype</span>
-<span class="sd">                (the scheduler passes its current iterate as-is; in</span>
-<span class="sd">                practice ``[B, C, T, H, W]`` for video latents).</span>
-<span class="sd">            timestep: 0-d tensor on the same device. dtype is</span>
-<span class="sd">                scheduler-defined (see class note).</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            Predicted flow with the same shape, device, and dtype as</span>
-<span class="sd">            ``noisy_latent``.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Predict the flow at ``timestep``.&quot;&quot;&quot;</span>
         <span class="o">...</span></div>
-
-
-
-<div class="viewcode-block" id="SchedulerConfig">
-<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.SchedulerConfig">[docs]</a>
-<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">SchedulerConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;Scheduler&quot;</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hyperparameters for a :class:`Scheduler`.&quot;&quot;&quot;</span>
-
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Scheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Scheduler</span><span class="p">)</span>
-
-    <span class="n">num_inference_steps</span><span class="p">:</span> <span class="nb">int</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of denoising iterations the scheduler runs in :meth:`sample`.&quot;&quot;&quot;</span>
-
-    <span class="n">shift</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5.0</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Schedule warp factor (family-specific; e.g. flow-match shift).&quot;&quot;&quot;</span></div>
 
 
 
@@ -450,18 +417,20 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Denoising scheduler.</span>
 
 <span class="sd">    Owns the entire denoising loop. Callers see only ``noise → clean``;</span>
-<span class="sd">    the loop shape (renoise / multistep / plain ODE) is a private</span>
-<span class="sd">    implementation detail.</span>
+<span class="sd">    the loop shape (renoise / multistep / plain ODE) is private.</span>
 
-<span class="sd">    Example::</span>
+<span class="sd">    Concrete configs inherit ``InstantiateConfig[&lt;SchedulerSubclass&gt;]`` and</span>
+<span class="sd">    declare their own ``num_inference_steps`` / ``shift`` fields (the base</span>
+<span class="sd">    holds no shared dataclass fields).</span>
+
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        scheduler = config.setup()</span>
 <span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)</span>
-<span class="sd">        # later, to corrupt a clean latent to a given timestep:</span>
 <span class="sd">        noisy = scheduler.add_noise(clean_input=clean, timestep=t)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">SchedulerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
@@ -476,25 +445,21 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the full denoising loop and return the clean latent.</span>
 
-<span class="sd">        Schedulers are shape-agnostic: every internal op is elementwise</span>
-<span class="sd">        broadcast against per-step scalar sigmas. In practice</span>
-<span class="sd">        ``initial_noise`` is a video latent ``[B, C, T, H, W]``.</span>
+<span class="sd">        Schedulers are shape-agnostic: every internal op broadcasts against</span>
+<span class="sd">        per-step scalar sigmas. In practice ``initial_noise`` is a video</span>
+<span class="sd">        latent ``[B, C, T, H, W]``, conventionally treated as a sample at</span>
+<span class="sd">        ``sigma=1``.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            initial_noise: ``[...]`` Gaussian noise on the caller&#39;s</span>
-<span class="sd">                device/dtype. The scheduler conventionally treats this</span>
-<span class="sd">                as a sample at ``sigma=1`` (i.e. the highest noise</span>
-<span class="sd">                level on its schedule).</span>
-<span class="sd">            predict_flow: Per-step closure invoked exactly</span>
-<span class="sd">                :attr:`SchedulerConfig.num_inference_steps` times.</span>
-<span class="sd">            rng: ``torch.Generator`` on the same device as</span>
-<span class="sd">                ``initial_noise``. Used by self-forcing renoise loops</span>
-<span class="sd">                to draw extra noise per step; pure ODE solvers ignore</span>
-<span class="sd">                it.</span>
+<span class="sd">            initial_noise: Gaussian noise on the caller&#39;s device/dtype.</span>
+<span class="sd">            predict_flow: Per-step closure invoked</span>
+<span class="sd">                ``num_inference_steps`` times.</span>
+<span class="sd">            rng: Generator on the same device. Used by self-forcing renoise</span>
+<span class="sd">                loops; pure ODE solvers ignore it.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            ``[...]`` clean latent with the same shape, device, and</span>
-<span class="sd">            dtype as ``initial_noise``.</span>
+<span class="sd">            Clean latent with the same shape, device, and dtype as</span>
+<span class="sd">            ``initial_noise``.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 
 
@@ -509,20 +474,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.</span>
 
-<span class="sd">        Args:</span>
-<span class="sd">            clean_input: ``[...]`` clean latent on the caller&#39;s</span>
-<span class="sd">                device/dtype (typically ``[B, C, T, H, W]``).</span>
-<span class="sd">            timestep: 0-d tensor on the same device. Scheduler-specific</span>
-<span class="sd">                value semantics (FlowMatch snaps to the nearest entry</span>
-<span class="sd">                of its 1000-step training table; FlowUniPC requires</span>
-<span class="sd">                exact membership in its inference schedule).</span>
-<span class="sd">            rng: ``torch.Generator`` on the same device as</span>
-<span class="sd">                ``clean_input``, used to draw the additive Gaussian</span>
-<span class="sd">                noise.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            ``[...]`` noisy latent with the same shape, device, and</span>
-<span class="sd">            dtype as ``clean_input``.</span>
+<span class="sd">        Timestep value semantics are scheduler-specific: FlowMatch snaps to</span>
+<span class="sd">        the nearest entry of its 1000-step training table; FlowUniPC</span>
+<span class="sd">        requires exact membership in its inference schedule.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 </div>
 

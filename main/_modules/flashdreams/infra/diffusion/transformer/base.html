@@ -385,8 +385,8 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span><span class="p">,</span> <span class="n">cast</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -396,22 +396,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 
 
-<div class="viewcode-block" id="TransformerConfig">
-<a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerConfig">[docs]</a>
-<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">TransformerConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;Transformer&quot;</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for a diffusion transformer network.</span>
-
-<span class="sd">    Concrete subclasses are responsible for exposing :attr:`Transformer.latent_shape`</span>
-<span class="sd">    on the runtime object (typically as a property derived from runtime CP</span>
-<span class="sd">    group sizes), since the per-rank shape depends on hierarchical</span>
-<span class="sd">    context-parallel splits that are only known after distributed init.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Transformer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Transformer</span><span class="p">)</span></div>
-
-
-
 <div class="viewcode-block" id="TransformerAutoregressiveCache">
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -419,13 +403,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Cache that persists across an AR rollout.</span>
 
 <span class="sd">    Empty by default; safe to instantiate directly for non-AR transformers</span>
-<span class="sd">    (the default :meth:`start` / :meth:`finalize` are no-ops). Subclass and</span>
-<span class="sd">    add fields plus AR bookkeeping for real per-rollout state.</span>
+<span class="sd">    (default ``start`` / ``finalize`` are no-ops). Subclass and add fields</span>
+<span class="sd">    plus AR bookkeeping for real per-rollout state.</span>
 
-<span class="sd">    Example::</span>
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        cache.start(autoregressive_index)</span>
-<span class="sd">        # ... use the cache with the transformer (one or more denoising steps)</span>
+<span class="sd">        # one or more denoising steps...</span>
 <span class="sd">        cache.finalize(autoregressive_index)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -463,20 +447,21 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">Transformer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">TransformerCacheT</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Flow-prediction transformer, generic over its AR cache subclass.</span>
 
-<span class="sd">    Subclasses implement :meth:`predict_flow` and the patchify hooks; AR</span>
-<span class="sd">    transformers additionally subclass :class:`TransformerAutoregressiveCache`</span>
-<span class="sd">    and override :meth:`initialize_autoregressive_cache`.</span>
+<span class="sd">    Subclasses implement ``predict_flow`` and the patchify hooks. AR</span>
+<span class="sd">    transformers also subclass ``TransformerAutoregressiveCache`` and</span>
+<span class="sd">    override ``initialize_autoregressive_cache``.</span>
 
-<span class="sd">    Example (subclassing for an AR transformer)::</span>
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        class MyTransformer(Transformer[MyCache]):</span>
 <span class="sd">            def predict_flow(self, noisy_latent, timestep, cache, input=None):</span>
 <span class="sd">                ...</span>
+
 <span class="sd">            def initialize_autoregressive_cache(self, **context) -&gt; MyCache:</span>
 <span class="sd">                ...</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">TransformerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
@@ -513,14 +498,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        Args:</span>
 <span class="sd">            noisy_latent: Patchified noisy latent for this denoising step.</span>
 <span class="sd">            timestep: Scalar timestep tensor.</span>
-<span class="sd">            cache: Long-lived AR cache for this rollout.</span>
-<span class="sd">            input: Encoder output for this AR step (already patchified</span>
-<span class="sd">                by :meth:`patchify_and_maybe_split_cp`), or ``None``</span>
-<span class="sd">                when the pipeline has no encoder. Subclasses should</span>
-<span class="sd">                narrow the type to their encoder&#39;s output type.</span>
+<span class="sd">            cache: Per-rollout AR cache.</span>
+<span class="sd">            input: Patchified encoder output for this AR step, or ``None``</span>
+<span class="sd">                when the pipeline has no encoder. Subclasses should narrow</span>
+<span class="sd">                the type to their encoder&#39;s output type.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            Predicted flow tensor (same shape as ``noisy_latent``).</span>
+<span class="sd">            Predicted flow tensor with the same shape as ``noisy_latent``.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 
 
@@ -535,22 +519,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Advance the AR cache so it is ready for the next AR step.</span>
 
-<span class="sd">        Called once by :meth:`DiffusionModel.finalize` after the denoising</span>
-<span class="sd">        loop; the resulting flow is discarded -- only the cache side</span>
-<span class="sd">        effect matters. Default runs a single :meth:`predict_flow` forward,</span>
-<span class="sd">        which is the right thing for transformers with one network.</span>
-<span class="sd">        Subclasses with multiple parallel networks/caches that must stay</span>
-<span class="sd">        in lock-step (e.g. Wan 2.2&#39;s dual-network DiT) should override</span>
-<span class="sd">        this to forward through *each* network once per AR step.</span>
+<span class="sd">        Called by ``DiffusionModel.finalize`` after the denoising loop; the</span>
+<span class="sd">        flow is discarded — only the cache side effect matters. Default</span>
+<span class="sd">        runs a single ``predict_flow`` forward. Override for transformers</span>
+<span class="sd">        with multiple parallel networks that must stay in lock-step.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            noisy_latent: Patchified latent at the AR-step&#39;s</span>
-<span class="sd">                ``context_noise`` (or the clean latent when</span>
-<span class="sd">                ``context_noise == 0``).</span>
-<span class="sd">            timestep: 0-d ``context_noise`` timestep tensor.</span>
-<span class="sd">            cache: Long-lived AR cache for this rollout.</span>
-<span class="sd">            input: Same per-AR-step encoder output passed to</span>
-<span class="sd">                :meth:`predict_flow` (already patchified).</span>
+<span class="sd">            noisy_latent: Patchified latent at the AR-step&#39;s context noise</span>
+<span class="sd">                (or the clean latent when ``context_noise == 0``).</span>
+<span class="sd">            timestep: 0-d context-noise timestep tensor.</span>
+<span class="sd">            cache: Per-rollout AR cache.</span>
+<span class="sd">            input: Same patchified encoder output passed to ``predict_flow``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict_flow</span><span class="p">(</span><span class="n">noisy_latent</span><span class="p">,</span> <span class="n">timestep</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="p">)</span></div>
 
@@ -560,19 +539,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TransformerCacheT</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a fresh AR cache for a new rollout.</span>
 
-<span class="sd">        Default returns the empty :class:`TransformerAutoregressiveCache`</span>
-<span class="sd">        sentinel (correct for non-AR transformers). Subclasses with a</span>
-<span class="sd">        custom ``TransformerCacheT`` must override this and may declare</span>
-<span class="sd">        typed per-rollout context, e.g. ``text_embeddings`` for T2V or</span>
-<span class="sd">        ``text_embeddings`` + ``image_embeddings`` for I2V.</span>
+<span class="sd">        Default returns an empty cache, correct for non-AR transformers.</span>
+<span class="sd">        Subclasses with custom cache types must override this and may</span>
+<span class="sd">        declare typed per-rollout context (e.g. ``text_embeddings``).</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            context: Per-rollout state forwarded as keyword arguments.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            A fresh :class:`TransformerAutoregressiveCache` (or subclass).</span>
+<span class="sd">            Fresh AR cache.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">TransformerAutoregressiveCache</span><span class="p">()</span>  <span class="c1"># type: ignore[return-value]  # ty:ignore[invalid-return-type]</span></div>
+        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;TransformerCacheT&quot;</span><span class="p">,</span> <span class="n">TransformerAutoregressiveCache</span><span class="p">())</span></div>
 
 
 <div class="viewcode-block" id="Transformer.postprocess_clean_latent">
@@ -585,20 +562,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Optional postprocessing hook for the predicted clean latent.</span>
 
-<span class="sd">        Default returns ``clean_latent`` unchanged. Override to clamp or</span>
-<span class="sd">        re-inject regions whose clean value is known a priori (e.g. I2V</span>
-<span class="sd">        first-frame pinning). Called once at the end of</span>
-<span class="sd">        :meth:`DiffusionModel.generate`, before the result is unpatchified</span>
-<span class="sd">        and stashed on :class:`DiffusionModel.FinalState`.</span>
+<span class="sd">        Default is identity. Override to clamp or re-inject regions whose</span>
+<span class="sd">        clean value is known a priori (e.g. I2V first-frame pinning).</span>
+<span class="sd">        Called at the end of ``DiffusionModel.generate``.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            clean_latent: Patchified ``x0`` from the denoising loop.</span>
-<span class="sd">            cache: Long-lived AR cache for this rollout.</span>
-<span class="sd">            input: Same per-AR-step encoder output passed to</span>
-<span class="sd">                :meth:`predict_flow` (already patchified).</span>
+<span class="sd">            cache: Per-rollout AR cache.</span>
+<span class="sd">            input: Same patchified encoder output passed to ``predict_flow``.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            Postprocessed clean latent (same shape as ``clean_latent``).</span>
+<span class="sd">            Postprocessed clean latent with the same shape.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="n">clean_latent</span></div>
 
@@ -607,24 +581,13 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp">[docs]</a>
     <span class="nd">@abstractmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Patchify and (optionally) split for context parallelism.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Patchify and (optionally) CP-split a noisy latent or encoder payload.</span>
 
-<span class="sd">        Used for both the noisy latent and the per-AR-step ``input``</span>
-<span class="sd">        payload. Subclasses dispatch on type:</span>
-
-<span class="sd">        - ``Tensor``: patchify + CP-split.</span>
-<span class="sd">        - Structured payloads (e.g. ``ImageCtrl`` with ``latent`` and</span>
-<span class="sd">          ``mask`` Tensors): patchify each Tensor field independently</span>
-<span class="sd">          and return the same structured type.</span>
-
-<span class="sd">        Implement as identity when neither token packing nor CP sharding</span>
-<span class="sd">        applies. Output preserves the input *type* — only shapes change.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            x: Tensor or structured payload to patchify.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            Patchified value with the same Python type as ``x``.</span>
+<span class="sd">        Tensors patchify and split. Structured payloads (e.g. an image-control</span>
+<span class="sd">        struct with ``latent`` + ``mask``) patchify each tensor field and</span>
+<span class="sd">        return the same struct type. Implement as identity when neither</span>
+<span class="sd">        token packing nor CP sharding applies. Output preserves the input</span>
+<span class="sd">        Python type — only shapes change.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 
 
@@ -632,18 +595,7 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.unpatchify_and_maybe_gather_cp">[docs]</a>
     <span class="nd">@abstractmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Inverse of :meth:`patchify_and_maybe_split_cp` for the network output.</span>
-
-<span class="sd">        Always called on a plain :class:`Tensor` (the predicted clean</span>
-<span class="sd">        latent), so the structured-payload concern from</span>
-<span class="sd">        :meth:`patchify_and_maybe_split_cp` does not apply.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            x: Patchified (and possibly CP-split) latent.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            Unpatchified, gathered latent.</span>
-<span class="sd">        &quot;&quot;&quot;</span></div>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Inverse of ``patchify_and_maybe_split_cp`` for the network output.&quot;&quot;&quot;</span></div>
 </div>
 
 </pre></div>

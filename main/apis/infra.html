@@ -382,14 +382,14 @@ tree printable, hashable, and trivially serialisable.</p>
 <dt class="sig sig-object py" id="flashdreams.infra.config.PrintableConfig">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">PrintableConfig</span></span><a class="reference internal" href="../_modules/flashdreams/infra/config/base.html#PrintableConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.config.PrintableConfig" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
-<p>Printable Config defining str function</p>
+<p>Config base class providing a multi-line <code class="docutils literal notranslate"><span class="pre">__str__</span></code> for human-readable dumps.</p>
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.config.InstantiateConfig">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">InstantiateConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><span class="pre">T</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/config/base.html#InstantiateConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.config.InstantiateConfig" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">T</span></code>], <a class="reference internal" href="#flashdreams.infra.config.PrintableConfig" title="flashdreams.infra.config.base.PrintableConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">PrintableConfig</span></code></a></p>
-<p>Config class for instantiating an the class specified in the _target attribute.</p>
+<p>Config carrying a <code class="docutils literal notranslate"><span class="pre">_target</span></code> class plus its kwargs, instantiable via <code class="docutils literal notranslate"><span class="pre">setup</span></code>.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.config.InstantiateConfig.setup">
 <span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span>
@@ -399,7 +399,7 @@ tree printable, hashable, and trivially serialisable.</p>
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">T</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/config/base.html#InstantiateConfig.setup"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.config.InstantiateConfig.setup" title="Link to this definition">#</a></dt>
-<dd><p>Returns the instantiated object using the config.</p>
+<dd><p>Instantiate the configured object.</p>
 </dd></dl>
 
 </dd></dl>
@@ -414,30 +414,20 @@ tree printable, hashable, and trivially serialisable.</p>
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><span class="pre">T</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/config/base.html#derive_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.config.derive_config" title="Link to this definition">#</a></dt>
-<dd><p>Derive a new config from a base config by applying changes.</p>
-<p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">base_config</span> <span class="o">=</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">tokenizer</span><span class="o">=</span><span class="n">WanVAEInterfaceConfig</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>        <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;vae&quot;</span><span class="p">],</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="p">),</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">detokenizer</span><span class="o">=</span><span class="n">WanVAEInterfaceConfig</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>        <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;vae&quot;</span><span class="p">],</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="p">),</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="p">)</span>
-</pre></div>
-</div>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">new_config</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">base_config</span><span class="p">,</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">tokenizer</span><span class="o">=</span><span class="n">WanVAEInterfaceConfig</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>        <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;lightvae&quot;</span><span class="p">],</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="p">),</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">dit</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>        <span class="n">len_t</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-<span class="gp">&gt;&gt;&gt; </span>        <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span><span class="s2">&quot;vae_encoding&quot;</span><span class="p">][</span><span class="s2">&quot;chunk3&quot;</span><span class="p">],</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="p">)</span>
-</pre></div>
-</div>
+<dd><p>Deep-copy a base config and apply nested keyword overrides.</p>
+<p>Nested <code class="docutils literal notranslate"><span class="pre">dict</span></code> values walk into both dataclass attributes and nested
+dicts; leaf values overwrite directly. Raises <code class="docutils literal notranslate"><span class="pre">KeyError</span></code> on unknown
+paths.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>new_config = derive_config(</dt><dd><p>base_config,
+tokenizer=WanVAEInterfaceConfig(checkpoint_path=…),
+dit=dict(len_t=3, checkpoint_path=…),</p>
+</dd>
+</dl>
+<p>)</p>
+</div></blockquote>
 </dd></dl>
 
 </section>
@@ -455,43 +445,40 @@ through every component.</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.base.StreamInferencePipeline"><span class="pre">StreamInferencePipeline</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">diffusion_model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig" title="flashdreams.infra.diffusion.model.base.DiffusionModelConfig"><span class="pre">DiffusionModelConfig</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">decoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.decoder.DecoderConfig" title="flashdreams.infra.decoder.base.DecoderConfig"><span class="pre">DecoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.base.EncoderConfig"><span class="pre">EncoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">decoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">encoder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">enable_sync_and_profile</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipelineConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a>]</p>
-<p>Configuration for <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a>.</p>
-<p>Both <code class="docutils literal notranslate"><span class="pre">encoder</span></code> and <code class="docutils literal notranslate"><span class="pre">decoder</span></code> are optional. Use <code class="docutils literal notranslate"><span class="pre">encoder=None</span></code>
-when there is no per-AR-step control input (e.g. pure T2V).
-Use <code class="docutils literal notranslate"><span class="pre">decoder=None</span></code> to return the clean latent directly (useful for
-training, latent-space evaluation, or pipelines that own decoding).</p>
+<p>Config for the streaming inference pipeline.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">encoder=None</span></code> when the pipeline has no per-AR-step control input
+(pure T2V). Set <code class="docutils literal notranslate"><span class="pre">decoder=None</span></code> to return the clean latent directly
+(training, latent-space evaluation, or pipelines that own decoding).</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model">
 <span class="sig-name descname"><span class="pre">diffusion_model</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig" title="flashdreams.infra.diffusion.model.base.DiffusionModelConfig"><span class="pre">DiffusionModelConfig</span></a></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model" title="Link to this definition">#</a></dt>
-<dd><p>Diffusion model config (transformer + scheduler).</p>
+<dd><p>Transformer + scheduler config.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder">
-<span class="sig-name descname"><span class="pre">decoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.decoder.DecoderConfig" title="flashdreams.infra.decoder.base.DecoderConfig"><span class="pre">DecoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder" title="Link to this definition">#</a></dt>
-<dd><p>Optional decoder. When <code class="docutils literal notranslate"><span class="pre">None</span></code>, <code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code> returns the unpatchified clean latent.</p>
+<span class="sig-name descname"><span class="pre">decoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder" title="Link to this definition">#</a></dt>
+<dd><p>Optional output decoder.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder">
-<span class="sig-name descname"><span class="pre">encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.base.EncoderConfig"><span class="pre">EncoderConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder" title="Link to this definition">#</a></dt>
-<dd><p>Optional encoder. When <code class="docutils literal notranslate"><span class="pre">None</span></code>, <code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code> must be called with <code class="docutils literal notranslate"><span class="pre">input=None</span></code>.</p>
+<span class="sig-name descname"><span class="pre">encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder" title="Link to this definition">#</a></dt>
+<dd><p>Optional per-AR-step input encoder.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile">
 <span class="sig-name descname"><span class="pre">enable_sync_and_profile</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile" title="Link to this definition">#</a></dt>
-<dd><p>If <code class="docutils literal notranslate"><span class="pre">True</span></code>, record per-stage CUDA events and log a per-AR-step breakdown.</p>
-<p>Warning: enabling this calls <code class="docutils literal notranslate"><span class="pre">torch.cuda.synchronize()</span></code> once per AR
-step, which serializes the host against in-flight CUDA work and
-hurts throughput.</p>
+<dd><p>Record per-stage CUDA events and log timing per AR step. Calls
+<code class="docutils literal notranslate"><span class="pre">torch.cuda.synchronize()</span></code> once per step, which hurts throughput.</p>
 </dd></dl>
 
 </dd></dl>
@@ -506,19 +493,19 @@ hurts throughput.</p>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipeline" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">EncCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">DecCacheT</span></code>]</p>
-<p>End-to-end inference pipeline for one AR step.</p>
-<p>Generic over the encoder, transformer, and decoder cache types.
-The encoder’s input/output types are <em>not</em> part of the generic —
-they are forwarded as <code class="xref py py-class docutils literal notranslate"><span class="pre">typing.Any</span></code> so the transformer’s
-<code class="docutils literal notranslate"><span class="pre">predict_flow</span></code> / <code class="docutils literal notranslate"><span class="pre">postprocess_clean_latent</span></code> overrides own the
-typing on the <code class="docutils literal notranslate"><span class="pre">input</span></code> argument they receive.</p>
-<p>Per-AR-step usage:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cache</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span><span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">})</span>
-<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_ar_steps</span><span class="p">):</span>
-    <span class="n">output</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="o">=</span><span class="n">i</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=...</span><span class="p">)</span>
-    <span class="n">pipeline</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="o">=</span><span class="n">i</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span>
-</pre></div>
-</div>
+<p>End-to-end streaming inference pipeline.</p>
+<p>Generic over the encoder, transformer, and decoder cache types. The
+encoder’s input/output types are forwarded as <code class="docutils literal notranslate"><span class="pre">Any</span></code> so the
+transformer’s <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code> / <code class="docutils literal notranslate"><span class="pre">postprocess_clean_latent</span></code> overrides
+own the typing on the <code class="docutils literal notranslate"><span class="pre">input</span></code> argument they receive.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><p>cache = pipeline.initialize_cache(transformer_context={…})
+output = pipeline.generate(0, cache, input=…)
+pipeline.finalize(0, cache)
+output = pipeline.generate(1, cache, input=…)
+pipeline.finalize(1, cache)  # optional for the last rollout</p>
+</div></blockquote>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache">
 <span class="sig-name descname"><span class="pre">initialize_cache</span></span><span class="sig-paren">(</span>
@@ -545,7 +532,7 @@ when there is no decoder.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A fresh <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.StreamInferencePipelineCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineCache</span></code></a>.</p>
+<dd class="field-even"><p>A fresh cache to thread through <code class="docutils literal notranslate"><span class="pre">generate</span></code> / <code class="docutils literal notranslate"><span class="pre">finalize</span></code>.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -566,25 +553,19 @@ when there is no decoder.</p></li>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>autoregressive_index</strong> – Must be <code class="docutils literal notranslate"><span class="pre">cache.autoregressive_index</span> <span class="pre">+</span> <span class="pre">1</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">0</span></code> on the first call after <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache" title="flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache()</span></code></a>.</p></li>
-<li><p><strong>cache</strong> – Per-rollout cache returned by <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache" title="flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_cache()</span></code></a>.</p></li>
-<li><p><strong>input</strong> – Raw input fed to the encoder. Required when
-<code class="docutils literal notranslate"><span class="pre">self.encoder</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">None</span></code>; must be <code class="docutils literal notranslate"><span class="pre">None</span></code> otherwise.
-To pipe an <em>already encoded</em> tensor straight through, use
-<code class="xref py py-class docutils literal notranslate"><span class="pre">NullEncoderConfig</span></code> (an identity encoder).</p></li>
+or <code class="docutils literal notranslate"><span class="pre">0</span></code> for the first call after <code class="docutils literal notranslate"><span class="pre">initialize_cache</span></code>.</p></li>
+<li><p><strong>cache</strong> – Per-rollout cache from <code class="docutils literal notranslate"><span class="pre">initialize_cache</span></code>.</p></li>
+<li><p><strong>input</strong> – Raw input fed to the encoder. Required when an encoder
+is configured, must be <code class="docutils literal notranslate"><span class="pre">None</span></code> otherwise. Use
+<code class="docutils literal notranslate"><span class="pre">NullEncoderConfig</span></code> to pass an already-encoded tensor
+straight through.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Decoded tensor (e.g. RGB video) when a decoder is configured;
-otherwise the unpatchified clean latent straight from the
-diffusion model.</p>
+otherwise the unpatchified clean latent from the diffusion model.</p>
 </dd>
 </dl>
-<p>Note: stashes the <code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel.FinalState</span></code> and the AR
-step index on <code class="docutils literal notranslate"><span class="pre">cache</span></code> so the matching <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.finalize" title="flashdreams.infra.pipeline.StreamInferencePipeline.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code></a> can
-consume them. When <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile"><code class="xref py py-attr docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig.enable_sync_and_profile</span></code></a>
-is <code class="docutils literal notranslate"><span class="pre">True</span></code>, also records per-stage CUDA events on
-<code class="docutils literal notranslate"><span class="pre">cache.event_profiler</span></code> for <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.finalize" title="flashdreams.infra.pipeline.StreamInferencePipeline.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code></a> to summarize.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -602,29 +583,17 @@ is <code class="docutils literal notranslate"><span class="pre">True</span></cod
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>autoregressive_index</strong> – Must match the index passed to the most
-recent <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.generate" title="flashdreams.infra.pipeline.StreamInferencePipeline.generate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code></a> (asserted to catch drift).</p></li>
-<li><p><strong>cache</strong> – Same cache used in <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipeline.generate" title="flashdreams.infra.pipeline.StreamInferencePipeline.generate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code></a>. Consumes
-<code class="docutils literal notranslate"><span class="pre">cache.final_state</span></code> (the <code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel.FinalState</span></code>
-stashed there).</p></li>
+recent <code class="docutils literal notranslate"><span class="pre">generate</span></code> (asserted).</p></li>
+<li><p><strong>cache</strong> – Same cache used by <code class="docutils literal notranslate"><span class="pre">generate</span></code>. Consumes
+<code class="docutils literal notranslate"><span class="pre">cache.final_state</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><p><code class="docutils literal notranslate"><span class="pre">None</span></code> when <a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile"><code class="xref py py-attr docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig.enable_sync_and_profile</span></code></a>
-is <code class="docutils literal notranslate"><span class="pre">False</span></code>. Otherwise a flat <code class="docutils literal notranslate"><span class="pre">dict[str,</span> <span class="pre">float]</span></code> snapshot of
-this AR step’s per-stage timings (ms) and current GPU memory
-(GiB), with keys:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="o">&lt;</span><span class="n">stage</span><span class="o">&gt;</span><span class="n">_ms</span> <span class="k">for</span> <span class="n">stage</span> <span class="ow">in</span> <span class="n">stats</span><span class="p">},</span>   <span class="c1"># e.g. encode_ms, diffuse_ms, ...</span>
-<span class="s2">&quot;total_ms&quot;</span><span class="p">,</span>
-<span class="s2">&quot;total_ms_wo_finalize&quot;</span><span class="p">,</span>
-<span class="s2">&quot;mem_alloc_gib&quot;</span><span class="p">,</span>                    <span class="c1"># only if torch.cuda available</span>
-<span class="s2">&quot;mem_reserved_gib&quot;</span><span class="p">,</span>
-<span class="s2">&quot;mem_peak_gib&quot;</span><span class="p">,</span>
-</pre></div>
-</div>
-<p>The same numbers are also emitted via <code class="docutils literal notranslate"><span class="pre">logger.info</span></code>; the
-return value lets callers persist them (CSV, JSONL, MLflow,
-…) without re-parsing the log line.</p>
-</p>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">None</span></code> when profiling is disabled. Otherwise a snapshot of this
+AR step’s per-stage timings (ms) and GPU memory (GiB):
+<code class="docutils literal notranslate"><span class="pre">{&lt;stage&gt;_ms,</span> <span class="pre">total_ms,</span> <span class="pre">total_ms_wo_finalize,</span> <span class="pre">mem_alloc_gib,</span>
+<span class="pre">mem_reserved_gib,</span> <span class="pre">mem_peak_gib}</span></code>. The same numbers are also
+logged via <code class="docutils literal notranslate"><span class="pre">logger.info</span></code>.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -657,31 +626,32 @@ return value lets callers persist them (CSV, JSONL, MLflow,
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">
 <span class="sig-name descname"><span class="pre">encoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">EncCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache" title="Link to this definition">#</a></dt>
-<dd><p>Encoder AR cache. <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no encoder.</p>
+<dd><p>Encoder AR cache; <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no encoder.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache">
 <span class="sig-name descname"><span class="pre">decoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">DecCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache" title="Link to this definition">#</a></dt>
-<dd><p>Decoder AR cache. <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no decoder.</p>
+<dd><p>Decoder AR cache; <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no decoder.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.final_state">
 <span class="sig-name descname"><span class="pre">final_state</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">FinalState</span><span class="p"><span class="pre">[</span></span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.final_state" title="Link to this definition">#</a></dt>
-<dd><p><code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel.FinalState</span></code> from the most recent <code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code>. <code class="docutils literal notranslate"><span class="pre">None</span></code> until then.</p>
+<dd><p>Diffusion-model state from the most recent <code class="docutils literal notranslate"><span class="pre">generate</span></code>, consumed
+by <code class="docutils literal notranslate"><span class="pre">finalize</span></code>.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.autoregressive_index">
 <span class="sig-name descname"><span class="pre">autoregressive_index</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.autoregressive_index" title="Link to this definition">#</a></dt>
-<dd><p>AR step index of the most recent <code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code> (used to assert generate/finalize pairing).</p>
+<dd><p>AR step index of the most recent <code class="docutils literal notranslate"><span class="pre">generate</span></code>.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler">
 <span class="sig-name descname"><span class="pre">event_profiler</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">EventProfiler</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler" title="Link to this definition">#</a></dt>
-<dd><p>Current AR step’s <code class="xref py py-class docutils literal notranslate"><span class="pre">EventProfiler</span></code> (only when profiling is enabled).</p>
+<dd><p>Per-step profiler, populated only when profiling is on.</p>
 </dd></dl>
 
 </dd></dl>
@@ -695,42 +665,33 @@ iteration loop are hidden inside
 <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.generate" title="flashdreams.infra.diffusion.model.DiffusionModel.generate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code></a>.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">DiffusionModelConfig</span></span><span class="sig-paren">(</span>
-
-<dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel" title="flashdreams.infra.diffusion.model.base.DiffusionModel"><span class="pre">DiffusionModel</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">transformer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerConfig" title="flashdreams.infra.diffusion.transformer.base.TransformerConfig"><span class="pre">TransformerConfig</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">scheduler</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="flashdreams.infra.diffusion.scheduler.base.SchedulerConfig"><span class="pre">SchedulerConfig</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">context_noise</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
-</dl>
-
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModelConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">DiffusionModelConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">*,</span> <span class="pre">_target:</span> <span class="pre">type[~flashdreams.infra.diffusion.model.base.DiffusionModel]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">transformer:</span> <span class="pre">~flashdreams.infra.config.base.InstantiateConfig[~typing.Any],</span> <span class="pre">scheduler:</span> <span class="pre">~flashdreams.infra.config.base.InstantiateConfig[~typing.Any],</span> <span class="pre">seed:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">context_noise:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">0</span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModelConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel" title="flashdreams.infra.diffusion.model.DiffusionModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel</span></code></a>]</p>
-<p>Hyperparameters for a <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel" title="flashdreams.infra.diffusion.model.DiffusionModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel</span></code></a>.</p>
+<p>Config for the autoregressive diffusion model.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer">
-<span class="sig-name descname"><span class="pre">transformer</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerConfig" title="flashdreams.infra.diffusion.transformer.base.TransformerConfig"><span class="pre">TransformerConfig</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">transformer</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer" title="Link to this definition">#</a></dt>
 <dd><p>Flow-prediction network config.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler">
-<span class="sig-name descname"><span class="pre">scheduler</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="flashdreams.infra.diffusion.scheduler.base.SchedulerConfig"><span class="pre">SchedulerConfig</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">scheduler</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler" title="Link to this definition">#</a></dt>
 <dd><p>Denoising-loop config.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig.seed">
 <span class="sig-name descname"><span class="pre">seed</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed" title="Link to this definition">#</a></dt>
-<dd><p>RNG seed for the initial-noise draw and scheduler sampling. <code class="docutils literal notranslate"><span class="pre">None</span></code> uses the global RNG.</p>
+<dd><p>RNG seed for initial-noise draws and scheduler sampling.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> uses the global RNG.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise">
 <span class="sig-name descname"><span class="pre">context_noise</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise" title="Link to this definition">#</a></dt>
-<dd><p>Timestep used by <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.finalize" title="flashdreams.infra.diffusion.model.DiffusionModel.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">DiffusionModel.finalize()</span></code></a> for the AR cache-update forward. <code class="docutils literal notranslate"><span class="pre">0</span></code> skips <code class="xref py py-meth docutils literal notranslate"><span class="pre">Scheduler.add_noise()</span></code>.</p>
+<dd><p>Timestep used by <code class="docutils literal notranslate"><span class="pre">finalize</span></code> for the AR cache-update forward.
+<code class="docutils literal notranslate"><span class="pre">0</span></code> skips <code class="docutils literal notranslate"><span class="pre">add_noise</span></code>.</p>
 </dd></dl>
 
 </dd></dl>
@@ -745,16 +706,16 @@ iteration loop are hidden inside
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>]</p>
-<p>Autoregressive diffusion model: scheduler + transformer.</p>
-<p>Generic over the concrete <code class="docutils literal notranslate"><span class="pre">TransformerAutoregressiveCache</span></code> subclass
-so user-facing typing on <code class="docutils literal notranslate"><span class="pre">cache</span></code> is preserved end-to-end.</p>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="n">cache</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">initialize_autoregressive_cache</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-<span class="n">clean</span><span class="p">,</span> <span class="n">final_state</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span>
-<span class="n">model</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">final_state</span><span class="p">)</span>  <span class="c1"># advance KV cache for the next AR step</span>
-</pre></div>
-</div>
+<p>Autoregressive diffusion model (scheduler + transformer).</p>
+<p>Generic over the transformer’s AR cache type so user-facing typing on
+<code class="docutils literal notranslate"><span class="pre">cache</span></code> is preserved end-to-end.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><p>model = config.setup().to(“cuda”)
+cache = model.transformer.initialize_autoregressive_cache(…)
+clean, final_state = model.generate(autoregressive_index=0, cache=cache)
+model.finalize(final_state)</p>
+</div></blockquote>
 <dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">FinalState</span></span><span class="sig-paren">(</span>
@@ -763,35 +724,39 @@ so user-facing typing on <code class="docutils literal notranslate"><span class=
 <dd><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">clean_latent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">TransformerCacheT</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">_FinalStateCacheT</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModel.FinalState"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>]</p>
-<p>State passed from <code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code> to <code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code>.</p>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">_FinalStateCacheT</span></code>]</p>
+<p>State passed from <code class="docutils literal notranslate"><span class="pre">generate</span></code> to <code class="docutils literal notranslate"><span class="pre">finalize</span></code>.</p>
+<p>Uses its own <code class="docutils literal notranslate"><span class="pre">_FinalStateCacheT</span></code> rather than the enclosing class’s
+<code class="docutils literal notranslate"><span class="pre">TransformerCacheT</span></code> because nested classes don’t inherit outer-scope
+type parameters; reusing the same TypeVar object would only shadow
+it and confuse the type checker.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent">
 <span class="sig-name descname"><span class="pre">clean_latent</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent" title="Link to this definition">#</a></dt>
-<dd><p>Patchified clean latent from the end of the denoising loop.</p>
+<dd><p>Patchified clean latent at the end of denoising.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index">
 <span class="sig-name descname"><span class="pre">autoregressive_index</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index" title="Link to this definition">#</a></dt>
-<dd><p>AR step index this state was produced at.</p>
+<dd><p>AR step this state was produced at.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache">
-<span class="sig-name descname"><span class="pre">cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">_FinalStateCacheT</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache" title="Link to this definition">#</a></dt>
 <dd><p>Long-lived AR cache used during generation.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.input">
 <span class="sig-name descname"><span class="pre">input</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.input" title="Link to this definition">#</a></dt>
-<dd><p>Per-AR-step encoder output (already patchified), or <code class="docutils literal notranslate"><span class="pre">None</span></code> if the pipeline has no encoder.</p>
+<dd><p>Patchified per-AR-step encoder output, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
 </dd></dl>
 
 </dd></dl>
@@ -799,12 +764,11 @@ so user-facing typing on <code class="docutils literal notranslate"><span class=
 <dl class="py property">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModel.rng">
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">rng</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.Generator.html#torch.Generator" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Generator</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.rng" title="Link to this definition">#</a></dt>
-<dd><p>Per-model <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.Generator.html#torch.Generator" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">torch.Generator</span></code></a> (lazily built on the current device).</p>
-<p>Returns <code class="docutils literal notranslate"><span class="pre">None</span></code> when <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed" title="flashdreams.infra.diffusion.model.DiffusionModelConfig.seed"><code class="xref py py-attr docutils literal notranslate"><span class="pre">DiffusionModelConfig.seed</span></code></a> is <code class="docutils literal notranslate"><span class="pre">None</span></code>.
-Rebuilt the first time the model’s device changes after a <code class="docutils literal notranslate"><span class="pre">.to(...)</span></code>.</p>
-<p>Warning: a device move resets the RNG stream — fine for the
-usual “construct on CPU, <code class="docutils literal notranslate"><span class="pre">.to(gpu)</span></code> once” workflow, but
-mid-rollout device hops will lose RNG state.</p>
+<dd><p>Per-model generator, lazily built on the current device.</p>
+<p>Returns <code class="docutils literal notranslate"><span class="pre">None</span></code> when <code class="docutils literal notranslate"><span class="pre">config.seed</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>. Rebuilt the first
+time the model’s device changes after a <code class="docutils literal notranslate"><span class="pre">.to(...)</span></code>. A device move
+resets the RNG stream — fine for “construct on CPU, <code class="docutils literal notranslate"><span class="pre">.to(gpu)</span></code>
+once” but mid-rollout device hops lose RNG state.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -822,20 +786,16 @@ mid-rollout device hops will lose RNG state.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>autoregressive_index</strong> – Index of this AR step.</p></li>
-<li><p><strong>cache</strong> – Long-lived AR cache; mutated in place across AR steps.</p></li>
-<li><p><strong>input</strong> – Optional per-AR-step encoder output. When provided it
-is patchified via <code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.patchify_and_maybe_split_cp()</span></code>
-and forwarded to <code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.predict_flow()</span></code> /
-<code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.postprocess_clean_latent()</span></code>, then saved
-on the returned <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState" title="flashdreams.infra.diffusion.model.DiffusionModel.FinalState"><code class="xref py py-class docutils literal notranslate"><span class="pre">FinalState</span></code></a> for re-use in
-<a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.finalize" title="flashdreams.infra.diffusion.model.DiffusionModel.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code></a>.</p></li>
+<li><p><strong>autoregressive_index</strong> – AR step index.</p></li>
+<li><p><strong>cache</strong> – Long-lived AR cache, mutated in place.</p></li>
+<li><p><strong>input</strong> – Optional per-AR-step encoder output. Patchified here and
+forwarded to <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code> / <code class="docutils literal notranslate"><span class="pre">postprocess_clean_latent</span></code>,
+then stashed on the returned <code class="docutils literal notranslate"><span class="pre">FinalState</span></code> for <code class="docutils literal notranslate"><span class="pre">finalize</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">(clean_latent,</span> <span class="pre">final_state)</span></code> where <code class="docutils literal notranslate"><span class="pre">clean_latent</span></code> is the
-unpatchified clean latent and <code class="docutils literal notranslate"><span class="pre">final_state</span></code> should be passed
-to <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.finalize" title="flashdreams.infra.diffusion.model.DiffusionModel.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code></a> to advance the AR cache.</p>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">(clean_latent,</span> <span class="pre">final_state)</span></code>. <code class="docutils literal notranslate"><span class="pre">clean_latent</span></code> is unpatchified;
+<code class="docutils literal notranslate"><span class="pre">final_state</span></code> should be passed to <code class="docutils literal notranslate"><span class="pre">finalize</span></code>.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -849,21 +809,14 @@ to <a class="reference internal" href="#flashdreams.infra.diffusion.model.Diffus
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModel.finalize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModel.finalize" title="Link to this definition">#</a></dt>
-<dd><p>Advance the AR cache using the clean latent from <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.generate" title="flashdreams.infra.diffusion.model.DiffusionModel.generate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code></a>.</p>
-<p>Renoises the clean latent to
-<a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise" title="flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise"><code class="xref py py-attr docutils literal notranslate"><span class="pre">DiffusionModelConfig.context_noise</span></code></a>, then defers the
-actual cache-update forward(s) to
-<code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.finalize_kv_cache()</span></code> (one network for vanilla
-transformers, both for Wan 2.2’s dual-network DiT, etc.).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>final_state</strong> – The <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.FinalState" title="flashdreams.infra.diffusion.model.DiffusionModel.FinalState"><code class="xref py py-class docutils literal notranslate"><span class="pre">FinalState</span></code></a> returned by <a class="reference internal" href="#flashdreams.infra.diffusion.model.DiffusionModel.generate" title="flashdreams.infra.diffusion.model.DiffusionModel.generate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">generate()</span></code></a>.</p>
-</dd>
-</dl>
-<p>Note: <code class="docutils literal notranslate"><span class="pre">context_noise</span> <span class="pre">==</span> <span class="pre">0</span></code> skips <code class="xref py py-meth docutils literal notranslate"><span class="pre">Scheduler.add_noise()</span></code>
-(sigma=0 is the identity) and feeds the clean latent directly,
-which also avoids needing schedulers to support a <code class="docutils literal notranslate"><span class="pre">t=0</span></code> lookup
-(e.g. UniPC’s inference schedule does not contain <code class="docutils literal notranslate"><span class="pre">t=0</span></code>).</p>
+<dd><p>Advance the AR cache using the clean latent from <code class="docutils literal notranslate"><span class="pre">generate</span></code>.</p>
+<p>Re-noises the clean latent to <code class="docutils literal notranslate"><span class="pre">config.context_noise</span></code> and runs the
+transformer’s <code class="docutils literal notranslate"><span class="pre">finalize_kv_cache</span></code> (one forward for vanilla
+transformers, multiple for dual-network DiTs).</p>
+<p><code class="docutils literal notranslate"><span class="pre">context_noise</span> <span class="pre">==</span> <span class="pre">0</span></code> skips <code class="docutils literal notranslate"><span class="pre">add_noise</span></code> (sigma=0 is identity) and
+feeds the clean latent directly. This also dodges the requirement
+for schedulers to support a <code class="docutils literal notranslate"><span class="pre">t=0</span></code> lookup (UniPC’s inference
+schedule has no <code class="docutils literal notranslate"><span class="pre">t=0</span></code> entry).</p>
 </dd></dl>
 
 </dd></dl>
@@ -872,45 +825,31 @@ which also avoids needing schedulers to support a <code class="docutils literal 
 <section id="transformer">
 <h2>Transformer<a class="headerlink" href="#transformer" title="Link to this heading">#</a></h2>
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.diffusion.transformer.TransformerConfig">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">TransformerConfig</span></span><span class="sig-paren">(</span>
-
-<dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer" title="flashdreams.infra.diffusion.transformer.base.Transformer"><span class="pre">Transformer</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
-</dl>
-
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#TransformerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.TransformerConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer" title="flashdreams.infra.diffusion.transformer.Transformer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Transformer</span></code></a>]</p>
-<p>Configuration for a diffusion transformer network.</p>
-<p>Concrete subclasses are responsible for exposing <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.latent_shape" title="flashdreams.infra.diffusion.transformer.Transformer.latent_shape"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Transformer.latent_shape</span></code></a>
-on the runtime object (typically as a property derived from runtime CP
-group sizes), since the per-rank shape depends on hierarchical
-context-parallel splits that are only known after distributed init.</p>
-</dd></dl>
-
-<dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.transformer.Transformer">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Transformer</span></span><span class="sig-paren">(</span>
 
 <dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerConfig" title="flashdreams.infra.diffusion.transformer.base.TransformerConfig"><span class="pre">TransformerConfig</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>]</p>
 <p>Flow-prediction transformer, generic over its AR cache subclass.</p>
-<p>Subclasses implement <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.predict_flow" title="flashdreams.infra.diffusion.transformer.Transformer.predict_flow"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict_flow()</span></code></a> and the patchify hooks; AR
-transformers additionally subclass <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache" title="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerAutoregressiveCache</span></code></a>
-and override <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache" title="flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache"><code class="xref py py-meth docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a>.</p>
-<p>Example (subclassing for an AR transformer):</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyTransformer</span><span class="p">(</span><span class="n">Transformer</span><span class="p">[</span><span class="n">MyCache</span><span class="p">]):</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">predict_flow</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noisy_latent</span><span class="p">,</span> <span class="n">timestep</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-        <span class="o">...</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MyCache</span><span class="p">:</span>
-        <span class="o">...</span>
-</pre></div>
-</div>
+<p>Subclasses implement <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code> and the patchify hooks. AR
+transformers also subclass <code class="docutils literal notranslate"><span class="pre">TransformerAutoregressiveCache</span></code> and
+override <code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache</span></code>.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>class MyTransformer(Transformer[MyCache]):</dt><dd><dl class="simple">
+<dt>def predict_flow(self, noisy_latent, timestep, cache, input=None):</dt><dd><p>…</p>
+</dd>
+<dt>def initialize_autoregressive_cache(self, <a href="#id1"><span class="problematic" id="id2">**</span></a>context) -&gt; MyCache:</dt><dd><p>…</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</div></blockquote>
 <dl class="py property">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.transformer.Transformer.latent_shape">
 <span class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">latent_shape</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.latent_shape" title="Link to this definition">#</a></dt>
@@ -938,15 +877,14 @@ group sizes (V/T/HW), so subclasses typically derive this from
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>noisy_latent</strong> – Patchified noisy latent for this denoising step.</p></li>
 <li><p><strong>timestep</strong> – Scalar timestep tensor.</p></li>
-<li><p><strong>cache</strong> – Long-lived AR cache for this rollout.</p></li>
-<li><p><strong>input</strong> – Encoder output for this AR step (already patchified
-by <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp" title="flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp"><code class="xref py py-meth docutils literal notranslate"><span class="pre">patchify_and_maybe_split_cp()</span></code></a>), or <code class="docutils literal notranslate"><span class="pre">None</span></code>
-when the pipeline has no encoder. Subclasses should
-narrow the type to their encoder’s output type.</p></li>
+<li><p><strong>cache</strong> – Per-rollout AR cache.</p></li>
+<li><p><strong>input</strong> – Patchified encoder output for this AR step, or <code class="docutils literal notranslate"><span class="pre">None</span></code>
+when the pipeline has no encoder. Subclasses should narrow
+the type to their encoder’s output type.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Predicted flow tensor (same shape as <code class="docutils literal notranslate"><span class="pre">noisy_latent</span></code>).</p>
+<dd class="field-even"><p>Predicted flow tensor with the same shape as <code class="docutils literal notranslate"><span class="pre">noisy_latent</span></code>.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -964,23 +902,18 @@ narrow the type to their encoder’s output type.</p></li>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer.finalize_kv_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.finalize_kv_cache" title="Link to this definition">#</a></dt>
 <dd><p>Advance the AR cache so it is ready for the next AR step.</p>
-<p>Called once by <code class="xref py py-meth docutils literal notranslate"><span class="pre">DiffusionModel.finalize()</span></code> after the denoising
-loop; the resulting flow is discarded – only the cache side
-effect matters. Default runs a single <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.predict_flow" title="flashdreams.infra.diffusion.transformer.Transformer.predict_flow"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict_flow()</span></code></a> forward,
-which is the right thing for transformers with one network.
-Subclasses with multiple parallel networks/caches that must stay
-in lock-step (e.g. Wan 2.2’s dual-network DiT) should override
-this to forward through <em>each</em> network once per AR step.</p>
+<p>Called by <code class="docutils literal notranslate"><span class="pre">DiffusionModel.finalize</span></code> after the denoising loop; the
+flow is discarded — only the cache side effect matters. Default
+runs a single <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code> forward. Override for transformers
+with multiple parallel networks that must stay in lock-step.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>noisy_latent</strong> – Patchified latent at the AR-step’s
-<code class="docutils literal notranslate"><span class="pre">context_noise</span></code> (or the clean latent when
-<code class="docutils literal notranslate"><span class="pre">context_noise</span> <span class="pre">==</span> <span class="pre">0</span></code>).</p></li>
-<li><p><strong>timestep</strong> – 0-d <code class="docutils literal notranslate"><span class="pre">context_noise</span></code> timestep tensor.</p></li>
-<li><p><strong>cache</strong> – Long-lived AR cache for this rollout.</p></li>
-<li><p><strong>input</strong> – Same per-AR-step encoder output passed to
-<a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.predict_flow" title="flashdreams.infra.diffusion.transformer.Transformer.predict_flow"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict_flow()</span></code></a> (already patchified).</p></li>
+<li><p><strong>noisy_latent</strong> – Patchified latent at the AR-step’s context noise
+(or the clean latent when <code class="docutils literal notranslate"><span class="pre">context_noise</span> <span class="pre">==</span> <span class="pre">0</span></code>).</p></li>
+<li><p><strong>timestep</strong> – 0-d context-noise timestep tensor.</p></li>
+<li><p><strong>cache</strong> – Per-rollout AR cache.</p></li>
+<li><p><strong>input</strong> – Same patchified encoder output passed to <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code>.</p></li>
 </ul>
 </dd>
 </dl>
@@ -996,17 +929,15 @@ this to forward through <em>each</em> network once per AR step.</p>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">TransformerCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh AR cache for a new rollout.</p>
-<p>Default returns the empty <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache" title="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerAutoregressiveCache</span></code></a>
-sentinel (correct for non-AR transformers). Subclasses with a
-custom <code class="docutils literal notranslate"><span class="pre">TransformerCacheT</span></code> must override this and may declare
-typed per-rollout context, e.g. <code class="docutils literal notranslate"><span class="pre">text_embeddings</span></code> for T2V or
-<code class="docutils literal notranslate"><span class="pre">text_embeddings</span></code> + <code class="docutils literal notranslate"><span class="pre">image_embeddings</span></code> for I2V.</p>
+<p>Default returns an empty cache, correct for non-AR transformers.
+Subclasses with custom cache types must override this and may
+declare typed per-rollout context (e.g. <code class="docutils literal notranslate"><span class="pre">text_embeddings</span></code>).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>context</strong> – Per-rollout state forwarded as keyword arguments.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A fresh <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache" title="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerAutoregressiveCache</span></code></a> (or subclass).</p>
+<dd class="field-even"><p>Fresh AR cache.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1023,22 +954,19 @@ typed per-rollout context, e.g. <code class="docutils literal notranslate"><span
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer.postprocess_clean_latent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.postprocess_clean_latent" title="Link to this definition">#</a></dt>
 <dd><p>Optional postprocessing hook for the predicted clean latent.</p>
-<p>Default returns <code class="docutils literal notranslate"><span class="pre">clean_latent</span></code> unchanged. Override to clamp or
-re-inject regions whose clean value is known a priori (e.g. I2V
-first-frame pinning). Called once at the end of
-<code class="xref py py-meth docutils literal notranslate"><span class="pre">DiffusionModel.generate()</span></code>, before the result is unpatchified
-and stashed on <code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel.FinalState</span></code>.</p>
+<p>Default is identity. Override to clamp or re-inject regions whose
+clean value is known a priori (e.g. I2V first-frame pinning).
+Called at the end of <code class="docutils literal notranslate"><span class="pre">DiffusionModel.generate</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>clean_latent</strong> – Patchified <code class="docutils literal notranslate"><span class="pre">x0</span></code> from the denoising loop.</p></li>
-<li><p><strong>cache</strong> – Long-lived AR cache for this rollout.</p></li>
-<li><p><strong>input</strong> – Same per-AR-step encoder output passed to
-<a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.predict_flow" title="flashdreams.infra.diffusion.transformer.Transformer.predict_flow"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict_flow()</span></code></a> (already patchified).</p></li>
+<li><p><strong>cache</strong> – Per-rollout AR cache.</p></li>
+<li><p><strong>input</strong> – Same patchified encoder output passed to <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Postprocessed clean latent (same shape as <code class="docutils literal notranslate"><span class="pre">clean_latent</span></code>).</p>
+<dd class="field-even"><p>Postprocessed clean latent with the same shape.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1046,25 +974,12 @@ and stashed on <code class="xref py py-class docutils literal notranslate"><span
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">patchify_and_maybe_split_cp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer.patchify_and_maybe_split_cp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp" title="Link to this definition">#</a></dt>
-<dd><p>Patchify and (optionally) split for context parallelism.</p>
-<p>Used for both the noisy latent and the per-AR-step <code class="docutils literal notranslate"><span class="pre">input</span></code>
-payload. Subclasses dispatch on type:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">Tensor</span></code>: patchify + CP-split.</p></li>
-<li><p>Structured payloads (e.g. <code class="docutils literal notranslate"><span class="pre">ImageCtrl</span></code> with <code class="docutils literal notranslate"><span class="pre">latent</span></code> and
-<code class="docutils literal notranslate"><span class="pre">mask</span></code> Tensors): patchify each Tensor field independently
-and return the same structured type.</p></li>
-</ul>
-<p>Implement as identity when neither token packing nor CP sharding
-applies. Output preserves the input <em>type</em> — only shapes change.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>x</strong> – Tensor or structured payload to patchify.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Patchified value with the same Python type as <code class="docutils literal notranslate"><span class="pre">x</span></code>.</p>
-</dd>
-</dl>
+<dd><p>Patchify and (optionally) CP-split a noisy latent or encoder payload.</p>
+<p>Tensors patchify and split. Structured payloads (e.g. an image-control
+struct with <code class="docutils literal notranslate"><span class="pre">latent</span></code> + <code class="docutils literal notranslate"><span class="pre">mask</span></code>) patchify each tensor field and
+return the same struct type. Implement as identity when neither
+token packing nor CP sharding applies. Output preserves the input
+Python type — only shapes change.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1076,18 +991,7 @@ applies. Output preserves the input <em>type</em> — only shapes change.</p>
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/transformer/base.html#Transformer.unpatchify_and_maybe_gather_cp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.transformer.Transformer.unpatchify_and_maybe_gather_cp" title="Link to this definition">#</a></dt>
-<dd><p>Inverse of <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp" title="flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp"><code class="xref py py-meth docutils literal notranslate"><span class="pre">patchify_and_maybe_split_cp()</span></code></a> for the network output.</p>
-<p>Always called on a plain <code class="xref py py-class docutils literal notranslate"><span class="pre">Tensor</span></code> (the predicted clean
-latent), so the structured-payload concern from
-<a class="reference internal" href="#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp" title="flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp"><code class="xref py py-meth docutils literal notranslate"><span class="pre">patchify_and_maybe_split_cp()</span></code></a> does not apply.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>x</strong> – Patchified (and possibly CP-split) latent.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Unpatchified, gathered latent.</p>
-</dd>
-</dl>
+<dd><p>Inverse of <code class="docutils literal notranslate"><span class="pre">patchify_and_maybe_split_cp</span></code> for the network output.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1098,14 +1002,14 @@ latent), so the structured-payload concern from
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
 <p>Cache that persists across an AR rollout.</p>
 <p>Empty by default; safe to instantiate directly for non-AR transformers
-(the default <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start" title="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start"><code class="xref py py-meth docutils literal notranslate"><span class="pre">start()</span></code></a> / <a class="reference internal" href="#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.finalize" title="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.finalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">finalize()</span></code></a> are no-ops). Subclass and
-add fields plus AR bookkeeping for real per-rollout state.</p>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cache</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
-<span class="c1"># ... use the cache with the transformer (one or more denoising steps)</span>
-<span class="n">cache</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
-</pre></div>
-</div>
+(default <code class="docutils literal notranslate"><span class="pre">start</span></code> / <code class="docutils literal notranslate"><span class="pre">finalize</span></code> are no-ops). Subclass and add fields
+plus AR bookkeeping for real per-rollout state.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><p>cache.start(autoregressive_index)
+# one or more denoising steps…
+cache.finalize(autoregressive_index)</p>
+</div></blockquote>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start">
 <span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span>
@@ -1149,54 +1053,27 @@ add fields plus AR bookkeeping for real per-rollout state.</p>
 internal op is a broadcast against per-step scalar sigmas, so the same
 scheduler works for any latent layout.</p>
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.SchedulerConfig">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">SchedulerConfig</span></span><span class="sig-paren">(</span>
-
-<dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="flashdreams.infra.diffusion.scheduler.base.Scheduler"><span class="pre">Scheduler</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">num_inference_steps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">shift</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">5.0</span></span></em>,</dd>
-</dl>
-
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#SchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="flashdreams.infra.diffusion.scheduler.Scheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">Scheduler</span></code></a>]</p>
-<p>Hyperparameters for a <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="flashdreams.infra.diffusion.scheduler.Scheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">Scheduler</span></code></a>.</p>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps">
-<span class="sig-name descname"><span class="pre">num_inference_steps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps" title="Link to this definition">#</a></dt>
-<dd><p>Number of denoising iterations the scheduler runs in <code class="xref py py-meth docutils literal notranslate"><span class="pre">sample()</span></code>.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.SchedulerConfig.shift">
-<span class="sig-name descname"><span class="pre">shift</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5.0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig.shift" title="Link to this definition">#</a></dt>
-<dd><p>Schedule warp factor (family-specific; e.g. flow-match shift).</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.Scheduler">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Scheduler</span></span><span class="sig-paren">(</span>
 
 <dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="flashdreams.infra.diffusion.scheduler.base.SchedulerConfig"><span class="pre">SchedulerConfig</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#Scheduler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a></p>
 <p>Denoising scheduler.</p>
 <p>Owns the entire denoising loop. Callers see only <code class="docutils literal notranslate"><span class="pre">noise</span> <span class="pre">→</span> <span class="pre">clean</span></code>;
-the loop shape (renoise / multistep / plain ODE) is a private
-implementation detail.</p>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">scheduler</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
-<span class="n">clean</span> <span class="o">=</span> <span class="n">scheduler</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">initial_noise</span><span class="o">=</span><span class="n">noise</span><span class="p">,</span> <span class="n">predict_flow</span><span class="o">=</span><span class="n">predictor</span><span class="p">)</span>
-<span class="c1"># later, to corrupt a clean latent to a given timestep:</span>
-<span class="n">noisy</span> <span class="o">=</span> <span class="n">scheduler</span><span class="o">.</span><span class="n">add_noise</span><span class="p">(</span><span class="n">clean_input</span><span class="o">=</span><span class="n">clean</span><span class="p">,</span> <span class="n">timestep</span><span class="o">=</span><span class="n">t</span><span class="p">)</span>
-</pre></div>
-</div>
+the loop shape (renoise / multistep / plain ODE) is private.</p>
+<p>Concrete configs inherit <code class="docutils literal notranslate"><span class="pre">InstantiateConfig[&lt;SchedulerSubclass&gt;]</span></code> and
+declare their own <code class="docutils literal notranslate"><span class="pre">num_inference_steps</span></code> / <code class="docutils literal notranslate"><span class="pre">shift</span></code> fields (the base
+holds no shared dataclass fields).</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><p>scheduler = config.setup()
+clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)
+noisy = scheduler.add_noise(clean_input=clean, timestep=t)</p>
+</div></blockquote>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.Scheduler.sample">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span>
@@ -1209,27 +1086,23 @@ implementation detail.</p>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#Scheduler.sample"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.Scheduler.sample" title="Link to this definition">#</a></dt>
 <dd><p>Run the full denoising loop and return the clean latent.</p>
-<p>Schedulers are shape-agnostic: every internal op is elementwise
-broadcast against per-step scalar sigmas. In practice
-<code class="docutils literal notranslate"><span class="pre">initial_noise</span></code> is a video latent <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">C,</span> <span class="pre">T,</span> <span class="pre">H,</span> <span class="pre">W]</span></code>.</p>
+<p>Schedulers are shape-agnostic: every internal op broadcasts against
+per-step scalar sigmas. In practice <code class="docutils literal notranslate"><span class="pre">initial_noise</span></code> is a video
+latent <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">C,</span> <span class="pre">T,</span> <span class="pre">H,</span> <span class="pre">W]</span></code>, conventionally treated as a sample at
+<code class="docutils literal notranslate"><span class="pre">sigma=1</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>initial_noise</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> Gaussian noise on the caller’s
-device/dtype. The scheduler conventionally treats this
-as a sample at <code class="docutils literal notranslate"><span class="pre">sigma=1</span></code> (i.e. the highest noise
-level on its schedule).</p></li>
-<li><p><strong>predict_flow</strong> – Per-step closure invoked exactly
-<a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps" title="flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps"><code class="xref py py-attr docutils literal notranslate"><span class="pre">SchedulerConfig.num_inference_steps</span></code></a> times.</p></li>
-<li><p><strong>rng</strong> – <code class="docutils literal notranslate"><span class="pre">torch.Generator</span></code> on the same device as
-<code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>. Used by self-forcing renoise loops
-to draw extra noise per step; pure ODE solvers ignore
-it.</p></li>
+<li><p><strong>initial_noise</strong> – Gaussian noise on the caller’s device/dtype.</p></li>
+<li><p><strong>predict_flow</strong> – Per-step closure invoked
+<code class="docutils literal notranslate"><span class="pre">num_inference_steps</span></code> times.</p></li>
+<li><p><strong>rng</strong> – Generator on the same device. Used by self-forcing renoise
+loops; pure ODE solvers ignore it.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent with the same shape, device, and
-dtype as <code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>.</p>
+<dd class="field-even"><p>Clean latent with the same shape, device, and dtype as
+<code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1246,25 +1119,9 @@ dtype as <code class="docutils literal notranslate"><span class="pre">initial_no
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#Scheduler.add_noise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise" title="Link to this definition">#</a></dt>
 <dd><p>Forward corruption <code class="docutils literal notranslate"><span class="pre">x_t</span> <span class="pre">=</span> <span class="pre">(1</span> <span class="pre">-</span> <span class="pre">sigma(t))</span> <span class="pre">*</span> <span class="pre">x_0</span> <span class="pre">+</span> <span class="pre">sigma(t)</span> <span class="pre">*</span> <span class="pre">eps</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>clean_input</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent on the caller’s
-device/dtype (typically <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">C,</span> <span class="pre">T,</span> <span class="pre">H,</span> <span class="pre">W]</span></code>).</p></li>
-<li><p><strong>timestep</strong> – 0-d tensor on the same device. Scheduler-specific
-value semantics (FlowMatch snaps to the nearest entry
-of its 1000-step training table; FlowUniPC requires
-exact membership in its inference schedule).</p></li>
-<li><p><strong>rng</strong> – <code class="docutils literal notranslate"><span class="pre">torch.Generator</span></code> on the same device as
-<code class="docutils literal notranslate"><span class="pre">clean_input</span></code>, used to draw the additive Gaussian
-noise.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> noisy latent with the same shape, device, and
-dtype as <code class="docutils literal notranslate"><span class="pre">clean_input</span></code>.</p>
-</dd>
-</dl>
+<p>Timestep value semantics are scheduler-specific: FlowMatch snaps to
+the nearest entry of its 1000-step training table; FlowUniPC
+requires exact membership in its inference schedule.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1274,13 +1131,10 @@ dtype as <code class="docutils literal notranslate"><span class="pre">clean_inpu
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">FlowPredictor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#FlowPredictor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowPredictor" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Protocol" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Protocol</span></code></a></p>
 <p>Closure <code class="docutils literal notranslate"><span class="pre">(noisy_latent,</span> <span class="pre">timestep)</span> <span class="pre">-&gt;</span> <span class="pre">predicted_flow</span></code>.</p>
-<p>Built by <code class="xref py py-class docutils literal notranslate"><span class="pre">DiffusionModel.generate</span></code> by binding the per-AR-step
-<code class="docutils literal notranslate"><span class="pre">cache</span></code> / <code class="docutils literal notranslate"><span class="pre">input</span></code> and <code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.predict_flow()</span></code>. A scheduler
-invokes it once per denoising iteration.</p>
-<p>Note: the scheduler decides the dtype of the <code class="docutils literal notranslate"><span class="pre">timestep</span></code> scalar –
-UniPC uses <code class="docutils literal notranslate"><span class="pre">int64</span></code>, flow-match uses <code class="docutils literal notranslate"><span class="pre">float</span></code> – and places it on
-the same device as <code class="docutils literal notranslate"><span class="pre">noisy_latent</span></code>. The transformer must accept
-either dtype.</p>
+<p>Built by <code class="docutils literal notranslate"><span class="pre">DiffusionModel.generate</span></code> by binding the per-AR-step <code class="docutils literal notranslate"><span class="pre">cache</span></code>
+/ <code class="docutils literal notranslate"><span class="pre">input</span></code> to the transformer’s <code class="docutils literal notranslate"><span class="pre">predict_flow</span></code>. A scheduler invokes
+it once per denoising iteration. The scheduler decides the timestep
+dtype (UniPC uses int64, flow-match uses float).</p>
 </dd></dl>
 
 <dl class="py class">
@@ -1300,18 +1154,18 @@ either dtype.</p>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="flashdreams.infra.diffusion.scheduler.base.SchedulerConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">SchedulerConfig</span></code></a></p>
-<p>Hyperparameters for <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler" title="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">FlowMatchScheduler</span></code></a>.</p>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler" title="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">FlowMatchScheduler</span></code></a>]</p>
+<p>Config for the flow-matching scheduler.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps">
 <span class="sig-name descname"><span class="pre">num_inference_steps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps" title="Link to this definition">#</a></dt>
-<dd><p>Number of denoising steps. Must equal <code class="docutils literal notranslate"><span class="pre">len(denoising_timesteps)</span></code>.</p>
+<dd><p>Must equal <code class="docutils literal notranslate"><span class="pre">len(denoising_timesteps)</span></code>.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift">
 <span class="sig-name descname"><span class="pre">shift</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">8.0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift" title="Link to this definition">#</a></dt>
-<dd><p>Schedule warp factor (<code class="docutils literal notranslate"><span class="pre">shift</span> <span class="pre">*</span> <span class="pre">s</span> <span class="pre">/</span> <span class="pre">(1</span> <span class="pre">+</span> <span class="pre">(shift</span> <span class="pre">-</span> <span class="pre">1)</span> <span class="pre">*</span> <span class="pre">s)</span></code>).</p>
+<dd><p>Schedule warp factor.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -1323,13 +1177,13 @@ either dtype.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step">
 <span class="sig-name descname"><span class="pre">warp_denoising_step</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step" title="Link to this definition">#</a></dt>
-<dd><p>If <code class="docutils literal notranslate"><span class="pre">True</span></code>, map <code class="docutils literal notranslate"><span class="pre">denoising_timesteps</span></code> through the warped sigma schedule.</p>
+<dd><p>Map <code class="docutils literal notranslate"><span class="pre">denoising_timesteps</span></code> through the warped sigma schedule.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps">
 <span class="sig-name descname"><span class="pre">num_train_timesteps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1000</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps" title="Link to this definition">#</a></dt>
-<dd><p>Length of the underlying training sigma table.</p>
+<dd><p>Length of the training sigma table.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -1356,34 +1210,31 @@ either dtype.</p>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchScheduler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="flashdreams.infra.diffusion.scheduler.base.Scheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">Scheduler</span></code></a></p>
-<p>Flow-matching scheduler (DiffSynth-style step).</p>
-<p>Self-forcing renoise loop – at each iteration the network’s flow
-prediction is converted to an <code class="docutils literal notranslate"><span class="pre">x0</span></code> estimate, then re-noised at
-the <em>same</em> sigma to feed the next iteration. The final <code class="docutils literal notranslate"><span class="pre">x0</span></code> is
-returned.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>x_t = initial_noise
-for t in denoising_step_list:
-    v = predict_flow(x_t, t)
-    x0 = x_t - sigma(t) * v
-    x_t = (1 - sigma(t)) * x0 + sigma(t) * eps    # re-noise at same t
-return x0
+<p>Flow-matching scheduler with self-forcing renoise (DiffSynth-style).</p>
+<p>Each iteration converts the predicted flow to an <code class="docutils literal notranslate"><span class="pre">x0</span></code> estimate, then
+re-noises at the same sigma to feed the next iteration. The final
+<code class="docutils literal notranslate"><span class="pre">x0</span></code> is returned:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">x_t</span> <span class="o">=</span> <span class="n">initial_noise</span>
+<span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">denoising_step_list</span><span class="p">:</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">x_t</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+    <span class="n">x0</span> <span class="o">=</span> <span class="n">x_t</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">v</span>
+    <span class="n">x_t</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">(</span><span class="n">t</span><span class="p">))</span> <span class="o">*</span> <span class="n">x0</span> <span class="o">+</span> <span class="n">sigma</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">*</span> <span class="n">eps</span>
+<span class="k">return</span> <span class="n">x0</span>
 </pre></div>
 </div>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">scheduler</span> <span class="o">=</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">(</span>
-    <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">shift</span><span class="o">=</span><span class="mf">8.0</span><span class="p">,</span>
-    <span class="n">denoising_timesteps</span><span class="o">=</span><span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">750</span><span class="p">,</span> <span class="mi">500</span><span class="p">,</span> <span class="mi">250</span><span class="p">],</span>
-<span class="p">)</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="n">clean</span> <span class="o">=</span> <span class="n">scheduler</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">initial_noise</span><span class="o">=</span><span class="n">noise</span><span class="p">,</span> <span class="n">predict_flow</span><span class="o">=</span><span class="n">fn</span><span class="p">)</span>
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Schedule buffers are pinned to fp32 even after
-<code class="docutils literal notranslate"><span class="pre">module.to(bf16)</span></code> (see <code class="xref py py-meth docutils literal notranslate"><span class="pre">_apply()</span></code>); integer timesteps
-like <code class="docutils literal notranslate"><span class="pre">1000</span></code> would otherwise round to <code class="docutils literal notranslate"><span class="pre">1024</span></code>.</p>
-</div>
+<p>Typical usage example:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>scheduler = FlowMatchSchedulerConfig(</dt><dd><p>num_inference_steps=4,
+shift=8.0,
+denoising_timesteps=[1000, 750, 500, 250],</p>
+</dd>
+</dl>
+<p>).setup().to(“cuda”)
+clean = scheduler.sample(initial_noise=noise, predict_flow=fn)</p>
+</div></blockquote>
+<p>Schedule buffers are pinned to fp32 even after <code class="docutils literal notranslate"><span class="pre">module.to(bf16)</span></code>;
+integer timesteps like 1000 would otherwise round to 1024.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample">
 <span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span>
@@ -1396,30 +1247,10 @@ like <code class="docutils literal notranslate"><span class="pre">1000</span></c
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchScheduler.sample"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample" title="Link to this definition">#</a></dt>
 <dd><p>Run the self-forcing flow-match denoising loop.</p>
-<p>Iteration 0 trusts <code class="docutils literal notranslate"><span class="pre">initial_noise</span></code> as the sigma=1 sample;
-later iterations re-noise the previous <code class="docutils literal notranslate"><span class="pre">x0</span></code> estimate to the
-new sigma BEFORE the network forward.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>initial_noise</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> Gaussian noise on any device/dtype.</p></li>
-<li><p><strong>predict_flow</strong> – Closure called <code class="docutils literal notranslate"><span class="pre">len(denoising_timesteps)</span></code>
-times. Its <code class="docutils literal notranslate"><span class="pre">timestep</span></code> arg is a 0-d <code class="docutils literal notranslate"><span class="pre">float32</span></code> tensor
-(the schedule’s per-step value, e.g. 1000.0, 750.0).</p></li>
-<li><p><strong>rng</strong> – Generator on the same device as <code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>;
-drives the per-step renoise draw.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent with the same shape/device/dtype as
-<code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>.</p>
-</dd>
-</dl>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Schedule arithmetic auto-promotes to fp32 (the buffers are
-fp32); the result is cast back to <code class="docutils literal notranslate"><span class="pre">initial_noise.dtype</span></code>.</p>
-</div>
+<p>Iteration 0 trusts <code class="docutils literal notranslate"><span class="pre">initial_noise</span></code> as the <code class="docutils literal notranslate"><span class="pre">sigma=1</span></code> sample;
+later iterations re-noise the previous <code class="docutils literal notranslate"><span class="pre">x0</span></code> estimate to the new
+sigma before the network forward. Schedule arithmetic auto-promotes
+to fp32; the result is cast back to <code class="docutils literal notranslate"><span class="pre">initial_noise.dtype</span></code>.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1434,23 +1265,8 @@ fp32); the result is cast back to <code class="docutils literal notranslate"><sp
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchScheduler.add_noise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.add_noise" title="Link to this definition">#</a></dt>
 <dd><p>Forward corruption at an arbitrary timestep.</p>
-<p><code class="docutils literal notranslate"><span class="pre">timestep</span></code> is snapped to the nearest entry of the warped
-training table (no exact-match requirement) and used as sigma
-in the standard lerp.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>clean_input</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent on any device/dtype.</p></li>
-<li><p><strong>timestep</strong> – 0-d numeric tensor on the same device. Any value
-in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">num_train_timesteps]</span></code> works.</p></li>
-<li><p><strong>rng</strong> – Generator on the same device as <code class="docutils literal notranslate"><span class="pre">clean_input</span></code>.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> noisy latent with the same shape/device/dtype as
-<code class="docutils literal notranslate"><span class="pre">clean_input</span></code>.</p>
-</dd>
-</dl>
+<p>Snaps <code class="docutils literal notranslate"><span class="pre">timestep</span></code> to the nearest entry of the warped training table
+and uses it as sigma in the standard lerp.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1469,11 +1285,11 @@ in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig" title="flashdreams.infra.diffusion.scheduler.base.SchedulerConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">SchedulerConfig</span></code></a></p>
-<p>Hyperparameters for <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler" title="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">FlowMatchUniPCScheduler</span></code></a>.</p>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler" title="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">FlowMatchUniPCScheduler</span></code></a>]</p>
+<p>Config for the flow-matching UniPC scheduler.</p>
 <p>Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,
-order 2, <code class="docutils literal notranslate"><span class="pre">shift=5.0</span></code>). Override <code class="docutils literal notranslate"><span class="pre">shift</span></code> per checkpoint as
-recommended upstream (e.g. <code class="docutils literal notranslate"><span class="pre">3.0</span></code> for Wan 2.1 14B I2V 480P).</p>
+order 2, shift 5.0). Override <code class="docutils literal notranslate"><span class="pre">shift</span></code> per checkpoint as recommended
+upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps">
 <span class="sig-name descname"><span class="pre">num_inference_steps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">50</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps" title="Link to this definition">#</a></dt>
@@ -1483,19 +1299,19 @@ recommended upstream (e.g. <code class="docutils literal notranslate"><span clas
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift">
 <span class="sig-name descname"><span class="pre">shift</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5.0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift" title="Link to this definition">#</a></dt>
-<dd><p>Schedule warp factor (<code class="docutils literal notranslate"><span class="pre">shift</span> <span class="pre">*</span> <span class="pre">s</span> <span class="pre">/</span> <span class="pre">(1</span> <span class="pre">+</span> <span class="pre">(shift</span> <span class="pre">-</span> <span class="pre">1)</span> <span class="pre">*</span> <span class="pre">s)</span></code>).</p>
+<dd><p>Schedule warp factor.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps">
 <span class="sig-name descname"><span class="pre">num_train_timesteps</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1000</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps" title="Link to this definition">#</a></dt>
-<dd><p>Length of the training sigma table; scales <code class="docutils literal notranslate"><span class="pre">sigma</span> <span class="pre">-&gt;</span> <span class="pre">timestep</span></code>.</p>
+<dd><p>Length of the training sigma table.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">
 <span class="sig-name descname"><span class="pre">solver_order</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order" title="Link to this definition">#</a></dt>
-<dd><p>UniPC solver order. Only <code class="docutils literal notranslate"><span class="pre">2</span></code> is supported by this slim impl.</p>
+<dd><p>UniPC solver order; only 2 is supported.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1511,20 +1327,18 @@ recommended upstream (e.g. <code class="docutils literal notranslate"><span clas
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCScheduler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.diffusion.scheduler.Scheduler" title="flashdreams.infra.diffusion.scheduler.base.Scheduler"><code class="xref py py-class docutils literal notranslate"><span class="pre">Scheduler</span></code></a></p>
 <p>Order-2 UniPC predictor-corrector for flow-matching.</p>
-<p>Specialized + pre-baked variant of the upstream Wan 2.1 UniPC
-solver – see the module docstring for the locked-in config.</p>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">scheduler</span> <span class="o">=</span> <span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">(</span>
-    <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">shift</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
-<span class="p">)</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="n">clean</span> <span class="o">=</span> <span class="n">scheduler</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">initial_noise</span><span class="o">=</span><span class="n">noise</span><span class="p">,</span> <span class="n">predict_flow</span><span class="o">=</span><span class="n">fn</span><span class="p">)</span>
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Schedule buffers (sigmas + per-step coefficients) stay fp32
-regardless of <code class="docutils literal notranslate"><span class="pre">module.to(dtype)</span></code> – see <code class="xref py py-meth docutils literal notranslate"><span class="pre">_apply()</span></code>.</p>
-</div>
+<p>Specialized + pre-baked variant of the upstream Wan 2.1 UniPC solver.
+Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless
+of <code class="docutils literal notranslate"><span class="pre">module.to(dtype)</span></code>.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>scheduler = FlowMatchUniPCSchedulerConfig(</dt><dd><p>num_inference_steps=50, shift=5.0,</p>
+</dd>
+</dl>
+<p>).setup().to(“cuda”)
+clean = scheduler.sample(initial_noise=noise, predict_flow=fn)</p>
+</div></blockquote>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample">
 <span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span>
@@ -1537,33 +1351,11 @@ regardless of <code class="docutils literal notranslate"><span class="pre">modul
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCScheduler.sample"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample" title="Link to this definition">#</a></dt>
 <dd><p>Run the order-2 UniPC predictor-corrector denoising loop.</p>
-<p>Per iteration: network produces a flow estimate -&gt; converted
-to <code class="docutils literal notranslate"><span class="pre">x0</span></code> -&gt; plugged into the corrector (skipped at step 0)
--&gt; advanced by the predictor. All per-step coefficients are
-pre-baked at construction; the loop is pure tensor ops with
-no Python-level linear solves or list shuffling.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>initial_noise</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> Gaussian noise on any device/dtype.</p></li>
-<li><p><strong>predict_flow</strong> – Closure called <code class="docutils literal notranslate"><span class="pre">num_inference_steps</span></code> times.
-Its <code class="docutils literal notranslate"><span class="pre">timestep</span></code> arg is a 0-d <code class="docutils literal notranslate"><span class="pre">int64</span></code> tensor (the
-schedule’s per-step value).</p></li>
-<li><p><strong>rng</strong> – Unused (deterministic ODE solver); accepted for
-interface conformance.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent with the same shape/device/dtype as
-<code class="docutils literal notranslate"><span class="pre">initial_noise</span></code>.</p>
-</dd>
-</dl>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Internal arithmetic is fp32 (matches upstream’s
-<code class="docutils literal notranslate"><span class="pre">model_output.to(torch.float32)</span></code> before convert); the
-result is cast back to <code class="docutils literal notranslate"><span class="pre">initial_noise.dtype</span></code>.</p>
-</div>
+<p>Each iteration: network → flow → <code class="docutils literal notranslate"><span class="pre">x0</span></code> → corrector (skipped at
+step 0) → predictor. All per-step coefficients are pre-baked at
+construction; the loop is pure tensor ops. Internal arithmetic is
+fp32; the result is cast back to <code class="docutils literal notranslate"><span class="pre">initial_noise.dtype</span></code>. <code class="docutils literal notranslate"><span class="pre">rng</span></code>
+is unused (deterministic ODE) but accepted for interface conformance.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1578,23 +1370,8 @@ result is cast back to <code class="docutils literal notranslate"><span class="p
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCScheduler.add_noise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.add_noise" title="Link to this definition">#</a></dt>
 <dd><p>Forward corruption at an arbitrary timestep.</p>
-<p><code class="docutils literal notranslate"><span class="pre">timestep</span></code> is snapped to the nearest entry of the inference
-schedule <code class="xref py py-attr docutils literal notranslate"><span class="pre">timesteps</span></code> (on-device, no Python sync); the
-corresponding sigma drives the standard lerp.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>clean_input</strong> – <code class="docutils literal notranslate"><span class="pre">[...]</span></code> clean latent on any device/dtype.</p></li>
-<li><p><strong>timestep</strong> – 0-d numeric tensor on the same device. Any value
-in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">num_train_timesteps]</span></code> works.</p></li>
-<li><p><strong>rng</strong> – Generator on the same device as <code class="docutils literal notranslate"><span class="pre">clean_input</span></code>.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[...]</span></code> noisy latent with the same shape/device/dtype as
-<code class="docutils literal notranslate"><span class="pre">clean_input</span></code>.</p>
-</dd>
-</dl>
+<p>Snaps <code class="docutils literal notranslate"><span class="pre">timestep</span></code> to the nearest entry of the inference schedule
+on-device (no Python sync) and uses the matching sigma in the lerp.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1607,35 +1384,24 @@ the latent tensors consumed by the transformer. Like every other
 component, they are stateful across AR steps via an
 <code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.encoder.EncoderConfig">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">EncoderConfig</span></span><span class="sig-paren">(</span>
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.Encoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Encoder</span></span><span class="sig-paren">(</span>
 
 <dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.base.Encoder"><span class="pre">Encoder</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#EncoderConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.EncoderConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.Encoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Encoder</span></code></a>]</p>
-<p>Encoder configuration.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.encoder.Encoder">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Encoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.base.EncoderConfig"><span class="pre">EncoderConfig</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#Encoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.Encoder" title="Link to this definition">#</a></dt>
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#Encoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.Encoder" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">EncCacheT</span></code>]</p>
-<p>Encoder interface, generic over the per-rollout cache type <code class="docutils literal notranslate"><span class="pre">EncCacheT</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is intentionally not pinned by the base; subclasses pick
-whatever signature their data needs. Stateful encoders called by
-<code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must match the pipeline call shape:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span>
-</pre></div>
-</div>
-<p>Stateless encoders not called by the pipeline can use a slimmer
-signature, e.g. <code class="docutils literal notranslate"><span class="pre">def</span> <span class="pre">forward(self,</span> <span class="pre">input)</span> <span class="pre">-&gt;</span> <span class="pre">Tensor</span></code>.</p>
+<p>Encoder interface, generic over the per-rollout cache type.</p>
+<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is not pinned by the base: subclasses pick whatever
+signature fits. Encoders called by <code class="docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must
+match its call shape: <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span> <span class="pre">autoregressive_index=0,</span>
+<span class="pre">cache=None)</span></code>. Stateless one-shot encoders (text, CLIP image) can use
+a slimmer <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input)</span></code>.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache">
-<span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
 
 <dl>
 <dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
@@ -1643,17 +1409,9 @@ signature, e.g. <code class="docutils literal notranslate"><span class="pre">def
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">EncCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#Encoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh per-rollout cache.</p>
-<p>Default returns the empty <a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.EncoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a>
-sentinel and ignores <code class="docutils literal notranslate"><span class="pre">**context</span></code>. Subclasses with a custom
-<code class="docutils literal notranslate"><span class="pre">EncCacheT</span></code> must override this.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>context</strong> – Per-rollout state forwarded as keyword arguments.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A fresh <a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.EncoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a> (or subclass).</p>
-</dd>
-</dl>
+<p>Override to return the encoder’s concrete cache type. Stateless
+encoders (e.g. text, CLIP image) return a fresh
+<code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1671,28 +1429,51 @@ sentinel and ignores <code class="docutils literal notranslate"><span class="pre
 
 <dl>
 <dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.base.Encoder"><span class="pre">Encoder</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.encoder.NullEncoder" title="flashdreams.infra.encoder.base.NullEncoder"><span class="pre">NullEncoder</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoderConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoderConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.base.EncoderConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderConfig</span></code></a></p>
-<p>Configuration for <a class="reference internal" href="#flashdreams.infra.encoder.NullEncoder" title="flashdreams.infra.encoder.NullEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">NullEncoder</span></code></a>.</p>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.encoder.NullEncoder" title="flashdreams.infra.encoder.NullEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">NullEncoder</span></code></a>]</p>
+<p>Config for the identity encoder.</p>
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">NullEncoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderConfig" title="flashdreams.infra.encoder.base.EncoderConfig"><span class="pre">EncoderConfig</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">NullEncoder</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.base.Encoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Encoder</span></code></a>[<a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a>]</p>
 <p>Identity encoder: returns its input unchanged.</p>
-<p>Use as <code class="xref py py-attr docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig.encoder</span></code> to pass
-already-encoded tensors straight to the diffusion model.</p>
-<p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">(</span>
-    <span class="n">encoder</span><span class="o">=</span><span class="n">NullEncoderConfig</span><span class="p">(),</span>
-    <span class="o">...</span><span class="p">,</span>
-<span class="p">)</span>
-</pre></div>
-</div>
+<p>Wire as the pipeline’s <code class="docutils literal notranslate"><span class="pre">encoder</span></code> slot to pass already-encoded tensors
+straight to the diffusion model.</p>
+<p>Typical usage example:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>config = StreamInferencePipelineConfig(</dt><dd><p>encoder=NullEncoderConfig(),
+…,</p>
+</dd>
+</dl>
+<p>)</p>
+</div></blockquote>
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache">
+<span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><span class="pre">EncoderAutoregressiveCache</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
+<dd><p>Build a fresh per-rollout cache.</p>
+<p>Override to return the encoder’s concrete cache type. Stateless
+encoders (e.g. text, CLIP image) return a fresh
+<code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder.forward">
 <span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span>
@@ -1725,37 +1506,23 @@ frames. They keep a <code class="xref py py-class docutils literal notranslate">
 pipeline can decode one chunk at a time with the correct temporal
 context.</p>
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.decoder.DecoderConfig">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">DecoderConfig</span></span><span class="sig-paren">(</span>
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.Decoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Decoder</span></span><span class="sig-paren">(</span>
 
 <dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#flashdreams.infra.decoder.Decoder" title="flashdreams.infra.decoder.base.Decoder"><span class="pre">Decoder</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#DecoderConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.DecoderConfig" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.infra.decoder.Decoder" title="flashdreams.infra.decoder.Decoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Decoder</span></code></a>]</p>
-<p>Decoder configuration.</p>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.decoder.Decoder">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Decoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.decoder.DecoderConfig" title="flashdreams.infra.decoder.base.DecoderConfig"><span class="pre">DecoderConfig</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#Decoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.Decoder" title="Link to this definition">#</a></dt>
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#Decoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.Decoder" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+gitfbfd158 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">DecCacheT</span></code>]</p>
-<p>Decoder interface, generic over the per-rollout cache type <code class="docutils literal notranslate"><span class="pre">DecCacheT</span></code>.</p>
-<p>Input is a diffusion latent <code class="docutils literal notranslate"><span class="pre">Tensor</span></code>; output is the decoded sample
-<code class="docutils literal notranslate"><span class="pre">Tensor</span></code> (e.g. RGB video). <code class="docutils literal notranslate"><span class="pre">forward</span></code> is intentionally not pinned
-by the base; subclasses pick whatever signature their data needs.
-Stateful decoders called by <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must
-match the pipeline call shape:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span>
-</pre></div>
-</div>
-<p>Stateless decoders not called by the pipeline can use a slimmer
-signature, e.g. <code class="docutils literal notranslate"><span class="pre">def</span> <span class="pre">forward(self,</span> <span class="pre">input)</span> <span class="pre">-&gt;</span> <span class="pre">Tensor</span></code>.</p>
+<p>Decoder interface, generic over the per-rollout cache type.</p>
+<p>Input is a latent tensor; output is the decoded sample (e.g. RGB video).
+<code class="docutils literal notranslate"><span class="pre">forward</span></code> isn’t pinned by the base. Decoders called by
+<code class="docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must match its call shape:
+<code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span> <span class="pre">autoregressive_index=0,</span> <span class="pre">cache=None)</span></code>.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache">
-<span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
 
 <dl>
 <dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
@@ -1763,17 +1530,7 @@ signature, e.g. <code class="docutils literal notranslate"><span class="pre">def
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">DecCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#Decoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh per-rollout cache.</p>
-<p>Default returns the empty <a class="reference internal" href="#flashdreams.infra.decoder.DecoderAutoregressiveCache" title="flashdreams.infra.decoder.DecoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">DecoderAutoregressiveCache</span></code></a>
-sentinel and ignores <code class="docutils literal notranslate"><span class="pre">**context</span></code>. Subclasses with a custom
-<code class="docutils literal notranslate"><span class="pre">DecCacheT</span></code> must override this.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>context</strong> – Per-rollout state forwarded as keyword arguments.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A fresh <a class="reference internal" href="#flashdreams.infra.decoder.DecoderAutoregressiveCache" title="flashdreams.infra.decoder.DecoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">DecoderAutoregressiveCache</span></code></a> (or subclass).</p>
-</dd>
-</dl>
+<p>Override to return the decoder’s concrete cache type.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1895,7 +1652,6 @@ sentinel and ignores <code class="docutils literal notranslate"><span class="pre
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#transformer">Transformer</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.transformer.TransformerConfig"><code class="docutils literal notranslate"><span class="pre">TransformerConfig</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.transformer.Transformer"><code class="docutils literal notranslate"><span class="pre">Transformer</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.transformer.Transformer.latent_shape"><code class="docutils literal notranslate"><span class="pre">latent_shape</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.transformer.Transformer.predict_flow"><code class="docutils literal notranslate"><span class="pre">predict_flow()</span></code></a></li>
@@ -1914,11 +1670,6 @@ sentinel and ignores <code class="docutils literal notranslate"><span class="pre
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#schedulers">Schedulers</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig"><code class="docutils literal notranslate"><span class="pre">SchedulerConfig</span></code></a><ul class="nav section-nav flex-column">
-<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps"><code class="docutils literal notranslate"><span class="pre">num_inference_steps</span></code></a></li>
-<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.SchedulerConfig.shift"><code class="docutils literal notranslate"><span class="pre">shift</span></code></a></li>
-</ul>
-</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.Scheduler"><code class="docutils literal notranslate"><span class="pre">Scheduler</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.Scheduler.sample"><code class="docutils literal notranslate"><span class="pre">sample()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise"><code class="docutils literal notranslate"><span class="pre">add_noise()</span></code></a></li>
@@ -1955,7 +1706,6 @@ sentinel and ignores <code class="docutils literal notranslate"><span class="pre
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#encoder">Encoder</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.EncoderConfig"><code class="docutils literal notranslate"><span class="pre">EncoderConfig</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.Encoder"><code class="docutils literal notranslate"><span class="pre">Encoder</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 </ul>
@@ -1963,13 +1713,13 @@ sentinel and ignores <code class="docutils literal notranslate"><span class="pre
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache"><code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoderConfig"><code class="docutils literal notranslate"><span class="pre">NullEncoderConfig</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder"><code class="docutils literal notranslate"><span class="pre">NullEncoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder.forward"><code class="docutils literal notranslate"><span class="pre">forward()</span></code></a></li>
 </ul>
 </li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decoder">Decoder</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.DecoderConfig"><code class="docutils literal notranslate"><span class="pre">DecoderConfig</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.Decoder"><code class="docutils literal notranslate"><span class="pre">Decoder</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 </ul>

@@ -385,7 +385,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span><span class="p">,</span> <span class="n">cast</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -396,7 +396,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">DecCacheT</span><span class="p">,</span>
     <span class="n">Decoder</span><span class="p">,</span>
-    <span class="n">DecoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">DiffusionModel</span><span class="p">,</span>
@@ -408,7 +407,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">EncCacheT</span><span class="p">,</span>
     <span class="n">Encoder</span><span class="p">,</span>
-    <span class="n">EncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.profiler</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventProfiler</span>
 
@@ -417,12 +415,11 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipelineConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for :class:`StreamInferencePipeline`.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the streaming inference pipeline.</span>
 
-<span class="sd">    Both ``encoder`` and ``decoder`` are optional. Use ``encoder=None``</span>
-<span class="sd">    when there is no per-AR-step control input (e.g. pure T2V).</span>
-<span class="sd">    Use ``decoder=None`` to return the clean latent directly (useful for</span>
-<span class="sd">    training, latent-space evaluation, or pipelines that own decoding).</span>
+<span class="sd">    Set ``encoder=None`` when the pipeline has no per-AR-step control input</span>
+<span class="sd">    (pure T2V). Set ``decoder=None`` to return the clean latent directly</span>
+<span class="sd">    (training, latent-space evaluation, or pipelines that own decoding).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
@@ -430,21 +427,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span>
 
     <span class="n">diffusion_model</span><span class="p">:</span> <span class="n">DiffusionModelConfig</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Diffusion model config (transformer + scheduler).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Transformer + scheduler config.&quot;&quot;&quot;</span>
 
-    <span class="n">decoder</span><span class="p">:</span> <span class="n">DecoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional decoder. When ``None``, :meth:`generate` returns the unpatchified clean latent.&quot;&quot;&quot;</span>
+    <span class="n">decoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional output decoder.&quot;&quot;&quot;</span>
 
-    <span class="n">encoder</span><span class="p">:</span> <span class="n">EncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional encoder. When ``None``, :meth:`generate` must be called with ``input=None``.&quot;&quot;&quot;</span>
+    <span class="n">encoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional per-AR-step input encoder.&quot;&quot;&quot;</span>
 
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;If ``True``, record per-stage CUDA events and log a per-AR-step breakdown.</span>
-
-<span class="sd">    Warning: enabling this calls ``torch.cuda.synchronize()`` once per AR</span>
-<span class="sd">    step, which serializes the host against in-flight CUDA work and</span>
-<span class="sd">    hurts throughput.</span>
-<span class="sd">    &quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Record per-stage CUDA events and log timing per AR step. Calls</span>
+<span class="sd">    ``torch.cuda.synchronize()`` once per step, which hurts throughput.&quot;&quot;&quot;</span></div>
 
 
 
@@ -458,19 +451,20 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Long-lived transformer AR cache (always present).&quot;&quot;&quot;</span>
 
     <span class="n">encoder_cache</span><span class="p">:</span> <span class="n">EncCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder AR cache. ``None`` iff the pipeline has no encoder.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder AR cache; ``None`` iff the pipeline has no encoder.&quot;&quot;&quot;</span>
 
     <span class="n">decoder_cache</span><span class="p">:</span> <span class="n">DecCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder AR cache. ``None`` iff the pipeline has no decoder.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder AR cache; ``None`` iff the pipeline has no decoder.&quot;&quot;&quot;</span>
 
     <span class="n">final_state</span><span class="p">:</span> <span class="s2">&quot;DiffusionModel.FinalState[TransformerCacheT] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;:class:`DiffusionModel.FinalState` from the most recent :meth:`generate`. ``None`` until then.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Diffusion-model state from the most recent ``generate``, consumed</span>
+<span class="sd">    by ``finalize``.&quot;&quot;&quot;</span>
 
     <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;AR step index of the most recent :meth:`generate` (used to assert generate/finalize pairing).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;AR step index of the most recent ``generate``.&quot;&quot;&quot;</span>
 
     <span class="n">event_profiler</span><span class="p">:</span> <span class="n">EventProfiler</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Current AR step&#39;s :class:`EventProfiler` (only when profiling is enabled).&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-step profiler, populated only when profiling is on.&quot;&quot;&quot;</span></div>
 
 
 
@@ -484,20 +478,20 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">DecCacheT</span><span class="p">,</span>
     <span class="p">],</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;End-to-end inference pipeline for one AR step.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;End-to-end streaming inference pipeline.</span>
 
-<span class="sd">    Generic over the encoder, transformer, and decoder cache types.</span>
-<span class="sd">    The encoder&#39;s input/output types are *not* part of the generic —</span>
-<span class="sd">    they are forwarded as :class:`typing.Any` so the transformer&#39;s</span>
-<span class="sd">    ``predict_flow`` / ``postprocess_clean_latent`` overrides own the</span>
-<span class="sd">    typing on the ``input`` argument they receive.</span>
+<span class="sd">    Generic over the encoder, transformer, and decoder cache types. The</span>
+<span class="sd">    encoder&#39;s input/output types are forwarded as ``Any`` so the</span>
+<span class="sd">    transformer&#39;s ``predict_flow`` / ``postprocess_clean_latent`` overrides</span>
+<span class="sd">    own the typing on the ``input`` argument they receive.</span>
 
-<span class="sd">    Per-AR-step usage::</span>
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        cache = pipeline.initialize_cache(transformer_context={...})</span>
-<span class="sd">        for i in range(num_ar_steps):</span>
-<span class="sd">            output = pipeline.generate(autoregressive_index=i, cache=cache, input=...)</span>
-<span class="sd">            pipeline.finalize(autoregressive_index=i, cache=cache)</span>
+<span class="sd">        output = pipeline.generate(0, cache, input=...)</span>
+<span class="sd">        pipeline.finalize(0, cache)</span>
+<span class="sd">        output = pipeline.generate(1, cache, input=...)</span>
+<span class="sd">        pipeline.finalize(1, cache)  # optional for the last rollout</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">encoder</span><span class="p">:</span> <span class="n">Encoder</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
@@ -507,9 +501,12 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span>
+            <span class="s2">&quot;DiffusionModel[TransformerCacheT]&quot;</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">setup</span><span class="p">(),</span>
+        <span class="p">)</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
@@ -537,7 +534,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">                when there is no decoder.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            A fresh :class:`StreamInferencePipelineCache`.</span>
+<span class="sd">            A fresh cache to thread through ``generate`` / ``finalize``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">transformer_context</span> <span class="o">=</span> <span class="n">transformer_context</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="n">encoder_context</span> <span class="o">=</span> <span class="n">encoder_context</span> <span class="ow">or</span> <span class="p">{}</span>
@@ -572,23 +569,16 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">        Args:</span>
 <span class="sd">            autoregressive_index: Must be ``cache.autoregressive_index + 1``,</span>
-<span class="sd">                or ``0`` on the first call after :meth:`initialize_cache`.</span>
-<span class="sd">            cache: Per-rollout cache returned by :meth:`initialize_cache`.</span>
-<span class="sd">            input: Raw input fed to the encoder. Required when</span>
-<span class="sd">                ``self.encoder is not None``; must be ``None`` otherwise.</span>
-<span class="sd">                To pipe an *already encoded* tensor straight through, use</span>
-<span class="sd">                :class:`NullEncoderConfig` (an identity encoder).</span>
+<span class="sd">                or ``0`` for the first call after ``initialize_cache``.</span>
+<span class="sd">            cache: Per-rollout cache from ``initialize_cache``.</span>
+<span class="sd">            input: Raw input fed to the encoder. Required when an encoder</span>
+<span class="sd">                is configured, must be ``None`` otherwise. Use</span>
+<span class="sd">                ``NullEncoderConfig`` to pass an already-encoded tensor</span>
+<span class="sd">                straight through.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Decoded tensor (e.g. RGB video) when a decoder is configured;</span>
-<span class="sd">            otherwise the unpatchified clean latent straight from the</span>
-<span class="sd">            diffusion model.</span>
-
-<span class="sd">        Note: stashes the :class:`DiffusionModel.FinalState` and the AR</span>
-<span class="sd">        step index on ``cache`` so the matching :meth:`finalize` can</span>
-<span class="sd">        consume them. When :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`</span>
-<span class="sd">        is ``True``, also records per-stage CUDA events on</span>
-<span class="sd">        ``cache.event_profiler`` for :meth:`finalize` to summarize.</span>
+<span class="sd">            otherwise the unpatchified clean latent from the diffusion model.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">prev</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">autoregressive_index</span>
         <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="n">prev</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
@@ -657,27 +647,16 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">        Args:</span>
 <span class="sd">            autoregressive_index: Must match the index passed to the most</span>
-<span class="sd">                recent :meth:`generate` (asserted to catch drift).</span>
-<span class="sd">            cache: Same cache used in :meth:`generate`. Consumes</span>
-<span class="sd">                ``cache.final_state`` (the :class:`DiffusionModel.FinalState`</span>
-<span class="sd">                stashed there).</span>
+<span class="sd">                recent ``generate`` (asserted).</span>
+<span class="sd">            cache: Same cache used by ``generate``. Consumes</span>
+<span class="sd">                ``cache.final_state``.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            ``None`` when :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`</span>
-<span class="sd">            is ``False``. Otherwise a flat ``dict[str, float]`` snapshot of</span>
-<span class="sd">            this AR step&#39;s per-stage timings (ms) and current GPU memory</span>
-<span class="sd">            (GiB), with keys::</span>
-
-<span class="sd">                {&lt;stage&gt;_ms for stage in stats},   # e.g. encode_ms, diffuse_ms, ...</span>
-<span class="sd">                &quot;total_ms&quot;,</span>
-<span class="sd">                &quot;total_ms_wo_finalize&quot;,</span>
-<span class="sd">                &quot;mem_alloc_gib&quot;,                    # only if torch.cuda available</span>
-<span class="sd">                &quot;mem_reserved_gib&quot;,</span>
-<span class="sd">                &quot;mem_peak_gib&quot;,</span>
-
-<span class="sd">            The same numbers are also emitted via ``logger.info``; the</span>
-<span class="sd">            return value lets callers persist them (CSV, JSONL, MLflow,</span>
-<span class="sd">            ...) without re-parsing the log line.</span>
+<span class="sd">            ``None`` when profiling is disabled. Otherwise a snapshot of this</span>
+<span class="sd">            AR step&#39;s per-stage timings (ms) and GPU memory (GiB):</span>
+<span class="sd">            ``{&lt;stage&gt;_ms, total_ms, total_ms_wo_finalize, mem_alloc_gib,</span>
+<span class="sd">            mem_reserved_gib, mem_peak_gib}``. The same numbers are also</span>
+<span class="sd">            logged via ``logger.info``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="n">cache</span><span class="o">.</span><span class="n">autoregressive_index</span> <span class="o">==</span> <span class="n">autoregressive_index</span><span class="p">,</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;autoregressive_index mismatch: generate() ran with &quot;</span>

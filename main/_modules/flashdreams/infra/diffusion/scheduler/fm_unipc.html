@@ -380,7 +380,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Flow-matching UniPC multistep scheduler&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;Flow-matching UniPC multistep scheduler.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -390,10 +390,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FlowPredictor</span><span class="p">,</span>
     <span class="n">Scheduler</span><span class="p">,</span>
-    <span class="n">SchedulerConfig</span><span class="p">,</span>
 <span class="p">)</span>
 
 
@@ -541,12 +541,12 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="FlowMatchUniPCSchedulerConfig">
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchUniPCSchedulerConfig</span><span class="p">(</span><span class="n">SchedulerConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hyperparameters for :class:`FlowMatchUniPCScheduler`.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchUniPCSchedulerConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;FlowMatchUniPCScheduler&quot;</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the flow-matching UniPC scheduler.</span>
 
 <span class="sd">    Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,</span>
-<span class="sd">    order 2, ``shift=5.0``). Override ``shift`` per checkpoint as</span>
-<span class="sd">    recommended upstream (e.g. ``3.0`` for Wan 2.1 14B I2V 480P).</span>
+<span class="sd">    order 2, shift 5.0). Override ``shift`` per checkpoint as recommended</span>
+<span class="sd">    upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;FlowMatchUniPCScheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
@@ -557,13 +557,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of UniPC denoising steps.&quot;&quot;&quot;</span>
 
     <span class="n">shift</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5.0</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Schedule warp factor (``shift * s / (1 + (shift - 1) * s)``).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Schedule warp factor.&quot;&quot;&quot;</span>
 
     <span class="n">num_train_timesteps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table; scales ``sigma -&gt; timestep``.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table.&quot;&quot;&quot;</span>
 
     <span class="n">solver_order</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;UniPC solver order. Only ``2`` is supported by this slim impl.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;UniPC solver order; only 2 is supported.&quot;&quot;&quot;</span></div>
 
 
 
@@ -572,20 +572,28 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchUniPCScheduler</span><span class="p">(</span><span class="n">Scheduler</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Order-2 UniPC predictor-corrector for flow-matching.</span>
 
-<span class="sd">    Specialized + pre-baked variant of the upstream Wan 2.1 UniPC</span>
-<span class="sd">    solver -- see the module docstring for the locked-in config.</span>
+<span class="sd">    Specialized + pre-baked variant of the upstream Wan 2.1 UniPC solver.</span>
+<span class="sd">    Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless</span>
+<span class="sd">    of ``module.to(dtype)``.</span>
 
-<span class="sd">    Example::</span>
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        scheduler = FlowMatchUniPCSchedulerConfig(</span>
 <span class="sd">            num_inference_steps=50, shift=5.0,</span>
 <span class="sd">        ).setup().to(&quot;cuda&quot;)</span>
 <span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=fn)</span>
-
-<span class="sd">    Note:</span>
-<span class="sd">        Schedule buffers (sigmas + per-step coefficients) stay fp32</span>
-<span class="sd">        regardless of ``module.to(dtype)`` -- see :meth:`_apply`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">timesteps</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">sigmas</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">_sigmas_full</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">a_pred</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">b_pred_m0</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">b_pred_dprev</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">a_corr</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">b_corr_m0</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">b_corr_dprev</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">b_corr_dt</span><span class="p">:</span> <span class="n">Tensor</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
@@ -656,12 +664,11 @@ SPDX-License-Identifier: Apache-2.0
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_FP32_BUFFERS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;sigmas&quot;</span><span class="p">,</span> <span class="s2">&quot;_sigmas_full&quot;</span><span class="p">,</span> <span class="o">*</span><span class="n">coefs</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Move buffers with the parent ``.to(...)`` but keep them fp32.</span>
 
-<span class="sd">        ``fn`` may be a lossy bf16 cast; we snapshot the fp32 originals</span>
-<span class="sd">        before super() (which would overwrite the buffer slots) and</span>
-<span class="sd">        restore them with a pure device move on the way out.</span>
+<span class="sd">        ``fn`` may be a lossy bf16 cast; snapshot the fp32 originals before</span>
+<span class="sd">        ``super()._apply`` and restore them with a pure device move after.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">saved</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_FP32_BUFFERS</span><span class="p">}</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_apply</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="n">recurse</span><span class="p">)</span>
@@ -680,31 +687,14 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the order-2 UniPC predictor-corrector denoising loop.</span>
 
-<span class="sd">        Per iteration: network produces a flow estimate -&gt; converted</span>
-<span class="sd">        to ``x0`` -&gt; plugged into the corrector (skipped at step 0)</span>
-<span class="sd">        -&gt; advanced by the predictor. All per-step coefficients are</span>
-<span class="sd">        pre-baked at construction; the loop is pure tensor ops with</span>
-<span class="sd">        no Python-level linear solves or list shuffling.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            initial_noise: ``[...]`` Gaussian noise on any device/dtype.</span>
-<span class="sd">            predict_flow: Closure called ``num_inference_steps`` times.</span>
-<span class="sd">                Its ``timestep`` arg is a 0-d ``int64`` tensor (the</span>
-<span class="sd">                schedule&#39;s per-step value).</span>
-<span class="sd">            rng: Unused (deterministic ODE solver); accepted for</span>
-<span class="sd">                interface conformance.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            ``[...]`` clean latent with the same shape/device/dtype as</span>
-<span class="sd">            ``initial_noise``.</span>
-
-<span class="sd">        Note:</span>
-<span class="sd">            Internal arithmetic is fp32 (matches upstream&#39;s</span>
-<span class="sd">            ``model_output.to(torch.float32)`` before convert); the</span>
-<span class="sd">            result is cast back to ``initial_noise.dtype``.</span>
+<span class="sd">        Each iteration: network → flow → ``x0`` → corrector (skipped at</span>
+<span class="sd">        step 0) → predictor. All per-step coefficients are pre-baked at</span>
+<span class="sd">        construction; the loop is pure tensor ops. Internal arithmetic is</span>
+<span class="sd">        fp32; the result is cast back to ``initial_noise.dtype``. ``rng``</span>
+<span class="sd">        is unused (deterministic ODE) but accepted for interface conformance.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">input_dtype</span> <span class="o">=</span> <span class="n">initial_noise</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="n">N</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
         <span class="n">sample</span> <span class="o">=</span> <span class="n">initial_noise</span>
         <span class="n">m_prev</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -712,7 +702,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">last_sample</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
-            <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
+            <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
             <span class="c1"># Network forward (heavy compute -- everything else here is</span>
             <span class="c1"># ~free relative to this).</span>
             <span class="n">flow</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">sample</span><span class="p">,</span> <span class="n">timestep</span><span class="p">)</span>
@@ -722,7 +712,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="c1"># Promote to fp32 to match upstream&#39;s</span>
             <span class="c1"># ``model_output = model_output.to(dtype=torch.float32)``</span>
             <span class="c1"># before convert_model_output.</span>
-            <span class="n">m_curr</span> <span class="o">=</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">flow</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
+            <span class="n">m_curr</span> <span class="o">=</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">flow</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
             <span class="c1"># Corrector (skip on first step).</span>
             <span class="c1">#</span>
@@ -737,10 +727,10 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="k">assert</span> <span class="n">last_sample</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">m_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
                 <span class="n">m_pp</span> <span class="o">=</span> <span class="n">m_prev_prev</span> <span class="k">if</span> <span class="n">m_prev_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">m_prev</span>
                 <span class="n">corrected</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">a_corr</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">last_sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
-                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_prev</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
-                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_pp</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
-                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_curr</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">a_corr</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">last_sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_prev</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_pp</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_corr_dt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_curr</span> <span class="o">-</span> <span class="n">m_prev</span><span class="p">)</span>
                 <span class="p">)</span>
                 <span class="n">sample</span> <span class="o">=</span> <span class="n">corrected</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
 
@@ -757,9 +747,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="c1"># the warmup step to skip a zero-tensor allocation.</span>
             <span class="n">m_p</span> <span class="o">=</span> <span class="n">m_prev</span> <span class="k">if</span> <span class="n">m_prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">m_curr</span>
             <span class="n">predicted</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">a_pred</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
-                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_curr</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
-                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_p</span> <span class="o">-</span> <span class="n">m_curr</span><span class="p">)</span>  <span class="c1"># ty:ignore[not-subscriptable]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">a_pred</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">sample</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_m0</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">m_curr</span>
+                <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b_pred_dprev</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">m_p</span> <span class="o">-</span> <span class="n">m_curr</span><span class="p">)</span>
             <span class="p">)</span>
             <span class="n">sample</span> <span class="o">=</span> <span class="n">predicted</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
 
@@ -780,24 +770,13 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward corruption at an arbitrary timestep.</span>
 
-<span class="sd">        ``timestep`` is snapped to the nearest entry of the inference</span>
-<span class="sd">        schedule :attr:`timesteps` (on-device, no Python sync); the</span>
-<span class="sd">        corresponding sigma drives the standard lerp.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            clean_input: ``[...]`` clean latent on any device/dtype.</span>
-<span class="sd">            timestep: 0-d numeric tensor on the same device. Any value</span>
-<span class="sd">                in ``[0, num_train_timesteps]`` works.</span>
-<span class="sd">            rng: Generator on the same device as ``clean_input``.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            ``[...]`` noisy latent with the same shape/device/dtype as</span>
-<span class="sd">            ``clean_input``.</span>
+<span class="sd">        Snaps ``timestep`` to the nearest entry of the inference schedule</span>
+<span class="sd">        on-device (no Python sync) and uses the matching sigma in the lerp.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="n">timestep</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(),</span> <span class="sa">f</span><span class="s2">&quot;expected scalar timestep, got </span><span class="si">{</span><span class="n">timestep</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">ts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span>
-        <span class="n">idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmin</span><span class="p">((</span><span class="n">ts</span> <span class="o">-</span> <span class="n">timestep</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">ts</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span><span class="o">.</span><span class="n">abs</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># ty:ignore[no-matching-overload]</span>
-        <span class="n">sigma</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sigmas_full</span><span class="o">.</span><span class="n">index_select</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>  <span class="c1"># ty:ignore[call-non-callable]</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmin</span><span class="p">((</span><span class="n">ts</span> <span class="o">-</span> <span class="n">timestep</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">ts</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span><span class="o">.</span><span class="n">abs</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">sigma</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sigmas_full</span><span class="o">.</span><span class="n">index_select</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>
         <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">clean_input</span><span class="p">,</span> <span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean_input</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">clean_input</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span></div>
 </div>

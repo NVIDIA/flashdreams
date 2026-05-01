@@ -382,24 +382,14 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">&quot;&quot;&quot;Decoder interface.&quot;&quot;&quot;</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
-
-
-<div class="viewcode-block" id="DecoderConfig">
-<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.DecoderConfig">[docs]</a>
-<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">DecoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;Decoder&quot;</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder configuration.&quot;&quot;&quot;</span>
-
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Decoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Decoder</span><span class="p">)</span></div>
-
 
 
 <div class="viewcode-block" id="DecoderAutoregressiveCache">
@@ -420,40 +410,26 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="Decoder">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.Decoder">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Decoder</span><span class="p">(</span><span class="n">ABC</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">DecCacheT</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder interface, generic over the per-rollout cache type ``DecCacheT``.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder interface, generic over the per-rollout cache type.</span>
 
-<span class="sd">    Input is a diffusion latent ``Tensor``; output is the decoded sample</span>
-<span class="sd">    ``Tensor`` (e.g. RGB video). ``forward`` is intentionally not pinned</span>
-<span class="sd">    by the base; subclasses pick whatever signature their data needs.</span>
-<span class="sd">    Stateful decoders called by :class:`StreamInferencePipeline` must</span>
-<span class="sd">    match the pipeline call shape::</span>
-
-<span class="sd">        def forward(self, input, autoregressive_index=0, cache=None) -&gt; Tensor</span>
-
-<span class="sd">    Stateless decoders not called by the pipeline can use a slimmer</span>
-<span class="sd">    signature, e.g. ``def forward(self, input) -&gt; Tensor``.</span>
+<span class="sd">    Input is a latent tensor; output is the decoded sample (e.g. RGB video).</span>
+<span class="sd">    ``forward`` isn&#39;t pinned by the base. Decoders called by</span>
+<span class="sd">    ``StreamInferencePipeline`` must match its call shape:</span>
+<span class="sd">    ``forward(self, input, autoregressive_index=0, cache=None)``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DecoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
 <div class="viewcode-block" id="Decoder.initialize_autoregressive_cache">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache">[docs]</a>
+    <span class="nd">@abstractmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DecCacheT</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a fresh per-rollout cache.</span>
 
-<span class="sd">        Default returns the empty :class:`DecoderAutoregressiveCache`</span>
-<span class="sd">        sentinel and ignores ``**context``. Subclasses with a custom</span>
-<span class="sd">        ``DecCacheT`` must override this.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            context: Per-rollout state forwarded as keyword arguments.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            A fresh :class:`DecoderAutoregressiveCache` (or subclass).</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">DecoderAutoregressiveCache</span><span class="p">()</span>  <span class="c1"># type: ignore[return-value]  # ty:ignore[invalid-return-type]</span></div>
+<span class="sd">        Override to return the decoder&#39;s concrete cache type.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
 </div>
 
 </pre></div>

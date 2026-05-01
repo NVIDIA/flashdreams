@@ -380,11 +380,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;TAEHV video decoder, exposed as an infra :class:`Decoder`.</span>
-
-<span class="sd">TAEHV is decode-only in our pipelines, so this module ports just the</span>
-<span class="sd">decode side. See :mod:`.impl` for the streaming + CUDA-graph design.</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;TAEHV video decoder.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -394,9 +390,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">Decoder</span><span class="p">,</span> <span class="n">DecoderConfig</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">Decoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
 
 <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;lighttae&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth&quot;</span><span class="p">,</span>
@@ -406,17 +402,18 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="TeahvVAEDecoderConfig">
 <a class="viewcode-back" href="../../../apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoderConfig</span><span class="p">(</span><span class="n">DecoderConfig</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;TeahvVAEDecoder&quot;</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the TAEHV decoder.&quot;&quot;&quot;</span>
+
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;TeahvVAEDecoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">TeahvVAEDecoder</span><span class="p">)</span>
 
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;lighttae&quot;</span><span class="p">]</span>
     <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the decoder forward in a CUDA graph for steady-state replay.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the decoder forward in a CUDA graph for replay.&quot;&quot;&quot;</span>
+
     <span class="n">use_compile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply ``torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)`` to the</span>
-<span class="sd">    decoder. Combine with ``use_cuda_graph=True`` for the rollout-aware</span>
-<span class="sd">    dispatch (drain Inductor autotune in rollout 1, capture in rollout 2).&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)``.&quot;&quot;&quot;</span></div>
 
 
 
@@ -425,17 +422,19 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoder</span><span class="p">(</span><span class="n">Decoder</span><span class="p">[</span><span class="n">TAEHVCache</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;TAEHV (Tiny AutoEncoder for Hunyuan Video) decoder.</span>
 
-<span class="sd">    Forward input is a latent tensor of shape ``[..., Tl, Cl, Hl, Wl]``;</span>
-<span class="sd">    output is a video tensor of shape ``[..., T, C, H, W]`` with values in</span>
-<span class="sd">    ``[-1, 1]``.</span>
+<span class="sd">    Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video</span>
+<span class="sd">    tensor ``[..., T, C, H, W]`` in ``[-1, 1]``.</span>
 
-<span class="sd">    Note:</span>
-<span class="sd">        Set ``torch.backends.cudnn.benchmark = True`` once at process</span>
-<span class="sd">        start for ~5% extra on the eager seed/tail chunks.</span>
+<span class="sd">    Set ``torch.backends.cudnn.benchmark = True`` at process start for ~5%</span>
+<span class="sd">    extra on the eager seed/tail chunks.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">TEMPORAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
     <span class="n">SPATIAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span>
+
+    <span class="c1"># Lighttae per-channel scaling buffers (registered when need_scaled).</span>
+    <span class="n">mean</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">std</span><span class="p">:</span> <span class="n">Tensor</span>
 
     <span class="c1"># Per-channel scaling for the lighttae checkpoint.</span>
     <span class="n">_LIGHTTAE_MEAN</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
@@ -506,7 +505,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">z</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">need_scaled</span><span class="p">:</span>
-            <span class="n">z</span> <span class="o">=</span> <span class="n">z</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">std</span>  <span class="c1"># ty:ignore[unsupported-operator]</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="n">z</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">std</span>
             <span class="n">z</span> <span class="o">=</span> <span class="n">z</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">mean</span>
 
         <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sub_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>

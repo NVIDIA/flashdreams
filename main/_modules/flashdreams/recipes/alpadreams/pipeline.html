@@ -380,28 +380,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Alpadreams streaming inference pipeline (Cosmos DiT + I2V + HDMap).</span>
-
-<span class="sd">Project-level :class:`StreamInferencePipeline` subclass (no wrapper</span>
-<span class="sd">indirection) for the alpadreams Cosmos DiT checkpoints. The pipeline</span>
-<span class="sd">wires:</span>
-
-<span class="sd">- :class:`CosmosReason1TextEncoder` — one-shot at rollout start.</span>
-<span class="sd">- A first-frame Wan VAE encoder (project-level ``image_encoder``) —</span>
-<span class="sd">  one-shot at rollout start; its output seeds the long-lived AR cache</span>
-<span class="sd">  (mask injection at AR step 0 only).</span>
-<span class="sd">- The infra :attr:`StreamInferencePipelineConfig.encoder` —</span>
-<span class="sd">  per-AR-step HDMap encoder (Wan VAE *or* PixelShuffle pseudo-VAE),</span>
-<span class="sd">  required.</span>
-<span class="sd">- The infra :attr:`StreamInferencePipelineConfig.decoder` —</span>
-<span class="sd">  per-AR-step video decoder (Wan VAE *or* TAEHV).</span>
-<span class="sd">- A :class:`DiffusionModelConfig` over :class:`CosmosTransformerConfig`.</span>
-
-<span class="sd">I2V is implemented by :class:`CosmosTransformer` itself (mask injection</span>
-<span class="sd">into ``noisy_latent`` and ``postprocess_clean_latent``); the per-AR-step</span>
-<span class="sd">``input`` is the encoded HDMap chunk routed through the infra</span>
-<span class="sd">encoder slot.</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;Streaming inference pipeline for Alpadreams (Cosmos DiT + HDMap + I2V).&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -429,9 +408,12 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">StreamInferencePipelineConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.transformer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CosmosTransformer</span><span class="p">,</span>
     <span class="n">CosmosTransformerCache</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv</span><span class="w"> </span><span class="kn">import</span> <span class="n">TeahvVAEDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WanVAEDecoder</span><span class="p">,</span>
     <span class="n">WanVAEEncoder</span><span class="p">,</span>
     <span class="n">WanVAEEncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
@@ -447,37 +429,28 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">AlpadreamsPipelineConfig</span><span class="p">(</span><span class="n">StreamInferencePipelineConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hyperparameters for :class:`AlpadreamsPipeline`.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Alpadreams pipeline.</span>
 
-<span class="sd">    Extends :class:`StreamInferencePipelineConfig` (inherits</span>
-<span class="sd">    ``diffusion_model``, ``encoder``, ``decoder``) with the project-level</span>
-<span class="sd">    text and first-frame image encoders. ``encoder`` MUST be set (the</span>
-<span class="sd">    per-AR-step HDMap encoder); ``diffusion_model.transformer`` must be</span>
-<span class="sd">    a :class:`CosmosTransformerConfig`.</span>
+<span class="sd">    The infra ``encoder`` slot must be set to the per-AR-step HDMap encoder.</span>
+<span class="sd">    The transformer config must be a Cosmos transformer config.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;AlpadreamsPipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">AlpadreamsPipeline</span>
-    <span class="p">)</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+    <span class="p">)</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">CosmosReason1TextEncoderConfig</span>
     <span class="p">)</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Cosmos-Reason1 text encoder, run once at the start of each rollout.</span>
-
-<span class="sd">    Set to ``None`` to skip loading the encoder entirely; in that case</span>
-<span class="sd">    rollouts must be initialized via</span>
-<span class="sd">    :meth:`AlpadreamsPipeline.initialize_cache_from_embeddings` with</span>
-<span class="sd">    embeddings precomputed elsewhere (e.g. by</span>
-<span class="sd">    :meth:`AlpadreamsPipeline.precompute_embeddings`).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Cosmos-Reason1 text encoder run once per rollout. Set to ``None``</span>
+<span class="sd">    and use ``initialize_cache_from_embeddings`` with precomputed embeddings</span>
+<span class="sd">    to skip loading it.&quot;&quot;&quot;</span>
 
     <span class="n">image_encoder</span><span class="p">:</span> <span class="n">WanVAEEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span>
     <span class="p">)</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One-shot Wan VAE encoder used to encode the first-frame image</span>
-<span class="sd">    (per-rollout, NOT per-AR-step). Pin its checkpoint to the same VAE</span>
-<span class="sd">    that produced the network&#39;s training distribution. Set to ``None``</span>
-<span class="sd">    to skip loading; see ``text_encoder`` above.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One-shot Wan VAE first-frame encoder. Pin its checkpoint to the</span>
+<span class="sd">    VAE the network was trained against. ``None`` skips loading.&quot;&quot;&quot;</span></div>
 
 
 
@@ -485,26 +458,26 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">AlpadreamsPipeline</span><span class="p">(</span>
     <span class="n">StreamInferencePipeline</span><span class="p">[</span>
-        <span class="n">EncoderAutoregressiveCache</span><span class="p">,</span>  <span class="c1"># EncCacheT</span>
-        <span class="n">CosmosTransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
-        <span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
+        <span class="n">EncoderAutoregressiveCache</span><span class="p">,</span>
+        <span class="n">CosmosTransformerCache</span><span class="p">,</span>
+        <span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Streaming alpadreams inference pipeline (Cosmos DiT + HDMap + I2V mask).</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Alpadreams streaming inference pipeline (Cosmos DiT + HDMap + I2V mask).</span>
 
-<span class="sd">    Usage::</span>
+<span class="sd">    Typical usage example:</span>
 
-<span class="sd">        config = ALPADREAMS_CONFIG_BUILDERS[&quot;sv_...&quot;](device=device)</span>
-<span class="sd">        pipeline = config.setup().to(device=device)</span>
+<span class="sd">        pipeline: AlpadreamsPipeline = ...</span>
 
 <span class="sd">        cache = pipeline.initialize_cache(</span>
-<span class="sd">            text=[[&quot;A driving scene...&quot;]],  # [B, V] (V=1 for single-view)</span>
-<span class="sd">            image=first_frames,             # [B, V, 1, 3, H, W]</span>
+<span class="sd">            text=[[&quot;A driving scene...&quot;]],</span>
+<span class="sd">            image=first_frames,</span>
 <span class="sd">            view_names=[&quot;camera_front_...&quot;],</span>
 <span class="sd">        )</span>
-<span class="sd">        for i in range(num_blocks):</span>
-<span class="sd">            chunk = pipeline.generate(i, cache, hdmap=hdmap_chunk_i)</span>
-<span class="sd">            pipeline.finalize(i, cache)</span>
+<span class="sd">        chunk = pipeline.generate(0, cache, hdmap=hdmap_chunk_0)</span>
+<span class="sd">        pipeline.finalize(0, cache)</span>
+<span class="sd">        chunk = pipeline.generate(1, cache, hdmap=hdmap_chunk_1)</span>
+<span class="sd">        pipeline.finalize(1, cache)  # optional for the last rollout</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">CosmosReason1TextEncoder</span> <span class="o">|</span> <span class="kc">None</span>
@@ -512,10 +485,10 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
 
@@ -525,46 +498,48 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
         <span class="n">transformer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
-        <span class="n">decoder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span>
-        <span class="k">assert</span> <span class="n">decoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">decoder</span><span class="p">,</span> <span class="s2">&quot;TEMPORAL_COMPRESSION_RATIO&quot;</span><span class="p">),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Decoder </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> must expose &quot;</span>
-            <span class="s2">&quot;TEMPORAL_COMPRESSION_RATIO (e.g. WanVAEDecoder, TeahvVAEDecoder).&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">transformer</span><span class="p">,</span> <span class="n">CosmosTransformer</span><span class="p">),</span> <span class="p">(</span>
+            <span class="s2">&quot;AlpadreamsPipeline requires a Cosmos transformer; &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">transformer</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>
+        <span class="n">decoder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">decoder</span><span class="p">,</span> <span class="p">(</span><span class="n">WanVAEDecoder</span><span class="p">,</span> <span class="n">TeahvVAEDecoder</span><span class="p">)),</span> <span class="p">(</span>
+            <span class="s2">&quot;AlpadreamsPipeline requires a Wan or Taehv VAE decoder; &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span>
+            <span class="n">decoder</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
 
-        <span class="c1"># Take the view split outside of the transformer, so that VAE does not do duplicated job.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_size</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
-        <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
-        <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">num_views</span> <span class="o">//=</span> <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="c1"># Take the view split outside of the transformer so the VAE does</span>
+        <span class="c1"># not duplicate work across CP ranks.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_size</span>
+        <span class="n">transformer</span><span class="o">.</span><span class="n">cp_groups</span><span class="o">.</span><span class="n">V_group</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">num_views</span> <span class="o">//=</span> <span class="bp">self</span><span class="o">.</span><span class="n">V_size</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">device</span>
 
-    <span class="c1"># ------------------------------------------------------------------</span>
-    <span class="c1"># AR rollout API</span>
-    <span class="c1"># ------------------------------------------------------------------</span>
-
 <div class="viewcode-block" id="AlpadreamsPipeline.initialize_cache">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
         <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">view_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineCache</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache from raw prompts and images.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            text: ``[B, V]`` nested list of prompts (one per view).</span>
-<span class="sd">            image: First frame pixel tensor of shape ``[B, V, 1, 3, H, W]``</span>
-<span class="sd">                in ``[-1, 1]``. ``H`` / ``W`` must match</span>
-<span class="sd">                ``transformer.config.height/width *</span>
-<span class="sd">                WanVAEDecoder.SPATIAL_COMPRESSION_RATIO``.</span>
-<span class="sd">            view_names: List of view names (length ``V``); required when</span>
+<span class="sd">            image: First-frame pixels ``[B, V, 1, 3, H, W]`` in ``[-1, 1]``.</span>
+<span class="sd">                ``H``/``W`` must equal latent ``height``/``width`` times the</span>
+<span class="sd">                decoder&#39;s spatial compression ratio.</span>
+<span class="sd">            view_names: View names (length ``V``); required when</span>
 <span class="sd">                ``num_views &gt; 1``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
@@ -601,37 +576,33 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineCache</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache from precomputed embeddings.</span>
 
-<span class="sd">        Use this when ``text_encoder`` / ``image_encoder`` are not loaded</span>
-<span class="sd">        (e.g. the pipeline was built with both configs set to ``None`` to</span>
-<span class="sd">        save VRAM, and embeddings were computed offline by</span>
-<span class="sd">        :meth:`precompute_embeddings`).</span>
+<span class="sd">        Use this when the one-shot encoders aren&#39;t loaded (typically because</span>
+<span class="sd">        embeddings were precomputed offline by ``precompute_embeddings`` to</span>
+<span class="sd">        save VRAM at rollout time).</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            text_embeddings: ``[B, V, L, D]`` tensor as produced by the</span>
-<span class="sd">                Cosmos-Reason1 text encoder. Will be moved to</span>
-<span class="sd">                ``self.device`` if needed. NOT yet CP-split: pass the</span>
-<span class="sd">                full multi-view tensor; the split is applied here.</span>
-<span class="sd">            image_embeddings: ``[B, V, 1, Cl, Hl, Wl]`` tensor as</span>
-<span class="sd">                produced by the Wan VAE first-frame encoder. Same</span>
-<span class="sd">                device / split contract as ``text_embeddings``.</span>
-<span class="sd">            view_names: List of view names (length ``V``); required when</span>
+<span class="sd">            text_embeddings: ``[B, V, L, D]``. Moved to ``self.device``.</span>
+<span class="sd">                Pass the full multi-view tensor; the CP split is applied here.</span>
+<span class="sd">            image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split</span>
+<span class="sd">                contract as ``text_embeddings``.</span>
+<span class="sd">            view_names: View names (length ``V``); required when</span>
 <span class="sd">                ``num_views &gt; 1``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">text_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
 
-        <span class="c1"># distribute multi-view</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
             <span class="n">text_embeddings</span><span class="p">,</span>
             <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
             <span class="n">image_embeddings</span><span class="p">,</span>
             <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+            <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="k">if</span> <span class="n">view_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
             <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span>
@@ -652,18 +623,14 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Run only the one-shot encoders and return their outputs on CPU.</span>
 
-<span class="sd">        Pair with :meth:`initialize_cache_from_embeddings`: ``torch.save``</span>
-<span class="sd">        the returned dict, then in a separate process build a pipeline</span>
-<span class="sd">        with ``text_encoder=None`` / ``image_encoder=None`` and rebuild</span>
-<span class="sd">        the cache from the loaded tensors. The returned tensors are NOT</span>
-<span class="sd">        CP-split; the split happens inside</span>
-<span class="sd">        :meth:`initialize_cache_from_embeddings` at load time, so the</span>
-<span class="sd">        same precomputed file works for any CP world size.</span>
+<span class="sd">        Pair with ``initialize_cache_from_embeddings``: save the returned</span>
+<span class="sd">        dict, then build a pipeline with the encoder configs set to ``None``</span>
+<span class="sd">        and rebuild the cache from the loaded tensors. The returned tensors</span>
+<span class="sd">        are not CP-split, so the same file works for any CP world size.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            text: ``[B, V]`` nested list of prompts (one per view).</span>
-<span class="sd">            image: ``[B, V, 1, 3, H, W]`` first-frame pixel tensor in</span>
-<span class="sd">                ``[-1, 1]``.</span>
+<span class="sd">            text: ``[B, V]`` nested list of prompts.</span>
+<span class="sd">            image: ``[B, V, 1, 3, H, W]`` first-frame pixels in ``[-1, 1]``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            ``{&quot;text_embeddings&quot;: [B, V, L, D],</span>
@@ -691,25 +658,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">release_oneshot_encoders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Free the per-rollout text and first-frame image encoders.</span>
 
-<span class="sd">        Both encoders are only needed inside :meth:`initialize_cache`; the</span>
-<span class="sd">        AR loop reads their outputs from ``cache.transformer_context``.</span>
 <span class="sd">        Cosmos-Reason1-7B alone is ~14 GB in bf16, so dropping it after</span>
 <span class="sd">        ``initialize_cache`` reclaims significant VRAM for the AR rollout.</span>
-
-<span class="sd">        Idempotent. After calling this, :meth:`initialize_cache` will</span>
-<span class="sd">        raise a clear assertion (the encoders are now ``None``); only</span>
-<span class="sd">        call it from contexts that run a single rollout per pipeline</span>
-<span class="sd">        instance (e.g. one-shot demos). Long-lived hosts that reuse the</span>
-<span class="sd">        pipeline across sessions (e.g. the gRPC server) must not call it.</span>
+<span class="sd">        Idempotent. Only safe for one-shot pipeline lifetimes (demos);</span>
+<span class="sd">        long-lived hosts that reuse the pipeline must not call this.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># Set to None (not delattr) so that ``initialize_cache``&#39;s</span>
-        <span class="c1"># existing ``is not None`` guard fires with a useful message</span>
-        <span class="c1"># instead of an AttributeError.</span>
+        <span class="c1"># None instead of delattr so initialize_cache&#39;s `is not None` guard</span>
+        <span class="c1"># fires with a useful message rather than an AttributeError.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="c1"># nn.Module instances commonly form reference cycles (parent &lt;-&gt;</span>
-        <span class="c1"># child, hooks, etc.) that the refcount path alone won&#39;t break,</span>
-        <span class="c1"># so force a GC pass before asking the allocator to release the</span>
+        <span class="c1"># nn.Module reference cycles (parent &lt;-&gt; child, hooks) often outlive</span>
+        <span class="c1"># the local refcount drop, so force a GC pass before releasing the</span>
         <span class="c1"># freed CUDA blocks.</span>
         <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span></div>
@@ -718,7 +677,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="AlpadreamsPipeline.generate">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.generate">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">cache</span><span class="p">:</span> <span class="n">AlpadreamsPipelineCache</span><span class="p">,</span>
@@ -727,40 +686,30 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate one decoded video chunk.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            autoregressive_index: AR step index (``0``-based).</span>
-<span class="sd">            cache: The per-rollout pipeline cache.</span>
-<span class="sd">            hdmap: Per-AR-step HDMap pixel tensor of shape</span>
-<span class="sd">                ``[B, V, T, 3, H, W]`` in ``[-1, 1]``. ``T`` must equal</span>
-<span class="sd">                :meth:`get_num_frames(autoregressive_index)`.</span>
+<span class="sd">            autoregressive_index: AR step index (0-based).</span>
+<span class="sd">            cache: Per-rollout cache from ``initialize_cache``.</span>
+<span class="sd">            hdmap: Per-AR-step HDMap pixels ``[B, V, T, 3, H, W]`` in</span>
+<span class="sd">                ``[-1, 1]``. ``T`` must equal ``get_num_frames(autoregressive_index)``.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            Decoded video chunk of shape ``[B, V, T, 3, H, W]`` in</span>
-<span class="sd">            ``[-1, 1]``.</span>
+<span class="sd">            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># distribute multi-view</span>
-        <span class="n">hdmap</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span><span class="n">hdmap</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">hdmap</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span><span class="n">hdmap</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
 
-        <span class="c1"># generate</span>
         <span class="n">output</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
             <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
             <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
             <span class="nb">input</span><span class="o">=</span><span class="n">hdmap</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="c1"># gather multi-view</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">cat_outputs_cp</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">cat_outputs_cp</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">output</span></div>
 
 
 <div class="viewcode-block" id="AlpadreamsPipeline.get_num_frames">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.get_num_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of decoded video frames produced by AR step ``autoregressive_index``.</span>
-
-<span class="sd">        AR step 0 emits the streaming-VAE anchor frame plus</span>
-<span class="sd">        ``(len_t - 1) * temporal_compression`` decoded frames; subsequent</span>
-<span class="sd">        steps emit ``len_t * temporal_compression`` frames each.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of decoded video frames produced at this AR step.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_len_t_latent</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decoder_temporal_compression</span></div>

@@ -385,11 +385,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span><span class="p">,</span> <span class="n">TypeVar</span>
 
 
-<span class="c1"># Pretty printing class</span>
 <div class="viewcode-block" id="PrintableConfig">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.config.PrintableConfig">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">PrintableConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Printable Config defining str function&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config base class providing a multi-line ``__str__`` for human-readable dumps.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">+</span> <span class="s2">&quot;:&quot;</span><span class="p">]</span>
@@ -408,19 +407,18 @@ SPDX-License-Identifier: Apache-2.0
 <span class="n">T</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">)</span>
 
 
-<span class="c1"># Base instantiate configs</span>
 <div class="viewcode-block" id="InstantiateConfig">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.config.InstantiateConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">InstantiateConfig</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">T</span><span class="p">],</span> <span class="n">PrintableConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config class for instantiating an the class specified in the _target attribute.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config carrying a ``_target`` class plus its kwargs, instantiable via ``setup``.&quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">T</span><span class="p">]</span>
 
 <div class="viewcode-block" id="InstantiateConfig.setup">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.config.InstantiateConfig.setup">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">setup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">T</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns the instantiated object using the config.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate the configured object.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_target</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>  <span class="c1"># type: ignore[call-arg]</span></div>
 </div>
 
@@ -431,29 +429,19 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">def</span><span class="w"> </span><span class="nf">derive_config</span><span class="p">(</span>
     <span class="n">base_config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">T</span><span class="p">],</span> <span class="o">**</span><span class="n">changes</span><span class="p">:</span> <span class="n">Any</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">T</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Derive a new config from a base config by applying changes.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Deep-copy a base config and apply nested keyword overrides.</span>
 
-<span class="sd">    Example:</span>
-<span class="sd">        &gt;&gt;&gt; base_config = AlpadreamsPipelineConfig(</span>
-<span class="sd">        &gt;&gt;&gt;     tokenizer=WanVAEInterfaceConfig(</span>
-<span class="sd">        &gt;&gt;&gt;         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[&quot;vae&quot;],</span>
-<span class="sd">        &gt;&gt;&gt;     ),</span>
-<span class="sd">        &gt;&gt;&gt;     detokenizer=WanVAEInterfaceConfig(</span>
-<span class="sd">        &gt;&gt;&gt;         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[&quot;vae&quot;],</span>
-<span class="sd">        &gt;&gt;&gt;     ),</span>
-<span class="sd">        &gt;&gt;&gt; )</span>
+<span class="sd">    Nested ``dict`` values walk into both dataclass attributes and nested</span>
+<span class="sd">    dicts; leaf values overwrite directly. Raises ``KeyError`` on unknown</span>
+<span class="sd">    paths.</span>
 
-<span class="sd">        &gt;&gt;&gt; new_config = derive_config(</span>
-<span class="sd">        &gt;&gt;&gt;     base_config,</span>
-<span class="sd">        &gt;&gt;&gt;     tokenizer=WanVAEInterfaceConfig(</span>
-<span class="sd">        &gt;&gt;&gt;         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[&quot;lightvae&quot;],</span>
-<span class="sd">        &gt;&gt;&gt;     ),</span>
-<span class="sd">        &gt;&gt;&gt;     dit=dict(</span>
-<span class="sd">        &gt;&gt;&gt;         len_t=3,</span>
-<span class="sd">        &gt;&gt;&gt;         checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[&quot;single_view&quot;][&quot;vae_encoding&quot;][&quot;chunk3&quot;],</span>
-<span class="sd">        &gt;&gt;&gt;     )</span>
-<span class="sd">        &gt;&gt;&gt; )</span>
+<span class="sd">    Typical usage example:</span>
+
+<span class="sd">        new_config = derive_config(</span>
+<span class="sd">            base_config,</span>
+<span class="sd">            tokenizer=WanVAEInterfaceConfig(checkpoint_path=...),</span>
+<span class="sd">            dit=dict(len_t=3, checkpoint_path=...),</span>
+<span class="sd">        )</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_is_patchable_object</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>

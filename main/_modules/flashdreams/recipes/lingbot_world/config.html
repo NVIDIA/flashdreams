@@ -380,33 +380,14 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Pre-built :class:`LingbotWorldInferencePipelineConfig` builders for streaming Lingbot World camera-control I2V.</span>
+<span class="sd">&quot;&quot;&quot;Pipeline-config builders for streaming Lingbot World camera-control I2V.</span>
 
-<span class="sd">Each builder maps a short name (``&quot;LingBot-World-Fast&quot;``,</span>
-<span class="sd">``&quot;LingBot-World-Fast-Flash&quot;``) to a function taking only the</span>
-<span class="sd">runtime knobs the recipe layer owns (``cp_size``, ``compile_network``,</span>
-<span class="sd">``seed``, ``enable_sync_and_profile``) and returns a</span>
-<span class="sd">fully-constructed :class:`LingbotWorldInferencePipelineConfig` — a</span>
-<span class="sd">:class:`WanInferencePipelineConfig` subclass whose :meth:`generate`</span>
-<span class="sd">accepts a :class:`CamCtrlInput` camera payload. The config differs</span>
-<span class="sd">from the stock Wan 2.1 streaming configs in two slots:</span>
-
-<span class="sd">- ``encoder`` is an :class:`I2VCamCtrlEncoderConfig`: a composite</span>
-<span class="sd">  per-AR-step encoder that pairs a Wan-VAE-backed</span>
-<span class="sd">  :class:`I2VCtrlEncoder` with a PixelShuffle pseudo-VAE over Plücker</span>
-<span class="sd">  rays, consuming an :class:`I2VCamCtrlInput` (first-frame pixel</span>
-<span class="sd">  chunk + per-AR-step intrinsics/poses/world-scale) and emitting an</span>
-<span class="sd">  :class:`I2VCamCtrlEmbeddings` the transformer cross-attends to.</span>
-<span class="sd">- ``transformer`` is a :class:`LingbotWorldTransformerConfig` over</span>
-<span class="sd">  :class:`LingbotWorldDiTNetwork14BConfig` — a Wan 2.1 14B backbone</span>
-<span class="sd">  with a per-block ``CamCtrlBlock`` that cross-attends to the</span>
-<span class="sd">  Plücker volume.</span>
-
-<span class="sd">Batch / view / video resolution / per-chunk temporal length are</span>
-<span class="sd">intentionally *not* exposed at the recipe layer: they live on</span>
-<span class="sd">:class:`LingbotWorldTransformerConfig` and are pinned to canonical</span>
-<span class="sd">Lingbot World streaming defaults below. Callers that want to deviate</span>
-<span class="sd">should construct :class:`LingbotWorldTransformerConfig` directly.</span>
+<span class="sd">Each builder takes only the runtime knobs the caller owns (CP size,</span>
+<span class="sd">``torch.compile`` toggle, seed, profiling) and returns a fully</span>
+<span class="sd">constructed pipeline config. Shape knobs (batch / view / resolution /</span>
+<span class="sd">per-chunk latent T) are pinned to canonical Lingbot defaults; callers</span>
+<span class="sd">that want different shapes should construct the transformer config</span>
+<span class="sd">directly.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -443,13 +424,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">}</span>
 
 
-<span class="c1"># ---------------------------------------------------------------------------</span>
-<span class="c1"># Canonical Lingbot World streaming defaults</span>
-<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1">## Canonical Lingbot World streaming defaults</span>
 
-<span class="c1"># Upstream Lingbot-World-Fast 4-step schedule and its 2-step Flash variant.</span>
-<span class="c1"># Note the Flash list is not a prefix of the Fast one — they&#39;re</span>
-<span class="c1"># independently distilled schedules.</span>
+<span class="c1"># Upstream Fast 4-step schedule and its independently distilled Flash 2-step</span>
+<span class="c1"># variant (the Flash list is not a prefix of the Fast list).</span>
 <span class="n">_DEFAULT_DENOISING_TIMESTEPS</span> <span class="o">=</span> <span class="p">[</span><span class="mi">999</span><span class="p">,</span> <span class="mi">978</span><span class="p">,</span> <span class="mi">947</span><span class="p">,</span> <span class="mi">825</span><span class="p">]</span>
 <span class="n">_FLASH_DENOISING_TIMESTEPS</span> <span class="o">=</span> <span class="p">[</span><span class="mi">999</span><span class="p">,</span> <span class="mi">947</span><span class="p">]</span>
 <span class="n">_DEFAULT_NUM_TRAIN_TIMESTEPS</span> <span class="o">=</span> <span class="mi">1000</span>
@@ -476,13 +454,8 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Lingbot World flow-match scheduler.</span>
 
-<span class="sd">    Parameterized by the full timestep list rather than by</span>
-<span class="sd">    ``num_inference_steps`` because the Fast (4-step) and Flash</span>
-<span class="sd">    (2-step) variants ship *independently-distilled* schedules — the</span>
-<span class="sd">    Flash list is not a prefix of the Fast list, so the</span>
-<span class="sd">    ``[:num_inference_steps]`` shorthand used by</span>
-<span class="sd">    :mod:`flashdreams.recipes.wan.config.causal_wan21` does not apply</span>
-<span class="sd">    here.</span>
+<span class="sd">    Parameterized by the full timestep list because the Fast and Flash</span>
+<span class="sd">    variants ship independently distilled schedules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">(</span>
         <span class="n">num_inference_steps</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">denoising_timesteps</span><span class="p">),</span>
@@ -501,21 +474,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LingbotWorldTransformerConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Lingbot World 14B transformer defaults for streaming inference.</span>
-
-<span class="sd">    Shape knobs (batch / view / video resolution / latent T) are</span>
-<span class="sd">    pinned to canonical Lingbot defaults; only the runtime knobs the</span>
-<span class="sd">    caller owns (CP size, torch.compile toggle) are passed through.</span>
-
-<span class="sd">    I2V conditioning is handled inside</span>
-<span class="sd">    :meth:`LingbotWorldTransformer.predict_flow` by</span>
-<span class="sd">    channel-concatenating the encoded first-frame latent and a</span>
-<span class="sd">    4-channel binary mask onto the noisy latent</span>
-<span class="sd">    (``concat_image_mask_to_latent=True``, ``stamp_image_latent=False``).</span>
-<span class="sd">    Per-AR-step Plücker camera conditioning is routed through the</span>
-<span class="sd">    per-block ``CamCtrlBlock`` via the ``plucker`` kwarg threaded in</span>
-<span class="sd">    from the infra encoder by :class:`LingbotWorldTransformer`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Lingbot World 14B transformer defaults for streaming inference.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">LingbotWorldTransformerConfig</span><span class="p">(</span>
         <span class="n">network</span><span class="o">=</span><span class="n">LingbotWorldDiTNetwork14BConfig</span><span class="p">(</span>
             <span class="n">patch_embedding_type</span><span class="o">=</span><span class="s2">&quot;conv3d&quot;</span><span class="p">,</span>
@@ -540,20 +499,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_pipeline_encoder_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">I2VCamCtrlEncoderConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-AR-step composite encoder slot.</span>
-
-<span class="sd">    Always wired — Lingbot World is I2V-only and requires both a</span>
-<span class="sd">    first frame and a camera stream. The composite runs:</span>
-
-<span class="sd">    - a Wan-VAE-backed :class:`I2VCtrlEncoder` on the per-AR-step</span>
-<span class="sd">      pixel chunk built from the user&#39;s first frame, and</span>
-<span class="sd">    - a PixelShuffle pseudo-VAE on the Plücker ray volume rendered</span>
-<span class="sd">      from the user&#39;s per-AR-step ``(intrinsics, poses, world_scale)``</span>
-<span class="sd">      stream.</span>
-
-<span class="sd">    Its :class:`I2VCamCtrlEmbeddings` output is forwarded to the</span>
-<span class="sd">    transformer as the ``input`` argument.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Composite per-AR-step encoder: Wan VAE I2V + Plücker PixelShuffle.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">I2VCamCtrlEncoderConfig</span><span class="p">(</span>
         <span class="n">i2v</span><span class="o">=</span><span class="n">I2VCtrlEncoderConfig</span><span class="p">(</span>
             <span class="n">encoder</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span><span class="p">(</span>
@@ -566,9 +512,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span>
 
 
-<span class="c1"># ---------------------------------------------------------------------------</span>
-<span class="c1"># Builders</span>
-<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1">## Builders</span>
 
 
 <div class="viewcode-block" id="build_lingbot_world_fast">

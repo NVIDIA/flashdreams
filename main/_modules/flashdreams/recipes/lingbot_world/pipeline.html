@@ -389,7 +389,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipeline</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.lingbot_world.encoder.camctrl</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CamCtrlInput</span><span class="p">,</span>
     <span class="n">I2VCamCtrlInput</span><span class="p">,</span>
@@ -405,11 +404,9 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.lingbot_world.pipeline.LingbotWorldInferencePipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">LingbotWorldInferencePipelineConfig</span><span class="p">(</span><span class="n">WanInferencePipelineConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for :class:`LingbotWorldInferencePipeline`.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Lingbot World streaming pipeline.</span>
 
-<span class="sd">    Identical in shape to :class:`WanInferencePipelineConfig`; only</span>
-<span class="sd">    ``_target`` is overridden so ``.setup()`` instantiates the Lingbot</span>
-<span class="sd">    subclass.</span>
+<span class="sd">    Same shape as the Wan I2V config; only the target class is overridden.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;LingbotWorldInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
@@ -423,17 +420,16 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">LingbotWorldInferencePipeline</span><span class="p">(</span><span class="n">WanInferencePipeline</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Streaming camera-controlled I2V pipeline for Lingbot World.</span>
 
-<span class="sd">    The only behavioral difference from :class:`WanInferencePipeline`</span>
-<span class="sd">    is :meth:`generate`&#39;s signature: the caller hands in a</span>
-<span class="sd">    :class:`CamCtrlInput` (intrinsics + poses + world scale) which</span>
-<span class="sd">    this pipeline packs with the per-AR-step image chunk into the</span>
-<span class="sd">    :class:`I2VCamCtrlInput` that :class:`I2VCamCtrlEncoder` expects.</span>
+<span class="sd">    The only difference from the base Wan I2V pipeline is ``generate``:</span>
+<span class="sd">    the caller passes a camera payload (intrinsics, poses, world scale),</span>
+<span class="sd">    and the per-AR-step image chunk is constructed internally from the</span>
+<span class="sd">    cached first frame.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
 <div class="viewcode-block" id="LingbotWorldInferencePipeline.generate">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.lingbot_world.pipeline.LingbotWorldInferencePipeline.generate">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">cache</span><span class="p">:</span> <span class="n">WanInferencePipelineCache</span><span class="p">,</span>
@@ -442,15 +438,12 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate one decoded video chunk for AR step ``autoregressive_index``.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            autoregressive_index: AR step index — ``0`` on the first</span>
-<span class="sd">                call after :meth:`initialize_cache`, then strictly</span>
-<span class="sd">                increasing by 1 per call.</span>
-<span class="sd">            cache: Per-rollout cache returned by</span>
-<span class="sd">                :meth:`initialize_cache`. ``cache.image`` must be</span>
-<span class="sd">                populated (Lingbot World is I2V-only).</span>
-<span class="sd">            input: Camera payload for this AR step — intrinsics,</span>
-<span class="sd">                poses, and world scale. The matching first-frame pixel</span>
-<span class="sd">                chunk is constructed internally from ``cache.image``.</span>
+<span class="sd">            autoregressive_index: AR step index, starting at 0.</span>
+<span class="sd">            cache: Cache from ``initialize_cache``; ``cache.image`` must</span>
+<span class="sd">                be populated (Lingbot World is I2V-only).</span>
+<span class="sd">            input: Per-AR-step camera payload (intrinsics, poses, world</span>
+<span class="sd">                scale). The first-frame pixel chunk is built internally</span>
+<span class="sd">                from ``cache.image``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Decoded video of shape ``[*batch_shape, T, C, H, W]`` in</span>
@@ -463,13 +456,14 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">i2v_chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_preprocess_i2v_input</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="o">.</span><span class="n">image</span><span class="p">)</span>
         <span class="n">camctrl_input</span> <span class="o">=</span> <span class="n">I2VCamCtrlInput</span><span class="p">(</span><span class="n">i2v</span><span class="o">=</span><span class="n">i2v_chunk</span><span class="p">,</span> <span class="n">camctrl</span><span class="o">=</span><span class="nb">input</span><span class="p">)</span>
 
-        <span class="c1"># Dispatch to the infra base class directly:</span>
-        <span class="c1"># ``WanInferencePipeline.generate`` would rebuild ``input`` from</span>
-        <span class="c1"># ``cache.image`` and discard our composite payload.</span>
-        <span class="k">return</span> <span class="n">StreamInferencePipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span>
+        <span class="c1"># Skip ``WanInferencePipeline.generate`` -- it would rebuild ``input``</span>
+        <span class="c1"># from ``cache.image`` and discard the composite camera payload.</span>
+        <span class="c1"># Using ``super(WanInferencePipeline, self)`` jumps directly to</span>
+        <span class="c1"># ``StreamInferencePipeline.generate`` while keeping ``self``&#39;s</span>
+        <span class="c1"># generic-parameter bindings.</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">WanInferencePipeline</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
             <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
-            <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+            <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
             <span class="nb">input</span><span class="o">=</span><span class="n">camctrl_input</span><span class="p">,</span>
         <span class="p">)</span></div>
 </div>

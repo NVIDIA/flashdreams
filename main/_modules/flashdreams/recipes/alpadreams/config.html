@@ -380,7 +380,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Pre-built :class:`AlpadreamsPipelineConfig` builders.&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;Pipeline-config builders for Alpadreams.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -415,18 +415,12 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">WanVAEEncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;single_view&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;pixel_shuffle&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;vae_encoding&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;chunk2&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;chunk3&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt&quot;</span><span class="p">,</span>
-        <span class="p">},</span>
-    <span class="p">},</span>
-    <span class="s2">&quot;4views&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;pixel_shuffle&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;vae_encoding&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
+<span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;1view-pshuffle-chunk4&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;1view-vae-chunk2&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;1view-vae-chunk3&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;4view-pshuffle-chunk4&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;4view-vae-chunk4&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
 <span class="p">}</span>
 
 
@@ -542,9 +536,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;vae_encoding&quot;</span>
-                <span class="p">][</span><span class="s2">&quot;chunk2&quot;</span><span class="p">],</span>  <span class="c1"># type: ignore[index]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-vae-chunk2&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -582,9 +576,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;vae_encoding&quot;</span>
-                <span class="p">][</span><span class="s2">&quot;chunk2&quot;</span><span class="p">],</span>  <span class="c1"># type: ignore[index]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-vae-chunk2&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -617,9 +611,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;vae_encoding&quot;</span>
-                <span class="p">][</span><span class="s2">&quot;chunk2&quot;</span><span class="p">],</span>  <span class="c1"># type: ignore[index]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-vae-chunk2&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -652,9 +646,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;vae_encoding&quot;</span>
-                <span class="p">][</span><span class="s2">&quot;chunk3&quot;</span><span class="p">],</span>  <span class="c1"># type: ignore[index]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-vae-chunk3&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -687,9 +681,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;single_view&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;pixel_shuffle&quot;</span>
-                <span class="p">],</span>  <span class="c1"># type: ignore[index]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-pshuffle-chunk4&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
@@ -722,9 +716,9 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
             <span class="n">context_noise</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
             <span class="n">transformer</span><span class="o">=</span><span class="n">_transformer_config</span><span class="p">(</span>
-                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;4views&quot;</span><span class="p">][</span>
-                    <span class="s2">&quot;pixel_shuffle&quot;</span>
-                <span class="p">],</span>  <span class="c1"># type: ignore[arg-type]  # ty:ignore[invalid-argument-type]</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;4view-pshuffle-chunk4&quot;</span>
+                <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>

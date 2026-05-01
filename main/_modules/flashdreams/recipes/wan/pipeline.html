@@ -403,11 +403,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">StreamInferencePipelineCache</span><span class="p">,</span>
     <span class="n">StreamInferencePipelineConfig</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.i2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">I2VCtrlEncoderCache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="n">WanVAECache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.i2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">I2VCtrlEncoder</span><span class="p">,</span> <span class="n">I2VCtrlEncoderCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="n">WanVAECache</span><span class="p">,</span> <span class="n">WanVAEDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">NEGATIVE_PROMPT</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.wan21</span><span class="w"> </span><span class="kn">import</span> <span class="n">Wan21TransformerCache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.wan22</span><span class="w"> </span><span class="kn">import</span> <span class="n">Wan22TransformerCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.wan21</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Wan21TransformerCache</span><span class="p">,</span>
+    <span class="n">Wan21TransformerConfig</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.wan22</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Wan22TransformerCache</span><span class="p">,</span>
+    <span class="n">Wan22TransformerConfig</span><span class="p">,</span>
+<span class="p">)</span>
 
 
 <div class="viewcode-block" id="WanInferencePipelineCache">
@@ -415,29 +421,20 @@ SPDX-License-Identifier: Apache-2.0
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipelineCache</span><span class="p">(</span>
     <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
-        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT  # ty:ignore[invalid-type-arguments]</span>
-        <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
-        <span class="n">WanVAECache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
+        <span class="n">I2VCtrlEncoderCache</span><span class="p">,</span>
+        <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>
+        <span class="n">WanVAECache</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-rollout state for :class:`WanInferencePipeline`.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-rollout state for the Wan pipeline.</span>
 
-<span class="sd">    Extends the infra :class:`StreamInferencePipelineCache` with:</span>
-
-<span class="sd">    - ``image``: the raw first-frame pixel tensor of shape</span>
-<span class="sd">      ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]`` (or ``None`` for T2V).</span>
-<span class="sd">      Stashed verbatim — encoding happens inside the infra encoder</span>
-<span class="sd">      (``I2VCtrlEncoder``) per AR step, fed by the per-AR-step</span>
-<span class="sd">      pixel input that :meth:`WanInferencePipeline.generate` builds from</span>
-<span class="sd">      this tensor.</span>
-
-<span class="sd">    The streaming Wan VAE&#39;s per-rollout cache lives on ``encoder_cache``,</span>
-<span class="sd">    the diffusion model&#39;s :class:`DiffusionModel.FinalState` lives on</span>
-<span class="sd">    ``final_state``, and the *current* AR step&#39;s :class:`EventProfiler`</span>
-<span class="sd">    lives on ``event_profiler`` — all inherited from the infra cache.</span>
+<span class="sd">    Adds the I2V first-frame pixels on top of the inherited caches. Pixel-to-</span>
+<span class="sd">    latent encoding happens per AR step inside the encoder, not here.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;First-frame pixels ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]``;</span>
+<span class="sd">    ``None`` for T2V.&quot;&quot;&quot;</span></div>
 
 
 
@@ -445,22 +442,10 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipelineConfig</span><span class="p">(</span><span class="n">StreamInferencePipelineConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hyperparameters for :class:`WanInferencePipeline`.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Wan inference pipeline.</span>
 
-<span class="sd">    Extends :class:`StreamInferencePipelineConfig` (inherits</span>
-<span class="sd">    ``diffusion_model``, ``encoder``, ``decoder``) with the recipe-level</span>
-<span class="sd">    text/image encoders. The infra encoder slot drives I2V vs T2V mode:</span>
-
-<span class="sd">    - T2V: ``encoder = None``. :meth:`WanInferencePipeline.initialize_cache`</span>
-<span class="sd">      rejects any ``image`` argument; :meth:`WanInferencePipeline.generate`</span>
-<span class="sd">      forwards ``input=None`` to the inherited</span>
-<span class="sd">      :meth:`StreamInferencePipeline.generate`.</span>
-<span class="sd">    - I2V: ``encoder = I2VCtrlEncoderConfig(...)``. The recipe</span>
-<span class="sd">      pipeline pads the user-provided first frame along T to one full</span>
-<span class="sd">      latent chunk and hands the pixel chunk to the inherited infra</span>
-<span class="sd">      ``generate``, which runs the encoder (Wan VAE) and forwards the</span>
-<span class="sd">      resulting :class:`I2VCtrl` to the transformer as the ``input``</span>
-<span class="sd">      argument.</span>
+<span class="sd">    T2V vs I2V is selected by the inherited ``encoder`` slot: ``None`` for</span>
+<span class="sd">    T2V, an I2V control-encoder config for I2V.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;WanInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
@@ -468,15 +453,12 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">UMT5TextEncoderConfig</span><span class="p">)</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Text encoder run once at the start of each rollout.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;UMT5 text encoder run once per rollout.&quot;&quot;&quot;</span>
 
     <span class="n">image_encoder</span><span class="p">:</span> <span class="n">CLIPImageEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;CLIP image encoder for I2V variants whose ``WanDiTNetwork`` was</span>
-<span class="sd">    trained with ``cross_attn_enable_img=True`` (e.g. Wan 2.1 14B I2V).</span>
-<span class="sd">    Run once at the start of each rollout to produce the</span>
-<span class="sd">    ``image_embeddings`` that get baked into the transformer cache via</span>
-<span class="sd">    cross-attention. Leave as ``None`` for T2V or for I2V variants that</span>
-<span class="sd">    do not consume CLIP features.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;CLIP image encoder for I2V variants trained with</span>
+<span class="sd">    ``cross_attn_enable_img=True`` (Wan 2.1 14B I2V). ``None`` skips CLIP</span>
+<span class="sd">    cross-attention conditioning.&quot;&quot;&quot;</span></div>
 
 
 
@@ -484,36 +466,28 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipeline</span><span class="p">(</span>
     <span class="n">StreamInferencePipeline</span><span class="p">[</span>
-        <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># EncCacheT  # ty:ignore[invalid-type-arguments]</span>
-        <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
-        <span class="n">WanVAECache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
+        <span class="n">I2VCtrlEncoderCache</span><span class="p">,</span>
+        <span class="n">Wan21TransformerCache</span> <span class="o">|</span> <span class="n">Wan22TransformerCache</span><span class="p">,</span>
+        <span class="n">WanVAECache</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Unified Wan inference pipeline (Wan 2.1 / Wan 2.2, T2V and I2V).</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wan 2.1 / 2.2 inference pipeline, T2V and I2V.</span>
 
-<span class="sd">    Whether the rollout is T2V or I2V is determined by the inherited</span>
-<span class="sd">    infra encoder slot on :attr:`WanInferencePipelineConfig`:</span>
-<span class="sd">    ``encoder = None`` ⇒ T2V; ``encoder = I2VCtrlEncoderConfig(...)``</span>
-<span class="sd">    ⇒ I2V. The two modes share the same one-shot AR rollout API.</span>
+<span class="sd">    T2V and I2V share the same rollout loop; the difference is whether you</span>
+<span class="sd">    pass an ``image`` to ``initialize_cache``. The pipeline config&#39;s</span>
+<span class="sd">    ``encoder`` slot must agree (``None`` for T2V, an I2V config for I2V).</span>
 
-<span class="sd">    Usage (T2V)::</span>
+<span class="sd">    Typical usage example:</span>
 
-<span class="sd">        config = build_wan21_t2v_1pt3b_480p(device=device)</span>
-<span class="sd">        pipeline = config.setup().to(device=device)</span>
+<span class="sd">        pipeline: WanInferencePipeline = ...</span>
 
-<span class="sd">        cache = pipeline.initialize_cache(text=[&quot;A cat...&quot;])</span>
-<span class="sd">        chunk = pipeline.generate(0, cache)</span>
-<span class="sd">        pipeline.finalize(0, cache)  # optional for single-step use</span>
-
-<span class="sd">    Usage (I2V — same loop; the recipe pipeline auto-builds the</span>
-<span class="sd">    per-AR-step pixel input from the stashed first frame)::</span>
-
-<span class="sd">        config = build_wan21_i2v_14b_480p(device=device)</span>
-<span class="sd">        pipeline = config.setup().to(device=device)</span>
-
-<span class="sd">        cache = pipeline.initialize_cache(text=[&quot;A cat...&quot;], image=first_frame)</span>
+<span class="sd">        cache = pipeline.initialize_cache(text=[&quot;A cat surfing.&quot;])</span>
 <span class="sd">        chunk = pipeline.generate(0, cache)</span>
 <span class="sd">        pipeline.finalize(0, cache)</span>
+<span class="sd">        chunk = pipeline.generate(1, cache)</span>
+<span class="sd">        pipeline.finalize(1, cache)  # optional for the last rollout</span>
+
+<span class="sd">    For I2V, also pass ``image=first_frame`` to ``initialize_cache``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoder</span>
@@ -521,15 +495,23 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">WanInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>  <span class="c1"># ty:ignore[invalid-assignment]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_transformer_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Wan21TransformerConfig</span> <span class="o">|</span> <span class="n">Wan22TransformerConfig</span><span class="p">:</span>
+        <span class="c1"># Narrow the base transformer config to the Wan-specific union so</span>
+        <span class="c1"># ``guidance_scale`` / ``len_t`` are visible to the type checker.</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="p">(</span><span class="n">Wan21TransformerConfig</span><span class="p">,</span> <span class="n">Wan22TransformerConfig</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">cfg</span>
 
 <div class="viewcode-block" id="WanInferencePipeline.initialize_cache">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.initialize_cache">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
         <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -537,44 +519,35 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache for a batch of prompts.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            text: Flat list of prompts (one per batch element). The batch</span>
-<span class="sd">                size is inferred from ``len(text)`` and must match the</span>
-<span class="sd">                underlying transformer config&#39;s ``batch_shape``.</span>
-<span class="sd">            image: Optional first-frame pixel tensor of shape</span>
-<span class="sd">                ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]``, where ``H``</span>
-<span class="sd">                / ``W`` must match the transformer config&#39;s</span>
-<span class="sd">                ``height`` / ``width`` *times* the decoder&#39;s spatial</span>
-<span class="sd">                compression ratio. Required iff this pipeline has an I2V</span>
-<span class="sd">                input encoder wired (``self.encoder is not None``);</span>
-<span class="sd">                rejected otherwise. Stashed verbatim on the returned</span>
-<span class="sd">                cache — :meth:`generate` expands it to a per-AR-step</span>
-<span class="sd">                pixel chunk that the infra encoder consumes. When</span>
-<span class="sd">                :attr:`image_encoder` is configured, this same image is</span>
-<span class="sd">                also fed (T-axis squeezed) to the CLIP image encoder</span>
-<span class="sd">                once, and the resulting embeddings are baked into the</span>
-<span class="sd">                transformer cache.</span>
+<span class="sd">            text: One prompt per batch element. Length must match the</span>
+<span class="sd">                transformer&#39;s ``batch_shape``.</span>
+<span class="sd">            image: First-frame pixels of shape ``[*batch_shape, 1, 3, H, W]``</span>
+<span class="sd">                in ``[-1, 1]``. Required for I2V (``self.encoder`` is set),</span>
+<span class="sd">                forbidden for T2V. ``H`` / ``W`` must equal the transformer&#39;s</span>
+<span class="sd">                latent ``height`` / ``width`` times the decoder spatial</span>
+<span class="sd">                compression ratio.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Cache to thread through ``generate`` / ``finalize``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;text must be non-empty&quot;</span>
         <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
 
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>  <span class="c1"># [B, L, D]</span>
 
-        <span class="n">guidance_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">guidance_scale</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+        <span class="n">guidance_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">guidance_scale</span>
         <span class="k">if</span> <span class="n">guidance_scale</span> <span class="o">&gt;</span> <span class="mf">1.0</span><span class="p">:</span>
             <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">([</span><span class="n">NEGATIVE_PROMPT</span><span class="p">]</span> <span class="o">*</span> <span class="n">n</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="kc">None</span>
 
-        <span class="c1"># Symmetric T2V/I2V validation: presence of an I2V encoder MUST</span>
-        <span class="c1"># match the presence of an image. We do *not* VAE-encode the</span>
-        <span class="c1"># image here — the infra encoder runs per AR step in</span>
-        <span class="c1"># :meth:`generate` so the streaming Wan VAE&#39;s temporal cache</span>
-        <span class="c1"># advances correctly.</span>
+        <span class="c1"># Encoder presence and image presence must agree. The image is *not*</span>
+        <span class="c1"># VAE-encoded here: that happens per AR step inside the encoder so</span>
+        <span class="c1"># the streaming Wan VAE&#39;s temporal cache advances correctly.</span>
         <span class="k">if</span> <span class="n">image</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
                 <span class="s2">&quot;Image was provided but the pipeline has no I2V input &quot;</span>
-                <span class="s2">&quot;encoder; configure encoder to a &quot;</span>
-                <span class="s2">&quot;I2VCtrlEncoderConfig for I2V.&quot;</span>
+                <span class="s2">&quot;encoder; configure encoder to an I2VCtrlEncoderConfig.&quot;</span>
             <span class="p">)</span>
             <span class="k">assert</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;image must have a single time step (T=1), got shape &quot;</span>
@@ -585,14 +558,12 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="s2">&quot;Image was not provided but the pipeline has an I2V input encoder.&quot;</span>
             <span class="p">)</span>
 
-        <span class="c1"># CLIP image embeddings (only for I2V variants where the</span>
-        <span class="c1"># underlying network has ``cross_attn_enable_img=True``).</span>
         <span class="n">image_embeddings</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">assert</span> <span class="n">image</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
                 <span class="s2">&quot;image_encoder is configured but no image was provided.&quot;</span>
             <span class="p">)</span>
-            <span class="c1"># Drop the T=1 axis: CLIP wants [..., C, H, W].</span>
+            <span class="c1"># CLIP wants [..., C, H, W]; drop the T=1 axis.</span>
             <span class="n">image_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="o">-</span><span class="mi">4</span><span class="p">))</span>
 
         <span class="n">parent</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
@@ -615,17 +586,13 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the per-AR-step pixel chunk fed to the I2V input encoder.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the per-AR-step pixel chunk for the I2V encoder.</span>
 
-<span class="sd">        - AR step 0: ``cat(image, zeros)`` — one anchor pixel frame</span>
-<span class="sd">          followed by ``(len_t - 1) * 4`` zero pixel frames so a fresh</span>
-<span class="sd">          streaming Wan VAE produces ``len_t`` latent frames whose first</span>
-<span class="sd">          frame is the encoded image.</span>
-<span class="sd">        - AR steps ``&gt; 0``: pure zeros so the streaming VAE flushes its</span>
-<span class="sd">          temporal context. The encoder pairs this with an all-zero</span>
-<span class="sd">          mask, so the resulting latent is ignored by the network&#39;s</span>
-<span class="sd">          mask-injection arithmetic. Single-AR-step rollouts (the</span>
-<span class="sd">          common Wan 2.1 non-streaming case) never hit this branch.</span>
+<span class="sd">        Step 0 prepends the anchor frame and zero-pads along T so the VAE</span>
+<span class="sd">        emits ``len_t`` latent frames with the encoded image at index 0.</span>
+<span class="sd">        Later steps return all zeros so the streaming VAE flushes its</span>
+<span class="sd">        temporal context; the encoder pairs that with an all-zero mask, so</span>
+<span class="sd">        the latent contributes nothing to the network output.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">H</span><span class="p">,</span> <span class="n">W</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">device</span>
@@ -634,8 +601,7 @@ SPDX-License-Identifier: Apache-2.0
 
         <span class="n">expected_frames</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_num_input_frames</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="c1"># F.pad pads from the last dim backward; this tuple pads only</span>
-            <span class="c1"># the T axis (the -4 dim) with ``num_pad`` zeros at the end.</span>
+            <span class="c1"># F.pad pads from the last dim backward; this targets the T axis.</span>
             <span class="n">num_pad</span> <span class="o">=</span> <span class="n">expected_frames</span> <span class="o">-</span> <span class="mi">1</span>
             <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">num_pad</span><span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
@@ -646,20 +612,16 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="WanInferencePipeline.generate">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.generate">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">cache</span><span class="p">:</span> <span class="n">WanInferencePipelineCache</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate one decoded video chunk for AR step ``autoregressive_index``.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate one decoded video chunk.</span>
 
-<span class="sd">        For T2V the inherited infra :meth:`generate` is called with</span>
-<span class="sd">        ``input=None``. For I2V the recipe builds a per-AR-step pixel</span>
-<span class="sd">        chunk via :meth:`_preprocess_i2v_input` and hands it to the</span>
-<span class="sd">        infra as ``input``; the infra runs the streaming Wan VAE</span>
-<span class="sd">        encoder and pairs the resulting latent with a binary injection</span>
-<span class="sd">        mask (:class:`I2VCtrl`) which it patchifies and forwards</span>
-<span class="sd">        to the transformer as the ``input`` argument.</span>
+<span class="sd">        Args:</span>
+<span class="sd">            autoregressive_index: AR step index, starting at 0.</span>
+<span class="sd">            cache: Per-rollout cache from ``initialize_cache``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Decoded video of shape ``[*batch_shape, T, C, H, W]`` in ``[-1, 1]``.</span>
@@ -678,9 +640,10 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="WanInferencePipeline.get_num_input_frames">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_input_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of input video frames accepted by the model.&quot;&quot;&quot;</span>
-        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of input video frames the model expects at this AR step.&quot;&quot;&quot;</span>
+        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">,</span> <span class="n">I2VCtrlEncoder</span><span class="p">)</span>
+        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
         <span class="k">else</span><span class="p">:</span>
@@ -690,9 +653,10 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="WanInferencePipeline.get_num_output_frames">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_output_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of output video frames produced by the model.&quot;&quot;&quot;</span>
-        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>  <span class="c1"># ty:ignore[unresolved-attribute]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of decoded video frames produced at this AR step.&quot;&quot;&quot;</span>
+        <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">,</span> <span class="n">WanVAEDecoder</span><span class="p">)</span>
+        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
         <span class="k">else</span><span class="p">:</span>

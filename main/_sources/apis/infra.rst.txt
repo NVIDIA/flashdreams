@@ -62,9 +62,6 @@ Transformer
 
 .. currentmodule:: flashdreams.infra.diffusion.transformer
 
-.. autoclass:: TransformerConfig
-   :members:
-
 .. autoclass:: Transformer
    :members:
 
@@ -79,9 +76,6 @@ internal op is a broadcast against per-step scalar sigmas, so the same
 scheduler works for any latent layout.
 
 .. currentmodule:: flashdreams.infra.diffusion.scheduler
-
-.. autoclass:: SchedulerConfig
-   :members:
 
 .. autoclass:: Scheduler
    :members:
@@ -111,9 +105,6 @@ component, they are stateful across AR steps via an
 
 .. currentmodule:: flashdreams.infra.encoder
 
-.. autoclass:: EncoderConfig
-   :members:
-
 .. autoclass:: Encoder
    :members:
 
@@ -135,9 +126,6 @@ pipeline can decode one chunk at a time with the correct temporal
 context.
 
 .. currentmodule:: flashdreams.infra.decoder
-
-.. autoclass:: DecoderConfig
-   :members:
 
 .. autoclass:: Decoder
    :members:

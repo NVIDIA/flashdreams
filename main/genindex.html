@@ -451,8 +451,6 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.decoder.DecoderAutoregressiveCache">DecoderAutoregressiveCache (class in flashdreams.infra.decoder)</a>
 </li>
-      <li><a href="apis/infra.html#flashdreams.infra.decoder.DecoderConfig">DecoderConfig (class in flashdreams.infra.decoder)</a>
-</li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.denoising_timesteps">denoising_timesteps (FlowMatchSchedulerConfig attribute)</a>
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.config.derive_config">derive_config() (in module flashdreams.infra.config)</a>
@@ -485,13 +483,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder">encoder (StreamInferencePipelineConfig attribute)</a>
 </li>
-      <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">encoder_cache (StreamInferencePipelineCache attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="apis/infra.html#flashdreams.infra.encoder.EncoderAutoregressiveCache">EncoderAutoregressiveCache (class in flashdreams.infra.encoder)</a>
+      <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">encoder_cache (StreamInferencePipelineCache attribute)</a>
 </li>
-      <li><a href="apis/infra.html#flashdreams.infra.encoder.EncoderConfig">EncoderConfig (class in flashdreams.infra.encoder)</a>
+      <li><a href="apis/infra.html#flashdreams.infra.encoder.EncoderAutoregressiveCache">EncoderAutoregressiveCache (class in flashdreams.infra.encoder)</a>
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler">event_profiler (StreamInferencePipelineCache attribute)</a>
 </li>
@@ -618,6 +614,10 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="apis/core.html#flashdreams.core.distributed.Device.get_cpu_affinity">get_cpu_affinity() (Device method)</a>
+</li>
+      <li><a href="apis/core.html#flashdreams.core.distributed.Device.get_name">get_name() (Device method)</a>
+</li>
       <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.get_num_frames">get_num_frames() (AlpadreamsPipeline method)</a>
 </li>
       <li><a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">get_num_input_frames() (WanInferencePipeline method)</a>
@@ -630,6 +630,8 @@ SPDX-License-Identifier: Apache-2.0
 <h2 id="I">I</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache.image">image (WanInferencePipelineCache attribute)</a>
+</li>
       <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipelineConfig.image_encoder">image_encoder (AlpadreamsPipelineConfig attribute)</a>
 
       <ul>
@@ -642,6 +644,8 @@ SPDX-License-Identifier: Apache-2.0
 
       <ul>
         <li><a href="apis/infra.html#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache">(Encoder method)</a>
+</li>
+        <li><a href="apis/infra.html#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache">(NullEncoder method)</a>
 </li>
         <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">(TeahvVAEDecoder method)</a>
 </li>
@@ -731,16 +735,14 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.encoder.NullEncoderConfig">NullEncoderConfig (class in flashdreams.infra.encoder)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps">num_inference_steps (FlowMatchSchedulerConfig attribute)</a>
 
       <ul>
         <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps">(FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.SchedulerConfig.num_inference_steps">(SchedulerConfig attribute)</a>
-</li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps">num_train_timesteps (FlowMatchSchedulerConfig attribute)</a>
 
       <ul>
@@ -799,8 +801,6 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler">scheduler (DiffusionModelConfig attribute)</a>
 </li>
-      <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.SchedulerConfig">SchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
-</li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed">seed (DiffusionModelConfig attribute)</a>
 </li>
       <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.seq_dim">seq_dim (BlockKVCache attribute)</a>
@@ -815,8 +815,6 @@ SPDX-License-Identifier: Apache-2.0
 
       <ul>
         <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift">(FlowMatchUniPCSchedulerConfig attribute)</a>
-</li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.SchedulerConfig.shift">(SchedulerConfig attribute)</a>
 </li>
       </ul></li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min">sigma_min (FlowMatchSchedulerConfig attribute)</a>
@@ -858,8 +856,6 @@ SPDX-License-Identifier: Apache-2.0
       <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.transformer_cache">transformer_cache (StreamInferencePipelineCache attribute)</a>
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache">TransformerAutoregressiveCache (class in flashdreams.infra.diffusion.transformer)</a>
-</li>
-      <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerConfig">TransformerConfig (class in flashdreams.infra.diffusion.transformer)</a>
 </li>
   </ul></td>
 </tr></table>

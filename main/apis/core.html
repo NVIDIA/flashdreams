@@ -645,6 +645,19 @@ the boilerplate at the top of the example launchers.</p>
 <dt class="sig sig-object py" id="flashdreams.core.distributed.Device">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">device_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/core/distributed.html#Device"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.distributed.Device" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Lightweight wrapper around an NVML device handle for CPU-affinity queries.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.distributed.Device.get_name">
+<span class="sig-name descname"><span class="pre">get_name</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/distributed.html#Device.get_name"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.distributed.Device.get_name" title="Link to this definition">#</a></dt>
+<dd><p>Return the marketing name reported by NVML for this device.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.distributed.Device.get_cpu_affinity">
+<span class="sig-name descname"><span class="pre">get_cpu_affinity</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/core/distributed.html#Device.get_cpu_affinity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.distributed.Device.get_cpu_affinity" title="Link to this definition">#</a></dt>
+<dd><p>Return the indices of CPUs ideally affined to this GPU per NVML.</p>
+</dd></dl>
+
 </dd></dl>
 
 </section>
@@ -730,7 +743,11 @@ the boilerplate at the top of the example launchers.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distributed">Distributed</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.init"><code class="docutils literal notranslate"><span class="pre">init()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.Device"><code class="docutils literal notranslate"><span class="pre">Device</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.Device"><code class="docutils literal notranslate"><span class="pre">Device</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.Device.get_name"><code class="docutils literal notranslate"><span class="pre">get_name()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.Device.get_cpu_affinity"><code class="docutils literal notranslate"><span class="pre">get_cpu_affinity()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>

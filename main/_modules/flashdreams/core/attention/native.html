@@ -380,6 +380,8 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
+<span class="sd">&quot;&quot;&quot;SDPA-backed attention with selectable QKV layout and kernel backend.&quot;&quot;&quot;</span>
+
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -387,6 +389,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProcessGroup</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.device_mesh</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeviceMesh</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.experimental</span><span class="w"> </span><span class="kn">import</span> <span class="n">context_parallel</span>
 
 
 <div class="viewcode-block" id="NativeAttention">
@@ -503,7 +506,7 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="c1"># Pass a dummy buffer to satisfy context_parallel&#39;s buffers[0].device</span>
                 <span class="c1"># check (required in PyTorch 2.9+ where buffers cannot be empty).</span>
                 <span class="n">_dummy</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span> <span class="n">device</span><span class="o">=</span><span class="n">query</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-                <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">tensor</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">context_parallel</span><span class="p">(</span>  <span class="c1"># ty:ignore[possibly-missing-submodule]</span>
+                <span class="k">with</span> <span class="n">context_parallel</span><span class="p">(</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span><span class="p">,</span>
                     <span class="n">buffers</span><span class="o">=</span><span class="p">[</span>
                         <span class="n">_dummy</span><span class="p">,</span>

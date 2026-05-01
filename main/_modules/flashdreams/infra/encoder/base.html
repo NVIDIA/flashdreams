@@ -382,7 +382,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">&quot;&quot;&quot;Encoder interface.&quot;&quot;&quot;</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
 
@@ -390,16 +390,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
-
-
-<div class="viewcode-block" id="EncoderConfig">
-<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.EncoderConfig">[docs]</a>
-<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">EncoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;Encoder&quot;</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder configuration.&quot;&quot;&quot;</span>
-
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Encoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Encoder</span><span class="p">)</span></div>
-
 
 
 <div class="viewcode-block" id="EncoderAutoregressiveCache">
@@ -420,38 +410,29 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="Encoder">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.Encoder">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Encoder</span><span class="p">(</span><span class="n">ABC</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder interface, generic over the per-rollout cache type ``EncCacheT``.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder interface, generic over the per-rollout cache type.</span>
 
-<span class="sd">    ``forward`` is intentionally not pinned by the base; subclasses pick</span>
-<span class="sd">    whatever signature their data needs. Stateful encoders called by</span>
-<span class="sd">    :class:`StreamInferencePipeline` must match the pipeline call shape::</span>
-
-<span class="sd">        def forward(self, input, autoregressive_index=0, cache=None) -&gt; Tensor</span>
-
-<span class="sd">    Stateless encoders not called by the pipeline can use a slimmer</span>
-<span class="sd">    signature, e.g. ``def forward(self, input) -&gt; Tensor``.</span>
+<span class="sd">    ``forward`` is not pinned by the base: subclasses pick whatever</span>
+<span class="sd">    signature fits. Encoders called by ``StreamInferencePipeline`` must</span>
+<span class="sd">    match its call shape: ``forward(self, input, autoregressive_index=0,</span>
+<span class="sd">    cache=None)``. Stateless one-shot encoders (text, CLIP image) can use</span>
+<span class="sd">    a slimmer ``forward(self, input)``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">EncoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
 <div class="viewcode-block" id="Encoder.initialize_autoregressive_cache">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache">[docs]</a>
+    <span class="nd">@abstractmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EncCacheT</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a fresh per-rollout cache.</span>
 
-<span class="sd">        Default returns the empty :class:`EncoderAutoregressiveCache`</span>
-<span class="sd">        sentinel and ignores ``**context``. Subclasses with a custom</span>
-<span class="sd">        ``EncCacheT`` must override this.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            context: Per-rollout state forwarded as keyword arguments.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            A fresh :class:`EncoderAutoregressiveCache` (or subclass).</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="n">EncoderAutoregressiveCache</span><span class="p">()</span>  <span class="c1"># type: ignore[return-value]  # ty:ignore[invalid-return-type]</span></div>
+<span class="sd">        Override to return the encoder&#39;s concrete cache type. Stateless</span>
+<span class="sd">        encoders (e.g. text, CLIP image) return a fresh</span>
+<span class="sd">        ``EncoderAutoregressiveCache``.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
 </div>
 
 
@@ -459,10 +440,10 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="NullEncoderConfig">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.NullEncoderConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">NullEncoderConfig</span><span class="p">(</span><span class="n">EncoderConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for :class:`NullEncoder`.&quot;&quot;&quot;</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">NullEncoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;NullEncoder&quot;</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the identity encoder.&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Encoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">NullEncoder</span><span class="p">)</span></div>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;NullEncoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">NullEncoder</span><span class="p">)</span></div>
 
 
 
@@ -471,16 +452,24 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">NullEncoder</span><span class="p">(</span><span class="n">Encoder</span><span class="p">[</span><span class="n">EncoderAutoregressiveCache</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Identity encoder: returns its input unchanged.</span>
 
-<span class="sd">    Use as :attr:`StreamInferencePipelineConfig.encoder` to pass</span>
-<span class="sd">    already-encoded tensors straight to the diffusion model.</span>
+<span class="sd">    Wire as the pipeline&#39;s ``encoder`` slot to pass already-encoded tensors</span>
+<span class="sd">    straight to the diffusion model.</span>
 
-<span class="sd">    Example::</span>
+<span class="sd">    Typical usage example:</span>
 
 <span class="sd">        config = StreamInferencePipelineConfig(</span>
 <span class="sd">            encoder=NullEncoderConfig(),</span>
 <span class="sd">            ...,</span>
 <span class="sd">        )</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="NullEncoder.initialize_autoregressive_cache">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EncoderAutoregressiveCache</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">EncoderAutoregressiveCache</span><span class="p">()</span></div>
+
 
 <div class="viewcode-block" id="NullEncoder.forward">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.NullEncoder.forward">[docs]</a>

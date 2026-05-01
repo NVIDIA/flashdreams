@@ -380,15 +380,27 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
+<span class="sd">&quot;&quot;&quot;Ring (sequence-parallel) attention built on the native SDPA primitive.&quot;&quot;&quot;</span>
+
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">nullcontext</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContextManager</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">ContextManager</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">cast</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed._functional_collectives</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">funcol</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.device_mesh</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeviceMesh</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">.native</span><span class="w"> </span><span class="kn">import</span> <span class="n">NativeAttention</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.attention.native</span><span class="w"> </span><span class="kn">import</span> <span class="n">NativeAttention</span>
+
+<span class="c1"># For type checking, cast the native ops to the expected signature.</span>
+<span class="n">_sdpa_cudnn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span>
+    <span class="s2">&quot;Callable[..., tuple[Tensor, ...]]&quot;</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_cudnn_attention</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_sdpa_flash</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span>
+    <span class="s2">&quot;Callable[..., tuple[Any, ...]]&quot;</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_flash_attention</span><span class="p">,</span>
+<span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">torch_sdpa_cudnn</span><span class="p">(</span>
@@ -405,12 +417,12 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    Returns:</span>
 <span class="sd">        Attention output, or ``(output, lse)`` when ``return_lse=True``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_cudnn_attention</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">attn_bias</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">compute_log_sumexp</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
+    <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">_sdpa_cudnn</span><span class="p">(</span>
+        <span class="n">query</span><span class="p">,</span>
+        <span class="n">key</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">,</span>
+        <span class="kc">None</span><span class="p">,</span>  <span class="c1"># attn_bias</span>
+        <span class="kc">True</span><span class="p">,</span>  <span class="c1"># compute_log_sumexp</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">out</span><span class="p">,</span> <span class="p">(</span><span class="n">lse</span> <span class="k">if</span> <span class="n">return_lse</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
@@ -429,11 +441,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    Returns:</span>
 <span class="sd">        Attention output, or ``(output, lse)`` when ``return_lse=True``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_scaled_dot_product_flash_attention</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># ty:ignore[invalid-argument-type]</span>
-    <span class="p">)</span>
+    <span class="n">out</span><span class="p">,</span> <span class="n">lse</span><span class="p">,</span> <span class="o">*</span><span class="n">_</span> <span class="o">=</span> <span class="n">_sdpa_flash</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">out</span><span class="p">,</span> <span class="p">(</span><span class="n">lse</span> <span class="k">if</span> <span class="n">return_lse</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
 
