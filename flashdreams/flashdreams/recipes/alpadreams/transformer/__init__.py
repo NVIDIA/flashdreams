@@ -175,6 +175,9 @@ class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
     warmup_iters: int = 2
     """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
+    skip_finalize_kv_cache: bool = False
+    """Skip the KV cache finalize step."""
+
     def __post_init__(self) -> None:
         if self.enable_hdmap_condition:
             self.network.additional_concat_ch = (
@@ -507,3 +510,13 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         input: Tensor | None = None,
     ) -> Tensor:
         return self._maybe_inject_image(clean_latent, cache)
+
+    def finalize_kv_cache(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        if not self.config.skip_finalize_kv_cache:
+            super().finalize_kv_cache(*args, **kwargs)
+        else:
+            print("Skipping KV cache finalize")
