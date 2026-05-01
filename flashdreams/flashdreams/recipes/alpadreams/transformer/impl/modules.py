@@ -607,17 +607,17 @@ class Block(nn.Module):
 
     def forward(
         self,
-        x: Tensor,  # [B, V, T, HW, D]
+        x: Tensor,
         emb: Tensor,
         cache: BlockCache,
-        rope_freqs: Tensor,  # [L, 1, 1, D]
+        rope_freqs: Tensor,
         adaln_lora: Tensor | None = None,
         view_embedding_proj: Tensor | None = None,
     ) -> Tensor:
         """Run the full block update for one denoising step.
 
         Args:
-            x: Input tensor with shape [B, V, T, HW, D].
+            x: Input tensor with shape [B, V, T, HW, D] or [B, V, L, D].
             emb: Timestep embedding with shape [B, D].
             cache: KV cache container for this block.
             rope_freqs: RoPE frequencies with shape [L, 1, 1, D].
@@ -627,17 +627,25 @@ class Block(nn.Module):
         Returns:
             Updated hidden states with the same shape as ``x``.
         """
-        B, V, T, HW, D = x.shape
+        if x.ndim == 5:
+            B, V, T, HW, D = x.shape
+            L = T * HW
+            x = x.reshape(B, V, L, D)
+        else:
+            assert x.ndim == 4, "x must be a 4D tensor"
+            B, V, L, D = x.shape
+            # If x passes in as a 4D tensor, we don't know T and HW.
+            T = HW = None
 
         # Reshape embeddings to be broadcastable with x.
-        emb = emb.reshape(B, 1, 1, 1, D)
+        emb = emb.reshape(B, 1, 1, D)
 
         # Compute AdaLN modulation
         if self.use_adaln_lora:
             assert adaln_lora is not None, (
                 "adaln_lora is required when use_adaln_lora is True"
             )
-            adaln_lora = adaln_lora.reshape(B, 1, 1, 1, 3 * D)
+            adaln_lora = adaln_lora.reshape(B, 1, 1, 3 * D)
             shift_self, scale_self, gate_self = (
                 self.adaln_modulation_self_attn(emb) + adaln_lora
             ).chunk(3, dim=-1)
@@ -673,7 +681,7 @@ class Block(nn.Module):
             ) = view_embedding_proj.chunk(9, dim=-1)
 
             def expand_view_mod(v_mod: Tensor) -> Tensor:
-                return v_mod.reshape(B, V, 1, 1, D)
+                return v_mod.reshape(B, V, 1, D)
 
             shift_self = shift_self + expand_view_mod(view_shift_self)
             scale_self = scale_self + expand_view_mod(view_scale_self)
@@ -690,7 +698,7 @@ class Block(nn.Module):
         # Self-attention (API aligned with Attention.forward)
         normed_x = self.layer_norm_self_attn(x) * (1 + scale_self) + shift_self
         attn_out = self.self_attn(
-            normed_x.reshape(B, V, -1, D),
+            normed_x,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
         ).reshape_as(normed_x)
@@ -698,8 +706,11 @@ class Block(nn.Module):
 
         # Cross-view attention: dense
         if self.enable_cross_view_attn:
+            assert T is not None and HW is not None, (
+                "T and HW must be available (x should be a 5D tensor) when cross-view attention is enabled"
+            )
             normed_x_cv = self.layer_norm_cross_view_attn(x)
-            x_cv = rearrange(normed_x_cv, "b v t hw d -> b t v hw d")
+            x_cv = rearrange(normed_x_cv, "b v (t hw) d -> b t v hw d", t=T, hw=HW)
             if self.cross_view_attn.is_context_parallel_enabled():
                 # When cross-view attention is CP-enabled, assume views are split
                 # across GPUs in rank order. For 4 views on 2 GPUs, that is
@@ -719,13 +730,13 @@ class Block(nn.Module):
                 x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
             cross_view_attn_kv_cache = self.cross_view_attn.compute_kv(x_context)
             cv_out = self.cross_view_attn(x_cv, kv_cache=cross_view_attn_kv_cache)
-            cv_out = rearrange(cv_out, "b t v hw d -> b v t hw d")
+            cv_out = rearrange(cv_out, "b t v hw d -> b v (t hw) d")
             x = x + cv_out
 
         # Cross-attention
         normed_x = self.layer_norm_cross_attn(x) * (1 + scale_cross) + shift_cross
         cross_out = self.cross_attn(
-            normed_x.reshape(B, V, -1, D),
+            normed_x,
             kv_cache=cache.cross_attn,
         ).reshape_as(normed_x)
         x = x + gate_cross * cross_out

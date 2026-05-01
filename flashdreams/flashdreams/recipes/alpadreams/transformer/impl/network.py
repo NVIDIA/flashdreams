@@ -289,21 +289,29 @@ class CosmosDiTNetwork(nn.Module):
         x: Tensor,  # [B, V, T, C, H, W]
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
+        flatten_thw: bool = False,
     ) -> Tensor:
         r"""
         Patchify the input tensor and maybe split it along cp_dim if a process group is provided.
 
-        The patchify pattern is:
+        If `flatten_thw` is False, the patchify pattern is:
             "b v (t kt) c (h kh) (w kw) -> b v t (h w) (c kt kh kw)",
+        Otherwise, the patchify pattern is:
+            "b v (t kt) c (h kh) (w kw) -> b v (t h w) (c kt kh kw)"
 
         Returns:
-            Tensor: The patched tensor with shape [B, V, T, HW, D]
+            Tensor: The patched tensor with shape [B, V, T, HW, D] or [B, V, L, D]
         """
         assert x.ndim == 6, f"x must be a 6D tensor, but got shape {x.shape}"
 
+        if flatten_thw:
+            pattern = "... v (t kt) c (h kh) (w kw) -> ... v (t h w) (c kt kh kw)"
+        else:
+            pattern = "... v (t kt) c (h kh) (w kw) -> ... v t (h w) (c kt kh kw)"
+
         x = rearrange(
             x,
-            "... v (t kt) c (h kh) (w kw) -> ... v t (h w) (c kt kh kw)",
+            pattern,
             kt=self.config.patch_temporal,
             kh=self.config.patch_spatial,
             kw=self.config.patch_spatial,
@@ -326,20 +334,28 @@ class CosmosDiTNetwork(nn.Module):
         self,
         pH: int,
         pW: int,
-        x: Tensor,  # [B, V, T, HW, D]
+        x: Tensor,  # [B, V, T, HW, D] or [B, V, L, D]
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
+        flatten_thw: bool = False,
     ) -> Tensor:
         r"""
         Unpatchify the input tensor and maybe gather it along cp_dim if a process group is provided.
 
-        The unpatchify pattern is:
+        If `flatten_thw` is False, the unpatchify pattern is:
+            "b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
+        Otherwise, the unpatchify pattern is:
             "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
 
         Returns:
             Tensor: The unpatched tensor with shape [B, V, T, C, H, W]
         """
-        assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
+        if flatten_thw:
+            pattern = "b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)"
+            assert x.ndim == 4, f"x must be a 4D tensor, but got shape {x.shape}"
+        else:
+            pattern = "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)"
+            assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
@@ -355,7 +371,7 @@ class CosmosDiTNetwork(nn.Module):
 
         x = rearrange(
             x,
-            "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
+            pattern,
             h=pH,
             w=pW,
             kt=self.config.patch_temporal,
@@ -403,13 +419,13 @@ class CosmosDiTNetwork(nn.Module):
         Forward pass dispatching to training or inference mode.
 
         Args:
-            x: Input video tensor [B, V, T, HW, D] after patchify
+            x: Input video tensor [B, V, T, HW, D] or [B, V, L, D] after patchify
             timesteps: Timesteps [1] or [B]
-            rope_freqs: RoPE cosine and sine embeddings [T*HW, 1, 1, D]
+            rope_freqs: RoPE cosine and sine embeddings [L, 1, 1, D]
             cache: CosmosDiTCache
-            condition_video_input_mask: Condition video input mask [B, V, T, HW, D] after patchify
+            condition_video_input_mask: Condition video input mask [B, V, T, HW, D] or [B, V, L, D] after patchify
             current_chunk_idx: Current chunk index in autoregressive inference
-            hdmap_condition: HDMap tensor [B, V, T, HW, D]
+            hdmap_condition: HDMap tensor [B, V, T, HW, D] or [B, V, L, D]
             view_indices: View indices [B, V]
             eager_mode: Whether to run in eager mode (True) or not (False)
         """

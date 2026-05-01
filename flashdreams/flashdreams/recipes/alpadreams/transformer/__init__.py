@@ -291,6 +291,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             else self.network
         )
 
+        # In the case of single view, we always flatten the latent tensor into
+        # 4D [B, V, L, D]. This makes CP easier: just directly apply on L dimension.
+        # For multi-view, we keep the original 5D [B, V, T, HW, D] shape so we can apply
+        # dedicated hierarchical CP groups.
+        self.flatten_thw = config.num_views == 1
+
     ## Patchify / CP plumbing
 
     @property
@@ -300,44 +306,73 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         kt = cfg.network.patch_temporal
         kh = kw = cfg.network.patch_spatial
         D = cfg.network.in_channels * kt * kh * kw
-        return (
-            *cfg.batch_shape,
-            cfg.num_views // self.cp_groups.V_size,
-            self.config._pT // self.cp_groups.T_size,
-            (self.config._pH * self.config._pW) // self.cp_groups.HW_size,
-            D,
-        )
+        if self.flatten_thw:
+            return (
+                *cfg.batch_shape,
+                cfg.num_views // self.cp_groups.V_size,
+                (self.config._pT * self.config._pH * self.config._pW)
+                // self.cp_groups.THW_size,
+                D,
+            )
+        else:
+            return (
+                *cfg.batch_shape,
+                cfg.num_views // self.cp_groups.V_size,
+                self.config._pT // self.cp_groups.T_size,
+                (self.config._pH * self.config._pW) // self.cp_groups.HW_size,
+                D,
+            )
 
-    @property
-    def _process_groups(self) -> list[Any]:
-        return [self.cp_groups.V_group, self.cp_groups.T_group, self.cp_groups.HW_group]
+    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
+        # x expected to be [B, V, T, C, H, W]
+        assert x.ndim == 6, f"x must be a 6D tensor, but got shape {x.shape}"
 
-    @property
-    def _cp_dims(self) -> list[int]:
-        return [-5, -4, -3]  # V, T, HW
-
-    def patchify_and_maybe_split_cp(self, x: Any) -> Any:
-        # Cosmos network expects 6D [B, V, T, C, H, W]; pass cp_dims as
-        # positive [1, 2, 3] for that layout.
-        if isinstance(x, Tensor):
+        if self.flatten_thw:
             return self.network.patchify_and_maybe_split_cp(
                 x,
-                process_groups=self._process_groups,
-                cp_dims=[1, 2, 3],
-            )
-        raise TypeError(
-            f"CosmosTransformer.patchify_and_maybe_split_cp got unsupported "
-            f"input type {type(x).__name__}; expected Tensor."
-        )
+                process_groups=[self.cp_groups.V_group, self.cp_groups.THW_group],
+                cp_dims=[-3, -2],
+                flatten_thw=True,
+            )  # [B, V, L, D]
+        else:
+            return self.network.patchify_and_maybe_split_cp(
+                x,
+                process_groups=[
+                    self.cp_groups.V_group,
+                    self.cp_groups.T_group,
+                    self.cp_groups.HW_group,
+                ],
+                cp_dims=[-4, -3, -2],
+                flatten_thw=False,
+            )  # [B, V, T, HW, D]
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
-        return self.network.unpatchify_and_maybe_gather_cp(
-            pH=self.config._pH,
-            pW=self.config._pW,
-            x=x,
-            process_groups=self._process_groups,
-            cp_dims=[1, 2, 3],
-        )
+        if self.flatten_thw:
+            # x expected to be [B, V, L, D]
+            assert x.ndim == 4, f"x must be a 4D tensor, but got shape {x.shape}"
+            return self.network.unpatchify_and_maybe_gather_cp(
+                pH=self.config._pH,
+                pW=self.config._pW,
+                x=x,
+                process_groups=[self.cp_groups.V_group, self.cp_groups.THW_group],
+                cp_dims=[-3, -2],
+                flatten_thw=True,
+            )  # [B, V, T, C, H, W]
+        else:
+            # x expected to be [B, V, T, HW, D]
+            assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
+            return self.network.unpatchify_and_maybe_gather_cp(
+                pH=self.config._pH,
+                pW=self.config._pW,
+                x=x,
+                process_groups=[
+                    self.cp_groups.V_group,
+                    self.cp_groups.T_group,
+                    self.cp_groups.HW_group,
+                ],
+                cp_dims=[-4, -3, -2],
+                flatten_thw=False,
+            )  # [B, V, T, C, H, W]
 
     ## Condition / cache plumbing
 
@@ -419,15 +454,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         image = F.pad(image_embeddings, (0, 0, 0, 0, 0, 0, 0, cfg.len_t - 1))
 
         # Patchify image and masks once at rollout start.
-        image_patched = self.network.patchify_and_maybe_split_cp(
-            image, process_groups=self._process_groups, cp_dims=[1, 2, 3]
-        )
-        mask_first_patched = self.network.patchify_and_maybe_split_cp(
-            mask_first_block, process_groups=self._process_groups, cp_dims=[1, 2, 3]
-        )
-        mask_other_patched = self.network.patchify_and_maybe_split_cp(
-            mask_other_blocks, process_groups=self._process_groups, cp_dims=[1, 2, 3]
-        )
+        image_patched = self.patchify_and_maybe_split_cp(image)
+        mask_first_patched = self.patchify_and_maybe_split_cp(mask_first_block)
+        mask_other_patched = self.patchify_and_maybe_split_cp(mask_other_blocks)
 
         # Reset any prior CUDA graph: it refers to slot pointers from the
         # previous cache, which the new cache invalidates.
