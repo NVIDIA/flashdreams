@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Cosmos DiT network: multi-view, HDMap-conditioned, AdaLN-LoRA."""
+
 from dataclasses import dataclass, field
 
 import torch

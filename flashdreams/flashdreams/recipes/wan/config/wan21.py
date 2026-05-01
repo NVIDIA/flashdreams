@@ -13,38 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built :class:`Wan21PipelineConfig` builders for non-streaming Wan 2.1.
-
-Currently shipped presets:
-
-- ``"Wan2.1-T2V-1.3B"`` — official Wan-AI 1.3B T2V checkpoint paired
-  with the Wan VAE decoder. CFG (negative prompt) is enabled via
-  :attr:`WanTransformerConfig.guidance_scale`; the actual embedding
-  strings are produced by the text encoder which lives inside
-  :class:`Wan21Pipeline` (see :mod:`recipes.wan21.run`).
-
-- ``"Wan2.1-I2V-14B-480P"`` — official Wan-AI 14B I2V checkpoint
-  (480P preset). Wires:
-
-  * the 14B :class:`WanDiTNetwork` with ``cross_attn_enable_img=True``
-    (CLIP image features go through a per-block image cross-attention),
-  * :attr:`WanTransformerConfig.concat_image_mask_to_latent` ``=True``
-    (so the post-init bumps the network input channel count from 16 to
-    36: ``[noisy_latent (16ch), mask (4ch), image_latent (16ch)]``),
-  * the infra :class:`StreamInferencePipelineConfig.encoder` slot to a
-    :class:`I2VCtrlEncoderConfig` (defined in
-    :mod:`flashdreams.recipes.wan.autoencoder.i2v`) which produces the
-    per-AR-step :class:`ImageCtrl`,
-  * a long-lived :class:`CLIPImageEncoderConfig` on the project
-    pipeline so the user-provided first frame is also encoded once
-    into the cross-attention image features.
-
-Batch / view / video resolution / per-chunk temporal length are
-intentionally *not* exposed at the project layer: they are infra
-concerns living on :class:`WanTransformerConfig` and are hardcoded to
-canonical Wan 2.1 defaults inside this module. Callers that want to
-deviate should construct :class:`Wan21PipelineConfig` directly.
-"""
+"""Pipeline-config builders for non-streaming Wan 2.1."""
 
 from __future__ import annotations
 
@@ -80,7 +49,7 @@ def build_wan21_t2v_1pt3b_480p(
     seed: int = 42,
     enable_sync_and_profile: bool = False,
 ) -> WanInferencePipelineConfig:
-    """Wan 2.1 1.3B T2V pipeline config."""
+    """Wan 2.1 1.3B T2V (official Wan-AI checkpoint, 480p)."""
     WAN_VAE_SPATIAL_COMPRESSION = 8
 
     latent_height = video_height // WAN_VAE_SPATIAL_COMPRESSION
@@ -124,7 +93,7 @@ def build_wan21_i2v_14b_480p(
     seed: int = 42,
     enable_sync_and_profile: bool = False,
 ) -> WanInferencePipelineConfig:
-    """Wan 2.1 14B I2V."""
+    """Wan 2.1 14B I2V (official Wan-AI checkpoint, 480p)."""
     WAN_VAE_SPATIAL_COMPRESSION = 8
 
     latent_height = video_height // WAN_VAE_SPATIAL_COMPRESSION

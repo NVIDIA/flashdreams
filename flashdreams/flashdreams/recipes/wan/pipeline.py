@@ -46,49 +46,28 @@ from flashdreams.recipes.wan.transformer.wan22 import Wan22TransformerCache
 @dataclass(kw_only=True)
 class WanInferencePipelineCache(
     StreamInferencePipelineCache[
-        I2VCtrlEncoderCache | None,  # EncCacheT  # ty:ignore[invalid-type-arguments]
-        Wan21TransformerCache | Wan22TransformerCache,  # TransformerCacheT
-        WanVAECache,  # DecCacheT
+        I2VCtrlEncoderCache | None,  # ty:ignore[invalid-type-arguments]
+        Wan21TransformerCache | Wan22TransformerCache,
+        WanVAECache,
     ]
 ):
-    """Per-rollout state for :class:`WanInferencePipeline`.
+    """Per-rollout state for the Wan pipeline.
 
-    Extends the infra :class:`StreamInferencePipelineCache` with:
-
-    - ``image``: the raw first-frame pixel tensor of shape
-      ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]`` (or ``None`` for T2V).
-      Stashed verbatim — encoding happens inside the infra encoder
-      (``I2VCtrlEncoder``) per AR step, fed by the per-AR-step
-      pixel input that :meth:`WanInferencePipeline.generate` builds from
-      this tensor.
-
-    The streaming Wan VAE's per-rollout cache lives on ``encoder_cache``,
-    the diffusion model's :class:`DiffusionModel.FinalState` lives on
-    ``final_state``, and the *current* AR step's :class:`EventProfiler`
-    lives on ``event_profiler`` — all inherited from the infra cache.
+    Adds the I2V first-frame pixels on top of the inherited caches. Pixel-to-
+    latent encoding happens per AR step inside the encoder, not here.
     """
 
     image: Tensor | None = None
+    """First-frame pixels ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]``;
+    ``None`` for T2V."""
 
 
 @dataclass(kw_only=True)
 class WanInferencePipelineConfig(StreamInferencePipelineConfig):
-    """Hyperparameters for :class:`WanInferencePipeline`.
+    """Config for the Wan inference pipeline.
 
-    Extends :class:`StreamInferencePipelineConfig` (inherits
-    ``diffusion_model``, ``encoder``, ``decoder``) with the recipe-level
-    text/image encoders. The infra encoder slot drives I2V vs T2V mode:
-
-    - T2V: ``encoder = None``. :meth:`WanInferencePipeline.initialize_cache`
-      rejects any ``image`` argument; :meth:`WanInferencePipeline.generate`
-      forwards ``input=None`` to the inherited
-      :meth:`StreamInferencePipeline.generate`.
-    - I2V: ``encoder = I2VCtrlEncoderConfig(...)``. The recipe
-      pipeline pads the user-provided first frame along T to one full
-      latent chunk and hands the pixel chunk to the inherited infra
-      ``generate``, which runs the encoder (Wan VAE) and forwards the
-      resulting :class:`I2VCtrl` to the transformer as the ``input``
-      argument.
+    T2V vs I2V is selected by the inherited ``encoder`` slot: ``None`` for
+    T2V, an I2V control-encoder config for I2V.
     """
 
     _target: type["WanInferencePipeline"] = field(
@@ -96,49 +75,38 @@ class WanInferencePipelineConfig(StreamInferencePipelineConfig):
     )
 
     text_encoder: UMT5TextEncoderConfig = field(default_factory=UMT5TextEncoderConfig)
-    """Text encoder run once at the start of each rollout."""
+    """UMT5 text encoder run once per rollout."""
 
     image_encoder: CLIPImageEncoderConfig | None = None
-    """CLIP image encoder for I2V variants whose ``WanDiTNetwork`` was
-    trained with ``cross_attn_enable_img=True`` (e.g. Wan 2.1 14B I2V).
-    Run once at the start of each rollout to produce the
-    ``image_embeddings`` that get baked into the transformer cache via
-    cross-attention. Leave as ``None`` for T2V or for I2V variants that
-    do not consume CLIP features."""
+    """CLIP image encoder for I2V variants trained with
+    ``cross_attn_enable_img=True`` (Wan 2.1 14B I2V). ``None`` skips CLIP
+    cross-attention conditioning."""
 
 
 class WanInferencePipeline(
     StreamInferencePipeline[
-        I2VCtrlEncoderCache | None,  # EncCacheT  # ty:ignore[invalid-type-arguments]
-        Wan21TransformerCache | Wan22TransformerCache,  # TransformerCacheT
-        WanVAECache,  # DecCacheT
+        I2VCtrlEncoderCache | None,  # ty:ignore[invalid-type-arguments]
+        Wan21TransformerCache | Wan22TransformerCache,
+        WanVAECache,
     ]
 ):
-    """Unified Wan inference pipeline (Wan 2.1 / Wan 2.2, T2V and I2V).
+    """Wan 2.1 / 2.2 inference pipeline, T2V and I2V.
 
-    Whether the rollout is T2V or I2V is determined by the inherited
-    infra encoder slot on :attr:`WanInferencePipelineConfig`:
-    ``encoder = None`` ⇒ T2V; ``encoder = I2VCtrlEncoderConfig(...)``
-    ⇒ I2V. The two modes share the same one-shot AR rollout API.
+    T2V and I2V share the same rollout loop; the difference is whether you
+    pass an ``image`` to ``initialize_cache``. The pipeline config's
+    ``encoder`` slot must agree (``None`` for T2V, an I2V config for I2V).
 
-    Usage (T2V)::
+    Typical usage example:
 
-        config = build_wan21_t2v_1pt3b_480p(device=device)
-        pipeline = config.setup().to(device=device)
+        pipeline: WanInferencePipeline = ...
 
-        cache = pipeline.initialize_cache(text=["A cat..."])
-        chunk = pipeline.generate(0, cache)
-        pipeline.finalize(0, cache)  # optional for single-step use
-
-    Usage (I2V — same loop; the recipe pipeline auto-builds the
-    per-AR-step pixel input from the stashed first frame)::
-
-        config = build_wan21_i2v_14b_480p(device=device)
-        pipeline = config.setup().to(device=device)
-
-        cache = pipeline.initialize_cache(text=["A cat..."], image=first_frame)
+        cache = pipeline.initialize_cache(text=["A cat surfing."])
         chunk = pipeline.generate(0, cache)
         pipeline.finalize(0, cache)
+        chunk = pipeline.generate(1, cache)
+        pipeline.finalize(1, cache)  # optional for the last rollout
+
+    For I2V, also pass ``image=first_frame`` to ``initialize_cache``.
     """
 
     text_encoder: UMT5TextEncoder
@@ -160,22 +128,16 @@ class WanInferencePipeline(
         """Initialize the per-rollout cache for a batch of prompts.
 
         Args:
-            text: Flat list of prompts (one per batch element). The batch
-                size is inferred from ``len(text)`` and must match the
-                underlying transformer config's ``batch_shape``.
-            image: Optional first-frame pixel tensor of shape
-                ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]``, where ``H``
-                / ``W`` must match the transformer config's
-                ``height`` / ``width`` *times* the decoder's spatial
-                compression ratio. Required iff this pipeline has an I2V
-                input encoder wired (``self.encoder is not None``);
-                rejected otherwise. Stashed verbatim on the returned
-                cache — :meth:`generate` expands it to a per-AR-step
-                pixel chunk that the infra encoder consumes. When
-                :attr:`image_encoder` is configured, this same image is
-                also fed (T-axis squeezed) to the CLIP image encoder
-                once, and the resulting embeddings are baked into the
-                transformer cache.
+            text: One prompt per batch element. Length must match the
+                transformer's ``batch_shape``.
+            image: First-frame pixels of shape ``[*batch_shape, 1, 3, H, W]``
+                in ``[-1, 1]``. Required for I2V (``self.encoder`` is set),
+                forbidden for T2V. ``H`` / ``W`` must equal the transformer's
+                latent ``height`` / ``width`` times the decoder spatial
+                compression ratio.
+
+        Returns:
+            Cache to thread through ``generate`` / ``finalize``.
         """
         assert len(text) > 0, "text must be non-empty"
         n = len(text)
@@ -188,16 +150,13 @@ class WanInferencePipeline(
         else:
             negative_text_embeddings = None
 
-        # Symmetric T2V/I2V validation: presence of an I2V encoder MUST
-        # match the presence of an image. We do *not* VAE-encode the
-        # image here — the infra encoder runs per AR step in
-        # :meth:`generate` so the streaming Wan VAE's temporal cache
-        # advances correctly.
+        # Encoder presence and image presence must agree. The image is *not*
+        # VAE-encoded here: that happens per AR step inside the encoder so
+        # the streaming Wan VAE's temporal cache advances correctly.
         if image is not None:
             assert self.encoder is not None, (
                 "Image was provided but the pipeline has no I2V input "
-                "encoder; configure encoder to a "
-                "I2VCtrlEncoderConfig for I2V."
+                "encoder; configure encoder to an I2VCtrlEncoderConfig."
             )
             assert image.shape[-4] == 1, (
                 f"image must have a single time step (T=1), got shape "
@@ -208,14 +167,12 @@ class WanInferencePipeline(
                 "Image was not provided but the pipeline has an I2V input encoder."
             )
 
-        # CLIP image embeddings (only for I2V variants where the
-        # underlying network has ``cross_attn_enable_img=True``).
         image_embeddings: Tensor | None = None
         if self.image_encoder is not None:
             assert image is not None, (
                 "image_encoder is configured but no image was provided."
             )
-            # Drop the T=1 axis: CLIP wants [..., C, H, W].
+            # CLIP wants [..., C, H, W]; drop the T=1 axis.
             image_embeddings = self.image_encoder(image.squeeze(-4))
 
         parent = super().initialize_cache(
@@ -237,17 +194,13 @@ class WanInferencePipeline(
         autoregressive_index: int,
         image: Tensor,
     ) -> Tensor:
-        """Build the per-AR-step pixel chunk fed to the I2V input encoder.
+        """Build the per-AR-step pixel chunk for the I2V encoder.
 
-        - AR step 0: ``cat(image, zeros)`` — one anchor pixel frame
-          followed by ``(len_t - 1) * 4`` zero pixel frames so a fresh
-          streaming Wan VAE produces ``len_t`` latent frames whose first
-          frame is the encoded image.
-        - AR steps ``> 0``: pure zeros so the streaming VAE flushes its
-          temporal context. The encoder pairs this with an all-zero
-          mask, so the resulting latent is ignored by the network's
-          mask-injection arithmetic. Single-AR-step rollouts (the
-          common Wan 2.1 non-streaming case) never hit this branch.
+        Step 0 prepends the anchor frame and zero-pads along T so the VAE
+        emits ``len_t`` latent frames with the encoded image at index 0.
+        Later steps return all zeros so the streaming VAE flushes its
+        temporal context; the encoder pairs that with an all-zero mask, so
+        the latent contributes nothing to the network output.
         """
         H, W = image.shape[-2:]
         device = image.device
@@ -256,8 +209,7 @@ class WanInferencePipeline(
 
         expected_frames = self.get_num_input_frames(autoregressive_index)
         if autoregressive_index == 0:
-            # F.pad pads from the last dim backward; this tuple pads only
-            # the T axis (the -4 dim) with ``num_pad`` zeros at the end.
+            # F.pad pads from the last dim backward; this targets the T axis.
             num_pad = expected_frames - 1
             return F.pad(image, (0, 0, 0, 0, 0, 0, 0, num_pad))
         else:
@@ -271,15 +223,11 @@ class WanInferencePipeline(
         autoregressive_index: int,
         cache: WanInferencePipelineCache,
     ) -> Tensor:
-        """Generate one decoded video chunk for AR step ``autoregressive_index``.
+        """Generate one decoded video chunk.
 
-        For T2V the inherited infra :meth:`generate` is called with
-        ``input=None``. For I2V the recipe builds a per-AR-step pixel
-        chunk via :meth:`_preprocess_i2v_input` and hands it to the
-        infra as ``input``; the infra runs the streaming Wan VAE
-        encoder and pairs the resulting latent with a binary injection
-        mask (:class:`I2VCtrl`) which it patchifies and forwards
-        to the transformer as the ``input`` argument.
+        Args:
+            autoregressive_index: AR step index, starting at 0.
+            cache: Per-rollout cache from ``initialize_cache``.
 
         Returns:
             Decoded video of shape ``[*batch_shape, T, C, H, W]`` in ``[-1, 1]``.
@@ -295,7 +243,7 @@ class WanInferencePipeline(
         )
 
     def get_num_input_frames(self, autoregressive_index: int) -> int:
-        """Number of input video frames accepted by the model."""
+        """Number of input video frames the model expects at this AR step."""
         len_t = self.diffusion_model.transformer.config.len_t  # ty:ignore[unresolved-attribute]
         temporal_compression_ratio = self.encoder.temporal_compression_ratio  # ty:ignore[unresolved-attribute]
         if autoregressive_index == 0:
@@ -304,7 +252,7 @@ class WanInferencePipeline(
             return len_t * temporal_compression_ratio
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
-        """Number of output video frames produced by the model."""
+        """Number of decoded video frames produced at this AR step."""
         len_t = self.diffusion_model.transformer.config.len_t  # ty:ignore[unresolved-attribute]
         temporal_compression_ratio = self.decoder.temporal_compression_ratio  # ty:ignore[unresolved-attribute]
         if autoregressive_index == 0:

@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""3D rotary position embeddings with CP-aware shifting for the Wan DiT."""
+
 from typing import TypeVar
 
 import torch

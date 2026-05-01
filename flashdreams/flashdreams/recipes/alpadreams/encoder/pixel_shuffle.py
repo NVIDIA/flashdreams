@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pixel-shuffle pseudo-VAE encoder for alpadreams, adapted to the infra :class:`Encoder` API.
+"""Frame-selection + pixel-unshuffle pseudo-VAE encoder.
 
-Encode-only: there is no learned model; it just selects frames according to
-the AR step and pixel-unshuffles each frame's spatial blocks into channels.
+Stateless drop-in for a learned VAE: select temporal frames per AR step
+and unshuffle each frame's 8x8 spatial blocks into channels.
 """
 
 from __future__ import annotations
@@ -36,31 +36,29 @@ from flashdreams.infra.encoder import (
 
 @dataclass(kw_only=True)
 class PixelShuffleVAEEncoderCache(EncoderAutoregressiveCache):
-    """AR cache for :class:`PixelShuffleVAEEncoder`.
-
-    Tracks ``autoregressive_index`` because the temporal frame-selection rule
-    depends on whether this is the first AR step.
-    """
+    """AR cache that tracks step index for frame selection."""
 
     autoregressive_index: int = -1
 
 
 @dataclass(kw_only=True)
 class PixelShuffleVAEEncoderConfig(EncoderConfig):
+    """Config for the pixel-shuffle pseudo-VAE encoder."""
+
     _target: type["PixelShuffleVAEEncoder"] = field(
         default_factory=lambda: PixelShuffleVAEEncoder
     )
 
     frame_selection_mode: Literal["first_frame", "last_frame"] = "last_frame"
+    """Which frame in each 4-frame window to keep."""
 
 
 class PixelShuffleVAEEncoder(Encoder[PixelShuffleVAEEncoderCache]):
-    """Pixel-shuffle pseudo-encoder used as a stand-in for a learned VAE.
+    """Stateless pseudo-VAE: frame select + 8x8 spatial unshuffle.
 
-    Forward input is a video of shape ``[..., T, C, H, W]`` (range ``[-1, 1]``);
-    output is the "latent" of shape ``[..., Tl, Cl, Hl, Wl]`` where ``Cl =
-    C * 64`` (8x8 spatial unshuffle) and ``Tl`` depends on the frame
-    selection mode and the current AR step.
+    Input is a video of shape ``[..., T, C, H, W]`` in ``[-1, 1]``.
+    Output latent is ``[..., Tl, C * 64, H/8, W/8]``; ``Tl`` depends on
+    the frame-selection mode and the current AR step.
     """
 
     TEMPORAL_COMPRESSION_RATIO = 4

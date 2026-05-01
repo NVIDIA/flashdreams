@@ -24,66 +24,48 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 
 
 class CUDAGraphWrapper:
-    """Capture a stateful callable's CUDA execution into a graph.
+    """Capture a stateful CUDA callable into a replayable graph.
 
-    The callable runs eagerly for ``warmup_iters`` calls (kernels JIT-load
-    and the caching allocator stabilises), then the next call captures
-    the whole forward into a :class:`torch.cuda.CUDAGraph` against
-    static input buffers; every subsequent same-shape call copies the
-    new inputs into those buffers and replays the graph, returning
-    clones of the captured outputs (the next replay would overwrite
-    them).
+    The callable runs eagerly for ``warmup_iters`` calls so kernels JIT-load
+    and the allocator stabilises. The next call captures the whole forward
+    into a ``torch.cuda.CUDAGraph`` against static input buffers; every
+    same-shape call after that copies inputs into those buffers and replays
+    the graph, returning clones of the captured outputs.
 
-    The captured kernels reference the static input pointers, the
-    callable's parameters, the output buffer pointers, AND any internal
-    mutable buffers the callable touches in place (e.g. cache slots).
-    Those internal buffers must be at stable storage addresses across
-    calls -- typically by writing through an in-place ``copy_`` once a
-    slot's shape stabilises during warmup.
+    Captured kernels reference the static input pointers, the callable's
+    parameters, the output buffer pointers, and any in-place-mutated buffers
+    (e.g. cache slots). Those internal buffers must have stable storage
+    addresses — typically by writing through ``copy_`` once a slot's shape
+    stabilises.
 
-    Input staging policy: only TOP-LEVEL tensor positional args and
-    tensor kwargs are copied into static buffers. Everything else (ints,
-    bools, ``None``, dataclasses, dicts, lists, tuples, custom objects)
-    passes through verbatim every call. This is intentional -- callers
-    routinely pass mutable state through containers (e.g. a streaming
-    cache as a ``dict[int, Tensor]`` whose tensors are in-place updated
-    by ``fn``); recursing into those containers would copy those
-    tensors into static buffers and break the in-place semantics. Pass
-    any tensor that varies per call as its own arg/kwarg so the wrapper
-    can stage it.
+    Input staging: only top-level tensor positional args and kwargs are
+    copied into static buffers. Everything else (ints, ``None``, dicts,
+    custom objects) passes through verbatim. This is intentional: callers
+    routinely pass mutable state through containers (e.g. a streaming cache
+    as a ``dict[int, Tensor]``) and recursing in would break the in-place
+    semantics. Pass any per-call-varying tensor as its own arg.
 
-    A change in the staged-tensor signature -- different set of
-    arg/kwarg names, or any staged tensor's ``shape``/``dtype``
-    changing -- drops the captured graph and restarts the warmup
-    cycle. :meth:`reset` does the same explicitly (call when the
-    external state ``fn`` depends on -- e.g. a fresh streaming cache
-    -- is swapped out).
+    A change in the staged-tensor signature drops the graph and restarts
+    warmup. ``reset`` does the same explicitly — call it when external
+    state (e.g. a fresh streaming cache) is swapped out.
 
-    Output handling: ``fn``'s return value is treated as a pytree;
-    every tensor leaf is captured into a static buffer and a clone is
-    returned to the caller (so the next replay can safely overwrite
-    the captured buffer). Non-tensor output leaves are passed through
-    by value from the capture call -- if those values vary call to
-    call (e.g. a returned Python int), the wrapper is the wrong tool.
+    Compatibility with ``torch.compile``: a compiled ``fn`` is fine, but
+    Inductor + triton trigger lazy autotunes (illegal during capture) on the
+    first call per shape. Drain them on the eager path via ``drain``
+    (or an unwrapped call) before the wrapped path captures, otherwise
+    capture fails with ``cudaErrorStreamCaptureUnsupported``.
 
-    Compatibility with ``torch.compile``: ``fn`` may be a compiled
-    callable, but Inductor + triton trigger lazy autotunes
-    (``torch.cuda.synchronize()`` calls, illegal during graph capture)
-    on the first call seen for each input shape. Callers MUST drain
-    those autotunes through :meth:`drain` (or an unwrapped invocation
-    with the same shape on the bare compiled callable) before the
-    wrapped path attempts capture -- otherwise capture fails with
-    ``cudaErrorStreamCaptureUnsupported``.
-
-    Example::
+    Typical usage example:
 
         wrapper = CUDAGraphWrapper(model.forward, warmup_iters=2)
-        # Rollout 1 -- variable shapes / Inductor autotune drain.
+
+        # Rollout 1: drain Inductor autotune on the eager path.
         for chunk in first_rollout_chunks:
-            y = wrapper.drain(chunk, timesteps=t, cache=cache)  # eager
-        # Rollout 2+ -- steady shape, capture + replay.
+            y = wrapper.drain(chunk, timesteps=t, cache=cache)
+
+        # Rollout 2+: capture + replay.
         for chunk in steady_rollout_chunks:
-            y = wrapper(chunk, timesteps=t, cache=cache)        # captured
+            y = wrapper(chunk, timesteps=t, cache=cache)
     """
 
     def __init__(self, fn: Callable[..., Any], warmup_iters: int = 2):
@@ -106,17 +88,14 @@ class CUDAGraphWrapper:
         self._out_spec = None
         self._warmup_remaining = self.warmup_iters
 
-    # ------------------------------------------------------------------
-    # Input staging
-    # ------------------------------------------------------------------
+    ## Input staging
 
     @staticmethod
     def _slot_compatible(slot: Any, fresh: Any) -> bool:
-        """Can ``slot`` (a static buffer or a non-tensor reference) absorb ``fresh``?
+        """Can ``slot`` absorb ``fresh``?
 
-        Tensor slot accepts a tensor of the same ``shape`` and
-        ``dtype``; non-tensor slot accepts any non-tensor value (we
-        forward the fresh value verbatim each call).
+        A tensor slot accepts a tensor of the same shape and dtype; a
+        non-tensor slot accepts any non-tensor value (forwarded verbatim).
         """
         if isinstance(slot, torch.Tensor):
             return (
@@ -143,8 +122,7 @@ class CUDAGraphWrapper:
 
     @staticmethod
     def _make_slot(value: Any) -> Any:
-        """Allocate a static buffer for a tensor, or return the value
-        verbatim for everything else (it'll be forwarded each call)."""
+        """Static buffer for a tensor; pass-through value for non-tensors."""
         if isinstance(value, torch.Tensor):
             return torch.empty_like(value).contiguous()
         return value
@@ -152,9 +130,11 @@ class CUDAGraphWrapper:
     def _stage(
         self, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> tuple[tuple[Any, ...], dict[str, Any]]:
-        """Copy fresh top-level tensors into static buffers; forward
-        non-tensor args verbatim. Reallocate buffers (and drop the
-        captured graph) whenever the staged-tensor signature changes."""
+        """Copy top-level tensors into static buffers; forward non-tensors verbatim.
+
+        Reallocates buffers and drops the captured graph if the staged-
+        tensor signature changes.
+        """
         if not self._slots_compatible_with(args, kwargs):
             self.reset()
             self._static_args = [self._make_slot(a) for a in args]
@@ -179,9 +159,7 @@ class CUDAGraphWrapper:
 
         return tuple(staged_args), staged_kwargs
 
-    # ------------------------------------------------------------------
-    # Output handling
-    # ------------------------------------------------------------------
+    ## Output handling
 
     def _clone_output(self) -> Any:
         assert self._static_out_leaves is not None and self._out_spec is not None
@@ -191,23 +169,18 @@ class CUDAGraphWrapper:
         ]
         return tree_unflatten(cloned, self._out_spec)
 
-    # ------------------------------------------------------------------
-    # Public entry points
-    # ------------------------------------------------------------------
+    ## Public entry points
 
     def drain(self, *args: Any, **kwargs: Any) -> Any:
         """Eager autotune drain through the shared static buffers.
 
-        Use during the very first rollout (variable-shape edges aside)
-        so Inductor's lazy triton autotunes -- which call
-        ``torch.cuda.synchronize`` and would crash a graph capture --
-        run on the eager path against the SAME buffers + strides that
-        :meth:`__call__` will later capture against. This prevents a
-        second Inductor specialisation (and a second multi-second
-        autotune) when the wrapper takes over from the next rollout
-        onwards.
+        Used during the first rollout so Inductor's lazy triton autotunes
+        run on the eager path against the same buffers + strides that
+        ``__call__`` will later capture against. Without this, capture
+        would trigger a second Inductor specialisation and a second
+        multi-second autotune when the wrapper takes over.
 
-        Doesn't consume ``warmup_iters`` and doesn't capture.
+        Does not consume ``warmup_iters`` and does not capture.
         """
         args, kwargs = self._stage(args, kwargs)
         return self.fn(*args, **kwargs)
@@ -225,10 +198,10 @@ class CUDAGraphWrapper:
             return self.fn(*args, **kwargs)
 
         # Capture: trace one full forward against the static buffers.
-        # `cudaStreamBeginCapture` only RECORDS the kernels -- it does
-        # not execute them -- so the static outputs / any in-place cache
-        # updates are no-ops at this point. Replay once immediately to
-        # actually compute the output and advance the cache.
+        # cudaStreamBeginCapture only records kernels — it does not execute
+        # them — so the static outputs and in-place cache updates are no-ops
+        # here. Replay once immediately to actually compute the output and
+        # advance the cache.
         self._graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(self._graph):
             out = self.fn(*args, **kwargs)

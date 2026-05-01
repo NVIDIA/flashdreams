@@ -23,9 +23,9 @@ import torch
 class EventProfiler:
     """Times stages between a start event and one ``record(stage)`` per stage.
 
-    Example::
+    Typical usage example:
 
-        profiler = EventProfiler()              # records the start event
+        profiler = EventProfiler()
         run_encoder()
         profiler.record("encode")
         run_diffusion()
@@ -34,7 +34,7 @@ class EventProfiler:
         profiler.record("decode")
 
         stages_ms = profiler.sync_and_summarize()
-        # -> {"encode": 12.3, "diffuse": 102.4, "decode": 45.6}
+        # {"encode": 12.3, "diffuse": 102.4, "decode": 45.6}
     """
 
     def __init__(self) -> None:
@@ -63,6 +63,6 @@ class EventProfiler:
         return out
 
     def sync_and_summarize(self) -> dict[str, float]:
-        """``torch.cuda.synchronize()`` then return :meth:`elapsed_ms`."""
+        """``torch.cuda.synchronize()`` then return ``elapsed_ms``."""
         torch.cuda.synchronize()
         return self.elapsed_ms()

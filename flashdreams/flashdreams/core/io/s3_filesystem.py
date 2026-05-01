@@ -1,5 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""S3-backed filesystem and distributed-checkpoint readers/writers."""
 
 import io
 import json
@@ -15,7 +29,18 @@ from torch.distributed.checkpoint.filesystem import FileSystemBase
 
 
 class S3FileSystem(FileSystemBase):
-    """Implementation of FileSystem for AWS S3 storage."""
+    """AWS S3-backed implementation of ``FileSystemBase``.
+
+    Wraps a ``boto3`` client so the same code paths used for local checkpoints
+    can read and write to S3 transparently. Credentials are loaded from a
+    JSON file passed at construction.
+
+    Typical usage example:
+
+      >>> fs = S3FileSystem(credential_path="credentials/s3_checkpoint.secret")
+      >>> with fs.create_stream("s3://bucket/key.bin", "rb") as f:
+      ...     data = f.read()
+    """
 
     def __init__(self, credential_path: str) -> None:
         with open(credential_path, "r") as f:
@@ -26,18 +51,22 @@ class S3FileSystem(FileSystemBase):
     def create_stream(
         self, path: Union[str, os.PathLike], mode: str
     ) -> Generator[io.IOBase, None, None]:
-        """
-        Create a stream to read from or write to S3.
+        """Open an S3 object as a binary stream.
+
+        For ``"rb"`` the object is downloaded into an in-memory buffer; for
+        ``"wb"`` writes are buffered in memory and uploaded on context exit.
 
         Args:
-            path: S3 URI in the format s3://bucket-name/key
-            mode: 'rb' for reading, 'wb' for writing
+            path: ``s3://bucket/key`` URI.
+            mode: ``"rb"`` to read or ``"wb"`` to write.
+
+        Raises:
+            ValueError: ``mode`` is neither ``"rb"`` nor ``"wb"``.
         """
         path_str = str(path)
         bucket, key = self._parse_s3_uri(path_str)
 
         if mode == "rb":
-            # For reading, download to memory stream
             stream = io.BytesIO()
             try:
                 self.s3_client.download_fileobj(bucket, key, stream)
@@ -46,7 +75,6 @@ class S3FileSystem(FileSystemBase):
             finally:
                 stream.close()
         elif mode == "wb":
-            # For writing, use memory stream then upload
             stream = io.BytesIO()
             try:
                 yield stream
@@ -69,19 +97,12 @@ class S3FileSystem(FileSystemBase):
     def rename(
         self, path: Union[str, os.PathLike], new_path: Union[str, os.PathLike]
     ) -> None:
-        """
-        Rename (or move) an object in S3.
-
-        In S3, this is implemented as a copy followed by a deletion of the original.
-        """
+        """Move an S3 object via copy + delete (S3 has no rename primitive)."""
         src_bucket, src_key = self._parse_s3_uri(str(path))
         dst_bucket, dst_key = self._parse_s3_uri(str(new_path))
 
-        # Copy the object
         copy_source = {"Bucket": src_bucket, "Key": src_key}
         self.s3_client.copy(copy_source, dst_bucket, dst_key)
-
-        # Delete the original
         self.s3_client.delete_object(Bucket=src_bucket, Key=src_key)
 
     def init_path(self, path: Union[str, os.PathLike]) -> Union[str, os.PathLike]:
@@ -92,18 +113,13 @@ class S3FileSystem(FileSystemBase):
         return path_str
 
     def mkdir(self, path: Union[str, os.PathLike]) -> None:
-        """
-        Create a "directory" in S3.
-
-        Note: S3 doesn't have real directories, but we can create an empty object
-        with a trailing slash to simulate a directory.
-        """
+        """Simulate a directory by writing an empty trailing-slash object."""
         path_str = str(path)
         if not path_str.endswith("/"):
             path_str += "/"
 
         bucket, key = self._parse_s3_uri(path_str)
-        if key:  # Don't create empty object if this is just a bucket
+        if key:
             self.s3_client.put_object(Bucket=bucket, Key=key)
 
     @classmethod
@@ -119,7 +135,7 @@ class S3FileSystem(FileSystemBase):
             return False
 
     def exists(self, path: Union[str, os.PathLike]) -> bool:
-        """Check if an object exists in S3."""
+        """Return True if the S3 object exists."""
         bucket, key = self._parse_s3_uri(str(path))
         try:
             self.s3_client.head_object(Bucket=bucket, Key=key)
@@ -128,7 +144,7 @@ class S3FileSystem(FileSystemBase):
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "404":
                 return False
-            raise  # Re-raise other errors
+            raise
 
     def rm_file(self, path: Union[str, os.PathLike]) -> None:
         """Remove a file from S3."""
@@ -136,17 +152,10 @@ class S3FileSystem(FileSystemBase):
         self.s3_client.delete_object(Bucket=bucket, Key=key)
 
     def _parse_s3_uri(self, uri: str) -> tuple[str, str]:
-        """
-        Parse an S3 URI into bucket and key.
-
-        Args:
-            uri: S3 URI in the format s3://bucket-name/key
-
-        Returns:
-            Tuple of (bucket_name, key)
+        """Split an ``s3://bucket/key`` URI into ``(bucket, key)``.
 
         Raises:
-            ValueError: If the URI is invalid
+            ValueError: ``uri`` is not an ``s3://`` URI or has no bucket.
         """
         uri = uri if isinstance(uri, str) else str(uri)
         if not uri.startswith("s3://"):
@@ -154,8 +163,6 @@ class S3FileSystem(FileSystemBase):
 
         parsed = urlparse(uri)
         bucket = parsed.netloc
-
-        # Remove leading slash from key
         key = parsed.path.lstrip("/")
 
         if not bucket:
@@ -205,14 +212,14 @@ class S3FileSystem(FileSystemBase):
 
 
 class S3StorageWriter(FileSystemWriter):
+    """S3-backed writer for ``torch.distributed.checkpoint``."""
+
     def __init__(self, credential_path: str, path: str, **kwargs) -> None:
         """
-        Initialize an S3 writer for distributed checkpointing.
-
         Args:
-            credential_path (str): The path to the credential file of accessing AWS S3.
-            path (str): The S3 URI to write checkpoints to.
-            kwargs (dict): Keyword arguments to pass to the parent :class:`FileSystemWriter`.
+            credential_path: Path to the AWS S3 credentials JSON.
+            path: ``s3://`` URI to write checkpoints to.
+            **kwargs: Forwarded to the parent writer.
         """
         super().__init__(path=path, sync_files=False, **kwargs)
         self.fs = S3FileSystem(credential_path)
@@ -220,18 +227,17 @@ class S3StorageWriter(FileSystemWriter):
 
 
 class S3StorageReader(FileSystemReader):
+    """S3-backed reader for ``torch.distributed.checkpoint``."""
+
     def __init__(self, credential_path: str, path: Union[str, os.PathLike]) -> None:
         """
-        Initialize an S3 reader for distributed checkpointing.
-
         Args:
-            credential_path (str): The path to the credential file of accessing AWS S3.
-            path (Union[str, os.PathLike]): The S3 URI to read checkpoints from.
+            credential_path: Path to the AWS S3 credentials JSON.
+            path: ``s3://`` URI to read checkpoints from.
         """
         super().__init__(path=path)
         self.fs = S3FileSystem(credential_path)
         self.path = self.fs.init_path(path)
-        # self.sync_files = False
 
 
 if __name__ == "__main__":

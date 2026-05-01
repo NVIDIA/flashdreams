@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wan 2.1 DiT network"""
+"""Wan 2.1 DiT network."""
 
 from __future__ import annotations
 
@@ -31,8 +31,7 @@ from flashdreams.core.distributed.context_parallel import (
     split_inputs_cp,
 )
 from flashdreams.infra.config import InstantiateConfig
-
-from .modules import (
+from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,
     Head,

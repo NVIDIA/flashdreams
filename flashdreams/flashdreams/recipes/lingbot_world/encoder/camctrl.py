@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""I2V control encoder for the causal Wan 2.1 pipeline."""
+"""I2V control encoder with Plücker camera control for Lingbot World."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ from .utils import (
 
 @dataclass(kw_only=True)
 class CamCtrlInput:
-    """I2V camera control payload."""
+    """Per-AR-step camera payload (intrinsics, poses, world scale)."""
 
     intrinsics: Tensor
     poses: Tensor
@@ -55,7 +55,7 @@ class CamCtrlInput:
 
 @dataclass(kw_only=True)
 class I2VCamCtrlInput:
-    """I2V camera control payload."""
+    """Composite per-AR-step input: image chunk + camera payload."""
 
     i2v: Tensor | None = None
     camctrl: CamCtrlInput
@@ -63,7 +63,7 @@ class I2VCamCtrlInput:
 
 @dataclass(kw_only=True)
 class I2VCamCtrlEmbeddings:
-    """I2V camera control payload."""
+    """Encoded I2V latent + Plücker volume the transformer cross-attends to."""
 
     i2v: I2VCtrl
     plucker: Tensor
@@ -73,7 +73,7 @@ class I2VCamCtrlEmbeddings:
 
 @dataclass(kw_only=True)
 class I2VCamCtrlEncoderConfig(EncoderConfig):
-    """Configuration for :class:`I2VCtrlEncoder`."""
+    """Config for the composite I2V + Plücker encoder."""
 
     _target: type["I2VCamCtrlEncoder"] = field(
         default_factory=lambda: I2VCamCtrlEncoder
@@ -87,7 +87,7 @@ class I2VCamCtrlEncoderConfig(EncoderConfig):
 
 @dataclass(kw_only=True)
 class I2VCamCtrlEncoderCache:
-    """Per-AR-step I2V control encoder cache with camera control."""
+    """Per-AR-step cache for the composite I2V + camera-control encoder."""
 
     i2v: I2VCtrlEncoderCache
     plucker: PixelShuffleVAEEncoderCache
@@ -95,7 +95,7 @@ class I2VCamCtrlEncoderCache:
 
 
 class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-type-arguments]
-    """Per-AR-step I2V control encoder with camera control."""
+    """Pairs a Wan-VAE I2V encoder with a PixelShuffle Plücker encoder."""
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
         super().__init__(config)

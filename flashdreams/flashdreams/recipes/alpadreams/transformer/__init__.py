@@ -13,30 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cosmos DiT adapted to the infra :class:`Transformer` interface.
-
-The Cosmos DiT (:class:`CosmosDiTNetwork`) is a multi-view video DiT
-with optional HDMap conditioning, cross-view attention, and AdaLN-LoRA.
-It is the backbone used by the alpadreams driving-scene video
-generation project. This module bridges that backbone to the
-:mod:`flashdreams.infra.diffusion` interfaces.
-
-Conditioning model (per-AR-step):
-
-- The HDMap chunk for the current AR step is the per-step *control*
-  (encoded once per AR step to a latent and routed through the
-  infra encoder slot).
-- The first-frame VAE-encoded latent + first-block / other-block masks
-  are *cache-only* state populated once at rollout start.
-- Mask injection happens at AR step ``0`` only, both before
-  :meth:`predict_flow` (overriding noisy latent) and inside
-  :meth:`postprocess_clean_latent` (overriding the predicted ``x0``).
-  Subsequent AR steps emit zero masks so the network ignores the
-  image-latent slot.
-
-A single ``CosmosTransformer`` instance is bound to one ``(batch_shape,
-num_views, height, width, len_t)`` resolution and one ``cp_size``.
-"""
+"""Multi-view, HDMap-conditioned Cosmos DiT for streaming alpadreams."""
 
 from __future__ import annotations
 
@@ -69,9 +46,7 @@ from .impl.network import (
     CosmosDiTNetworkConfig,
 )
 
-# ---------------------------------------------------------------------------
-# Default camera names / view index mapping (matches projects/alpadreams)
-# ---------------------------------------------------------------------------
+## Default camera names / view-index mapping
 
 DEFAULT_CAMERAS: tuple[str, ...] = (
     "camera_front_wide_120fov",
@@ -88,70 +63,57 @@ DEFAULT_CAMERA_VIEW_MAPPING: dict[str, int] = dict(
 )
 
 
-# ---------------------------------------------------------------------------
-# Long-lived per-rollout cache (image latent, masks, KV cache, RoPE).
-# ---------------------------------------------------------------------------
+## Per-rollout cache
 
 
 @dataclass(kw_only=True)
 class CosmosTransformerCache(TransformerAutoregressiveCache):
-    """Long-lived AR cache for ``CosmosTransformer``.
-
-    Holds:
-
-    - ``network_cache``: per-block self-attention KV + cross-attention
-      KV (latter is text-only, set once at rollout start).
-    - ``rope_adapter``: 3D RoPE adapter, advanced via ``shift_t`` per
-      AR step.
-    - ``image``: VAE-encoded first-frame latent, padded along T to
-      ``len_t`` and patchified. Used to override the noisy / predicted
-      latent at AR step 0 only.
-    - ``mask_first_block`` / ``mask_other_blocks``: binary masks (also
-      patchified). The first-block mask has 1s on the first temporal
-      latent frame and 0 elsewhere; the other-blocks mask is all
-      zeros. These are concatenated with the noisy latent inside the
-      network forward (``condition_video_input_mask``) and used for
-      mask injection at AR step 0.
-    - ``view_indices``: optional per-view index tensor for AdaLN view
-      modulation (``None`` when ``num_views == 1``).
-    """
+    """Long-lived AR cache for the Cosmos transformer."""
 
     network_cache: CosmosDiTNetworkCache
+    """Per-block self-attn KV + (text-only) cross-attn KV."""
+
     rope_adapter: RotaryPositionEmbedding3D
+    """3D RoPE adapter, advanced via ``shift_t`` each step."""
+
     image: Tensor
+    """First-frame VAE latent, T-padded to ``len_t`` and patchified.
+    Injects into the noisy / predicted latent at AR step 0."""
+
     mask_first_block: Tensor
+    """``[B, V, T, 1, H, W]`` mask with ones on the first temporal latent
+    frame; used at AR step 0."""
+
     mask_other_blocks: Tensor
+    """All-zero counterpart used at AR step >= 1."""
+
     view_indices: Tensor | None = None
+    """Per-view index tensor for AdaLN view modulation; ``None`` when
+    ``num_views == 1``."""
+
     autoregressive_index: int = -1
 
     def start(self, autoregressive_index: int) -> None:
-        # Hoist the per-block KV pre-update hook out of the network
-        # forward (predict_flow runs the network with eager_mode=False)
-        # so capture-time / replay-time of the network never executes
-        # cache pointer-swap bookkeeping.
+        # Hoist per-block KV pre-update out of the (graph-captured) network
+        # forward; predict_flow runs with eager_mode=False.
         self.autoregressive_index = autoregressive_index
         self.network_cache.before_update(autoregressive_index)
 
     def finalize(self, autoregressive_index: int) -> None:
-        # Counterpart of start(): per-block KV post-update hook now
-        # lives at the AR-step boundary instead of inside the captured
-        # network forward.
         self.network_cache.after_update(autoregressive_index)
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+## Config
 
 
 @dataclass(kw_only=True)
 class CosmosTransformerConfig(TransformerConfig):
-    """Configuration for :class:`CosmosTransformer`.
+    """Config for the Cosmos transformer.
 
     Each instance is bound to one ``(batch_shape, num_views, height,
-    width, len_t)`` layout AND one ``cp_size``. The HDMap condition's
-    in-channel count is propagated to the underlying network via
-    ``additional_concat_ch`` in ``__post_init__``.
+    width, len_t)`` layout and one ``cp_size``. ``__post_init__``
+    propagates the HDMap conditioning channel count and validates patch
+    divisibility.
     """
 
     _target: type["CosmosTransformer"] = field(
@@ -161,69 +123,64 @@ class CosmosTransformerConfig(TransformerConfig):
     network: CosmosDiTNetworkConfig = field(default_factory=CosmosDiTNetworkConfig)
     dtype: torch.dtype = torch.bfloat16
     checkpoint_path: str | None = None
+
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
-    """Optional callback applied to the loaded state-dict before
-    ``network.load_state_dict``. Defaults to a ``net.``-prefix stripper
-    matching the upstream alpadreams checkpoints."""
+    """Pre-load state-dict remap. Defaults to a ``net.`` prefix stripper."""
 
-    # Per-rollout layout ------------------------------------------------
     batch_shape: tuple[int, ...] = (1,)
-    """Batch dims of the latent (without ``V, T, HW, D``)."""
+    """Batch dims of the latent (excluding ``V, T, HW, D``)."""
+
     num_views: int = 1
-    """Number of camera views (``V``). Cross-view attention is enabled
-    automatically when ``num_views > 1``."""
+    """Number of camera views; >1 enables cross-view attention."""
+
     height: int = 90
-    """Latent (post-VAE) height in pixels."""
+    """Latent height (post-VAE)."""
+
     width: int = 160
-    """Latent (post-VAE) width in pixels."""
+    """Latent width (post-VAE)."""
+
     len_t: int = 4
-    """Latent (post-VAE) frames per AR chunk."""
+    """Latent frames per AR chunk."""
 
-    # Conditioning ------------------------------------------------------
     enable_hdmap_condition: bool = True
-    """Whether to enable the HDMap conditioning branch."""
+    """Enable the HDMap conditioning branch."""
+
     encode_with_pixel_shuffle: bool = False
-    """If True, the HDMap is encoded via pixel-shuffle (192 channels);
-    otherwise via a Wan VAE (16 channels). Determines
-    ``network.additional_concat_ch``."""
+    """HDMap encoder selection: True for pixel-shuffle (192 ch), False for
+    Wan VAE (16 ch)."""
 
-    # Context-parallel --------------------------------------------------
     cp_size: int = 1
-    """Size of the THW context-parallel group. Validated against
-    ``torch.distributed.get_world_size()`` in ``__init__``."""
+    """Size of the THW context-parallel group."""
 
-    # RoPE extrapolation (3.0 for 720P; 2.0 for 480P).
     h_extrapolation_ratio: float = 3.0
+    """RoPE extrapolation along H (3.0 @ 720p)."""
+
     w_extrapolation_ratio: float = 3.0
+    """RoPE extrapolation along W."""
 
-    # Self-attention sliding window (in pre-patchify T frames).
     window_size_t: int = 8
-    sink_size_t: int = 0
+    """Self-attention sliding window (pre-patchify T)."""
 
-    # Speedup.
+    sink_size_t: int = 0
+    """Sink-token count (pre-patchify T)."""
+
     compile_network: bool = True
+    """``torch.compile`` the network."""
+
     use_cuda_graph: bool = True
-    """Wrap the (optionally compiled) network in :class:`CUDAGraphWrapper`
-    so steady-state ``predict_flow`` calls replay a captured graph
-    instead of re-launching kernels every denoising step. Caller is
-    responsible for keeping all non-staged inputs (timestep, rope_freqs,
-    masks, hdmap_condition, view_indices) at stable storage addresses
-    across calls -- the wrapper only stages the noisy latent."""
+    """Wrap in ``CUDAGraphWrapper`` for steady-state replay. Caller must
+    keep non-staged inputs at stable storage addresses across calls."""
+
     warmup_iters: int = 2
-    """Number of eager calls per rollout before the wrapper captures
-    (only consulted when :attr:`use_cuda_graph` is True). Two is the
-    minimum that drains Inductor autotune (call 1) AND gives a clean
-    no-sync stream (call 2) before ``cudaStreamBeginCapture``."""
+    """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
     def __post_init__(self) -> None:
-        # Wire HDMap conditioning channel-count.
         if self.enable_hdmap_condition:
             self.network.additional_concat_ch = (
                 192 if self.encode_with_pixel_shuffle else 16
             )
         else:
             self.network.additional_concat_ch = 0
-        # Cross-view attention iff multi-view.
         self.network.enable_cross_view_attn = self.num_views > 1
 
         kt = self.network.patch_temporal
@@ -238,16 +195,9 @@ class CosmosTransformerConfig(TransformerConfig):
         self._pH = self.height // kh
         self._pW = self.width // kw
 
-        # First AR step at which the per-block KV cache's `cached_k()`
-        # reaches its steady (= window-full) shape. Before this step,
-        # the attention sequence length grows by `_pT` tokens per AR
-        # step (filling phase); from this step onwards every call sees
-        # the same `(sink_size + window_size)` tokens, so the network
-        # forward is shape-stable and safe for CUDA-graph capture.
-        # Counted in chunks (one chunk per AR step):
-        #   chunks_per_window = (sink_size_t + window_size_t) // _pT
-        # The last filling step (chunks_per_window - 1) ALREADY makes
-        # cached_k() return the full prefix, so it counts as steady.
+        # First AR step at which the per-block KV cache reaches its full
+        # (sink + window) shape. From here on the network forward is
+        # shape-stable and safe for CUDA-graph capture.
         chunks_total = self.sink_size_t + self.window_size_t
         assert chunks_total % self._pT == 0, (
             f"sink_size_t + window_size_t ({chunks_total}) must be "
@@ -257,26 +207,22 @@ class CosmosTransformerConfig(TransformerConfig):
         self._steady_ar_idx = chunks_total // self._pT - 1
 
 
-# ---------------------------------------------------------------------------
-# Default state-dict transform (alpadreams-style "net." prefix stripper).
-# ---------------------------------------------------------------------------
+## Default state-dict transform
 
 
 def _strip_net_prefix(state_dict: dict[str, Tensor]) -> dict[str, Tensor]:
-    """Strip the ``net.`` prefix added by the legacy alpadreams training stack."""
+    """Strip the ``net.`` prefix added by the upstream training stack."""
     out: dict[str, Tensor] = {}
     for k, v in state_dict.items():
         out[k[len("net.") :] if k.startswith("net.") else k] = v
     return out
 
 
-# ---------------------------------------------------------------------------
-# Transformer
-# ---------------------------------------------------------------------------
+## Transformer
 
 
 class CosmosTransformer(Transformer[CosmosTransformerCache]):
-    """Cosmos DiT (multi-view, HDMap-conditioned) as a infra Transformer."""
+    """Multi-view, HDMap-conditioned Cosmos DiT as an infra transformer."""
 
     network: CosmosDiTNetwork
 
@@ -330,15 +276,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 self.network, mode="max-autotune-no-cudagraphs"
             )
 
-        # Per-rollout dispatch (when use_cuda_graph=True):
-        # - AR step < cfg._steady_ar_idx (filling phase: cached_k()
-        #   length grows each step): wrapper.drain -- eager through
-        #   the wrapper's static input buffer. Each new shape drains
-        #   its own Inductor autotune so the same shape, when revisited
-        #   in a later rollout, no longer syncs during capture.
-        # - AR step >= cfg._steady_ar_idx (KV window first full and
-        #   stays full): wrapper.__call__ -- 2 warmups + 1 capture,
-        #   then pure replays for every same-shape predict_flow call.
+        # Per-rollout dispatch when use_cuda_graph=True:
+        # filling phase -> wrapper.drain (eager, drains Inductor autotune);
+        # steady-state -> wrapper.__call__ (warmup + capture + replay).
         self._use_cuda_graph = config.use_cuda_graph
         self._network_call: Callable[..., Tensor] = (
             CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
@@ -346,19 +286,11 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             else self.network
         )
 
-    # ------------------------------------------------------------------
-    # Patchify / CP plumbing
-    # ------------------------------------------------------------------
+    ## Patchify / CP plumbing
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
-        """Per-rank latent shape ``[..., V/cp_V, pT/cp_T, HW/cp_HW, D]``.
-
-        Derived from :attr:`cp_groups` so the broadcast against the
-        patchified+CP-split mask/image inside :meth:`_maybe_inject_image`
-        always lines up, no matter which axes the hierarchical V→T→HW
-        splitter ended up sharding.
-        """
+        """Per-rank latent shape ``[..., V/cp_V, pT/cp_T, HW/cp_HW, D]``."""
         cfg = self.config
         kt = cfg.network.patch_temporal
         kh = kw = cfg.network.patch_spatial
@@ -377,12 +309,11 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
     @property
     def _cp_dims(self) -> list[int]:
-        return [-5, -4, -3]  # V, T, HW (counted from the end to support arbitrary B...)
+        return [-5, -4, -3]  # V, T, HW
 
     def patchify_and_maybe_split_cp(self, x: Any) -> Any:
-        # Cosmos network patchify expects 6D ``[B, V, T, C, H, W]`` (asserted in
-        # CosmosDiTNetwork.patchify_and_maybe_split_cp). We pass cp_dims as
-        # positive [1, 2, 3] for compatibility with that layout.
+        # Cosmos network expects 6D [B, V, T, C, H, W]; pass cp_dims as
+        # positive [1, 2, 3] for that layout.
         if isinstance(x, Tensor):
             return self.network.patchify_and_maybe_split_cp(
                 x,
@@ -403,9 +334,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             cp_dims=[1, 2, 3],
         )
 
-    # ------------------------------------------------------------------
-    # Condition / cache plumbing
-    # ------------------------------------------------------------------
+    ## Condition / cache plumbing
 
     @torch.no_grad()
     def initialize_autoregressive_cache(  # type: ignore[override]
@@ -416,13 +345,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         view_names: list[str] | None = None,
         **_unused: Any,
     ) -> CosmosTransformerCache:
-        """Build a fully seeded :class:`CosmosTransformerCache` for a new rollout.
+        """Build a fully seeded cache for a new rollout.
 
         Args:
-            text_embeddings: Text embeddings of shape ``[B, V, L, D]``.
-            image_embeddings: VAE-encoded first-frame latent of shape
-                ``[B, V, 1, C, H, W]``.
-            view_names: List of view names (length ``V``); required when
+            text_embeddings: ``[B, V, L, D]`` text embeddings.
+            image_embeddings: ``[B, V, 1, C, H, W]`` first-frame VAE latent.
+            view_names: Length-``V`` view names; required when
                 ``num_views > 1``.
         """
         from flashdreams.core.distributed.context_parallel import split_inputs_cp
@@ -496,10 +424,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             mask_other_blocks, process_groups=self._process_groups, cp_dims=[1, 2, 3]
         )
 
-        # Drop any captured CUDA graph from the previous rollout: its
-        # kernels reference the old network_cache's slot pointers,
-        # which the freshly-initialised network_cache invalidates.
-        # Warmup + capture re-run on the next steady-state predict_flow.
+        # Reset any prior CUDA graph: it refers to slot pointers from the
+        # previous cache, which the new cache invalidates.
         if self._use_cuda_graph:
             self._network_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
 
@@ -512,20 +438,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             view_indices=view_indices,
         )
 
-    # ------------------------------------------------------------------
-    # Mask injection helpers
-    # ------------------------------------------------------------------
+    ## Mask-injection helpers
 
     def _maybe_inject_image(
         self,
         latent: Tensor,
         cache: CosmosTransformerCache,
     ) -> Tensor:
-        """Override the first-temporal-frame latent with the encoded image at AR step 0."""
+        """Replace the first-temporal-frame latent with the encoded image at AR step 0."""
         if cache.autoregressive_index != 0:
             return latent
-        # ``mask_first_block`` is shape [B, V, pT, HW, 1] post-patchify;
-        # ``image`` and ``latent`` are shape [B, V, pT, HW, D]. Element-wise.
         mask = cache.mask_first_block[..., :1]
         return latent * (1.0 - mask) + cache.image * mask
 
@@ -536,9 +458,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             else cache.mask_other_blocks
         )
 
-    # ------------------------------------------------------------------
-    # Forward
-    # ------------------------------------------------------------------
+    ## Forward
 
     def predict_flow(
         self,
@@ -549,26 +469,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     ) -> Tensor:
         ar_idx = cache.autoregressive_index
         assert ar_idx >= 0, (
-            "CosmosTransformerCache.start(autoregressive_index) must be called "
-            "before predict_flow (DiffusionModel.generate handles this)."
+            "Cache.start(autoregressive_index) must be called before "
+            "predict_flow (DiffusionModel.generate handles this)."
         )
         rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * self.config._pT)
 
-        # AR step 0: inject the encoded first-frame latent into the noisy input.
         noisy_latent = self._maybe_inject_image(noisy_latent, cache)
         condition_video_input_mask = self._select_mask(cache)
 
-        # eager_mode=False: per-block KV before_update / after_update
-        # hooks are invoked at the AR-step boundary by
-        # CosmosTransformerCache.start() / .finalize(), not inside the
-        # network forward. This keeps the network forward graph-capture
-        # clean (no cache pointer-swap bookkeeping inside).
-        #
-        # AR step < _steady_ar_idx -> wrapper.drain (filling phase;
-        # cached_k() shape changes every step). AR step >=
-        # _steady_ar_idx -> wrapper.__call__ (window full, shape
-        # stable; warmup -> capture -> replay). See `__init__` for the
-        # per-rollout dispatch contract.
+        # eager_mode=False keeps cache pointer-swap bookkeeping out of the
+        # network forward; it runs at the AR-step boundary instead.
         if self._use_cuda_graph:
             network = (
                 self._network_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]

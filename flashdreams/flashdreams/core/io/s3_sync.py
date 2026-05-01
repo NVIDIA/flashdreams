@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Multi-rank S3 → local-cache sync utility used by examples and recipes."""
+
 import base64
 import hashlib
 import os
@@ -53,12 +55,14 @@ def _compute_file_sha256_b64(file_path: str) -> str:
 
 
 def _get_world_rank_robust() -> int:
+    """Return the current torch-distributed rank, or 0 when distributed is not initialized."""
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank()
     return 0
 
 
 def _barrier_robust() -> None:
+    """Issue a torch-distributed barrier, no-op when distributed is not initialized."""
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
 
@@ -72,7 +76,33 @@ def sync_s3_dir_to_local(
     verify_checksum: bool = True,
     desc: str = "Syncing from S3",
 ) -> str:  # ty:ignore[invalid-return-type]
-    """Download an S3 directory to local cache (rank 0 only) and optionally verify checksums."""
+    """Mirror an S3 prefix to a local directory.
+
+    Only rank 0 downloads; other ranks block on a barrier so the cache is
+    fully populated before they read it. Local paths are passed through
+    unchanged.
+
+    Args:
+        s3_dir: ``s3://`` prefix to mirror, or a local path (returned as-is).
+        s3_credential_path: S3 credentials JSON.
+        cache_dir: Local destination directory.
+        max_workers: Max parallel downloads on rank 0.
+        show_progress: Show a tqdm bar.
+        verify_checksum: Validate size and (when available) FULL_OBJECT
+            SHA256 of each downloaded file; one retry on mismatch.
+        desc: Progress-bar label.
+
+    Returns:
+        Local cache path (or ``s3_dir`` unchanged when it was already local).
+
+    Typical usage example:
+
+      >>> path = sync_s3_dir_to_local(
+      ...     s3_dir="s3://bucket/assets",
+      ...     s3_credential_path="credentials/s3_checkpoint.secret",
+      ...     cache_dir="/tmp/flashdreams/assets",
+      ... )
+    """
     if not s3_dir.startswith("s3://"):
         assert os.path.exists(s3_dir), f"{s3_dir} is not a S3 path or a local path."
         return s3_dir

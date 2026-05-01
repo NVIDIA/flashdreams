@@ -13,33 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built :class:`LingbotWorldInferencePipelineConfig` builders for streaming Lingbot World camera-control I2V.
+"""Pipeline-config builders for streaming Lingbot World camera-control I2V.
 
-Each builder maps a short name (``"LingBot-World-Fast"``,
-``"LingBot-World-Fast-Flash"``) to a function taking only the
-runtime knobs the recipe layer owns (``cp_size``, ``compile_network``,
-``seed``, ``enable_sync_and_profile``) and returns a
-fully-constructed :class:`LingbotWorldInferencePipelineConfig` — a
-:class:`WanInferencePipelineConfig` subclass whose :meth:`generate`
-accepts a :class:`CamCtrlInput` camera payload. The config differs
-from the stock Wan 2.1 streaming configs in two slots:
-
-- ``encoder`` is an :class:`I2VCamCtrlEncoderConfig`: a composite
-  per-AR-step encoder that pairs a Wan-VAE-backed
-  :class:`I2VCtrlEncoder` with a PixelShuffle pseudo-VAE over Plücker
-  rays, consuming an :class:`I2VCamCtrlInput` (first-frame pixel
-  chunk + per-AR-step intrinsics/poses/world-scale) and emitting an
-  :class:`I2VCamCtrlEmbeddings` the transformer cross-attends to.
-- ``transformer`` is a :class:`LingbotWorldTransformerConfig` over
-  :class:`LingbotWorldDiTNetwork14BConfig` — a Wan 2.1 14B backbone
-  with a per-block ``CamCtrlBlock`` that cross-attends to the
-  Plücker volume.
-
-Batch / view / video resolution / per-chunk temporal length are
-intentionally *not* exposed at the recipe layer: they live on
-:class:`LingbotWorldTransformerConfig` and are pinned to canonical
-Lingbot World streaming defaults below. Callers that want to deviate
-should construct :class:`LingbotWorldTransformerConfig` directly.
+Each builder takes only the runtime knobs the caller owns (CP size,
+``torch.compile`` toggle, seed, profiling) and returns a fully
+constructed pipeline config. Shape knobs (batch / view / resolution /
+per-chunk latent T) are pinned to canonical Lingbot defaults; callers
+that want different shapes should construct the transformer config
+directly.
 """
 
 from __future__ import annotations
@@ -76,13 +57,10 @@ AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Canonical Lingbot World streaming defaults
-# ---------------------------------------------------------------------------
+## Canonical Lingbot World streaming defaults
 
-# Upstream Lingbot-World-Fast 4-step schedule and its 2-step Flash variant.
-# Note the Flash list is not a prefix of the Fast one — they're
-# independently distilled schedules.
+# Upstream Fast 4-step schedule and its independently distilled Flash 2-step
+# variant (the Flash list is not a prefix of the Fast list).
 _DEFAULT_DENOISING_TIMESTEPS = [999, 978, 947, 825]
 _FLASH_DENOISING_TIMESTEPS = [999, 947]
 _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
@@ -109,13 +87,8 @@ def _scheduler_config(
 ) -> FlowMatchSchedulerConfig:
     """Lingbot World flow-match scheduler.
 
-    Parameterized by the full timestep list rather than by
-    ``num_inference_steps`` because the Fast (4-step) and Flash
-    (2-step) variants ship *independently-distilled* schedules — the
-    Flash list is not a prefix of the Fast list, so the
-    ``[:num_inference_steps]`` shorthand used by
-    :mod:`flashdreams.recipes.wan.config.causal_wan21` does not apply
-    here.
+    Parameterized by the full timestep list because the Fast and Flash
+    variants ship independently distilled schedules.
     """
     return FlowMatchSchedulerConfig(
         num_inference_steps=len(denoising_timesteps),
@@ -134,21 +107,7 @@ def _transformer_config(
     cp_size: int,
     compile_network: bool,
 ) -> LingbotWorldTransformerConfig:
-    """Lingbot World 14B transformer defaults for streaming inference.
-
-    Shape knobs (batch / view / video resolution / latent T) are
-    pinned to canonical Lingbot defaults; only the runtime knobs the
-    caller owns (CP size, torch.compile toggle) are passed through.
-
-    I2V conditioning is handled inside
-    :meth:`LingbotWorldTransformer.predict_flow` by
-    channel-concatenating the encoded first-frame latent and a
-    4-channel binary mask onto the noisy latent
-    (``concat_image_mask_to_latent=True``, ``stamp_image_latent=False``).
-    Per-AR-step Plücker camera conditioning is routed through the
-    per-block ``CamCtrlBlock`` via the ``plucker`` kwarg threaded in
-    from the infra encoder by :class:`LingbotWorldTransformer`.
-    """
+    """Lingbot World 14B transformer defaults for streaming inference."""
     return LingbotWorldTransformerConfig(
         network=LingbotWorldDiTNetwork14BConfig(
             patch_embedding_type="conv3d",
@@ -173,20 +132,7 @@ def _transformer_config(
 
 
 def _pipeline_encoder_config() -> I2VCamCtrlEncoderConfig:
-    """Per-AR-step composite encoder slot.
-
-    Always wired — Lingbot World is I2V-only and requires both a
-    first frame and a camera stream. The composite runs:
-
-    - a Wan-VAE-backed :class:`I2VCtrlEncoder` on the per-AR-step
-      pixel chunk built from the user's first frame, and
-    - a PixelShuffle pseudo-VAE on the Plücker ray volume rendered
-      from the user's per-AR-step ``(intrinsics, poses, world_scale)``
-      stream.
-
-    Its :class:`I2VCamCtrlEmbeddings` output is forwarded to the
-    transformer as the ``input`` argument.
-    """
+    """Composite per-AR-step encoder: Wan VAE I2V + Plücker PixelShuffle."""
     return I2VCamCtrlEncoderConfig(
         i2v=I2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(
@@ -199,9 +145,7 @@ def _pipeline_encoder_config() -> I2VCamCtrlEncoderConfig:
     )
 
 
-# ---------------------------------------------------------------------------
-# Builders
-# ---------------------------------------------------------------------------
+## Builders
 
 
 def build_lingbot_world_fast(

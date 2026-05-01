@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot World project-local DiT network."""
+"""Lingbot World DiT network: Wan 2.1 backbone with per-block camera control."""
 
 from __future__ import annotations
 

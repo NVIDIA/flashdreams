@@ -18,9 +18,8 @@ from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 
-# Pretty printing class
 class PrintableConfig:
-    """Printable Config defining str function"""
+    """Config base class providing a multi-line ``__str__`` for human-readable dumps."""
 
     def __str__(self):
         lines = [self.__class__.__name__ + ":"]
@@ -38,44 +37,33 @@ class PrintableConfig:
 T = TypeVar("T")
 
 
-# Base instantiate configs
 @dataclass
 class InstantiateConfig(Generic[T], PrintableConfig):
-    """Config class for instantiating an the class specified in the _target attribute."""
+    """Config carrying a ``_target`` class plus its kwargs, instantiable via ``setup``."""
 
     _target: type[T]
 
     def setup(self, **kwargs: Any) -> T:
-        """Returns the instantiated object using the config."""
+        """Instantiate the configured object."""
         return self._target(self, **kwargs)  # type: ignore[call-arg]
 
 
 def derive_config(
     base_config: InstantiateConfig[T], **changes: Any
 ) -> InstantiateConfig[T]:
-    """
-    Derive a new config from a base config by applying changes.
+    """Deep-copy a base config and apply nested keyword overrides.
 
-    Example:
-        >>> base_config = AlpadreamsPipelineConfig(
-        >>>     tokenizer=WanVAEInterfaceConfig(
-        >>>         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        >>>     ),
-        >>>     detokenizer=WanVAEInterfaceConfig(
-        >>>         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        >>>     ),
-        >>> )
+    Nested ``dict`` values walk into both dataclass attributes and nested
+    dicts; leaf values overwrite directly. Raises ``KeyError`` on unknown
+    paths.
 
-        >>> new_config = derive_config(
-        >>>     base_config,
-        >>>     tokenizer=WanVAEInterfaceConfig(
-        >>>         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
-        >>>     ),
-        >>>     dit=dict(
-        >>>         len_t=3,
-        >>>         checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"]["vae_encoding"]["chunk3"],
-        >>>     )
-        >>> )
+    Typical usage example:
+
+        new_config = derive_config(
+            base_config,
+            tokenizer=WanVAEInterfaceConfig(checkpoint_path=...),
+            dit=dict(len_t=3, checkpoint_path=...),
+        )
     """
 
     def _is_patchable_object(x: Any) -> bool:

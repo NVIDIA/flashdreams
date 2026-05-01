@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Block KV cache for causal attention with a fixed-size local window."""
+
 from dataclasses import dataclass, field
 from typing import Self
 

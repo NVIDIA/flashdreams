@@ -31,58 +31,40 @@ from flashdreams.infra.config import InstantiateConfig
 class FlowPredictor(Protocol):
     """Closure ``(noisy_latent, timestep) -> predicted_flow``.
 
-    Built by :class:`DiffusionModel.generate` by binding the per-AR-step
-    ``cache`` / ``input`` and :meth:`Transformer.predict_flow`. A scheduler
-    invokes it once per denoising iteration.
-
-    Note: the scheduler decides the dtype of the ``timestep`` scalar --
-    UniPC uses ``int64``, flow-match uses ``float`` -- and places it on
-    the same device as ``noisy_latent``. The transformer must accept
-    either dtype.
+    Built by ``DiffusionModel.generate`` by binding the per-AR-step ``cache``
+    / ``input`` to the transformer's ``predict_flow``. A scheduler invokes
+    it once per denoising iteration. The scheduler decides the timestep
+    dtype (UniPC uses int64, flow-match uses float).
     """
 
     def __call__(self, noisy_latent: Tensor, timestep: Tensor) -> Tensor:
-        """Predict the flow at ``timestep``.
-
-        Args:
-            noisy_latent: ``[...]`` tensor on the model's device/dtype
-                (the scheduler passes its current iterate as-is; in
-                practice ``[B, C, T, H, W]`` for video latents).
-            timestep: 0-d tensor on the same device. dtype is
-                scheduler-defined (see class note).
-
-        Returns:
-            Predicted flow with the same shape, device, and dtype as
-            ``noisy_latent``.
-        """
+        """Predict the flow at ``timestep``."""
         ...
 
 
 @dataclass(kw_only=True)
 class SchedulerConfig(InstantiateConfig["Scheduler"]):
-    """Hyperparameters for a :class:`Scheduler`."""
+    """Base scheduler config."""
 
     _target: type["Scheduler"] = field(default_factory=lambda: Scheduler)
 
     num_inference_steps: int
-    """Number of denoising iterations the scheduler runs in :meth:`sample`."""
+    """Number of denoising iterations per ``sample``."""
 
     shift: float = 5.0
-    """Schedule warp factor (family-specific; e.g. flow-match shift)."""
+    """Schedule warp factor (family-specific)."""
 
 
 class Scheduler(nn.Module, ABC):
     """Denoising scheduler.
 
     Owns the entire denoising loop. Callers see only ``noise → clean``;
-    the loop shape (renoise / multistep / plain ODE) is a private
-    implementation detail.
+    the loop shape (renoise / multistep / plain ODE) is private.
 
-    Example::
+    Typical usage example:
 
         scheduler = config.setup()
         clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)
-        # later, to corrupt a clean latent to a given timestep:
         noisy = scheduler.add_noise(clean_input=clean, timestep=t)
     """
 
@@ -99,25 +81,21 @@ class Scheduler(nn.Module, ABC):
     ) -> Tensor:
         """Run the full denoising loop and return the clean latent.
 
-        Schedulers are shape-agnostic: every internal op is elementwise
-        broadcast against per-step scalar sigmas. In practice
-        ``initial_noise`` is a video latent ``[B, C, T, H, W]``.
+        Schedulers are shape-agnostic: every internal op broadcasts against
+        per-step scalar sigmas. In practice ``initial_noise`` is a video
+        latent ``[B, C, T, H, W]``, conventionally treated as a sample at
+        ``sigma=1``.
 
         Args:
-            initial_noise: ``[...]`` Gaussian noise on the caller's
-                device/dtype. The scheduler conventionally treats this
-                as a sample at ``sigma=1`` (i.e. the highest noise
-                level on its schedule).
-            predict_flow: Per-step closure invoked exactly
-                :attr:`SchedulerConfig.num_inference_steps` times.
-            rng: ``torch.Generator`` on the same device as
-                ``initial_noise``. Used by self-forcing renoise loops
-                to draw extra noise per step; pure ODE solvers ignore
-                it.
+            initial_noise: Gaussian noise on the caller's device/dtype.
+            predict_flow: Per-step closure invoked
+                ``num_inference_steps`` times.
+            rng: Generator on the same device. Used by self-forcing renoise
+                loops; pure ODE solvers ignore it.
 
         Returns:
-            ``[...]`` clean latent with the same shape, device, and
-            dtype as ``initial_noise``.
+            Clean latent with the same shape, device, and dtype as
+            ``initial_noise``.
         """
 
     @abstractmethod
@@ -129,18 +107,7 @@ class Scheduler(nn.Module, ABC):
     ) -> Tensor:
         """Forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.
 
-        Args:
-            clean_input: ``[...]`` clean latent on the caller's
-                device/dtype (typically ``[B, C, T, H, W]``).
-            timestep: 0-d tensor on the same device. Scheduler-specific
-                value semantics (FlowMatch snaps to the nearest entry
-                of its 1000-step training table; FlowUniPC requires
-                exact membership in its inference schedule).
-            rng: ``torch.Generator`` on the same device as
-                ``clean_input``, used to draw the additive Gaussian
-                noise.
-
-        Returns:
-            ``[...]`` noisy latent with the same shape, device, and
-            dtype as ``clean_input``.
+        Timestep value semantics are scheduler-specific: FlowMatch snaps to
+        the nearest entry of its 1000-step training table; FlowUniPC
+        requires exact membership in its inference schedule.
         """

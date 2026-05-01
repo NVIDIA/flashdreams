@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .kvcache import BlockKVCache
-from .native import NativeAttention
-from .ring import RingAttention
+"""Attention primitives: native SDPA, ring attention, and block KV cache."""
+
+from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.core.attention.native import NativeAttention
+from flashdreams.core.attention.ring import RingAttention
 
 __all__ = ["NativeAttention", "RingAttention", "BlockKVCache"]

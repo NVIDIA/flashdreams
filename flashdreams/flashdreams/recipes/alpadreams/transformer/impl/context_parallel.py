@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Hierarchical V → T → HW context-parallel process groups."""
+
 from dataclasses import dataclass, field
 
 import torch.distributed as dist
@@ -21,12 +23,10 @@ from torch.distributed import ProcessGroup
 
 @dataclass
 class HierarchicalCPGroups:
-    """Container for hierarchical context parallel groups.
+    """Per-axis CP process groups (V, T, HW) and their unions.
 
-    The ``*_size`` properties return the per-axis CP shard count
-    (``len(*_ranks)``, defaulting to 1 when the axis is not split). Use
-    them to compute per-rank tensor shapes without mirroring the V→T→HW
-    power-of-2 logic from :func:`create_hierarchical_cp_groups`.
+    Use ``*_size`` to compute per-rank tensor shapes without re-deriving
+    the V → T → HW power-of-2 split.
     """
 
     rank: int
@@ -66,12 +66,14 @@ class HierarchicalCPGroups:
 def create_hierarchical_cp_groups(
     world_size: int, rank: int, V: int, T: int, single_group_as_none: bool = False
 ) -> HierarchicalCPGroups:
-    """
-    Create hierarchical context parallel groups.
+    """Create hierarchical CP groups by splitting V, then T, then HW.
 
-    The CP strategy is splitting along V then T then HW.
+    Sizes are clamped to powers of 2 along each axis. ``HW`` absorbs the
+    remainder so that ``V * T * HW == world_size``.
 
-        for example, for V=1 T=4 on 8 GPUs.
+    Examples:
+
+        For V=1, T=4 on 8 GPUs:
             - we prioritize V, so we cp_size_V = V = 1.
             - we then split T, so cp_size_T = T = 4.
             - we then split HW, so cp_size_HW = world_size // (cp_size_V * cp_size_T) = 8 // (1 * 4) = 2.
@@ -134,12 +136,15 @@ def create_hierarchical_cp_groups(
             - rank 2,3,6,7,10,11,14,15: [2, 3, 6, 7, 10, 11, 14, 15] after gather --> T1 V HW
 
     Args:
-        world_size: Total number of GPUs.
+        world_size: Total GPU count.
+        rank: This rank's index in ``[0, world_size)``.
         V: Number of views/videos to split across.
         T: Number of temporal chunks to split across.
+        single_group_as_none: Drop singleton groups so callers can short-
+            circuit with ``if group is not None``.
 
     Returns:
-        HierarchicalCPGroups containing all process groups and their sizes/ranks.
+        Populated ``HierarchicalCPGroups`` for ``rank``.
     """
 
     def is_power_of_2(x: int) -> bool:

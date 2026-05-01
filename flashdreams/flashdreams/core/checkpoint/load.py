@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Unified checkpoint loaders for local, S3, and Hugging Face sources."""
+
 import io
 import json
 import os
@@ -86,6 +88,7 @@ def _sharded_safetensors_merge_cache_path(
 
 
 def _safetensors_device(map_location: str | torch.device) -> str:
+    """Normalize a ``map_location`` argument to the string form expected by safetensors."""
     if isinstance(map_location, torch.device):
         return str(map_location)
     return str(map_location)
@@ -300,14 +303,15 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
 
 def get_storage_reader(
     checkpoint_path: str, credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH
-):
-    """Get storage reader for S3 or local checkpoint.
+) -> FileSystemReader:
+    """Return the right storage reader for an S3 or local checkpoint path.
 
     Args:
-        checkpoint_path: The path to the checkpoint. Can be S3 or local path.
+        checkpoint_path: ``s3://`` URI or local path.
+        credential_path: S3 credentials path (used only for S3 paths).
 
     Returns:
-        The storage reader.
+        ``S3StorageReader`` for ``s3://`` paths, ``FileSystemReader`` otherwise.
     """
     if checkpoint_path.startswith("s3://"):
         return S3StorageReader(credential_path=credential_path, path=checkpoint_path)
@@ -322,13 +326,14 @@ def load_distributed_checkpoint(
     local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
     credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
 ) -> torch.nn.Module:
-    """Load distributed checkpoint into a model (Inplace).
+    """Load a DCP checkpoint into ``model`` in-place.
 
     Args:
-        model: The model to load the DCP checkpoint into.
-        checkpoint_path: The path to the DCP checkpoint. Can be S3 or local path. Should be a directory path.
-        check_success: Whether to check if the checkpoint is loaded successfully,
-            by comparing the state dict of the model before and after loading the checkpoint.
+        model: Model to load weights into.
+        checkpoint_path: Directory path to a DCP checkpoint (S3 or local).
+        check_success: Compare the state dict before/after to verify the load
+            actually changed weights. Recommended since DCP load does not
+            fail on missing keys.
     """
     is_s3_checkpoint = checkpoint_path.startswith("s3://")
 
@@ -396,28 +401,25 @@ def load_single_checkpoint(
     credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
-    """Load a single checkpoint file (.pt, .pth, .safetensors) from local, S3, or HF URL.
+    """Load a single-file checkpoint from local disk, S3, or a Hugging Face URL.
 
-    Supports loading from S3 with local caching for faster subsequent loads, and
-    Hugging Face file URLs via hf_hub_download.
+    S3 paths are cached locally for faster subsequent loads. HF file URLs are
+    downloaded via ``hf_hub_download``.
 
     Args:
-        checkpoint_path: Path/URL to checkpoint file. Supported forms:
-            - local file path
-            - S3 URL (s3://...)
-            - Hugging Face URL (.../blob/... or .../resolve/...)
-            - Hugging Face or local ``*.safetensors.index.json`` (shards merged; result cached
-              as one ``.safetensors`` under ``local_cache_dir``/merged_safetensors)
-            Supported extensions: .pt, .pth, .safetensors
-        local_cache_dir: Directory to cache S3 checkpoints locally.
-        credential_path: Path to S3 credentials file.
-        map_location: Device to map tensors to (for .pt/.pth files).
+        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.safetensors``
+            file, or to an HF-style ``*.safetensors.index.json`` (shards are
+            merged on first load and cached).
+        local_cache_dir: Directory for S3 / merged-safetensors caches.
+        credential_path: S3 credentials path.
+        map_location: Device to map tensors to (``.pt`` / ``.pth`` only).
 
     Returns:
-        State dict loaded from the checkpoint.
+        State dict.
 
     Raises:
-        ValueError: If the file extension is not supported.
+        ValueError: Unsupported file extension or unsupported S3 sharded
+            index input.
     """
     if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
         if checkpoint_path.startswith("s3://"):
@@ -522,32 +524,34 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
-    """Unified API to load checkpoints from S3 or local filesystem.
+    """Load checkpoints from S3, local disk, or Hugging Face.
 
-    Supports both single file checkpoints (.pt, .pth, .safetensors) and
-    distributed checkpoints (DCP format).
+    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.safetensors``) and
+    distributed checkpoints (DCP). Detection is automatic by default.
 
     Args:
-        checkpoint_path: Path to checkpoint. Can be S3 (s3://...) or local.
-            - For single files: path to .pt, .pth, or .safetensors file
-            - For distributed: path to DCP checkpoint directory
-        model: Model to load the checkpoint into. Required for distributed checkpoints.
-            If provided for single checkpoints, will call model.load_state_dict().
-        checkpoint_type: Type of checkpoint to load.
-            - "auto": Automatically detect based on path (file vs directory)
-            - "single": Force single file loading
-            - "distributed": Force distributed checkpoint loading
-        local_cache_dir: Directory to cache S3 checkpoints locally.
-        credential_path: Path to S3 credentials file.
-        map_location: Device to map tensors to (for single file checkpoints).
-        check_success: For distributed checkpoints, verify loading succeeded.
+        checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
+            DCP directory.
+        model: Model to load weights into. Required for DCP. Optional for
+            single-file: when provided, ``load_state_dict`` is called.
+        checkpoint_type: ``"auto"``, ``"single"``, or ``"distributed"``.
+        local_cache_dir: Directory for caches.
+        credential_path: S3 credentials path.
+        map_location: Device to map tensors to (single-file only).
+        check_success: Verify DCP load actually changed weights.
 
     Returns:
-        - If model is None: returns the state dict
-        - If model is provided: returns the model with loaded weights
+        State dict if ``model`` is ``None``, otherwise ``model`` with weights
+        loaded.
 
     Raises:
-        ValueError: If checkpoint_type is "distributed" but model is not provided.
+        ValueError: ``checkpoint_type='distributed'`` without a ``model``, or
+            an invalid ``checkpoint_type``.
+
+    Typical usage example:
+
+      >>> state = load_checkpoint("s3://bucket/foo.safetensors")
+      >>> model = load_checkpoint("s3://bucket/dcp_dir/", model=my_model)
     """
     # Auto-detect checkpoint type
     if checkpoint_type == "auto":

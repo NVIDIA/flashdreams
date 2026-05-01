@@ -48,12 +48,11 @@ from flashdreams.infra.profiler import EventProfiler
 
 @dataclass(kw_only=True)
 class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]):
-    """Configuration for :class:`StreamInferencePipeline`.
+    """Config for the streaming inference pipeline.
 
-    Both ``encoder`` and ``decoder`` are optional. Use ``encoder=None``
-    when there is no per-AR-step control input (e.g. pure T2V).
-    Use ``decoder=None`` to return the clean latent directly (useful for
-    training, latent-space evaluation, or pipelines that own decoding).
+    Set ``encoder=None`` when the pipeline has no per-AR-step control input
+    (pure T2V). Set ``decoder=None`` to return the clean latent directly
+    (training, latent-space evaluation, or pipelines that own decoding).
     """
 
     _target: type["StreamInferencePipeline"] = field(
@@ -61,21 +60,17 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
     )
 
     diffusion_model: DiffusionModelConfig
-    """Diffusion model config (transformer + scheduler)."""
+    """Transformer + scheduler config."""
 
     decoder: DecoderConfig | None = None
-    """Optional decoder. When ``None``, :meth:`generate` returns the unpatchified clean latent."""
+    """Optional output decoder."""
 
     encoder: EncoderConfig | None = None
-    """Optional encoder. When ``None``, :meth:`generate` must be called with ``input=None``."""
+    """Optional per-AR-step input encoder."""
 
     enable_sync_and_profile: bool = False
-    """If ``True``, record per-stage CUDA events and log a per-AR-step breakdown.
-
-    Warning: enabling this calls ``torch.cuda.synchronize()`` once per AR
-    step, which serializes the host against in-flight CUDA work and
-    hurts throughput.
-    """
+    """Record per-stage CUDA events and log timing per AR step. Calls
+    ``torch.cuda.synchronize()`` once per step, which hurts throughput."""
 
 
 @dataclass(kw_only=True)
@@ -86,19 +81,20 @@ class StreamInferencePipelineCache(Generic[EncCacheT, TransformerCacheT, DecCach
     """Long-lived transformer AR cache (always present)."""
 
     encoder_cache: EncCacheT | None = None
-    """Encoder AR cache. ``None`` iff the pipeline has no encoder."""
+    """Encoder AR cache; ``None`` iff the pipeline has no encoder."""
 
     decoder_cache: DecCacheT | None = None
-    """Decoder AR cache. ``None`` iff the pipeline has no decoder."""
+    """Decoder AR cache; ``None`` iff the pipeline has no decoder."""
 
     final_state: "DiffusionModel.FinalState[TransformerCacheT] | None" = None
-    """:class:`DiffusionModel.FinalState` from the most recent :meth:`generate`. ``None`` until then."""
+    """Diffusion-model state from the most recent ``generate``, consumed
+    by ``finalize``."""
 
     autoregressive_index: int | None = None
-    """AR step index of the most recent :meth:`generate` (used to assert generate/finalize pairing)."""
+    """AR step index of the most recent ``generate``."""
 
     event_profiler: EventProfiler | None = None
-    """Current AR step's :class:`EventProfiler` (only when profiling is enabled)."""
+    """Per-step profiler, populated only when profiling is on."""
 
 
 class StreamInferencePipeline(
@@ -109,20 +105,20 @@ class StreamInferencePipeline(
         DecCacheT,
     ],
 ):
-    """End-to-end inference pipeline for one AR step.
+    """End-to-end streaming inference pipeline.
 
-    Generic over the encoder, transformer, and decoder cache types.
-    The encoder's input/output types are *not* part of the generic —
-    they are forwarded as :class:`typing.Any` so the transformer's
-    ``predict_flow`` / ``postprocess_clean_latent`` overrides own the
-    typing on the ``input`` argument they receive.
+    Generic over the encoder, transformer, and decoder cache types. The
+    encoder's input/output types are forwarded as ``Any`` so the
+    transformer's ``predict_flow`` / ``postprocess_clean_latent`` overrides
+    own the typing on the ``input`` argument they receive.
 
-    Per-AR-step usage::
+    Typical usage example:
 
         cache = pipeline.initialize_cache(transformer_context={...})
-        for i in range(num_ar_steps):
-            output = pipeline.generate(autoregressive_index=i, cache=cache, input=...)
-            pipeline.finalize(autoregressive_index=i, cache=cache)
+        output = pipeline.generate(0, cache, input=...)
+        pipeline.finalize(0, cache)
+        output = pipeline.generate(1, cache, input=...)
+        pipeline.finalize(1, cache)  # optional for the last rollout
     """
 
     encoder: Encoder[EncCacheT] | None
@@ -160,7 +156,7 @@ class StreamInferencePipeline(
                 when there is no decoder.
 
         Returns:
-            A fresh :class:`StreamInferencePipelineCache`.
+            A fresh cache to thread through ``generate`` / ``finalize``.
         """
         transformer_context = transformer_context or {}
         encoder_context = encoder_context or {}
@@ -192,23 +188,16 @@ class StreamInferencePipeline(
 
         Args:
             autoregressive_index: Must be ``cache.autoregressive_index + 1``,
-                or ``0`` on the first call after :meth:`initialize_cache`.
-            cache: Per-rollout cache returned by :meth:`initialize_cache`.
-            input: Raw input fed to the encoder. Required when
-                ``self.encoder is not None``; must be ``None`` otherwise.
-                To pipe an *already encoded* tensor straight through, use
-                :class:`NullEncoderConfig` (an identity encoder).
+                or ``0`` for the first call after ``initialize_cache``.
+            cache: Per-rollout cache from ``initialize_cache``.
+            input: Raw input fed to the encoder. Required when an encoder
+                is configured, must be ``None`` otherwise. Use
+                ``NullEncoderConfig`` to pass an already-encoded tensor
+                straight through.
 
         Returns:
             Decoded tensor (e.g. RGB video) when a decoder is configured;
-            otherwise the unpatchified clean latent straight from the
-            diffusion model.
-
-        Note: stashes the :class:`DiffusionModel.FinalState` and the AR
-        step index on ``cache`` so the matching :meth:`finalize` can
-        consume them. When :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`
-        is ``True``, also records per-stage CUDA events on
-        ``cache.event_profiler`` for :meth:`finalize` to summarize.
+            otherwise the unpatchified clean latent from the diffusion model.
         """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
@@ -274,27 +263,16 @@ class StreamInferencePipeline(
 
         Args:
             autoregressive_index: Must match the index passed to the most
-                recent :meth:`generate` (asserted to catch drift).
-            cache: Same cache used in :meth:`generate`. Consumes
-                ``cache.final_state`` (the :class:`DiffusionModel.FinalState`
-                stashed there).
+                recent ``generate`` (asserted).
+            cache: Same cache used by ``generate``. Consumes
+                ``cache.final_state``.
 
         Returns:
-            ``None`` when :attr:`StreamInferencePipelineConfig.enable_sync_and_profile`
-            is ``False``. Otherwise a flat ``dict[str, float]`` snapshot of
-            this AR step's per-stage timings (ms) and current GPU memory
-            (GiB), with keys::
-
-                {<stage>_ms for stage in stats},   # e.g. encode_ms, diffuse_ms, ...
-                "total_ms",
-                "total_ms_wo_finalize",
-                "mem_alloc_gib",                    # only if torch.cuda available
-                "mem_reserved_gib",
-                "mem_peak_gib",
-
-            The same numbers are also emitted via ``logger.info``; the
-            return value lets callers persist them (CSV, JSONL, MLflow,
-            ...) without re-parsing the log line.
+            ``None`` when profiling is disabled. Otherwise a snapshot of this
+            AR step's per-stage timings (ms) and GPU memory (GiB):
+            ``{<stage>_ms, total_ms, total_ms_wo_finalize, mem_alloc_gib,
+            mem_reserved_gib, mem_peak_gib}``. The same numbers are also
+            logged via ``logger.info``.
         """
         assert cache.autoregressive_index == autoregressive_index, (
             f"autoregressive_index mismatch: generate() ran with "

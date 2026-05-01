@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""SDPA-backed attention with selectable QKV layout and kernel backend."""
+
 from typing import Literal
 
 import torch

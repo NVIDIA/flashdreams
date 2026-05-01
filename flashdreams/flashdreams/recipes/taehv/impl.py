@@ -13,28 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tiny AutoEncoder for Hunyuan Video (TAEHV) -- streaming causal decode.
-
-Decode-only slim port: the TAEHV encoder side is unused in our pipelines and
-not included here. Encoder weights present in the checkpoint are dropped via
-``strict=False`` at load time.
-
-Per-rollout dispatch (when ``use_cuda_graph=True``):
-    - Rollout 1 (cache empty): bare module / wrapper.drain -- runs the
-      decoder eagerly through the wrapper's static buffer so any
-      Inductor / triton autotunes happen on the eager path (illegal
-      during graph capture).
-    - Rollout 2+ (cache populated): wrapper.__call__ -- ``warmup_iters``
-      eager warmups, then capture, then pure replay for every
-      same-shape body chunk.
-
-Example::
-
-    decoder = TAEHV(checkpoint_path="...").to(device, torch.bfloat16)
-    cache = decoder.prepare_cache()
-    x_first = decoder.decode(z_first, cache=cache)   # 5 frames (trimmed)
-    x_body  = decoder.decode(z_body,  cache=cache)   # 8 frames
-"""
+"""Streaming causal decoder for TAEHV (Tiny AutoEncoder for Hunyuan Video)."""
 
 from __future__ import annotations
 
@@ -54,11 +33,9 @@ from flashdreams.infra.decoder import DecoderAutoregressiveCache
 class TAEHVCache(DecoderAutoregressiveCache):
     """Streaming decoder cache; one slot per ``MemBlock`` keyed by ``id(module)``.
 
-    Slots hold a single ``[B, 1, C, H, W]`` frame -- the last input frame
-    of the previous chunk -- which becomes the rolled-in left context
-    for the next chunk's MemBlock. Slots have stable storage addresses
-    after the first chunk so CUDA-graph replay can write through them
-    in place.
+    Each slot holds the last input frame of the previous chunk, used as
+    rolled-in left context. Slot storage addresses are stable after the
+    first chunk so CUDA-graph replay can write through them in place.
     """
 
     dec_state: Dict[int, torch.Tensor] = field(default_factory=dict)
@@ -67,11 +44,11 @@ class TAEHVCache(DecoderAutoregressiveCache):
 def _set_or_copy(
     state: Dict[int, torch.Tensor], key: int, new_value: torch.Tensor
 ) -> None:
-    """Write ``new_value`` into ``state[key]``: in-place ``copy_`` once the
-    slot exists at the matching shape, else allocate a fresh clone.
+    """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
 
-    Pointer stability is required for CUDA-graph capture (kernels
-    reference the slot's storage address).
+    In-place ``copy_`` once the slot exists at the matching shape, else
+    allocate a fresh clone. Pointer stability is required for CUDA-graph
+    capture, since captured kernels reference the slot's storage address.
     """
     cur = state.get(key)
     if cur is not None and cur.shape == new_value.shape:
@@ -85,7 +62,7 @@ def _conv(n_in: int, n_out: int, **kwargs) -> nn.Conv2d:
 
 
 class Clamp(nn.Module):
-    """Soft saturating clamp -- ``tanh(x/3) * 3`` (used at decoder input)."""
+    """Soft saturating clamp ``tanh(x/3) * 3``."""
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.tanh(x / 3) * 3
@@ -94,10 +71,9 @@ class Clamp(nn.Module):
 class MemBlock(nn.Module):
     """Residual block with a 1-frame temporal-left memory slot.
 
-    The forward concatenates ``x`` with a 1-step time-shifted copy
-    (``past``) along channels, runs a 3-conv stack, and adds the ``skip``
-    projection. :meth:`cache_step` advances the per-instance slot:
-    snapshot the last input frame -> next call uses it as ``past``.
+    Concatenates ``x`` with a 1-step time-shifted copy along channels, runs
+    a 3-conv stack, and adds the skip projection. ``cache_step`` snapshots
+    the last input frame so the next call sees it as ``past``.
     """
 
     def __init__(self, n_in: int, n_out: int, act_func: nn.Module):
@@ -122,11 +98,9 @@ class MemBlock(nn.Module):
     ) -> torch.Tensor:
         """Apply with streaming left-context drawn from ``state``.
 
-        Builds ``past`` by rolling ``x`` right one step, padded with the
-        previous chunk's last frame (or zeros on the first chunk). On
-        steady-state calls only the cached single-frame slot is read,
-        matching the legacy ``cache_mem[i] = _x; ... prev_mem[:, -1:]``
-        access pattern bit-for-bit.
+        Rolls ``x`` right one step and pads with the previous chunk's last
+        frame (or zeros on the first chunk). Bit-for-bit compatible with the
+        legacy ``cache_mem[i] = _x; ... prev_mem[:, -1:]`` pattern.
         """
         key = id(self)
         bt, c, h, w = x.shape
@@ -143,11 +117,7 @@ class MemBlock(nn.Module):
 
 
 class TGrow(nn.Module):
-    """Temporal upsample by ``stride``: 1x1 conv expands channels, then
-    reshape splits the new channel chunks into consecutive timesteps.
-
-    Stateless across streaming chunks (each chunk's frames are upsampled
-    independently)."""
+    """Temporal upsample by ``stride`` (channel-expand + reshape; stateless)."""
 
     def __init__(self, n_f: int, stride: int):
         super().__init__()
@@ -160,12 +130,11 @@ class TGrow(nn.Module):
 
 
 class Decoder(nn.Module):
-    """TAEHV decoder body, owned by :class:`TAEHV`.
+    """TAEHV decoder body.
 
-    Input: ``[B, T, C_z, H, W]`` latent (T == ``z`` time dim).
-    Output: ``[B, T_out, C_img * patch**2, H_out, W_out]`` raw frames
-    (no clamp / pixel-shuffle / trim -- those happen in
-    :meth:`TAEHV.decode`).
+    Input: ``[B, T, C_z, H, W]`` latent. Output: raw frames
+    ``[B, T_out, C_img * patch**2, H_out, W_out]`` (clamp / pixel-shuffle /
+    trim happen in ``TAEHV.decode``).
     """
 
     def __init__(
@@ -179,8 +148,8 @@ class Decoder(nn.Module):
         act_func: nn.Module,
     ):
         super().__init__()
-        # Layer indices match the legacy ``self.decoder = nn.Sequential(...)``
-        # so checkpoint keys (``decoder.<idx>.<param>``) load unchanged.
+        # Layer indices must match the legacy nn.Sequential so checkpoint
+        # keys (``decoder.<idx>.<param>``) load unchanged.
         self.blocks = nn.Sequential(
             Clamp(),
             _conv(latent_channels, n_f[0]),
@@ -224,12 +193,10 @@ class Decoder(nn.Module):
 def _patch_tgrow_state_dict(
     sd: Dict[str, torch.Tensor], decoder_blocks: nn.Sequential
 ) -> Dict[str, torch.Tensor]:
-    """Truncate over-sized TGrow ``conv.weight`` rows in ``sd`` to the
-    model's expected output channels.
+    """Truncate over-sized TGrow weights in ``sd`` to the model's expected channels.
 
-    Some shipped checkpoints store TGrow weights for ``stride=2`` even
-    when the model is configured with ``stride=1``; keep only the
-    last-timestep slice (matches legacy ``patch_tgrow_layers``).
+    Some shipped checkpoints store TGrow weights for stride=2 even when the
+    model is configured stride=1; keep only the last-timestep slice.
     """
     sd = dict(sd)
     for i, layer in enumerate(decoder_blocks):
@@ -243,37 +210,26 @@ def _patch_tgrow_state_dict(
 
 
 class TAEHV(nn.Module):
-    """Tiny AutoEncoder for Hunyuan Video / Wan -- streaming decode-only.
+    """TAEHV streaming decode-only network.
 
-    Loads a TAEHV checkpoint (encoder weights in the file are silently
-    dropped). ``decode`` accepts an ``[N, T, C_z, H, W]`` latent and
-    returns an ``[N, T_out, C_img, H*patch*scale, W*patch*scale]``
-    image tensor in ``[0, 1]``. Each rollout uses a fresh
-    :class:`TAEHVCache`.
+    Loads a TAEHV checkpoint and exposes ``decode``. Encoder weights in the
+    checkpoint are silently dropped. With ``use_cuda_graph=True``, rollout 1
+    drains Inductor autotune on the eager path; rollout 2 warms up and
+    captures, after which same-shape body chunks replay.
 
-    Supported ``model_type`` values: ``"wan21"`` (default; ReLU,
-    ``patch_size=1``, ``latent_channels=16``) and ``"wan22"`` (ReLU,
-    ``patch_size=2``, ``latent_channels=48``). The legacy ``"hy15"``
-    (LeakyReLU + ``[-1, 1]`` clamp) and ``"taecvx"`` (cogvideox even-T
-    skip-trim) variants are NOT supported here -- pass them and the
-    constructor raises.
+    Supported ``model_type``: ``"wan21"`` (default; ReLU, patch_size=1,
+    latent_channels=16) and ``"wan22"`` (ReLU, patch_size=2,
+    latent_channels=48). The legacy ``"hy15"`` and ``"taecvx"`` variants are
+    not ported.
 
-    Per-rollout dispatch when ``use_cuda_graph=True``:
-        - Rollout 1: bare decoder / wrapper.drain -- drains Inductor
-          autotune on the eager path against the wrapper's static
-          buffer.
-        - Rollout 2+: wrapper.__call__ -- 2 warmups + 1 capture, then
-          pure replays for every same-shape body chunk.
-
-    Example::
+    Typical usage example:
 
         taehv = TAEHV(checkpoint_path="...").to("cuda", torch.bfloat16)
         cache = taehv.prepare_cache()
         x = taehv.decode(z, cache=cache)
 
-    Note:
-        Set ``torch.backends.cudnn.benchmark = True`` once at process
-        start for ~5% extra on the eager seed/tail chunks.
+    Set ``torch.backends.cudnn.benchmark = True`` at process start for ~5%
+    extra on the eager seed/tail chunks.
     """
 
     TEMPORAL_COMPRESSION_RATIO = 4
@@ -302,14 +258,10 @@ class TAEHV(nn.Module):
                 f"or trim semantics) were dropped in the decode-only refactor."
             )
         if checkpoint_path is not None and "taecvx" in checkpoint_path:
-            # CogVideoX checkpoints relied on a legacy ``skip_trim`` branch
-            # (``is_cogvideox and x.shape[1] % 2 == 0``) that is not ported.
             raise ValueError(
                 f"TAEHV: cogvideox checkpoint {checkpoint_path!r} is not "
                 f"supported by this slim impl."
             )
-        # ``wan22`` uses a different patch-size / latent-channel config; the
-        # other supported model types share the defaults above.
         if model_type == "wan22":
             patch_size, latent_channels = 2, 48
         act_func = nn.ReLU(inplace=True)
@@ -318,12 +270,12 @@ class TAEHV(nn.Module):
         self.latent_channels = latent_channels
         self.image_channels = 3
         self.model_type = model_type
-        # Frames the decoder must drop from the front of its FIRST chunk
-        # output. ``2 ** sum(time_upscale) - 1`` matches legacy.
+        # Frames the decoder drops from the front of its first chunk output
+        # (matches the legacy 2 ** sum(time_upscale) - 1 formula).
         self.frames_to_trim = 2 ** sum(decoder_time_upscale) - 1
 
         n_f = (256, 128, 64, 64)
-        # Build on `meta` -- only the checkpoint allocates real memory.
+        # Build on meta so only the checkpoint allocates real memory.
         with torch.device("meta"):
             self.decoder = Decoder(
                 n_f=n_f,
@@ -336,8 +288,8 @@ class TAEHV(nn.Module):
             )
 
         sd = load_checkpoint(checkpoint_path)
-        # Re-key from legacy ``decoder.<i>.*`` to ``decoder.blocks.<i>.*``
-        # (the new ``Decoder`` wraps the Sequential in an attribute).
+        # Re-key legacy ``decoder.<i>.*`` to ``decoder.blocks.<i>.*`` because
+        # the new Decoder wraps the Sequential in an attribute.
         sd = {
             (
                 k.replace("decoder.", "decoder.blocks.", 1)
@@ -347,8 +299,8 @@ class TAEHV(nn.Module):
             for k, v in sd.items()  # ty:ignore[call-non-callable]
         }
         sd = _patch_tgrow_state_dict(sd, self.decoder.blocks)
-        # ``assign=True``: meta params become the checkpoint tensors as-is;
-        # ``strict=False``: silently drop encoder-only weights.
+        # assign=True: meta params become the checkpoint tensors directly;
+        # strict=False: silently drop encoder-only weights.
         self.load_state_dict(sd, strict=False, assign=True)
 
         self.eval().requires_grad_(False)
@@ -368,9 +320,8 @@ class TAEHV(nn.Module):
     def prepare_cache(self) -> TAEHVCache:
         """Return a fresh empty cache and drop any captured CUDA graph.
 
-        Captured kernels reference the previous cache's slot pointers,
-        which a new cache invalidates -- warmup + capture re-run on the
-        next decode of each shape.
+        Captured kernels reference the previous cache's slot pointers, so a
+        new cache forces a re-warmup on the next decode.
         """
         if self._use_cuda_graph:
             self._decoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
@@ -380,18 +331,18 @@ class TAEHV(nn.Module):
     def decode(
         self, z: torch.Tensor, cache: Optional[TAEHVCache] = None
     ) -> torch.Tensor:
-        """Streaming decode of ``z`` (``[N, T, C_z, H, W]`` latent).
+        """Streaming decode of an ``[N, T, C_z, H, W]`` latent.
 
-        First call (``cache.dec_state`` empty): runs the decoder eagerly
-        and trims the leading ``frames_to_trim`` frames; subsequent
-        same-shape calls go through the captured graph.
+        First call (cache empty) runs the decoder eagerly and trims the
+        leading ``frames_to_trim`` frames; same-shape body chunks replay
+        the captured graph thereafter.
         """
         if cache is None:
             cache = self.prepare_cache()
         state = cache.dec_state
         first_decode = not state
-        # Bind decoder before the first call so steady-state calls go through
-        # the wrapper while the autotune-during-capture shape is the eager
+        # Bind decoder before the first call so steady-state goes through the
+        # wrapper while the autotune-during-capture shape stays on the eager
         # path.
         if self._use_cuda_graph:
             decoder = (
@@ -405,8 +356,7 @@ class TAEHV(nn.Module):
         b = z.shape[0]
         x = decoder(z, state, b)
         # Clamp / pixel-shuffle / trim happen outside the captured region;
-        # the wrapper returns ``static_output.clone()`` so ``clamp_`` is
-        # safe in-place.
+        # the wrapper returns static_output.clone() so clamp_ is safe in-place.
         x = x.clamp_(0, 1)
         if self.patch_size > 1:
             n, t, c, h, w = x.shape

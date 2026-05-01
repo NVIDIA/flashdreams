@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built :class:`AlpadreamsPipelineConfig` builders."""
+"""Pipeline-config builders for Alpadreams."""
 
 from __future__ import annotations
 

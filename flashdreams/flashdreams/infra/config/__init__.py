@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Configuration utilities for instantiable configs and config derivation."""
+
+from flashdreams.infra.config.base import (
     InstantiateConfig,
     PrintableConfig,
     derive_config,

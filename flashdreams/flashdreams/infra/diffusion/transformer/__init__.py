@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Base interface for autoregressive diffusion transformers."""
+
+from flashdreams.infra.diffusion.transformer.base import (
     Transformer,
     TransformerAutoregressiveCache,
     TransformerCacheT,

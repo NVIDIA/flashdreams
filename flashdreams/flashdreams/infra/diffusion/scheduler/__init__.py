@@ -13,13 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Diffusion schedulers: base interface, flow-matching, and UniPC."""
+
+from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,
     Scheduler,
     SchedulerConfig,
 )
-from .fm import FlowMatchScheduler, FlowMatchSchedulerConfig
-from .fm_unipc import FlowMatchUniPCScheduler, FlowMatchUniPCSchedulerConfig
+from flashdreams.infra.diffusion.scheduler.fm import (
+    FlowMatchScheduler,
+    FlowMatchSchedulerConfig,
+)
+from flashdreams.infra.diffusion.scheduler.fm_unipc import (
+    FlowMatchUniPCScheduler,
+    FlowMatchUniPCSchedulerConfig,
+)
 
 __all__ = [
     "FlowPredictor",

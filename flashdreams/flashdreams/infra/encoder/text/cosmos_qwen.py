@@ -13,13 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Cosmos-Reason1 (Qwen2.5-VL based) text encoder used by Cosmos Predict2.
-
-Reference:
-https://github.com/NVlabs/FastGen/blob/main/fastgen/networks/cosmos_predict2/network.py
-https://huggingface.co/nvidia/Cosmos-Reason1-7B
-"""
+"""Cosmos-Reason1 (Qwen2.5-VL) text encoder used by Cosmos Predict2."""
 
 from __future__ import annotations
 
@@ -36,28 +30,39 @@ from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 @dataclass(kw_only=True)
 class CosmosReason1TextEncoderConfig(EncoderConfig):
+    """Config for the Cosmos-Reason1 text encoder."""
+
     _target: type["CosmosReason1TextEncoder"] = field(
         default_factory=lambda: CosmosReason1TextEncoder
     )
 
     model_name: str = "nvidia/Cosmos-Reason1-7B"
+    """HF repo id of the underlying Qwen2.5-VL model."""
+
     max_length: int = 512
+    """Token length to pad/truncate to."""
+
     dtype: torch.dtype = torch.bfloat16
-    embedding_concat_strategy: str = (
-        "full_concat"  # checkpoint uses full_concat -> 100352 dims
-    )
+
+    embedding_concat_strategy: str = "full_concat"
+    """``"full_concat"`` (default, 100352 dims, matches upstream),
+    ``"mean_pooling"``, or ``"pool_every_n_layers_and_concat"``."""
+
     n_layers_per_group: int = 5
+    """Group size for the pool-every-N strategy."""
 
 
 class CosmosReason1TextEncoder(Encoder):
-    """Cosmos-Reason1 (Qwen2.5-VL based) text encoder.
+    """Cosmos-Reason1 (Qwen2.5-VL) text encoder.
 
-    Cosmos-Predict2.5 uses Cosmos-Reason1 (Qwen2.5-VL-7B-Instruct). Text
-    embeddings are computed using FULL_CONCAT of all 28 hidden layers,
-    yielding 100,352-dim embeddings (28 layers x 3584 hidden_size). The DiT
-    projects these to 1024 dims via a ``crossattn_proj`` layer.
+    Stateless. The default ``full_concat`` strategy concatenates all 28
+    hidden layers into a 100,352-dim embedding (28 x 3584); the DiT
+    projects this to 1024 via its ``crossattn_proj``.
 
-    Stateless: no per-rollout cache, so :meth:`forward` takes only ``input``.
+    Typical usage example:
+
+      >>> encoder = CosmosReason1TextEncoderConfig().setup().to("cuda")
+      >>> embeddings = encoder(["a beautiful sunset"])
     """
 
     FULL_CONCAT = "full_concat"

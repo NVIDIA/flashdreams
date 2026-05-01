@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Cosmos DiT building blocks (attention, AdaLN-LoRA, cross-view ops)."""
+
 import math
 from dataclasses import dataclass
 

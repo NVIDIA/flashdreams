@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot World project-local transformer block."""
+"""DiT block with per-block Plücker camera-control cross-attention."""
 
 from __future__ import annotations
 

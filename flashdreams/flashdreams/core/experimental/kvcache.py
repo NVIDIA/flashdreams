@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Experimental block KV cache (alternative implementation)."""
+
 from dataclasses import dataclass
 
 import torch

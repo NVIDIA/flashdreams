@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Tensor and object splitting/gathering primitives for context parallelism."""
+
 from typing import TypeVar
 
 import torch
@@ -28,23 +30,18 @@ from torch.distributed import (
 def split_inputs_cp(
     x: Tensor, seq_dim: int, cp_group: ProcessGroup | None = None
 ) -> Tensor:
-    """
-    Split input tensor along the sequence dimension for context parallelism.
-
-    This function divides the input tensor into equal parts along the specified
-    sequence dimension, based on the number of ranks in the context parallelism group.
-    It then selects the part corresponding to the current rank.
+    """Slice a tensor along ``seq_dim`` to this rank's CP shard.
 
     Args:
-        x: Input tensor to be split.
-        seq_dim: The dimension along which to split the input (sequence dimension).
-        cp_group: The process group for context parallelism.
+        x: Input tensor.
+        seq_dim: Dimension to split along (negative indexing supported).
+        cp_group: CP process group; ``None`` returns ``x`` unchanged.
 
     Returns:
-        A slice of the input tensor corresponding to the current rank.
+        Contiguous slice of length ``x.shape[seq_dim] // cp_size``.
 
     Raises:
-        AssertionError: If the sequence dimension is not divisible by the number of ranks.
+        AssertionError: ``seq_dim`` is not divisible by the CP size.
     """
     if cp_group is None:
         return x
@@ -64,7 +61,6 @@ def split_inputs_cp(
     )
     seq_idx = torch.tensor([cp_group.rank()], device=x.device)
     x = x.index_select(seq_dim, seq_idx)
-    # Note that the new sequence length is the original sequence length / cp_size
     x = x.view(*x.shape[:seq_dim], -1, *x.shape[(seq_dim + 2) :])
     return x.contiguous()
 
@@ -72,41 +68,31 @@ def split_inputs_cp(
 def cat_outputs_cp(
     x: Tensor, seq_dim: int, cp_group: ProcessGroup | None = None
 ) -> Tensor:
-    """
-    Concatenate outputs from different ranks in the checkpoint parallelism group.
-
-    This function gathers tensors from all ranks in the checkpoint parallelism group
-    and concatenates them along the specified sequence dimension.
+    """Gather and concatenate per-rank tensors along ``seq_dim``.
 
     Args:
-        x: Input tensor to be concatenated.
-        seq_dim: The dimension along which to concatenate the tensors (sequence dimension).
-        cp_group: The process group for checkpoint parallelism.
+        x: This rank's local tensor.
+        seq_dim: Concatenation dimension.
+        cp_group: CP process group; ``None`` returns ``x`` unchanged.
 
     Returns:
-        A tensor that is the concatenation of tensors from all ranks in the cp_group.
+        Tensor with the gathered shards concatenated along ``seq_dim``.
 
     Raises:
-        RuntimeError: If the gather operation fails.
+        RuntimeError: ``all_gather`` failed.
     """
     if cp_group is None:
         return x
 
     x = x.contiguous()
-
-    # Get the world size (number of processes in the group)
     world_size = get_world_size(cp_group)
-
-    # Create a list to store tensors from all ranks
     gathered_tensors = [torch.zeros_like(x) for _ in range(world_size)]
 
-    # Gather tensors from all ranks
     try:
         all_gather(gathered_tensors, x, group=cp_group)
     except RuntimeError as e:
         raise RuntimeError("Failed to gather tensors") from e
 
-    # Concatenate the gathered tensors along the specified dimension
     return torch.cat(gathered_tensors, dim=seq_dim)
 
 
@@ -116,21 +102,17 @@ T = TypeVar("T")
 def split_inputs_cp_object_list(
     object_list: list[T], cp_group: ProcessGroup | None = None
 ) -> list[T]:
-    """
-    Split input object list for context parallelism.
-
-    This function divides the input object list into equal parts, based on the number of ranks in the context parallelism group.
-    It then selects the part corresponding to the current rank.
+    """Slice a list to this rank's CP shard.
 
     Args:
-        object_list: List of objects to be split.
-        cp_group: The process group for context parallelism.
+        object_list: List to split.
+        cp_group: CP process group; ``None`` returns ``object_list`` unchanged.
 
     Returns:
-        A list of objects corresponding to the current rank.
+        This rank's contiguous slice of length ``len(object_list) // cp_size``.
 
     Raises:
-        AssertionError: If the sequence dimension is not divisible by the number of ranks.
+        AssertionError: ``len(object_list)`` is not divisible by the CP size.
     """
     if cp_group is None:
         return object_list
@@ -149,35 +131,25 @@ def split_inputs_cp_object_list(
 def cat_outputs_cp_object_list(
     object_list: list[T], cp_group: ProcessGroup | None = None
 ) -> list[T]:
-    """
-    Concatenate outputs from different ranks in the context parallelism group.
-
-    This function gathers objects from all ranks in the context parallelism group
-    and concatenates them into a single list.
+    """Gather per-rank lists and flatten into a single list.
 
     Args:
-        object_list: List of objects to be gathered on current rank.
-        cp_group: The process group for context parallelism.
+        object_list: This rank's local list.
+        cp_group: CP process group; ``None`` returns ``object_list`` unchanged.
 
     Returns:
-        A list of objects that is the concatenation of objects from all ranks in the cp_group.
+        Flattened concatenation of every rank's list.
     """
     if cp_group is None:
         return object_list
 
-    # Get the world size (number of processes in the group)
     world_size = get_world_size(cp_group)
-
-    # Create a list to store objects from all ranks
     gathered_object_list: list[list[T]] = [[] for _ in range(world_size)]
 
-    # Gather objects from all ranks
     try:
         all_gather_object(gathered_object_list, object_list, group=cp_group)
     except RuntimeError as e:
         raise RuntimeError("Failed to gather objects") from e
 
-    # `all_gather_object` is treating `object_list` as a single object.
-    # since we are passing in a list, the resulted `gathered_object_list` would be
-    # a list of lists. We need to flatten the list of lists.
+    # all_gather_object treats each list as a single object -> flatten.
     return [item for sublist in gathered_object_list for item in sublist]

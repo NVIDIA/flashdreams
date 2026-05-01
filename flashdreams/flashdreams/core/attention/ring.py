@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Ring (sequence-parallel) attention built on the native SDPA primitive."""
+
 from contextlib import nullcontext
 from typing import ContextManager, Literal
 
@@ -21,7 +23,7 @@ import torch.distributed._functional_collectives as funcol
 from torch import Tensor
 from torch.distributed.tensor.device_mesh import DeviceMesh
 
-from .native import NativeAttention
+from flashdreams.core.attention.native import NativeAttention
 
 
 def torch_sdpa_cudnn(

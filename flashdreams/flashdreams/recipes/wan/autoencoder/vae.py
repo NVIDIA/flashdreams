@@ -43,11 +43,11 @@ TEMPORAL_WINDOW = 4
 def _set_or_copy(
     state: Dict[int, torch.Tensor], key: int, new_value: torch.Tensor
 ) -> None:
-    """Write ``new_value`` into ``state[key]``: in-place ``copy_`` once the
-    slot exists at the matching shape, else allocate a fresh clone.
+    """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
 
-    Pointer stability is required for CUDA-graph capture (kernels
-    reference the slot's storage address).
+    In-place ``copy_`` once the slot exists at the matching shape, else
+    allocate a fresh clone. Pointer stability is required for CUDA-graph
+    capture, since captured kernels reference the slot's storage address.
     """
     cur = state.get(key)
     if cur is not None and cur.shape == new_value.shape:
@@ -98,20 +98,21 @@ _LATENT_STD = (
 class WanVAECache(EncoderAutoregressiveCache, DecoderAutoregressiveCache):
     """Streaming state for one encode + decode rollout.
 
-    Get a fresh instance via :meth:`WanVAE.prepare_cache`; both dicts are
-    populated lazily on the first chunk and advanced in place thereafter.
+    Both dicts are populated lazily on the first chunk and advanced in place
+    thereafter. Get a fresh instance via ``WanVAE.prepare_cache``.
+
+    Per-block buffers are keyed by ``id(module)``.
     """
 
     enc_state: Dict[int, torch.Tensor] = field(default_factory=dict)
-    """Per-block encoder cache, keyed by ``id(module)``."""
+    """Per-block encoder cache."""
 
     dec_state: Dict[int, torch.Tensor] = field(default_factory=dict)
-    """Per-block decoder cache, keyed by ``id(module)``."""
+    """Per-block decoder cache."""
 
 
 class CausalConv3d(nn.Conv3d):
-    """3D conv with causal time padding. :meth:`cache_step` advances a
-    per-instance left-context slot for streaming callers."""
+    """3D conv with causal time padding and a streaming left-context slot."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -135,10 +136,9 @@ class CausalConv3d(nn.Conv3d):
     def cache_step(
         self, x: torch.Tensor, state: Dict[int, torch.Tensor]
     ) -> torch.Tensor:
-        """Run the conv once, advancing the streaming left-context cache.
+        """Run the conv and advance the streaming left-context cache.
 
-        The new tail is the last ``CACHE_T`` frames of ``x`` (same shape
-        every steady-state call -> in-place write to a stable slot). The
+        The new tail is the last ``CACHE_T`` frames of ``x``. The
         ``< CACHE_T`` branch only fires on the eager first chunk.
         """
         key = id(self)
@@ -174,7 +174,7 @@ def _bt_flatten(x: torch.Tensor) -> torch.Tensor:
 
 
 def _bt_unflatten(x: torch.Tensor, b: int) -> torch.Tensor:
-    """[b*t, c, h, w] -> [b, c, t, h, w] (inverse of :func:`_bt_flatten`)."""
+    """[b*t, c, h, w] -> [b, c, t, h, w] (inverse of ``_bt_flatten``)."""
     bt, c, h, w = x.shape
     t = bt // b
     return x.reshape(b, t, c, h, w).permute(0, 2, 1, 3, 4)
@@ -233,13 +233,13 @@ class Resample(nn.Module):
         key = id(self)
         prev = state.get(key)
 
-        # Steady-state body chunk: in-place write to the existing slot.
         if prev is not None:
+            # Steady-state body: in-place write to the existing slot.
             x_up = self._interleave_time(self.time_conv(x, prev), b, c, t, h, w)
             _set_or_copy(state, key, x[:, :, -CACHE_T:])
             return x_up
 
-        # First chunk -- eager only (shape varies, never captured).
+        # Eager first-chunk path (shape varies, never captured).
         first = x[:, :, :1]
         rest = x[:, :, 1:]
         if rest.shape[2] > 0:
@@ -247,7 +247,7 @@ class Resample(nn.Module):
             state[key] = self._first_chunk_tail(rest, b, c, h, w)
             return torch.cat([first, up], dim=2)
 
-        # 1-frame first chunk: stash zero cache (legacy "Rep" sentinel).
+        # 1-frame first chunk: zero cache (legacy "Rep" sentinel).
         state[key] = x.new_zeros(b, c, CACHE_T, h, w)
         return first
 
@@ -256,7 +256,7 @@ class Resample(nn.Module):
     ) -> torch.Tensor:
         key = id(self)
         prev = state.get(key)
-        # Snapshot the *input* tail before time_conv (matches legacy cache).
+        # Snapshot the input tail before time_conv to match the legacy cache.
         new_tail = x[:, :, -1:]
         if prev is not None:
             x = self.time_conv(torch.cat([prev, x], dim=2))
@@ -275,8 +275,7 @@ class Resample(nn.Module):
     def _first_chunk_tail(
         rest: torch.Tensor, b: int, c: int, h: int, w: int
     ) -> torch.Tensor:
-        """Last CACHE_T frames of ``rest``, zero-padded if too short.
-        Eager-only first-chunk path; subsequent calls update in place."""
+        """Last CACHE_T frames of ``rest``, zero-padded if too short."""
         tail = rest[:, :, -CACHE_T:].clone()
         if tail.shape[2] < CACHE_T:
             tail = torch.cat([rest.new_zeros(b, c, 1, h, w), tail], dim=2)
@@ -325,7 +324,7 @@ class AttentionBlock(nn.Module):
         self.proj = nn.Conv2d(dim, dim, 1)
         nn.init.zeros_(self.proj.weight)
 
-    # `state` is accepted (but ignored) so callers can iterate uniformly.
+    # ``state`` is accepted (and ignored) for a uniform iteration call site.
     def forward(
         self, x: torch.Tensor, state: Optional[Dict[int, torch.Tensor]] = None
     ) -> torch.Tensor:
@@ -458,34 +457,28 @@ class Decoder3d(nn.Module):
 
 
 class WanVAE(nn.Module):
-    """Wan 2.x video VAE for streaming causal encode + decode.
+    """Wan 2.x video VAE: streaming causal encode and decode.
 
-    Input video ``[B, 3, T, H, W]`` in ``[-1, 1]``; latent
-    ``[B, 16, Tl, H/8, W/8]``. Each rollout uses a fresh
-    :class:`WanVAECache` for both encode and decode.
+    Input video shape is ``[B, 3, T, H, W]`` in ``[-1, 1]``; the latent shape
+    is ``[B, 16, Tl, H/8, W/8]``. Each rollout uses a fresh ``WanVAECache``.
 
-    Set ``enable_encoder=False`` (or ``enable_decoder=False``) when only
-    one direction is needed -- the other half's parameters and
-    compile/CUDA-graph state are skipped, saving VRAM.
+    With ``use_cuda_graph=True``, rollout 1 drains Inductor autotune on the
+    eager path so rollout 2 can warmup + capture; subsequent same-shape body
+    chunks replay the captured graph.
 
-    Per-rollout dispatch (when ``use_cuda_graph=True``):
-        - Rollout 1: bare compiled / wrapper.drain -- drains Inductor
-          autotune on the eager path against the wrapper's static
-          buffer, so capture later sees no recompile.
-        - Rollout 2+: wrapper.__call__ -- 2 warmups + 1 capture, then
-          pure replays for every same-shape body chunk.
+    Set ``enable_encoder=False`` (or ``enable_decoder=False``) when only one
+    direction is needed; the unused half's parameters and graph state are
+    skipped, saving VRAM.
 
-    Example::
+    Typical usage example:
 
         vae = WanVAE(vae_path="...", use_lightvae=True).to("cuda", torch.bfloat16)
-        encode_cache = vae.prepare_cache()
-        z = vae.encode(video, cache=encode_cache)
-        decode_cache = vae.prepare_cache()
-        x = vae.decode(z, cache=decode_cache)
+        cache = vae.prepare_cache()
+        z = vae.encode(video, cache=cache)
+        x = vae.decode(z, cache=vae.prepare_cache())
 
-    Note:
-        Set ``torch.backends.cudnn.benchmark = True`` once at process
-        start for ~5% extra on the eager seed/tail chunks.
+    Set ``torch.backends.cudnn.benchmark = True`` at process start for ~5%
+    extra on the eager seed/tail chunks.
     """
 
     Z_DIM = 16
@@ -517,8 +510,8 @@ class WanVAE(nn.Module):
             dropout=0.0,
             pruning_rate=pruning_rate,
         )
-        # Build on `meta` -- only the checkpoint allocates real memory.
-        # Skip the half we don't need so its params never materialise.
+        # Build on `meta` so only the checkpoint allocates real memory; skip
+        # the disabled half so its params never materialise.
         with torch.device("meta"):
             if enable_encoder:
                 self.encoder = Encoder3d(
@@ -535,9 +528,9 @@ class WanVAE(nn.Module):
                 )
                 self.conv2 = CausalConv3d(self.Z_DIM, self.Z_DIM, 1)
 
-        # `assign=True`: meta params become the checkpoint tensors as-is;
-        # caller does `.to(device, dtype)` afterward. `strict=False`
-        # tolerates the missing half (encoder-only or decoder-only).
+        # assign=True: meta params become the checkpoint tensors directly;
+        # caller does .to(device, dtype) afterward. strict=False tolerates
+        # the disabled half (encoder-only or decoder-only).
         self.load_state_dict(load_checkpoint(vae_path), strict=False, assign=True)  # ty:ignore[invalid-argument-type]
 
         self.register_buffer(
@@ -581,9 +574,8 @@ class WanVAE(nn.Module):
     def prepare_cache(self) -> WanVAECache:
         """Return a fresh empty cache and drop any captured CUDA graphs.
 
-        Captured kernels reference the previous cache's slot pointers,
-        which a new cache invalidates -- warmup + capture re-run on the
-        next encode/decode of each shape.
+        Captured kernels reference the previous cache's slot pointers, so a
+        new cache invalidates them and forces a re-warmup on the next call.
         """
         if self._use_cuda_graph:
             if self._enable_encoder:
@@ -594,13 +586,10 @@ class WanVAE(nn.Module):
 
     @torch.inference_mode()
     def encode(self, x: torch.Tensor, cache: WanVAECache) -> torch.Tensor:
-        """Streaming causal encode.
+        """Streaming causal encode (output is mean/std-normalised).
 
-        First chunk (``cache.enc_state`` empty): split into 1-frame
-        seed + 4-frame body chunks + optional ``< 4`` tail. Subsequent
-        chunks: ``T`` must be a multiple of 4, body only. Per-block
-        state is advanced in place; output is mean/std-normalised.
-
+        First chunk (cache empty): 1-frame seed + 4-frame body chunks +
+        optional ``< 4``-frame tail. Subsequent chunks must have ``T % 4 == 0``.
         Requires ``enable_encoder=True`` at construction.
         """
         assert self._enable_encoder, (
@@ -608,10 +597,10 @@ class WanVAE(nn.Module):
             "enable_encoder=False"
         )
         state = cache.enc_state
-        # Body chunks: rollout 1 drains autotune through the same static
-        # buffer the wrapper will capture against (single Inductor
-        # specialisation); rollout 2+ runs the captured graph. Bind
-        # before the seed call populates `state`.
+        # Body-chunk dispatch: rollout 1 drains autotune through the same
+        # static buffer the wrapper will capture against (single Inductor
+        # specialisation); rollout 2+ runs the captured graph. Bind before
+        # the seed call populates ``state``.
         if self._use_cuda_graph:
             encoder_body = (
                 self._encoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
@@ -641,8 +630,7 @@ class WanVAE(nn.Module):
 
     @torch.inference_mode()
     def decode(self, z: torch.Tensor, cache: WanVAECache) -> torch.Tensor:
-        """Streaming causal decode: un-normalise, run :class:`Decoder3d`
-        on all temporal frames in one pass, clamp to ``[-1, 1]``.
+        """Streaming causal decode. Output is clamped to ``[-1, 1]``.
 
         Requires ``enable_decoder=True`` at construction.
         """
@@ -651,7 +639,7 @@ class WanVAE(nn.Module):
             "enable_decoder=False"
         )
         z = z / self.inv_std + self.mean  # ty:ignore[unsupported-operator]
-        # See `encode` for rollout 1 vs 2+ dispatch rationale.
+        # See encode() for the rollout 1 vs 2+ dispatch rationale.
         if self._use_cuda_graph:
             decoder = (
                 self._decoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
@@ -673,30 +661,28 @@ class WanVAE(nn.Module):
 
 @dataclass(kw_only=True)
 class WanVAEEncoderConfig(EncoderConfig):
+    """Config for the Wan VAE encoder."""
+
     _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
     use_cuda_graph: bool = True
-    """Wrap the encoder forward in a CUDA graph for steady-state replay."""
+    """Wrap the encoder forward in a CUDA graph for replay."""
+
     use_compile: bool = False
-    """Apply ``torch.compile(mode="max-autotune-no-cudagraphs")`` to the
-    encoder. Off by default: Inductor autotune workspaces add several GiB
-    of transient VRAM per unique input shape, which on smaller GPUs can
-    surface as ``illegal memory access`` when paired with the full-channel
-    ``vae`` checkpoint. Opt in for steady-state rollouts; combine with
-    ``use_cuda_graph=True`` for the rollout-aware dispatch (drain Inductor
-    autotune in rollout 1, capture in rollout 2)."""
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``. Off by default:
+    Inductor autotune workspaces can add several GiB of transient VRAM per
+    unique input shape, surfacing as 'illegal memory access' on smaller GPUs
+    with the full-channel ``vae`` checkpoint."""
 
 
 class WanVAEEncoder(Encoder[WanVAECache]):
     """Wan VAE encoder.
 
-    Forward input is a video tensor of shape ``[..., T, C, H, W]`` with
-    values in ``[-1, 1]``; output is the latent of shape ``[..., Tl, Cl, Hl, Wl]``.
-
-    The cache is :class:`WanVAECache`, which holds per-block conv state and is
-    advanced in-place across AR encode steps. Pass ``cache=None`` to allocate a
+    Forward input is a video tensor ``[..., T, C, H, W]`` in ``[-1, 1]``;
+    output is the latent ``[..., Tl, Cl, Hl, Wl]``. The cache is advanced
+    in-place across AR encode steps; passing ``cache=None`` allocates a
     fresh single-shot cache.
     """
 
@@ -747,31 +733,27 @@ class WanVAEEncoder(Encoder[WanVAECache]):
 
 @dataclass(kw_only=True)
 class WanVAEDecoderConfig(DecoderConfig):
+    """Config for the Wan VAE decoder."""
+
     _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
     use_cuda_graph: bool = True
-    """Wrap the decoder forward in a CUDA graph for steady-state replay."""
+    """Wrap the decoder forward in a CUDA graph for replay."""
+
     use_compile: bool = False
-    """Apply ``torch.compile(mode="max-autotune-no-cudagraphs")`` to the
-    decoder. Off by default: Inductor autotune workspaces add several GiB
-    of transient VRAM per unique input shape, which on smaller GPUs can
-    surface as ``illegal memory access`` when paired with the full-channel
-    ``vae`` checkpoint. Opt in for steady-state rollouts; combine with
-    ``use_cuda_graph=True`` for the rollout-aware dispatch (drain Inductor
-    autotune in rollout 1, capture in rollout 2)."""
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``. See
+    ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
 
 
 class WanVAEDecoder(Decoder[WanVAECache]):
     """Wan VAE decoder.
 
-    Forward input is a latent tensor of shape ``[..., Tl, Cl, Hl, Wl]``;
-    output is a video tensor of shape ``[..., T, C, H, W]`` with values in
-    ``[-1, 1]``.
-
-    The cache is :class:`WanVAECache`, advanced in-place across AR decode
-    steps. Pass ``cache=None`` to allocate a fresh single-shot cache.
+    Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video
+    tensor ``[..., T, C, H, W]`` in ``[-1, 1]``. The cache is advanced
+    in-place across AR decode steps; passing ``cache=None`` allocates a
+    fresh single-shot cache.
     """
 
     def __init__(self, config: WanVAEDecoderConfig) -> None:

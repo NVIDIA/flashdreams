@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import (
+"""Streaming inference pipeline base."""
+
+from flashdreams.infra.pipeline.base import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,

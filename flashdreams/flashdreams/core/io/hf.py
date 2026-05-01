@@ -13,15 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Small Hugging Face helpers shared across encoders.
+"""Hugging Face helpers shared across encoders.
 
-Exposes :func:`should_use_local_files_only`, which returns ``True`` when
-``transformers.from_pretrained`` should be called with
-``local_files_only=True``. That flag is the only way to suppress the
-HTTP ``model_info`` API call that ``transformers`` does on every
-``tokenizer.from_pretrained`` (e.g. inside ``_patch_mistral_regex``);
-without it, multi-rank loads of the same repo trip HF's per-IP 429
-limiter even when the repo is fully cached on disk.
+The main goal is to decide when ``from_pretrained`` should be called with
+``local_files_only=True`` so multi-rank loads of fully cached repos do not
+trip HF's per-IP 429 rate limit.
 """
 
 from __future__ import annotations
@@ -41,22 +37,14 @@ def _str2bool(v: str | bool) -> bool:
 
 
 def _hf_repo_is_cached(repo_id: str) -> bool:
-    """Whether ``repo_id`` is already present in the standard HF hub cache.
+    """Return True if ``repo_id`` is already in the HF hub cache.
 
-    Probes a handful of common root-level files via
-    ``huggingface_hub.try_to_load_from_cache``. We try multiple names because
-    the file at a repo root depends on the repo type:
-
-    - ``config.json`` for plain ``transformers`` model repos.
-    - ``model_index.json`` for Diffusers pipeline repos
-      (e.g. ``Wan-AI/Wan2.1-T2V-1.3B-Diffusers``), which only have
-      ``config.json`` inside subfolders.
-    - ``tokenizer_config.json`` / ``preprocessor_config.json`` for repos
-      that ship just a tokenizer or processor.
-
-    If any one of these is present locally, every other asset that was
-    downloaded alongside it (weights, tokenizer, processor, subfolders)
-    will also load with ``local_files_only=True``.
+    Probes a few common root-level files (``config.json``,
+    ``model_index.json``, ``tokenizer_config.json``,
+    ``preprocessor_config.json``); the right one depends on whether the
+    repo is a plain transformers model, a Diffusers pipeline, or a
+    tokenizer/processor-only repo. If any one is present, sibling assets
+    downloaded with it also load fine in offline mode.
     """
     try:
         from huggingface_hub import try_to_load_from_cache
@@ -81,12 +69,12 @@ def _hf_repo_is_cached(repo_id: str) -> bool:
 def should_use_local_files_only(repo_id_or_path: str) -> bool:
     """Decide whether to pass ``local_files_only=True`` to ``from_pretrained``.
 
-    Returns ``True`` if any of the following hold:
+    True if any of the following hold:
 
     - ``repo_id_or_path`` is a local directory.
-    - The standard ``HF_HUB_OFFLINE`` env var is truthy.
-    - The legacy ``LOCAL_FILES_ONLY`` env var is truthy.
-    - The standard HF hub cache already contains ``repo_id_or_path``.
+    - ``HF_HUB_OFFLINE`` is truthy.
+    - ``LOCAL_FILES_ONLY`` is truthy (legacy).
+    - The repo is already cached locally.
     """
     return (
         os.path.isdir(repo_id_or_path)
