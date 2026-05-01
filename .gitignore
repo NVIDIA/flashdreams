@@ -129,3 +129,5 @@ credentials/*.secret
 
 CLAUDE.md
 .cursor/
+
+.codex/
