@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, TypedDict
 
 import torch
 import torch.nn as nn
@@ -116,11 +116,22 @@ class WanVAECache(EncoderAutoregressiveCache, DecoderAutoregressiveCache):
 class CausalConv3d(nn.Conv3d):
     """3D conv with causal time padding and a streaming left-context slot."""
 
+    # Concrete attribute types so callers don't see ``Tensor | Module``.
+    _spatial_pad: tuple[int, int, int, int]
+    _has_spatial_pad: bool
+    _time_pad: int
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # ``nn.Conv3d.padding`` is typed as the ``Union[int, _size, str]``
+        # that the constructor accepts; narrow once here so the rest of
+        # the class can subscript it without ignoring type errors.
+        assert isinstance(self.padding, tuple), (
+            f"CausalConv3d expects a tuple padding; got {self.padding!r}"
+        )
         ph, pw = self.padding[1], self.padding[2]
         self._spatial_pad = (pw, pw, ph, ph)
-        self._has_spatial_pad = ph > 0 or pw > 0  # ty:ignore[unsupported-operator]
+        self._has_spatial_pad = ph > 0 or pw > 0
         self._time_pad = 2 * self.padding[0]
         self.padding = (0, 0, 0)
 
@@ -128,11 +139,11 @@ class CausalConv3d(nn.Conv3d):
         self, x: torch.Tensor, prev: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         time_pad = self._time_pad
-        if prev is not None and time_pad > 0:  # ty:ignore[unsupported-operator]
+        if prev is not None and time_pad > 0:
             x = torch.cat([prev, x], dim=2)
-            time_pad = max(0, time_pad - prev.shape[2])  # ty:ignore[unsupported-operator]
+            time_pad = max(0, time_pad - prev.shape[2])
         if time_pad or self._has_spatial_pad:
-            x = F.pad(x, (*self._spatial_pad, time_pad, 0))  # ty:ignore[invalid-argument-type]
+            x = F.pad(x, (*self._spatial_pad, time_pad, 0))
         return super().forward(x)
 
     def cache_step(
@@ -396,7 +407,8 @@ class Encoder3d(nn.Module):
         for layer in self.middle:
             x = layer(x, state)
         norm, act, conv = self.head
-        return conv.cache_step(act(norm(x)), state)  # ty:ignore[call-non-callable]
+        assert isinstance(conv, CausalConv3d)
+        return conv.cache_step(act(norm(x)), state)
 
 
 class Decoder3d(nn.Module):
@@ -455,7 +467,10 @@ class Decoder3d(nn.Module):
         for layer in self.upsamples:
             x = layer(x, state)
         norm, act, conv = self.head
-        return conv.cache_step(act(norm(x)), state)  # ty:ignore[call-non-callable]
+        # ``nn.Sequential`` typing hands back ``Module``; the final entry
+        # is a ``CausalConv3d`` and we need its non-``Module`` ``cache_step``.
+        assert isinstance(conv, CausalConv3d)
+        return conv.cache_step(act(norm(x)), state)
 
 
 class WanVAE(nn.Module):
@@ -488,6 +503,9 @@ class WanVAE(nn.Module):
     TEMPORAL_COMPRESSION_RATIO = 4
     SPATIAL_COMPRESSION_RATIO = 8
 
+    mean: Tensor
+    inv_std: Tensor
+
     def __init__(
         self,
         vae_path: str,
@@ -504,14 +522,26 @@ class WanVAE(nn.Module):
         )
 
         pruning_rate = 0.75 if use_lightvae else 0.0
-        common = dict(
-            dim=96,
-            dim_mult=(1, 2, 4, 4),
-            num_res_blocks=2,
-            attn_scales=(),
-            dropout=0.0,
-            pruning_rate=pruning_rate,
-        )
+
+        # TypedDict so ``**common`` unpacks with concrete kwarg types
+        # rather than the ``object``-typed values an untyped ``dict``
+        # literal would yield.
+        class _CommonKwargs(TypedDict):
+            dim: int
+            dim_mult: tuple[int, ...]
+            num_res_blocks: int
+            attn_scales: tuple[float, ...]
+            dropout: float
+            pruning_rate: float
+
+        common: _CommonKwargs = {
+            "dim": 96,
+            "dim_mult": (1, 2, 4, 4),
+            "num_res_blocks": 2,
+            "attn_scales": (),
+            "dropout": 0.0,
+            "pruning_rate": pruning_rate,
+        }
         # Build on `meta` so only the checkpoint allocates real memory; skip
         # the disabled half so its params never materialise.
         with torch.device("meta"):
@@ -519,14 +549,14 @@ class WanVAE(nn.Module):
                 self.encoder = Encoder3d(
                     z_dim=self.Z_DIM * 2,
                     temperal_downsample=(False, True, True),
-                    **common,  # ty:ignore[invalid-argument-type]
+                    **common,
                 )
                 self.conv1 = CausalConv3d(self.Z_DIM * 2, self.Z_DIM * 2, 1)
             if enable_decoder:
                 self.decoder = Decoder3d(
                     z_dim=self.Z_DIM,
                     temperal_upsample=(True, True, False),
-                    **common,  # ty:ignore[invalid-argument-type]
+                    **common,
                 )
                 self.conv2 = CausalConv3d(self.Z_DIM, self.Z_DIM, 1)
 
@@ -552,20 +582,31 @@ class WanVAE(nn.Module):
         self._enable_decoder = enable_decoder
         self._use_cuda_graph = use_cuda_graph
 
+        self._encoder_wrapper: CUDAGraphWrapper | None = None
+        self._decoder_wrapper: CUDAGraphWrapper | None = None
+
         if enable_encoder:
             if use_compile:
                 self.encoder = compile_module(self.encoder)
+            if use_cuda_graph:
+                self._encoder_wrapper = CUDAGraphWrapper(
+                    self.encoder, warmup_iters=warmup_iters
+                )
             self._encoder_call: Callable[..., torch.Tensor] = (
-                CUDAGraphWrapper(self.encoder, warmup_iters=warmup_iters)
-                if use_cuda_graph
+                self._encoder_wrapper
+                if self._encoder_wrapper is not None
                 else self.encoder
             )
         if enable_decoder:
             if use_compile:
                 self.decoder = compile_module(self.decoder)
+            if use_cuda_graph:
+                self._decoder_wrapper = CUDAGraphWrapper(
+                    self.decoder, warmup_iters=warmup_iters
+                )
             self._decoder_call: Callable[..., torch.Tensor] = (
-                CUDAGraphWrapper(self.decoder, warmup_iters=warmup_iters)
-                if use_cuda_graph
+                self._decoder_wrapper
+                if self._decoder_wrapper is not None
                 else self.decoder
             )
 
@@ -577,9 +618,11 @@ class WanVAE(nn.Module):
         """
         if self._use_cuda_graph:
             if self._enable_encoder:
-                self._encoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+                assert self._encoder_wrapper is not None
+                self._encoder_wrapper.reset()
             if self._enable_decoder:
-                self._decoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+                assert self._decoder_wrapper is not None
+                self._decoder_wrapper.reset()
         return WanVAECache()
 
     @torch.inference_mode()
@@ -600,10 +643,9 @@ class WanVAE(nn.Module):
         # specialisation); rollout 2+ runs the captured graph. Bind before
         # the seed call populates ``state``.
         if self._use_cuda_graph:
+            assert self._encoder_wrapper is not None
             encoder_body = (
-                self._encoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
-                if not state
-                else self._encoder_call
+                self._encoder_wrapper.drain if not state else self._encoder_call
             )
         else:
             encoder_body = self.encoder
@@ -636,11 +678,12 @@ class WanVAE(nn.Module):
             "WanVAE.decode called but the model was constructed with "
             "enable_decoder=False"
         )
-        z = z / self.inv_std + self.mean  # ty:ignore[unsupported-operator]
+        z = z / self.inv_std + self.mean
         # See encode() for the rollout 1 vs 2+ dispatch rationale.
         if self._use_cuda_graph:
+            assert self._decoder_wrapper is not None
             decoder = (
-                self._decoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+                self._decoder_wrapper.drain
                 if not cache.dec_state
                 else self._decoder_call
             )
@@ -753,6 +796,9 @@ class WanVAEDecoder(Decoder[WanVAECache]):
     in-place across AR decode steps; passing ``cache=None`` allocates a
     fresh single-shot cache.
     """
+
+    TEMPORAL_COMPRESSION_RATIO = WanVAE.TEMPORAL_COMPRESSION_RATIO
+    SPATIAL_COMPRESSION_RATIO = WanVAE.SPATIAL_COMPRESSION_RATIO
 
     def __init__(self, config: WanVAEDecoderConfig) -> None:
         super().__init__(config)

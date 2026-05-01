@@ -310,10 +310,13 @@ class TAEHV(nn.Module):
 
         if use_compile:
             self.decoder = compile_module(self.decoder)
-        self._decoder_call: Callable[..., torch.Tensor] = (
+        self._decoder_wrapper: CUDAGraphWrapper | None = (
             CUDAGraphWrapper(self.decoder, warmup_iters=warmup_iters)
             if use_cuda_graph
-            else self.decoder
+            else None
+        )
+        self._decoder_call: Callable[..., torch.Tensor] = (
+            self._decoder_wrapper if self._decoder_wrapper is not None else self.decoder
         )
 
     def prepare_cache(self) -> TAEHVCache:
@@ -323,7 +326,8 @@ class TAEHV(nn.Module):
         new cache forces a re-warmup on the next decode.
         """
         if self._use_cuda_graph:
-            self._decoder_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+            assert self._decoder_wrapper is not None
+            self._decoder_wrapper.reset()
         return TAEHVCache()
 
     @torch.inference_mode()
@@ -344,10 +348,9 @@ class TAEHV(nn.Module):
         # wrapper while the autotune-during-capture shape stays on the eager
         # path.
         if self._use_cuda_graph:
+            assert self._decoder_wrapper is not None
             decoder = (
-                self._decoder_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
-                if first_decode
-                else self._decoder_call
+                self._decoder_wrapper.drain if first_decode else self._decoder_call
             )
         else:
             decoder = self.decoder

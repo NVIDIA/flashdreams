@@ -62,7 +62,7 @@ def main() -> None:
     # one-shot scalar construction in the test driver).
     fm_t = torch.empty((), dtype=torch.int64, device=device)
     fm_t.fill_(128)
-    unipc_t = unipc.timesteps[0]  # ty:ignore[not-subscriptable]
+    unipc_t = unipc.timesteps[0]
 
     # warm-up (allocators, autograd state, etc.) without sync mode on
     fm.sample(noise, _stub)  # ty:ignore[invalid-argument-type]

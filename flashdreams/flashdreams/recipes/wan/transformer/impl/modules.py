@@ -72,6 +72,8 @@ class MLPProj(torch.nn.Module):
 class Head(nn.Module):
     """Final projection head with AdaLN-style modulation."""
 
+    modulation: nn.Parameter
+
     def __init__(
         self,
         dim: int,
@@ -119,10 +121,8 @@ class Head(nn.Module):
             "before running the forward pass"
         )
         assert x.ndim == e.ndim, "x and e must have the same number of dimensions"
-        e = (self.modulation + e).chunk(
-            2, dim=-2
-        )  # [..., 1, D] each  # ty:ignore[invalid-assignment]
-        x = self.norm(x) * (1 + e[1]) + e[0]  # [..., L, D]
+        e_chunks = (self.modulation + e).chunk(2, dim=-2)  # [..., 1, D] each
+        x = self.norm(x) * (1 + e_chunks[1]) + e_chunks[0]  # [..., L, D]
         x = self.head(x)
         return x
 
@@ -387,7 +387,10 @@ class CrossAttention(MultiHeadAttention):
         """
         text_cache = self.compute_kv(context_text)
         if self.i2v:
-            img_cache = self.compute_kv_image(context_img)  # ty:ignore[invalid-argument-type]
+            assert context_img is not None, (
+                "context_img must be provided when i2v is enabled"
+            )
+            img_cache = self.compute_kv_image(context_img)
         else:
             img_cache = None
         return CrossAttnCache(text=text_cache, img=img_cache)
@@ -436,6 +439,8 @@ class BlockCache:
 
 class Block(nn.Module):
     """Transformer block with self-attn, cross-attn, and FFN branches."""
+
+    modulation: nn.Parameter
 
     def __init__(
         self,
@@ -556,23 +561,21 @@ class Block(nn.Module):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        e = (self.modulation + e).chunk(
-            6, dim=-2
-        )  # [..., 1, D] each  # ty:ignore[invalid-assignment]
+        e_chunks = (self.modulation + e).chunk(6, dim=-2)  # [..., 1, D] each
 
-        y = self.norm1(x) * (1 + e[1]) + e[0]  # [..., L, D]
+        y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]  # [..., L, D]
         y = self.self_attn(
             y,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
         )
-        x = x + (y * e[2])  # [..., L, D]
+        x = x + (y * e_chunks[2])  # [..., L, D]
 
         x = x + self.cross_attn(
             self.norm3(x),
             kv_cache=cache.cross_attn,
         )
-        y = self.norm2(x) * (1 + e[4]) + e[3]  # [..., L, D]
+        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]  # [..., L, D]
         y = self.ffn(y)
-        x = x + (y * e[5])  # [..., L, D]
+        x = x + (y * e_chunks[5])  # [..., L, D]
         return x

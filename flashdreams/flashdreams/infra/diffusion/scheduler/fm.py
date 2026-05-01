@@ -93,6 +93,11 @@ class FlowMatchScheduler(Scheduler):
     integer timesteps like 1000 would otherwise round to 1024.
     """
 
+    denoising_step_list: Tensor
+    denoising_sigmas: Tensor
+    _full_sigmas: Tensor
+    _full_timesteps: Tensor
+
     def __init__(self, config: FlowMatchSchedulerConfig) -> None:
         super().__init__(config)
         self.config: FlowMatchSchedulerConfig = config
@@ -198,16 +203,17 @@ class FlowMatchScheduler(Scheduler):
 
         noisy = initial_noise
         clean: Tensor | None = None
-        for i in range(timesteps.shape[0]):  # ty:ignore[not-subscriptable]
-            sigma = sigmas[i]  # ty:ignore[not-subscriptable]
+        for i in range(timesteps.shape[0]):
+            sigma = sigmas[i]
             # Schedule buffers are pinned to fp32 (to preserve integer
             # timestep values under a stray `module.to(bf16)`), but the
             # network expects timesteps in the input dtype so that
             # downstream modulation / Linear layers stay consistent.
-            timestep = timesteps[i].to(dtype=input_dtype)  # ty:ignore[not-subscriptable]
+            timestep = timesteps[i].to(dtype=input_dtype)
             if i > 0:
+                assert clean is not None
                 noise = torch.randn_like(noisy, generator=rng)
-                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)  # type: ignore[operator]  # ty:ignore[unsupported-operator]
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
             flow = predict_flow(noisy, timestep)
             clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
@@ -226,7 +232,7 @@ class FlowMatchScheduler(Scheduler):
         """
         assert timestep.shape == (), f"expected scalar timestep, got {timestep.shape}"
         full_t = self._full_timesteps
-        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)  # ty:ignore[no-matching-overload]
-        sigma = self._full_sigmas.index_select(0, idx).reshape(())  # ty:ignore[call-non-callable]
+        idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)
+        sigma = self._full_sigmas.index_select(0, idx).reshape(())
         noise = torch.randn_like(clean_input, generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

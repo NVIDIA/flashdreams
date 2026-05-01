@@ -73,15 +73,15 @@ class CamCtrlBlock(Block):
         Returns:
             Updated hidden states with shape ``[..., L, D]``.
         """
-        e = (self.modulation + e).chunk(6, dim=-2)  # ty:ignore[invalid-assignment]
+        e_chunks = (self.modulation + e).chunk(6, dim=-2)
 
-        y = self.norm1(x) * (1 + e[1]) + e[0]
+        y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
         y = self.self_attn(
             y,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
         )
-        x = x + (y * e[2])
+        x = x + (y * e_chunks[2])
 
         # camera control
         camera_hidden_states = self.cam_injector_layer2(
@@ -96,7 +96,7 @@ class CamCtrlBlock(Block):
             self.norm3(x),
             kv_cache=cache.cross_attn,
         )
-        y = self.norm2(x) * (1 + e[4]) + e[3]
+        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
         y = self.ffn(y)
-        x = x + (y * e[5])
+        x = x + (y * e_chunks[5])
         return x
