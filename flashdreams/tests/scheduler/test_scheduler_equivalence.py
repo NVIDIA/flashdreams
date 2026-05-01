@@ -27,8 +27,6 @@ solver bug rather than predictor noise.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 # Sibling modules; ``conftest.py`` adds this directory to ``sys.path``.
 import impl_reference_flow_match as _ref_fm  # noqa: E402
 import impl_reference_flow_unipc as _ref_unipc  # noqa: E402
@@ -42,6 +40,7 @@ from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCScheduler,
     FlowMatchUniPCSchedulerConfig,
 )
+from flashdreams.infra.diffusion.scheduler.base import FlowPredictor
 
 # ---------------------------------------------------------------------------
 # Stub flow predictors. Pure tensor math, no module: keeps the parity
@@ -50,9 +49,7 @@ from flashdreams.infra.diffusion.scheduler import (
 # ---------------------------------------------------------------------------
 
 
-def _stub_predict_flow_factory(
-    scale: float, bias: float
-) -> Callable[[Tensor, Tensor], Tensor]:
+def _stub_predict_flow_factory(scale: float, bias: float) -> FlowPredictor:
     def _predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
         t = timestep.to(noisy_latent.dtype) / 1000.0
         return scale * noisy_latent + bias + t
@@ -122,7 +119,7 @@ def test_flow_match_sample_parity(
     rng_ref = torch.Generator(device=device).manual_seed(123)
     rng_new = torch.Generator(device=device).manual_seed(123)
     out_ref = ref.sample(noise, predict_flow, rng=rng_ref)
-    out_new = new.sample(noise, predict_flow, rng=rng_new)  # ty:ignore[invalid-argument-type]
+    out_new = new.sample(noise, predict_flow, rng=rng_new)
     torch.testing.assert_close(out_new, out_ref, atol=atol, rtol=rtol)
 
 
@@ -219,7 +216,7 @@ def test_flow_unipc_sample_parity(
     predict_flow = _stub_predict_flow_factory(0.7, 0.1)
 
     out_ref = ref.sample(noise, predict_flow)
-    out_new = new.sample(noise, predict_flow)  # ty:ignore[invalid-argument-type]
+    out_new = new.sample(noise, predict_flow)
     torch.testing.assert_close(out_new, out_ref, atol=atol, rtol=rtol)
 
 
@@ -251,7 +248,7 @@ def test_flow_unipc_add_noise_parity(
     # rewrite compare on the same schedule shape.
     dummy = torch.zeros(1, 1, 1, 1, 1, dtype=dtype, device=device)
     ref.sample(dummy, _stub_predict_flow_factory(0.0, 0.0))
-    new.sample(dummy, _stub_predict_flow_factory(0.0, 0.0))  # ty:ignore[invalid-argument-type]
+    new.sample(dummy, _stub_predict_flow_factory(0.0, 0.0))
 
     torch.manual_seed(1)
     clean = torch.empty(2, 4, 8, 16, 16, dtype=dtype, device=device).uniform_(-1, 1)

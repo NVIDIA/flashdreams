@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 import pytest
 import tyro
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoder,
     PixelShuffleVAEEncoderConfig,
@@ -35,10 +38,12 @@ from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoder
         (WanVAEEncoderConfig, WanVAEEncoder),
     ],
 )
-def test_video_vae_config_cli_defaults(config_cls: type, target_cls: type) -> None:
+def test_video_vae_config_cli_defaults(
+    config_cls: type[InstantiateConfig[Any]], target_cls: type
+) -> None:
     config = tyro.cli(config_cls, args=[])
     assert isinstance(config, config_cls)
-    assert config._target is target_cls  # ty:ignore[unresolved-attribute]
+    assert config._target is target_cls
 
 
 def test_pixelshuffle_cli_accepts_frame_selection_override() -> None:

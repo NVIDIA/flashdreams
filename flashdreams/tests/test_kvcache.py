@@ -33,12 +33,12 @@ class _NaiveKVCache:
         self._total_v: torch.Tensor | None = None
 
     def update(self, k: torch.Tensor, v: torch.Tensor) -> None:
-        if self._total_k is None:
+        if self._total_k is None or self._total_v is None:
             self._total_k = k
             self._total_v = v
         else:
             self._total_k = torch.cat([self._total_k, k], dim=1)
-            self._total_v = torch.cat([self._total_v, v], dim=1)  # ty:ignore[no-matching-overload]
+            self._total_v = torch.cat([self._total_v, v], dim=1)
 
     def ovewrite_rightmost(self, k: torch.Tensor, v: torch.Tensor) -> None:
         assert self._total_k is not None

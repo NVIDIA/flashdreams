@@ -118,6 +118,12 @@ def test_tokenizer(
 
 # python tests/test_vae.py
 if __name__ == "__main__":
-    for tokenizer_choice in ["lightvae", "vae"]:
-        for detokenizer_choice in ["lighttae", "lightvae", "vae"]:
-            test_tokenizer(tokenizer_choice, detokenizer_choice)  # ty:ignore[invalid-argument-type]
+    tokenizer_choices: list[Literal["lightvae", "vae"]] = ["lightvae", "vae"]
+    detokenizer_choices: list[Literal["lighttae", "lightvae", "vae"]] = [
+        "lighttae",
+        "lightvae",
+        "vae",
+    ]
+    for tokenizer_choice in tokenizer_choices:
+        for detokenizer_choice in detokenizer_choices:
+            test_tokenizer(tokenizer_choice, detokenizer_choice)

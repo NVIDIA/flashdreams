@@ -336,7 +336,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     ## Condition / cache plumbing
 
     @torch.no_grad()
-    def initialize_autoregressive_cache(  # type: ignore[override]
+    def initialize_autoregressive_cache(
         self,
         *,
         text_embeddings: Tensor,

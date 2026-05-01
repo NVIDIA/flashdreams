@@ -152,7 +152,7 @@ class AlpadreamsPipeline(
         return self.diffusion_model.device
 
     @torch.no_grad()
-    def initialize_cache(  # type: ignore[override]
+    def initialize_cache(
         self,
         text: list[list[str]],
         image: Tensor,
@@ -291,7 +291,7 @@ class AlpadreamsPipeline(
         torch.cuda.empty_cache()
 
     @torch.no_grad()
-    def generate(  # type: ignore[override]
+    def generate(
         self,
         autoregressive_index: int,
         cache: AlpadreamsPipelineCache,

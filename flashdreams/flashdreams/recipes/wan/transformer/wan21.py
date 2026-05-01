@@ -272,7 +272,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         )
 
     @torch.no_grad()
-    def initialize_autoregressive_cache(  # type: ignore[override]
+    def initialize_autoregressive_cache(
         self,
         *,
         text_embeddings: Tensor,

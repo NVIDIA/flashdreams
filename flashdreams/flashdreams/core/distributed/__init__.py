@@ -29,7 +29,7 @@ from loguru import logger
 class Device:
     """Lightweight wrapper around an NVML device handle for CPU-affinity queries."""
 
-    _nvml_affinity_elements = math.ceil(os.cpu_count() / 64)  # type: ignore
+    _nvml_affinity_elements = math.ceil((os.cpu_count() or 1) / 64)
 
     def __init__(self, device_idx: int):
         """Bind to the NVML handle for the GPU at ``device_idx``."""

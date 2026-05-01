@@ -58,7 +58,7 @@ def compute_relative_poses(
 
 def compute_relative_poses_causal(
     c2ws_mat: Tensor,
-    trans_normalizer: float = 1.0,
+    trans_normalizer: Tensor | float = 1.0,
     ref_pose: Tensor | None = None,
 ) -> Tensor:
     if ref_pose is None:

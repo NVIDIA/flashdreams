@@ -37,6 +37,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -110,15 +111,15 @@ def _build_unipc_pair() -> tuple[FlowUniPCSchedulerReference, FlowMatchUniPCSche
 def _make_stub_predict_flow():
     """Stub predictor: single pointwise op so the solver dominates."""
 
-    def _predict_flow(noisy: Tensor, timestep: Tensor) -> Tensor:
-        return noisy * 0.7
+    def _predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
+        return noisy_latent * 0.7
 
     return _predict_flow
 
 
 @torch.no_grad()
 def _time_sample(
-    scheduler: torch.nn.Module,
+    scheduler: Any,
     *,
     noise: Tensor,
     n_repeat: int,
@@ -127,7 +128,7 @@ def _time_sample(
     predict_flow = _make_stub_predict_flow()
 
     for _ in range(n_warmup):
-        scheduler.sample(noise, predict_flow)  # ty:ignore[call-non-callable]
+        scheduler.sample(noise, predict_flow)
     torch.cuda.synchronize()
 
     times_ms = []
@@ -137,7 +138,7 @@ def _time_sample(
             torch.cuda.Event(enable_timing=True),
         )
         start.record()
-        scheduler.sample(noise, predict_flow)  # ty:ignore[call-non-callable]
+        scheduler.sample(noise, predict_flow)
         end.record()
         torch.cuda.synchronize()
         times_ms.append(start.elapsed_time(end))

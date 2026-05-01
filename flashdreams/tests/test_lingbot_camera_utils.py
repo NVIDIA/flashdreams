@@ -54,14 +54,14 @@ def test_compute_relative_poses_causal():
     poses = random_SE3((10,))
 
     relative_poses1, trans_normalizer = compute_relative_poses(poses, framewise=True)
-    relative_poses2 = compute_relative_poses_causal(poses, trans_normalizer)  # ty:ignore[invalid-argument-type]
+    relative_poses2 = compute_relative_poses_causal(poses, trans_normalizer)
     torch.testing.assert_close(relative_poses1, relative_poses2, atol=1e-4, rtol=1e-4)
 
     last_pose = None
     relative_poses3 = []
     for pose in poses:
         pose = pose.unsqueeze(0)
-        relative_pose = compute_relative_poses_causal(pose, trans_normalizer, last_pose)  # ty:ignore[invalid-argument-type]
+        relative_pose = compute_relative_poses_causal(pose, trans_normalizer, last_pose)
         relative_poses3.append(relative_pose)
         last_pose = pose
     relative_poses3 = torch.cat(relative_poses3, dim=0)

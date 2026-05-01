@@ -32,8 +32,8 @@ from flashdreams.infra.diffusion.scheduler import (
 )
 
 
-def _stub(noisy: Tensor, timestep: Tensor) -> Tensor:
-    return noisy * 0.7
+def _stub(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
+    return noisy_latent * 0.7
 
 
 def main() -> None:
@@ -65,8 +65,8 @@ def main() -> None:
     unipc_t = unipc.timesteps[0]
 
     # warm-up (allocators, autograd state, etc.) without sync mode on
-    fm.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
-    unipc.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
+    fm.sample(noise, _stub)
+    unipc.sample(noise, _stub)
     fm.add_noise(clean, fm_t)
     unipc.add_noise(clean, unipc_t)
     torch.cuda.synchronize()
@@ -74,9 +74,9 @@ def main() -> None:
     # Now turn sync detection on. ``"error"`` raises on any sync op.
     torch.cuda.set_sync_debug_mode("error")
     try:
-        out = fm.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
+        out = fm.sample(noise, _stub)
         print(f"  FlowMatch.sample      -> ok ({tuple(out.shape)} {out.dtype})")
-        out = unipc.sample(noise, _stub)  # ty:ignore[invalid-argument-type]
+        out = unipc.sample(noise, _stub)
         print(f"  FlowUniPC.sample      -> ok ({tuple(out.shape)} {out.dtype})")
         out = fm.add_noise(clean, fm_t)
         print(f"  FlowMatch.add_noise   -> ok ({tuple(out.shape)} {out.dtype})")

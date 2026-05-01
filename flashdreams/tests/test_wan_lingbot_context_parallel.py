@@ -3,6 +3,7 @@
 
 import types
 from dataclasses import dataclass
+from typing import cast
 
 import pytest
 import torch
@@ -77,7 +78,7 @@ def test_wan21_uses_world_cp_group_when_distributed(monkeypatch) -> None:
     fake_group = _mock_distributed(monkeypatch, world_size=2, rank=0)
     transformer = Wan21Transformer(
         Wan21TransformerConfig(
-            network=_DummyNetworkConfig(),  # ty:ignore[invalid-argument-type]
+            network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
             batch_shape=(1,),
             len_t=2,
             height=4,
@@ -102,7 +103,7 @@ def test_wan21_requires_cp_size_one_without_distributed(monkeypatch) -> None:
     ):
         Wan21Transformer(
             Wan21TransformerConfig(
-                network=_DummyNetworkConfig(),  # ty:ignore[invalid-argument-type]
+                network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
                 batch_shape=(1,),
                 len_t=2,
                 height=4,
@@ -117,7 +118,7 @@ def test_wan21_requires_tokens_divisible_by_cp_size(monkeypatch) -> None:
     with pytest.raises(AssertionError, match="must be divisible by cp_size=2"):
         Wan21Transformer(
             Wan21TransformerConfig(
-                network=_DummyNetworkConfig(),  # ty:ignore[invalid-argument-type]
+                network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
                 batch_shape=(1,),
                 len_t=1,
                 height=2,

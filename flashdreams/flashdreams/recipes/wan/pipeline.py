@@ -134,7 +134,7 @@ class WanInferencePipeline(
         return cfg
 
     @torch.no_grad()
-    def initialize_cache(  # type: ignore[override]
+    def initialize_cache(
         self,
         text: list[str],
         image: Tensor | None = None,
@@ -232,7 +232,7 @@ class WanInferencePipeline(
             )
 
     @torch.no_grad()
-    def generate(  # type: ignore[override]
+    def generate(
         self,
         autoregressive_index: int,
         cache: WanInferencePipelineCache,

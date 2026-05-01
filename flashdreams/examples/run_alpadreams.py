@@ -151,7 +151,7 @@ def parse_args() -> argparse.Namespace:
         "--overwrite_config_name",
         type=str,
         default=None,
-        choices=sorted(ALPADREAMS_CONFIG_BUILDERS.keys()) + [None],  # type: ignore[arg-type]
+        choices=[None, *sorted(ALPADREAMS_CONFIG_BUILDERS.keys())],
         help="Optionally override the per-n_cameras default config name.",
     )
     parser.add_argument(

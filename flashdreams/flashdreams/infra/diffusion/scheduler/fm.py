@@ -170,7 +170,7 @@ class FlowMatchScheduler(Scheduler):
         "_full_timesteps",
     )
 
-    def _apply(self, fn, recurse=True):  # type: ignore[override]
+    def _apply(self, fn, recurse=True):
         """Move buffers with the parent ``.to(...)`` but keep them fp32.
 
         ``fn`` may be a lossy bf16 cast; snapshot the fp32 originals before

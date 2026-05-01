@@ -55,7 +55,7 @@ class LingbotWorldInferencePipeline(WanInferencePipeline):
     """
 
     @torch.no_grad()
-    def generate(  # type: ignore[override]
+    def generate(
         self,
         autoregressive_index: int,
         cache: WanInferencePipelineCache,

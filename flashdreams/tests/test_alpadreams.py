@@ -18,6 +18,7 @@ import torch
 from flashdreams.recipes.alpadreams.config import (
     build_sv_2steps_chunk2_loc6_lightvae_lighttae,
 )
+from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
 
 
 def test_alpadreams_streaming_inference():
@@ -34,23 +35,24 @@ def test_alpadreams_streaming_inference():
 
     config = build_sv_2steps_chunk2_loc6_lightvae_lighttae()
     pipeline = config.setup().to(device)
-    cache = pipeline.initialize_cache(text=text, image=image)  # ty:ignore[unknown-argument]
+    assert isinstance(pipeline, AlpadreamsPipeline)
+    cache = pipeline.initialize_cache(text=text, image=image)
 
     autoregressive_index = 0
-    num_frames = pipeline.get_num_frames(autoregressive_index)  # ty:ignore[call-non-callable]
+    num_frames = pipeline.get_num_frames(autoregressive_index)
     hdmap = torch.randn(
         1, num_views, num_frames, 3, height, width, device=device, dtype=dtype
     )
-    decoded_video = pipeline.generate(autoregressive_index, hdmap=hdmap, cache=cache)  # ty:ignore[unknown-argument]
+    decoded_video = pipeline.generate(autoregressive_index, hdmap=hdmap, cache=cache)
     pipeline.finalize(autoregressive_index, cache=cache)
     assert decoded_video.shape == hdmap.shape
 
     autoregressive_index = 1
-    num_frames = pipeline.get_num_frames(autoregressive_index)  # ty:ignore[call-non-callable]
+    num_frames = pipeline.get_num_frames(autoregressive_index)
     hdmap = torch.randn(
         1, num_views, num_frames, 3, height, width, device=device, dtype=dtype
     )
-    decoded_video = pipeline.generate(autoregressive_index, hdmap=hdmap, cache=cache)  # ty:ignore[unknown-argument]
+    decoded_video = pipeline.generate(autoregressive_index, hdmap=hdmap, cache=cache)
     pipeline.finalize(autoregressive_index, cache=cache)
     assert decoded_video.shape == hdmap.shape
 

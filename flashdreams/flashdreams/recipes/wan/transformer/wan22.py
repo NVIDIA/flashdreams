@@ -246,7 +246,7 @@ class Wan22Transformer(Transformer[Wan22TransformerCache]):
         return self.transformer_high_noise.latent_shape
 
     @torch.no_grad()
-    def initialize_autoregressive_cache(  # type: ignore[override]
+    def initialize_autoregressive_cache(
         self,
         *,
         text_embeddings: Tensor,
