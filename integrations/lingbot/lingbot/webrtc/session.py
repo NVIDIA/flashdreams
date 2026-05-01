@@ -20,15 +20,22 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
+from enum import IntEnum
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 import torch
+import torch.distributed as dist
+from aiortc import RTCPeerConnection, RTCSessionDescription
 
 from flashdreams.infra.config import derive_config
 from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
+from flashdreams.core.distributed.rank_orchestration import (
+    RankCoordinator,
+    distributed_op,
+)
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import (
     get_Ks_transformed,
@@ -47,6 +54,14 @@ class LingbotRuntimeError(RuntimeError):
 
 class SessionBusyError(RuntimeError):
     """Raised when a second peer tries to open a session."""
+
+
+class LingbotControlSignal(IntEnum):
+    INITIALIZE = 0
+    RESET_SESSION = 1
+    ACTION_STEP = 2
+    CLOSE = 3
+    EXIT = 4
 
 
 @dataclass(slots=True)
@@ -79,6 +94,16 @@ class LingbotInferenceRuntime:
 
     def __init__(self, config: LingbotRuntimeConfig | None = None) -> None:
         self.config = config or LingbotRuntimeConfig()
+        self.MASTER_RANK = 0
+        self.rank = 0 if not dist.is_initialized() else dist.get_rank()
+
+        control_device = torch.device(self.config.device)
+        if control_device.type == "cuda" and control_device.index is None:
+            control_device = torch.device(
+                f"cuda:{torch.cuda.current_device()}"
+                if torch.cuda.is_available()
+                else "cuda:0"
+            )
 
         self.keyboard_state = KeyboardState()
         self.pose_integrator = CameraPoseIntegrator()
@@ -94,22 +119,40 @@ class LingbotInferenceRuntime:
         self._closed = False
 
         self._step_lock = asyncio.Lock()
+        self.rank_coordinator = RankCoordinator(
+            device=control_device,
+            signal_type=LingbotControlSignal,
+            is_master=self.is_master,
+            master_rank=self.MASTER_RANK,
+        )
+        self.rank_coordinator.register_distributed_ops(self)
+
+    @property
+    def is_master(self) -> bool:
+        return self.rank == self.MASTER_RANK
+
+    def wait_for_termination(self) -> None:
+        self.rank_coordinator.worker_loop(exit_signal=LingbotControlSignal.EXIT)
+
+    def send_exit_signal(self) -> None:
+        if self.is_master:
+            self.rank_coordinator.send_exit(exit_signal=LingbotControlSignal.EXIT)
 
     async def initialize(self) -> None:
         if self._pipeline is not None:
             return
-        await asyncio.to_thread(self._initialize_sync)
+        await asyncio.to_thread(self._initialize_sync_all_ranks)
 
     async def reset_for_new_session(self) -> None:
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
         if self._pipeline is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        await asyncio.to_thread(self._reset_rollout_sync)
+        await asyncio.to_thread(self._reset_rollout_sync_all_ranks)
 
     async def close(self) -> None:
         self._closed = True
-        await asyncio.to_thread(self._close_sync)
+        await asyncio.to_thread(self._close_sync_all_ranks)
 
     async def apply_actions_and_generate(
         self, actions: list[dict[str, Any]]
@@ -119,6 +162,20 @@ class LingbotInferenceRuntime:
         if self._pipeline is None or self._cache is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
 
+        async with self._step_lock:
+            if self._closed:
+                raise LingbotRuntimeError("Session is closed.")
+            return await asyncio.to_thread(
+                self._run_action_step_sync_all_ranks, actions
+            )
+
+    async def apply_action_and_generate(
+        self, action: dict[str, Any]
+    ) -> LingbotStepResult:
+        """Backward-compatible single-action wrapper."""
+        return await self.apply_actions_and_generate([action])
+
+    def _apply_actions(self, actions: list[dict[str, Any]]) -> None:
         for action in actions:
             event = str(action.get("event", "keydown")).strip().lower()
             if event == "step":
@@ -146,16 +203,24 @@ class LingbotInferenceRuntime:
                 sorted(self.keyboard_state.resolved_effective_keys()),
             )
 
-        async with self._step_lock:
-            if self._closed:
-                raise LingbotRuntimeError("Session is closed.")
-            return await asyncio.to_thread(self._generate_one_chunk_sync)
+    @distributed_op(LingbotControlSignal.INITIALIZE)
+    def _initialize_sync_all_ranks(self) -> None:
+        self._initialize_sync()
 
-    async def apply_action_and_generate(
-        self, action: dict[str, Any]
+    @distributed_op(LingbotControlSignal.RESET_SESSION)
+    def _reset_rollout_sync_all_ranks(self) -> None:
+        self._reset_rollout_sync()
+
+    @distributed_op(LingbotControlSignal.ACTION_STEP)
+    def _run_action_step_sync_all_ranks(
+        self, actions: list[dict[str, Any]]
     ) -> LingbotStepResult:
-        """Backward-compatible single-action wrapper."""
-        return await self.apply_actions_and_generate([action])
+        self._apply_actions(actions)
+        return self._generate_one_chunk_sync()
+
+    @distributed_op(LingbotControlSignal.CLOSE)
+    def _close_sync_all_ranks(self) -> None:
+        self._close_sync()
 
     def _initialize_sync(self) -> None:
         if self._pipeline is not None:
@@ -428,13 +493,6 @@ class LingbotWebRTCSessionManager:
         self._runtime_ready = True
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
-        try:
-            from aiortc import RTCPeerConnection, RTCSessionDescription
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "aiortc is required for WebRTC signaling. Install aiortc dependency."
-            ) from exc
-
         async with self._session_lock:
             if self._active_session is not None and not self._active_session.closed:
                 raise SessionBusyError("A Lingbot session is already active.")
@@ -505,6 +563,12 @@ class LingbotWebRTCSessionManager:
         await self.close_active_session()
         await self._runtime.close()
         self._runtime_ready = False
+
+    def wait_for_termination(self) -> None:
+        self._runtime.wait_for_termination()
+
+    def send_exit_signal(self) -> None:
+        self._runtime.send_exit_signal()
 
     async def _handle_datachannel_message(
         self,

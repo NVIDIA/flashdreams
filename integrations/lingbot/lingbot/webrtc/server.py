@@ -16,12 +16,17 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import logging
+import os
 import socket
 from pathlib import Path
 
+import torch
+import torch.distributed as dist
 from aiohttp import web
 
+from flashdreams.core.distributed import init as distributed_init
 from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,
@@ -155,11 +160,13 @@ def create_app(
     return app
 
 
-def build_runtime_config(args: argparse.Namespace) -> LingbotRuntimeConfig:
+def build_runtime_config(
+    args: argparse.Namespace, *, device_override: str | None = None
+) -> LingbotRuntimeConfig:
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
-        device=args.device,
+        device=device_override or args.device,
     )
 
 
@@ -169,11 +176,47 @@ def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
     args = parse_args()
-    runtime_config = build_runtime_config(args)
+
+    world_rank = 0
+    has_rank = "RANK" in os.environ
+    has_world_size = "WORLD_SIZE" in os.environ
+    if has_rank or has_world_size:
+        if not (has_rank and has_world_size):
+            raise RuntimeError(
+                "Distributed launch expects both RANK and WORLD_SIZE to be set."
+            )
+        local_device_idx = distributed_init()
+        if local_device_idx is None:
+            raise RuntimeError("Distributed launch must provide a CUDA local rank.")
+        world_rank = dist.get_rank()
+        runtime_device = f"cuda:{local_device_idx}"
+    else:
+        runtime_device = args.device
+
+    runtime_config = build_runtime_config(args, device_override=runtime_device)
     session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
-    app = create_app(session_manager=session_manager)
-    print(f"Starting on external IP: {get_external_ip()}")
-    web.run_app(app, host=args.host, port=args.port)
+    if world_rank == 0:
+        app = create_app(session_manager=session_manager)
+        print(f"Starting on external IP: {get_external_ip()}")
+        try:
+            web.run_app(app, host=args.host, port=args.port)
+        finally:
+            session_manager.send_exit_signal()
+    else:
+        try:
+            session_manager.wait_for_termination()
+        except KeyboardInterrupt:
+            LOGGER.warning("Worker rank interrupted, shutting down.")
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+    if dist.is_initialized():
+        dist.barrier()
+        LOGGER.info("[Rank %s] Destroying process group", world_rank)
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
