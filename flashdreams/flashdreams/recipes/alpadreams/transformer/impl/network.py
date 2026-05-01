@@ -343,9 +343,9 @@ class CosmosDiTNetwork(nn.Module):
         Unpatchify the input tensor and maybe gather it along cp_dim if a process group is provided.
 
         If `flatten_thw` is False, the unpatchify pattern is:
-            "b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
-        Otherwise, the unpatchify pattern is:
             "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
+        Otherwise, the unpatchify pattern is:
+            "b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)",
 
         Returns:
             Tensor: The unpatched tensor with shape [B, V, T, C, H, W]

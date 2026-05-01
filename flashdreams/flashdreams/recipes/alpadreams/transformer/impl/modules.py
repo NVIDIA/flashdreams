@@ -746,4 +746,8 @@ class Block(nn.Module):
         mlp_out = self.mlp(normed_x)
         x = x + gate_mlp * mlp_out
 
+        # reshape back to 5D if needed
+        if T is not None and HW is not None:
+            x = x.reshape(B, V, T, HW, D)  # [B, V, T, HW, D]
+
         return x
