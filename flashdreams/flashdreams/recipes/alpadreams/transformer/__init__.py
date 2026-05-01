@@ -196,16 +196,19 @@ class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
         self._pH = self.height // kh
         self._pW = self.width // kw
 
-        # First AR step at which the per-block KV cache reaches its full
-        # (sink + window) shape. From here on the network forward is
-        # shape-stable and safe for CUDA-graph capture.
+        # First AR step whose forward runs on the KV cache's steady-state
+        # code path. The cache fills at AR step ``chunks_total // _pT - 1``; 
+        # the *next* step is the first one whose ``before_update`` sees 
+        # ``is_steady_state() == True`` and whose forward takes the steady branches. 
+        # Drain must cover that first steady call so Dynamo traces / Inductor autotunes
+        # those branches on the eager path.
         chunks_total = self.sink_size_t + self.window_size_t
         assert chunks_total % self._pT == 0, (
             f"sink_size_t + window_size_t ({chunks_total}) must be "
             f"divisible by _pT ({self._pT}) so the BlockKVCache can fit "
             f"a whole number of AR chunks."
         )
-        self._steady_ar_idx = chunks_total // self._pT - 1
+        self._steady_ar_idx = chunks_total // self._pT
 
 
 ## Default state-dict transform
