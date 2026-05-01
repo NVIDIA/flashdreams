@@ -25,14 +25,10 @@ import torch.nn as nn
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.diffusion.scheduler import (
-    Scheduler,
-    SchedulerConfig,
-)
+from flashdreams.infra.diffusion.scheduler import Scheduler
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerCacheT,
-    TransformerConfig,
 )
 
 
@@ -42,10 +38,10 @@ class DiffusionModelConfig(InstantiateConfig["DiffusionModel"]):
 
     _target: type["DiffusionModel"] = field(default_factory=lambda: DiffusionModel)
 
-    transformer: TransformerConfig
+    transformer: InstantiateConfig[Any]
     """Flow-prediction network config."""
 
-    scheduler: SchedulerConfig
+    scheduler: InstantiateConfig[Any]
     """Denoising-loop config."""
 
     seed: int | None = None
@@ -72,8 +68,14 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     """
 
     @dataclass(kw_only=True)
-    class FinalState(Generic[TransformerCacheT]):  # ty:ignore[shadowed-type-variable]
-        """State passed from ``generate`` to ``finalize``."""
+    class FinalState(Generic[TransformerCacheT]):  # ty: ignore[shadowed-type-variable]
+        """State passed from ``generate`` to ``finalize``.
+
+        Reuses the enclosing ``DiffusionModel``'s ``TransformerCacheT`` so the
+        ``cache`` field stays type-equivalent with the model's transformer
+        cache; the inner ``Generic`` is required because nested classes do
+        not inherit the outer scope's type parameters.
+        """
 
         clean_latent: Tensor
         """Patchified clean latent at the end of denoising."""
@@ -93,7 +95,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     def __init__(self, config: DiffusionModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.transformer = self.config.transformer.setup()  # ty:ignore[invalid-assignment]
+        self.transformer = self.config.transformer.setup()
         self.scheduler = self.config.scheduler.setup()
         self._rng: torch.Generator | None = None
 
@@ -185,7 +187,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         )
 
         clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(clean_latent)
-        return clean_latent, final_state  # ty:ignore[invalid-return-type]
+        return clean_latent, final_state
 
     def finalize(
         self,

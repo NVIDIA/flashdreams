@@ -24,10 +24,10 @@ import torch
 
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
-    TransformerConfig,
 )
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork14BConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
@@ -116,7 +116,7 @@ class Wan22TransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class Wan22TransformerConfig(TransformerConfig):
+class Wan22TransformerConfig(InstantiateConfig["Wan22Transformer"]):
     """Config for the Wan 2.2 dual-network transformer.
 
     Wan 2.2 dispatches to one of two Wan 2.1 networks based on whether the
@@ -314,7 +314,7 @@ class Wan22Transformer(Transformer[Wan22TransformerCache]):
         )
 
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
-        return self.transformer_high_noise.patchify_and_maybe_split_cp(x)  # ty:ignore[invalid-return-type]
+        return self.transformer_high_noise.patchify_and_maybe_split_cp(x)
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
         return self.transformer_high_noise.unpatchify_and_maybe_gather_cp(x)

@@ -18,12 +18,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any, TypedDict
 
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.encoder import EncoderConfig
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
 from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
@@ -35,7 +36,17 @@ from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork1pt3BConfig
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
-AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS: dict[str, str | dict[str, str]] = {
+class _CausalForcingPaths(TypedDict):
+    chunkwise: str
+    framewise: str
+
+
+class _AvailableCausalWan21Paths(TypedDict):
+    self_forcing: str
+    causal_forcing: _CausalForcingPaths
+
+
+AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS: _AvailableCausalWan21Paths = {
     "self_forcing": "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt",
     "causal_forcing": {
         "chunkwise": "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/chunkwise/causal_forcing.pt",
@@ -48,7 +59,7 @@ AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS: dict[str, str | dict[str, str]] = {
 
 
 def _remap_self_or_causal_forcing_state_dict(
-    state_dict: dict[str, Tensor],
+    state_dict: dict[str, Any],
 ) -> dict[str, Tensor]:
     """Strip Self-Forcing / Causal-Forcing wrapper prefixes from a state-dict.
 
@@ -57,9 +68,9 @@ def _remap_self_or_causal_forcing_state_dict(
     (framewise variant) so keys match a bare ``WanDiTNetwork``.
     """
     if "generator_ema" in state_dict:
-        state_dict = state_dict["generator_ema"]  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+        state_dict = state_dict["generator_ema"]
     elif "generator" in state_dict:
-        state_dict = state_dict["generator"]  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
+        state_dict = state_dict["generator"]
 
     out: dict[str, Tensor] = {}
     for k, v in state_dict.items():
@@ -140,7 +151,7 @@ def _transformer_config(
     )
 
 
-def _pipeline_encoder_config(*, i2v: bool) -> EncoderConfig | None:
+def _pipeline_encoder_config(*, i2v: bool) -> InstantiateConfig[Any] | None:
     """Per-AR-step encoder config: I2V control encoder, or ``None`` for T2V."""
     if not i2v:
         return None
@@ -170,7 +181,7 @@ def build_self_forcing(
         diffusion_model=DiffusionModelConfig(
             seed=seed,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -195,7 +206,7 @@ def build_self_forcing_lighttae(
         diffusion_model=DiffusionModelConfig(
             seed=seed,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -222,7 +233,7 @@ def build_causal_forcing_chunkwise(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
-                ]["chunkwise"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                ]["chunkwise"],
                 cp_size=cp_size,
                 compile_network=compile_network,
             ),
@@ -249,7 +260,7 @@ def build_causal_forcing_framewise(
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
-                ]["framewise"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                ]["framewise"],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 # framewise: one latent frame per chunk; I2V replaces it with

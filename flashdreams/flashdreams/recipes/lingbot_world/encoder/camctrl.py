@@ -24,9 +24,10 @@ import torch
 from einops import rearrange
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import (
     Encoder,
-    EncoderConfig,
+    EncoderAutoregressiveCache,
 )
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderCache,
@@ -72,7 +73,7 @@ class I2VCamCtrlEmbeddings:
 
 
 @dataclass(kw_only=True)
-class I2VCamCtrlEncoderConfig(EncoderConfig):
+class I2VCamCtrlEncoderConfig(InstantiateConfig["I2VCamCtrlEncoder"]):
     """Config for the composite I2V + Plücker encoder."""
 
     _target: type["I2VCamCtrlEncoder"] = field(
@@ -86,15 +87,17 @@ class I2VCamCtrlEncoderConfig(EncoderConfig):
 
 
 @dataclass(kw_only=True)
-class I2VCamCtrlEncoderCache:
+class I2VCamCtrlEncoderCache(EncoderAutoregressiveCache):
     """Per-AR-step cache for the composite I2V + camera-control encoder."""
 
     i2v: I2VCtrlEncoderCache
     plucker: PixelShuffleVAEEncoderCache
-    camera_last_pose: Tensor
+    camera_last_pose: Tensor | None = None
+    """Last-pose anchor used to make ``compute_relative_poses_causal``
+    deterministic across AR steps; ``None`` at AR step 0."""
 
 
-class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-type-arguments]
+class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
     """Pairs a Wan-VAE I2V encoder with a PixelShuffle Plücker encoder."""
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
@@ -104,9 +107,8 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-t
 
     def initialize_autoregressive_cache(self) -> I2VCamCtrlEncoderCache:
         return I2VCamCtrlEncoderCache(
-            i2v=self.i2v_encoder.initialize_autoregressive_cache(),  # ty:ignore[invalid-argument-type]
-            plucker=self.plucker_encoder.initialize_autoregressive_cache(),  # ty:ignore[invalid-argument-type]
-            camera_last_pose=None,  # ty:ignore[invalid-argument-type]
+            i2v=self.i2v_encoder.initialize_autoregressive_cache(),
+            plucker=self.plucker_encoder.initialize_autoregressive_cache(),
         )
 
     @torch.no_grad()
@@ -114,13 +116,17 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-t
         self,
         input: I2VCamCtrlInput,
         autoregressive_index: int = 0,
-        cache: I2VCtrlEncoderCache | None = None,
+        cache: I2VCamCtrlEncoderCache | None = None,
     ) -> I2VCamCtrlEmbeddings:
-        height, width = input.i2v.shape[-2:]  # ty:ignore[unresolved-attribute]
+        assert cache is not None, "I2VCamCtrlEncoder requires a per-rollout cache."
+        assert input.i2v is not None, (
+            "I2VCamCtrlEncoder.forward requires the per-AR-step image chunk."
+        )
+        height, width = input.i2v.shape[-2:]
         i2v = self.i2v_encoder(
             input=input.i2v,
             autoregressive_index=autoregressive_index,
-            cache=cache.i2v,  # ty:ignore[unresolved-attribute]
+            cache=cache.i2v,
         )
         plucker = self._render_plucker(
             height=height,
@@ -128,22 +134,22 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):  # ty:ignore[invalid-t
             intrinsics=input.camctrl.intrinsics,
             poses=input.camctrl.poses,
             world_scale=input.camctrl.world_scale,
-            cache=cache,  # ty:ignore[invalid-argument-type]
+            cache=cache,
         )
         plucker = self.plucker_encoder(
             input=plucker,
             autoregressive_index=autoregressive_index,
-            cache=cache.plucker,  # ty:ignore[unresolved-attribute]
+            cache=cache.plucker,
         )
         return I2VCamCtrlEmbeddings(i2v=i2v, plucker=plucker)
 
     @property
     def temporal_compression_ratio(self) -> int:
-        return self.i2v_encoder.temporal_compression_ratio  # ty:ignore[invalid-return-type]
+        return self.i2v_encoder.temporal_compression_ratio
 
     @property
     def spatial_compression_ratio(self) -> int:
-        return self.i2v_encoder.spatial_compression_ratio  # ty:ignore[invalid-return-type]
+        return self.i2v_encoder.spatial_compression_ratio
 
     @torch.no_grad()
     def _render_plucker(

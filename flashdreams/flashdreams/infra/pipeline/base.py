@@ -29,7 +29,6 @@ from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.decoder import (
     DecCacheT,
     Decoder,
-    DecoderConfig,
 )
 from flashdreams.infra.diffusion.model import (
     DiffusionModel,
@@ -41,7 +40,6 @@ from flashdreams.infra.diffusion.transformer import (
 from flashdreams.infra.encoder import (
     EncCacheT,
     Encoder,
-    EncoderConfig,
 )
 from flashdreams.infra.profiler import EventProfiler
 
@@ -62,10 +60,10 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
     diffusion_model: DiffusionModelConfig
     """Transformer + scheduler config."""
 
-    decoder: DecoderConfig | None = None
+    decoder: InstantiateConfig[Any] | None = None
     """Optional output decoder."""
 
-    encoder: EncoderConfig | None = None
+    encoder: InstantiateConfig[Any] | None = None
     """Optional per-AR-step input encoder."""
 
     enable_sync_and_profile: bool = False
@@ -128,9 +126,9 @@ class StreamInferencePipeline(
     def __init__(self, config: StreamInferencePipelineConfig) -> None:
         super().__init__()
         self.config = config
-        self.encoder = config.encoder.setup() if config.encoder is not None else None  # ty:ignore[invalid-assignment]
-        self.decoder = config.decoder.setup() if config.decoder is not None else None  # ty:ignore[invalid-assignment]
-        self.diffusion_model = config.diffusion_model.setup()  # ty:ignore[invalid-assignment]
+        self.encoder = config.encoder.setup() if config.encoder is not None else None
+        self.decoder = config.decoder.setup() if config.decoder is not None else None
+        self.diffusion_model = config.diffusion_model.setup()
 
     @property
     def device(self) -> torch.device:

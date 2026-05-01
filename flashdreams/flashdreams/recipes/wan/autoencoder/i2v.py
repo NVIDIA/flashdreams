@@ -18,19 +18,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TypeAlias
 
 import torch
 from torch import Tensor
 
-from flashdreams.infra.encoder import (
-    Encoder,
-    EncoderConfig,
-)
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAECache,
     WanVAEEncoder,
     WanVAEEncoderConfig,
 )
+
+
+I2VCtrlEncoderCache: TypeAlias = WanVAECache
+"""Per-AR-step I2V control encoder cache.
+
+Aliased to ``WanVAECache``: the I2V encoder runs the inner VAE encoder
+and threads its cache directly, so the two are structurally identical."""
 
 
 @dataclass(kw_only=True)
@@ -49,7 +55,7 @@ class I2VCtrl:
 
 
 @dataclass(kw_only=True)
-class I2VCtrlEncoderConfig(EncoderConfig):
+class I2VCtrlEncoderConfig(InstantiateConfig["I2VCtrlEncoder"]):
     """Config for the I2V control encoder."""
 
     _target: type["I2VCtrlEncoder"] = field(default_factory=lambda: I2VCtrlEncoder)
@@ -57,11 +63,6 @@ class I2VCtrlEncoderConfig(EncoderConfig):
     encoder: WanVAEEncoderConfig = field(default_factory=WanVAEEncoderConfig)
     """Streaming Wan VAE encoder. Pin its checkpoint to the decoder's so
     the encoded latent matches the network's input distribution."""
-
-
-@dataclass(kw_only=True)
-class I2VCtrlEncoderCache(WanVAECache):
-    """Per-AR-step I2V control encoder cache."""
 
 
 class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
@@ -82,10 +83,10 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
     def __init__(self, config: I2VCtrlEncoderConfig) -> None:
         super().__init__(config)
         self.config: I2VCtrlEncoderConfig = config
-        self.encoder = config.encoder.setup()  # ty:ignore[invalid-assignment]
+        self.encoder = config.encoder.setup()
 
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
-        return self.encoder.initialize_autoregressive_cache()  # ty:ignore[invalid-return-type]
+        return self.encoder.initialize_autoregressive_cache()
 
     @torch.no_grad()
     def forward(

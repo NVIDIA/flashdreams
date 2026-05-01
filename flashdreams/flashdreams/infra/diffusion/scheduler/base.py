@@ -18,8 +18,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 import torch
 import torch.nn as nn
@@ -42,24 +41,15 @@ class FlowPredictor(Protocol):
         ...
 
 
-@dataclass(kw_only=True)
-class SchedulerConfig(InstantiateConfig["Scheduler"]):
-    """Base scheduler config."""
-
-    _target: type["Scheduler"] = field(default_factory=lambda: Scheduler)
-
-    num_inference_steps: int
-    """Number of denoising iterations per ``sample``."""
-
-    shift: float = 5.0
-    """Schedule warp factor (family-specific)."""
-
-
 class Scheduler(nn.Module, ABC):
     """Denoising scheduler.
 
     Owns the entire denoising loop. Callers see only ``noise → clean``;
     the loop shape (renoise / multistep / plain ODE) is private.
+
+    Concrete configs inherit ``InstantiateConfig[<SchedulerSubclass>]`` and
+    declare their own ``num_inference_steps`` / ``shift`` fields (the base
+    holds no shared dataclass fields).
 
     Typical usage example:
 
@@ -68,7 +58,7 @@ class Scheduler(nn.Module, ABC):
         noisy = scheduler.add_noise(clean_input=clean, timestep=t)
     """
 
-    def __init__(self, config: SchedulerConfig) -> None:
+    def __init__(self, config: InstantiateConfig[Any]) -> None:
         super().__init__()
         self.config = config
 

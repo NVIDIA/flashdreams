@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.recipes.lingbot_world.encoder.camctrl import (
     CamCtrlInput,
     I2VCamCtrlInput,
@@ -85,9 +84,11 @@ class LingbotWorldInferencePipeline(WanInferencePipeline):
 
         # Skip ``WanInferencePipeline.generate`` -- it would rebuild ``input``
         # from ``cache.image`` and discard the composite camera payload.
-        return StreamInferencePipeline.generate(
-            self,
+        # Using ``super(WanInferencePipeline, self)`` jumps directly to
+        # ``StreamInferencePipeline.generate`` while keeping ``self``'s
+        # generic-parameter bindings.
+        return super(WanInferencePipeline, self).generate(
             autoregressive_index=autoregressive_index,
-            cache=cache,  # ty:ignore[invalid-argument-type]
+            cache=cache,
             input=camctrl_input,
         )

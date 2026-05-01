@@ -19,19 +19,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, overload
 
 import torch
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.compile import compile_module
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
-    TransformerConfig,
 )
 from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 from flashdreams.recipes.wan.transformer.impl.network import (
+    WanDiTNetwork,
     WanDiTNetwork1pt3BConfig,
     WanDiTNetworkCache,
     WanDiTNetworkConfig,
@@ -86,7 +88,7 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class Wan21TransformerConfig(TransformerConfig):
+class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     """Config for the Wan 2.1 transformer.
 
     One instance is bound to a single ``(batch_shape, height, width, len_t)``
@@ -168,13 +170,16 @@ class Wan21TransformerConfig(TransformerConfig):
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
     """Wan 2.1 DiT adapted to the infra Transformer interface."""
 
+    config: Wan21TransformerConfig
+    network: WanDiTNetwork
+
     def __init__(
         self,
         config: Wan21TransformerConfig,
         device: torch.device | None = None,
     ) -> None:
         super().__init__(config)
-        self.config: Wan21TransformerConfig = config
+        self.config = config
 
         # Launcher contract: cp_size == world_size. Wire the THW CP group to
         # WORLD so existing CP-aware Wan plumbing works.
@@ -218,14 +223,12 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         if config.checkpoint_path is not None:
             state_dict = load_checkpoint(config.checkpoint_path)
             if config.state_dict_transform is not None:
-                state_dict = config.state_dict_transform(state_dict)  # ty:ignore[invalid-argument-type]
-            self.network.load_state_dict(state_dict)  # ty:ignore[invalid-argument-type]
+                state_dict = config.state_dict_transform(state_dict)
+            self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
-            self.network = torch.compile(  # type: ignore[assignment]
-                self.network, mode="max-autotune-no-cudagraphs"
-            )
+            self.network = compile_module(self.network)
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
@@ -260,7 +263,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         chunk_size = self.latent_shape[-2]  # already CP-divided
         window_size = (self.config.window_size_t * self._pH * self._pW) // cp_size
         sink_size = (self.config.sink_size_t * self._pH * self._pW) // cp_size
-        return self.network.initialize_cache(  # ty:ignore[unresolved-attribute]
+        return self.network.initialize_cache(
             chunk_size=chunk_size,
             window_size=window_size,
             sink_size=sink_size,
@@ -417,6 +420,10 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             return clean_latent
         return self._stamp_image_latent(clean_latent, input)
 
+    @overload
+    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor: ...
+    @overload
+    def patchify_and_maybe_split_cp(self, x: I2VCtrl) -> I2VCtrl: ...
     def patchify_and_maybe_split_cp(self, x: Tensor | I2VCtrl) -> Tensor | I2VCtrl:
         """Patchify and CP-split a noisy latent or an I2V control payload.
 
@@ -427,20 +434,19 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         if isinstance(x, I2VCtrl):
             if x._is_patchified:
                 return x
-            else:
-                return I2VCtrl(
-                    latent=self.patchify_and_maybe_split_cp(x.latent),  # ty:ignore[invalid-argument-type]
-                    mask=self.patchify_and_maybe_split_cp(x.mask),  # ty:ignore[invalid-argument-type]
-                    _is_patchified=True,
-                )
-        return self.network.patchify_and_maybe_split_cp(  # ty:ignore[unresolved-attribute]
+            return I2VCtrl(
+                latent=self.patchify_and_maybe_split_cp(x.latent),
+                mask=self.patchify_and_maybe_split_cp(x.mask),
+                _is_patchified=True,
+            )
+        return self.network.patchify_and_maybe_split_cp(
             x,
             process_groups=[self.cp_group],
             cp_dims=[-2],
         )
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
-        return self.network.unpatchify_and_maybe_gather_cp(  # ty:ignore[unresolved-attribute]
+        return self.network.unpatchify_and_maybe_gather_cp(
             pH=self._pH,
             pW=self._pW,
             x=x,

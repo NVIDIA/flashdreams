@@ -28,7 +28,8 @@ from torch import Tensor
 from transformers import AutoTokenizer, UMT5EncoderModel
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.encoder import Encoder, EncoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 
 def prompt_clean(text: str) -> str:
@@ -40,7 +41,7 @@ def prompt_clean(text: str) -> str:
 
 
 @dataclass(kw_only=True)
-class UMT5TextEncoderConfig(EncoderConfig):
+class UMT5TextEncoderConfig(InstantiateConfig["UMT5TextEncoder"]):
     """Config for the Wan 2.x UMT5 text encoder."""
 
     _target: type["UMT5TextEncoder"] = field(default_factory=lambda: UMT5TextEncoder)
@@ -85,6 +86,9 @@ class UMT5TextEncoder(Encoder):
             subfolder="tokenizer",
             local_files_only=local_files_only,
         )
+
+    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
 
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:

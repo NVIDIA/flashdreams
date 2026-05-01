@@ -25,6 +25,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.decoder import DecoderAutoregressiveCache
 
@@ -308,9 +309,7 @@ class TAEHV(nn.Module):
         self._use_cuda_graph = use_cuda_graph
 
         if use_compile:
-            self.decoder = torch.compile(  # type: ignore[assignment]
-                self.decoder, mode="max-autotune-no-cudagraphs"
-            )
+            self.decoder = compile_module(self.decoder)
         self._decoder_call: Callable[..., torch.Tensor] = (
             CUDAGraphWrapper(self.decoder, warmup_iters=warmup_iters)
             if use_cuda_graph

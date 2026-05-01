@@ -22,6 +22,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 from torch.distributed.tensor.device_mesh import DeviceMesh
+from torch.distributed.tensor.experimental import context_parallel
 
 
 class NativeAttention(torch.nn.Module):
@@ -124,7 +125,7 @@ class NativeAttention(torch.nn.Module):
                 # Pass a dummy buffer to satisfy context_parallel's buffers[0].device
                 # check (required in PyTorch 2.9+ where buffers cannot be empty).
                 _dummy = torch.empty(self.device_mesh.size(), device=query.device)
-                with torch.distributed.tensor.experimental.context_parallel(  # ty:ignore[possibly-missing-submodule]
+                with context_parallel(
                     self.device_mesh,
                     buffers=[
                         _dummy,

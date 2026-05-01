@@ -41,9 +41,12 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.recipes.alpadreams.transformer import (
+    CosmosTransformer,
     CosmosTransformerCache,
 )
+from flashdreams.recipes.taehv import TeahvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
+    WanVAEDecoder,
     WanVAEEncoder,
     WanVAEEncoderConfig,
 )
@@ -63,9 +66,9 @@ class AlpadreamsPipelineConfig(StreamInferencePipelineConfig):
     The transformer config must be a Cosmos transformer config.
     """
 
-    _target: type["StreamInferencePipeline"] = field(
+    _target: type["AlpadreamsPipeline"] = field(
         default_factory=lambda: AlpadreamsPipeline
-    )  # ty:ignore[invalid-assignment]
+    )
 
     text_encoder: CosmosReason1TextEncoderConfig | None = field(
         default_factory=CosmosReason1TextEncoderConfig
@@ -110,10 +113,10 @@ class AlpadreamsPipeline(
 
     def __init__(self, config: AlpadreamsPipelineConfig) -> None:
         super().__init__(config)
-        self.text_encoder = (  # ty:ignore[invalid-assignment]
+        self.text_encoder = (
             config.text_encoder.setup() if config.text_encoder is not None else None
         )
-        self.image_encoder = (  # ty:ignore[invalid-assignment]
+        self.image_encoder = (
             config.image_encoder.setup() if config.image_encoder is not None else None
         )
 
@@ -123,20 +126,24 @@ class AlpadreamsPipeline(
         )
 
         transformer = self.diffusion_model.transformer
-        self._len_t_latent: int = transformer.config.len_t  # ty:ignore[unresolved-attribute]
-        decoder = self.decoder
-        assert decoder is not None and hasattr(decoder, "TEMPORAL_COMPRESSION_RATIO"), (
-            f"Decoder {type(decoder).__name__} must expose "
-            "TEMPORAL_COMPRESSION_RATIO (e.g. WanVAEDecoder, TeahvVAEDecoder)."
+        assert isinstance(transformer, CosmosTransformer), (
+            "AlpadreamsPipeline requires a Cosmos transformer; "
+            f"got {type(transformer).__name__}."
         )
-        self._decoder_temporal_compression: int = decoder.TEMPORAL_COMPRESSION_RATIO  # ty:ignore[invalid-assignment]
+        self._len_t_latent: int = transformer.config.len_t
+        decoder = self.decoder
+        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+            "AlpadreamsPipeline requires a Wan or Taehv VAE decoder; "
+            f"got {type(decoder).__name__}."
+        )
+        self._decoder_temporal_compression: int = decoder.TEMPORAL_COMPRESSION_RATIO
 
         # Take the view split outside of the transformer so the VAE does
         # not duplicate work across CP ranks.
-        self.V_group = transformer.cp_groups.V_group  # ty:ignore[unresolved-attribute]
-        self.V_size = transformer.cp_groups.V_size  # ty:ignore[unresolved-attribute]
-        transformer.cp_groups.V_group = None  # ty:ignore[invalid-assignment]
-        transformer.config.num_views //= self.V_size  # ty:ignore[unresolved-attribute]
+        self.V_group = transformer.cp_groups.V_group
+        self.V_size = transformer.cp_groups.V_size
+        transformer.cp_groups.V_group = None
+        transformer.config.num_views //= self.V_size
 
     @property
     def device(self) -> torch.device:
@@ -208,14 +215,15 @@ class AlpadreamsPipeline(
         text_embeddings = split_inputs_cp(
             text_embeddings,
             seq_dim=1,
-            cp_group=self.V_group,  # ty:ignore[invalid-argument-type]
+            cp_group=self.V_group,
         )
         image_embeddings = split_inputs_cp(
             image_embeddings,
             seq_dim=1,
-            cp_group=self.V_group,  # ty:ignore[invalid-argument-type]
+            cp_group=self.V_group,
         )
-        view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
+        if view_names is not None:
+            view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)
 
         return super().initialize_cache(
             transformer_context={
@@ -298,7 +306,7 @@ class AlpadreamsPipeline(
         Returns:
             Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``.
         """
-        hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
+        hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)
 
         output = super().generate(
             autoregressive_index=autoregressive_index,
@@ -306,7 +314,7 @@ class AlpadreamsPipeline(
             input=hdmap,
         )
 
-        output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)  # ty:ignore[invalid-argument-type]
+        output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)
         return output
 
     def get_num_frames(self, autoregressive_index: int) -> int:

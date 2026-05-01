@@ -20,7 +20,7 @@ import json
 import os
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
-from typing import Literal
+from typing import Literal, overload
 from urllib.parse import unquote, urlparse
 
 import torch
@@ -30,6 +30,7 @@ from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors
 from torch.distributed.checkpoint import FileSystemReader
+from torch.distributed.checkpoint import load as dcp_load
 from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 from flashdreams.core.io.s3_filesystem import S3FileSystem, S3StorageReader
@@ -368,7 +369,7 @@ def load_distributed_checkpoint(
         checkpoint_path, credential_path=credential_path
     )
     state_dict = model.state_dict()
-    torch.distributed.checkpoint.load(  # ty:ignore[possibly-missing-submodule]
+    dcp_load(
         state_dict,
         storage_reader=storage_reader,
         planner=DefaultLoadPlanner(allow_partial_load=True),
@@ -513,6 +514,30 @@ def _save_to_local_cache(
         save_safetensors(state_dict, path)
     else:
         torch.save(state_dict, path)
+
+
+@overload
+def load_checkpoint(
+    checkpoint_path: str,
+    model: None = None,
+    checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
+    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    map_location: str | torch.device = "cpu",
+    check_success: bool = False,
+) -> dict[str, torch.Tensor]: ...
+
+
+@overload
+def load_checkpoint(
+    checkpoint_path: str,
+    model: torch.nn.Module,
+    checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
+    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    map_location: str | torch.device = "cpu",
+    check_success: bool = False,
+) -> torch.nn.Module: ...
 
 
 def load_checkpoint(

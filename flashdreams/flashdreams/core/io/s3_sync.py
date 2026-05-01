@@ -75,15 +75,14 @@ def sync_s3_dir_to_local(
     show_progress: bool = True,
     verify_checksum: bool = True,
     desc: str = "Syncing from S3",
-) -> str:  # ty:ignore[invalid-return-type]
+) -> None:
     """Mirror an S3 prefix to a local directory.
 
     Only rank 0 downloads; other ranks block on a barrier so the cache is
-    fully populated before they read it. Local paths are passed through
-    unchanged.
+    fully populated before they read it. Local paths are a no-op.
 
     Args:
-        s3_dir: ``s3://`` prefix to mirror, or a local path (returned as-is).
+        s3_dir: ``s3://`` prefix to mirror, or a local path (no-op).
         s3_credential_path: S3 credentials JSON.
         cache_dir: Local destination directory.
         max_workers: Max parallel downloads on rank 0.
@@ -92,12 +91,9 @@ def sync_s3_dir_to_local(
             SHA256 of each downloaded file; one retry on mismatch.
         desc: Progress-bar label.
 
-    Returns:
-        Local cache path (or ``s3_dir`` unchanged when it was already local).
-
     Typical usage example:
 
-      >>> path = sync_s3_dir_to_local(
+      >>> sync_s3_dir_to_local(
       ...     s3_dir="s3://bucket/assets",
       ...     s3_credential_path="credentials/s3_checkpoint.secret",
       ...     cache_dir="/tmp/flashdreams/assets",
@@ -105,7 +101,7 @@ def sync_s3_dir_to_local(
     """
     if not s3_dir.startswith("s3://"):
         assert os.path.exists(s3_dir), f"{s3_dir} is not a S3 path or a local path."
-        return s3_dir
+        return
 
     world_rank = _get_world_rank_robust()
     parsed_url = urlparse(s3_dir)

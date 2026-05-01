@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Generic
 
 import torch
@@ -27,18 +27,6 @@ from torch import Tensor
 from typing_extensions import TypeVar
 
 from flashdreams.infra.config import InstantiateConfig
-
-
-@dataclass(kw_only=True)
-class TransformerConfig(InstantiateConfig["Transformer"]):
-    """Base config for a diffusion transformer.
-
-    Concrete subclasses expose ``latent_shape`` on the runtime object
-    (typically a property derived from CP group sizes) since the per-rank
-    shape depends on splits only known after distributed init.
-    """
-
-    _target: type["Transformer"] = field(default_factory=lambda: Transformer)
 
 
 @dataclass(kw_only=True)
@@ -95,7 +83,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
                 ...
     """
 
-    def __init__(self, config: TransformerConfig) -> None:
+    def __init__(self, config: InstantiateConfig[Any]) -> None:
         super().__init__()
         self.config = config
 

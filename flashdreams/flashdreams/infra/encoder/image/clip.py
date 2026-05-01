@@ -23,15 +23,16 @@ from typing import Literal, cast
 
 import torch
 from torch import Tensor
-from transformers import CLIPImageProcessor, CLIPVisionModel
+from transformers import BatchFeature, CLIPImageProcessor, CLIPVisionModel
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.encoder import Encoder, EncoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 
 @dataclass(kw_only=True)
-class CLIPImageEncoderConfig(EncoderConfig):
+class CLIPImageEncoderConfig(InstantiateConfig["CLIPImageEncoder"]):
     """Config for the Wan I2V CLIP image encoder."""
 
     _target: type["CLIPImageEncoder"] = field(default_factory=lambda: CLIPImageEncoder)
@@ -77,6 +78,9 @@ class CLIPImageEncoder(Encoder):
             local_files_only=local_files_only,
         )
 
+    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
+
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:
         """Encode images ``[..., C, H, W]`` in ``[-1, 1]``; returns ``[..., 257, 1280]``."""
@@ -86,8 +90,11 @@ class CLIPImageEncoder(Encoder):
 
         device = self.image_encoder.device
         images = (images + 1) / 2.0
-        images = cast(
-            Tensor,
+        # ``CLIPImageProcessor.__call__`` returns a ``BatchFeature`` (dict-like
+        # over named tensors) which is moved to device/dtype and unpacked as
+        # kwargs into the vision model.
+        processed = cast(
+            BatchFeature,
             self.image_processor(
                 images=images.to(dtype=torch.float32),
                 return_tensors="pt",
@@ -95,7 +102,7 @@ class CLIPImageEncoder(Encoder):
             ),
         ).to(device, dtype=self.image_encoder.dtype)
         image_embeds: BaseModelOutputWithPooling = self.image_encoder(
-            **images,  # ty: ignore[invalid-argument-type]
+            **processed,
             output_hidden_states=True,
         )
 

@@ -36,17 +36,23 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
-from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderCache
-from flashdreams.recipes.wan.autoencoder.vae import WanVAECache
+from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoder, I2VCtrlEncoderCache
+from flashdreams.recipes.wan.autoencoder.vae import WanVAECache, WanVAEDecoder
 from flashdreams.recipes.wan.constants import NEGATIVE_PROMPT
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerCache
-from flashdreams.recipes.wan.transformer.wan22 import Wan22TransformerCache
+from flashdreams.recipes.wan.transformer.wan21 import (
+    Wan21TransformerCache,
+    Wan21TransformerConfig,
+)
+from flashdreams.recipes.wan.transformer.wan22 import (
+    Wan22TransformerCache,
+    Wan22TransformerConfig,
+)
 
 
 @dataclass(kw_only=True)
 class WanInferencePipelineCache(
     StreamInferencePipelineCache[
-        I2VCtrlEncoderCache | None,  # ty:ignore[invalid-type-arguments]
+        I2VCtrlEncoderCache,
         Wan21TransformerCache | Wan22TransformerCache,
         WanVAECache,
     ]
@@ -85,7 +91,7 @@ class WanInferencePipelineConfig(StreamInferencePipelineConfig):
 
 class WanInferencePipeline(
     StreamInferencePipeline[
-        I2VCtrlEncoderCache | None,  # ty:ignore[invalid-type-arguments]
+        I2VCtrlEncoderCache,
         Wan21TransformerCache | Wan22TransformerCache,
         WanVAECache,
     ]
@@ -114,10 +120,18 @@ class WanInferencePipeline(
 
     def __init__(self, config: WanInferencePipelineConfig) -> None:
         super().__init__(config)
-        self.text_encoder = config.text_encoder.setup()  # ty:ignore[invalid-assignment]
-        self.image_encoder = (  # ty:ignore[invalid-assignment]
+        self.text_encoder = config.text_encoder.setup()
+        self.image_encoder = (
             config.image_encoder.setup() if config.image_encoder is not None else None
         )
+
+    @property
+    def _transformer_config(self) -> Wan21TransformerConfig | Wan22TransformerConfig:
+        # Narrow the base transformer config to the Wan-specific union so
+        # ``guidance_scale`` / ``len_t`` are visible to the type checker.
+        cfg = self.diffusion_model.transformer.config
+        assert isinstance(cfg, (Wan21TransformerConfig, Wan22TransformerConfig))
+        return cfg
 
     @torch.no_grad()
     def initialize_cache(  # type: ignore[override]
@@ -144,7 +158,7 @@ class WanInferencePipeline(
 
         text_embeddings = self.text_encoder(text)  # [B, L, D]
 
-        guidance_scale = self.diffusion_model.transformer.config.guidance_scale  # ty:ignore[unresolved-attribute]
+        guidance_scale = self._transformer_config.guidance_scale
         if guidance_scale > 1.0:
             negative_text_embeddings = self.text_encoder([NEGATIVE_PROMPT] * n)
         else:
@@ -244,8 +258,9 @@ class WanInferencePipeline(
 
     def get_num_input_frames(self, autoregressive_index: int) -> int:
         """Number of input video frames the model expects at this AR step."""
-        len_t = self.diffusion_model.transformer.config.len_t  # ty:ignore[unresolved-attribute]
-        temporal_compression_ratio = self.encoder.temporal_compression_ratio  # ty:ignore[unresolved-attribute]
+        len_t = self._transformer_config.len_t
+        assert isinstance(self.encoder, I2VCtrlEncoder)
+        temporal_compression_ratio = self.encoder.temporal_compression_ratio
         if autoregressive_index == 0:
             return 1 + (len_t - 1) * temporal_compression_ratio
         else:
@@ -253,8 +268,9 @@ class WanInferencePipeline(
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
         """Number of decoded video frames produced at this AR step."""
-        len_t = self.diffusion_model.transformer.config.len_t  # ty:ignore[unresolved-attribute]
-        temporal_compression_ratio = self.decoder.temporal_compression_ratio  # ty:ignore[unresolved-attribute]
+        len_t = self._transformer_config.len_t
+        assert isinstance(self.decoder, WanVAEDecoder)
+        temporal_compression_ratio = self.decoder.temporal_compression_ratio
         if autoregressive_index == 0:
             return 1 + (len_t - 1) * temporal_compression_ratio
         else:

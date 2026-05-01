@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.infra.decoder import Decoder, DecoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.decoder import Decoder
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
 
 AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
@@ -32,7 +33,7 @@ AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
 
 
 @dataclass(kw_only=True)
-class TeahvVAEDecoderConfig(DecoderConfig):
+class TeahvVAEDecoderConfig(InstantiateConfig["TeahvVAEDecoder"]):
     """Config for the TAEHV decoder."""
 
     _target: type["TeahvVAEDecoder"] = field(default_factory=lambda: TeahvVAEDecoder)
@@ -58,6 +59,10 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
 
     TEMPORAL_COMPRESSION_RATIO = TAEHV.TEMPORAL_COMPRESSION_RATIO
     SPATIAL_COMPRESSION_RATIO = TAEHV.SPATIAL_COMPRESSION_RATIO
+
+    # Lighttae per-channel scaling buffers (registered when need_scaled).
+    mean: Tensor
+    std: Tensor
 
     # Per-channel scaling for the lighttae checkpoint.
     _LIGHTTAE_MEAN: tuple[float, ...] = (
@@ -123,7 +128,7 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
         z = input.reshape(batch_size, T, C, H, W)
 
         if self.need_scaled:
-            z = z * self.std  # ty:ignore[unsupported-operator]
+            z = z * self.std
             z = z + self.mean
 
         x = self.taehv.decode(z, cache=cache).mul_(2).sub_(1)

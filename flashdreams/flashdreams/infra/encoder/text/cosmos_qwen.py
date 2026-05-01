@@ -25,11 +25,12 @@ from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.encoder import Encoder, EncoderConfig
+from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 
 @dataclass(kw_only=True)
-class CosmosReason1TextEncoderConfig(EncoderConfig):
+class CosmosReason1TextEncoderConfig(InstantiateConfig["CosmosReason1TextEncoder"]):
     """Config for the Cosmos-Reason1 text encoder."""
 
     _target: type["CosmosReason1TextEncoder"] = field(
@@ -96,6 +97,9 @@ class CosmosReason1TextEncoder(Encoder):
 
         self.hidden_size = self.model.config.hidden_size  # 3584 for Qwen2.5-7B
         self.num_layers = self.model.config.num_hidden_layers  # 28 for Qwen2.5-7B
+
+    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
 
     def _mean_normalize(self, tensor: Tensor) -> Tensor:
         return (tensor - tensor.mean(dim=-1, keepdim=True)) / (

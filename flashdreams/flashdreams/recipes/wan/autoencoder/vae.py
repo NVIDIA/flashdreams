@@ -27,9 +27,11 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.compile import compile_module
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
-from flashdreams.infra.decoder import Decoder, DecoderAutoregressiveCache, DecoderConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache, EncoderConfig
+from flashdreams.infra.decoder import Decoder, DecoderAutoregressiveCache
+from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
@@ -552,9 +554,7 @@ class WanVAE(nn.Module):
 
         if enable_encoder:
             if use_compile:
-                self.encoder = torch.compile(  # type: ignore[assignment]
-                    self.encoder, mode="max-autotune-no-cudagraphs"
-                )
+                self.encoder = compile_module(self.encoder)
             self._encoder_call: Callable[..., torch.Tensor] = (
                 CUDAGraphWrapper(self.encoder, warmup_iters=warmup_iters)
                 if use_cuda_graph
@@ -562,9 +562,7 @@ class WanVAE(nn.Module):
             )
         if enable_decoder:
             if use_compile:
-                self.decoder = torch.compile(  # type: ignore[assignment]
-                    self.decoder, mode="max-autotune-no-cudagraphs"
-                )
+                self.decoder = compile_module(self.decoder)
             self._decoder_call: Callable[..., torch.Tensor] = (
                 CUDAGraphWrapper(self.decoder, warmup_iters=warmup_iters)
                 if use_cuda_graph
@@ -660,7 +658,7 @@ class WanVAE(nn.Module):
 
 
 @dataclass(kw_only=True)
-class WanVAEEncoderConfig(EncoderConfig):
+class WanVAEEncoderConfig(InstantiateConfig["WanVAEEncoder"]):
     """Config for the Wan VAE encoder."""
 
     _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
@@ -732,7 +730,7 @@ class WanVAEEncoder(Encoder[WanVAECache]):
 
 
 @dataclass(kw_only=True)
-class WanVAEDecoderConfig(DecoderConfig):
+class WanVAEDecoderConfig(InstantiateConfig["WanVAEDecoder"]):
     """Config for the Wan VAE decoder."""
 
     _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)

@@ -27,10 +27,10 @@ from typing import Literal
 from einops import rearrange
 from torch import Tensor
 
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import (
     Encoder,
     EncoderAutoregressiveCache,
-    EncoderConfig,
 )
 
 
@@ -42,7 +42,7 @@ class PixelShuffleVAEEncoderCache(EncoderAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class PixelShuffleVAEEncoderConfig(EncoderConfig):
+class PixelShuffleVAEEncoderConfig(InstantiateConfig["PixelShuffleVAEEncoder"]):
     """Config for the pixel-shuffle pseudo-VAE encoder."""
 
     _target: type["PixelShuffleVAEEncoder"] = field(

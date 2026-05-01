@@ -15,7 +15,7 @@
 
 """Encoder interface."""
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Generic
 
@@ -23,13 +23,6 @@ import torch.nn as nn
 from typing_extensions import TypeVar
 
 from flashdreams.infra.config import InstantiateConfig
-
-
-@dataclass(kw_only=True)
-class EncoderConfig(InstantiateConfig["Encoder"]):
-    """Encoder configuration."""
-
-    _target: type["Encoder"] = field(default_factory=lambda: Encoder)
 
 
 @dataclass(kw_only=True)
@@ -54,24 +47,25 @@ class Encoder(ABC, nn.Module, Generic[EncCacheT]):
     a slimmer ``forward(self, input)``.
     """
 
-    def __init__(self, config: EncoderConfig) -> None:
+    def __init__(self, config: InstantiateConfig[Any]) -> None:
         super().__init__()
         self.config = config
 
+    @abstractmethod
     def initialize_autoregressive_cache(self, **context: Any) -> EncCacheT:
         """Build a fresh per-rollout cache.
 
-        Default returns an empty cache and ignores ``context``. Override in
-        subclasses with custom cache types.
+        Override to return the encoder's concrete cache type. Stateless
+        encoders (e.g. text, CLIP image) return a fresh
+        ``EncoderAutoregressiveCache``.
         """
-        return EncoderAutoregressiveCache()  # type: ignore[return-value]  # ty:ignore[invalid-return-type]
 
 
 @dataclass(kw_only=True)
-class NullEncoderConfig(EncoderConfig):
+class NullEncoderConfig(InstantiateConfig["NullEncoder"]):
     """Config for the identity encoder."""
 
-    _target: type["Encoder"] = field(default_factory=lambda: NullEncoder)
+    _target: type["NullEncoder"] = field(default_factory=lambda: NullEncoder)
 
 
 class NullEncoder(Encoder[EncoderAutoregressiveCache]):
@@ -87,6 +81,11 @@ class NullEncoder(Encoder[EncoderAutoregressiveCache]):
             ...,
         )
     """
+
+    def initialize_autoregressive_cache(
+        self, **context: Any
+    ) -> EncoderAutoregressiveCache:
+        return EncoderAutoregressiveCache()
 
     def forward(
         self,

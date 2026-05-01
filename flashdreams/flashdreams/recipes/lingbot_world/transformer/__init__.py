@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import overload
 
 import torch
 from torch import Tensor
@@ -94,6 +95,12 @@ class LingbotWorldTransformer(Wan21Transformer):
             network_extra_kwargs={"plucker": input.plucker},
         )
 
+    @overload
+    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor: ...
+    @overload
+    def patchify_and_maybe_split_cp(
+        self, x: I2VCamCtrlEmbeddings
+    ) -> I2VCamCtrlEmbeddings: ...
     def patchify_and_maybe_split_cp(
         self, x: Tensor | I2VCamCtrlEmbeddings
     ) -> Tensor | I2VCamCtrlEmbeddings:
@@ -101,11 +108,9 @@ class LingbotWorldTransformer(Wan21Transformer):
         if isinstance(x, I2VCamCtrlEmbeddings):
             if x._is_patchified:
                 return x
-            else:
-                return I2VCamCtrlEmbeddings(
-                    i2v=super().patchify_and_maybe_split_cp(x.i2v),  # ty:ignore[invalid-argument-type]
-                    plucker=super().patchify_and_maybe_split_cp(x.plucker),  # ty:ignore[invalid-argument-type]
-                    _is_patchified=True,
-                )
-        else:
-            return super().patchify_and_maybe_split_cp(x)  # ty:ignore[invalid-return-type]
+            return I2VCamCtrlEmbeddings(
+                i2v=super().patchify_and_maybe_split_cp(x.i2v),
+                plucker=super().patchify_and_maybe_split_cp(x.plucker),
+                _is_patchified=True,
+            )
+        return super().patchify_and_maybe_split_cp(x)

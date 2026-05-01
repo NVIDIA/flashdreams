@@ -26,11 +26,12 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.compile import compile_module
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
-    TransformerConfig,
 )
 from flashdreams.recipes.wan.transformer.impl.rope import (
     RotaryPositionEmbedding3D,
@@ -107,7 +108,7 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class CosmosTransformerConfig(TransformerConfig):
+class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
     """Config for the Cosmos transformer.
 
     Each instance is bound to one ``(batch_shape, num_views, height,
@@ -267,20 +268,18 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         if config.checkpoint_path is not None:
             transform = config.state_dict_transform or _strip_net_prefix
             state_dict = load_checkpoint(config.checkpoint_path)
-            state_dict = transform(state_dict)  # ty:ignore[invalid-argument-type]
+            state_dict = transform(state_dict)
             self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
-            self.network = torch.compile(  # type: ignore[assignment]  # ty:ignore[invalid-assignment]
-                self.network, mode="max-autotune-no-cudagraphs"
-            )
+            self.network = compile_module(self.network)
 
         # Per-rollout dispatch when use_cuda_graph=True:
         # filling phase -> wrapper.drain (eager, drains Inductor autotune);
         # steady-state -> wrapper.__call__ (warmup + capture + replay).
         self._use_cuda_graph = config.use_cuda_graph
-        self._network_call: Callable[..., Tensor] = (
+        self._network_call: CUDAGraphWrapper | CosmosDiTNetwork = (
             CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
             if config.use_cuda_graph
             else self.network
@@ -427,7 +426,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # Reset any prior CUDA graph: it refers to slot pointers from the
         # previous cache, which the new cache invalidates.
         if self._use_cuda_graph:
-            self._network_call.reset()  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+            assert isinstance(self._network_call, CUDAGraphWrapper)
+            self._network_call.reset()
 
         return CosmosTransformerCache(
             network_cache=network_cache,
@@ -480,8 +480,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # eager_mode=False keeps cache pointer-swap bookkeeping out of the
         # network forward; it runs at the AR-step boundary instead.
         if self._use_cuda_graph:
+            assert isinstance(self._network_call, CUDAGraphWrapper)
             network = (
-                self._network_call.drain  # type: ignore[union-attr]  # ty:ignore[unresolved-attribute]
+                self._network_call.drain
                 if ar_idx < self.config._steady_ar_idx
                 else self._network_call
             )
