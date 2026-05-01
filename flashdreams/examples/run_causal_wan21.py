@@ -65,9 +65,12 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
+from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder
 from flashdreams.recipes.wan.config.causal_wan21 import (
     CAUSAL_WAN21_CONFIG_BUILDERS,
 )
+from flashdreams.recipes.wan.pipeline import WanInferencePipeline
+from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -179,24 +182,28 @@ def main() -> None:
         .to(device=device)
     )
 
+    assert isinstance(pipeline, WanInferencePipeline)
+
     # Optional first-frame for I2V. Resize to the pixel resolution baked
     # into the transformer config (latent_h/w * decoder spatial compression).
     image: torch.Tensor | None = None
     if is_i2v:
         transformer_cfg = pipeline.diffusion_model.transformer.config
-        decoder_sp = pipeline.decoder.spatial_compression_ratio  # ty:ignore[unresolved-attribute]
-        pixel_h = transformer_cfg.height * decoder_sp  # ty:ignore[unresolved-attribute]
-        pixel_w = transformer_cfg.width * decoder_sp  # ty:ignore[unresolved-attribute]
+        assert isinstance(transformer_cfg, Wan21TransformerConfig)
+        assert isinstance(pipeline.decoder, WanVAEDecoder)
+        decoder_sp = pipeline.decoder.spatial_compression_ratio
+        pixel_h = transformer_cfg.height * decoder_sp
+        pixel_w = transformer_cfg.width * decoder_sp
         first_frame = media.read_image(args.image_path)[..., :3]  # drop alpha
         first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))  # [H, W, 3]
         first_frame_t = (
-            torch.from_numpy(first_frame).to(device=device, dtype=transformer_cfg.dtype)  # ty:ignore[unresolved-attribute]
+            torch.from_numpy(first_frame).to(device=device, dtype=transformer_cfg.dtype)
             / 127.5
             - 1.0
         )  # [H, W, 3] in range [-1, 1]
         image = rearrange(first_frame_t, "h w c -> 1 1 c h w")  # [B=1, T=1, C=3, H, W]
 
-    cache = pipeline.initialize_cache(text=[prompt], image=image)  # ty:ignore[unknown-argument]
+    cache = pipeline.initialize_cache(text=[prompt], image=image)
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -206,7 +213,7 @@ def main() -> None:
     chunks: list[torch.Tensor] = []
     stats_history: list[dict[str, float]] = []
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_output_frames(i)  # ty:ignore[call-non-callable]
+        num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
         video_chunk = pipeline.generate(i, cache)
         stats = pipeline.finalize(i, cache)

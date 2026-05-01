@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import torch
 import torch.nn as nn
@@ -163,7 +163,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
         Returns:
             Fresh AR cache.
         """
-        return TransformerAutoregressiveCache()  # type: ignore[return-value]  # ty:ignore[invalid-return-type]
+        return cast("TransformerCacheT", TransformerAutoregressiveCache())
 
     def postprocess_clean_latent(
         self,

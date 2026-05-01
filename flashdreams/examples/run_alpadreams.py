@@ -86,6 +86,10 @@ from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.recipes.alpadreams.config import (
     ALPADREAMS_CONFIG_BUILDERS,
 )
+from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
+from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
+from flashdreams.recipes.taehv import TeahvVAEDecoder, TeahvVAEDecoderConfig
+from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder, WanVAEDecoderConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
@@ -250,9 +254,13 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     )
 
     transformer_cfg = pipeline_config.diffusion_model.transformer
-    decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
-    pixel_h = transformer_cfg.height * decoder_sp  # ty:ignore[unresolved-attribute]
-    pixel_w = transformer_cfg.width * decoder_sp  # ty:ignore[unresolved-attribute]
+    assert isinstance(transformer_cfg, CosmosTransformerConfig)
+    assert isinstance(
+        pipeline_config.decoder, (WanVAEDecoderConfig, TeahvVAEDecoderConfig)
+    )
+    decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO
+    pixel_h = transformer_cfg.height * decoder_sp
+    pixel_w = transformer_cfg.width * decoder_sp
 
     text_encoder = pipeline_config.text_encoder.setup().to(device=device)
     image_encoder = pipeline_config.image_encoder.setup().to(device=device)
@@ -391,9 +399,13 @@ def main() -> None:
         # Read the input pixel resolution off the configs without
         # instantiating the transformer or decoder.
         pre_transformer_cfg = pipeline_config.diffusion_model.transformer
-        pre_decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
-        pre_pixel_h = pre_transformer_cfg.height * pre_decoder_sp  # ty:ignore[unresolved-attribute]
-        pre_pixel_w = pre_transformer_cfg.width * pre_decoder_sp  # ty:ignore[unresolved-attribute]
+        assert isinstance(pre_transformer_cfg, CosmosTransformerConfig)
+        assert isinstance(
+            pipeline_config.decoder, (WanVAEDecoderConfig, TeahvVAEDecoderConfig)
+        )
+        pre_decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO
+        pre_pixel_h = pre_transformer_cfg.height * pre_decoder_sp
+        pre_pixel_w = pre_transformer_cfg.width * pre_decoder_sp
 
         pre_first_frames: list[torch.Tensor] = []
         pre_prompts: list[str] = []
@@ -438,15 +450,18 @@ def main() -> None:
         pipeline_config.text_encoder = None
         pipeline_config.image_encoder = None
     pipeline = pipeline_config.setup()
+    assert isinstance(pipeline, AlpadreamsPipeline)
     pipeline.to(device=device)
 
     # The transformer config bakes in a fixed (latent) resolution. Resize
     # all pixel-space inputs (first frame, HDMap video) to the matching
     # pixel-space resolution before feeding them to the pipeline.
     transformer_cfg = pipeline.diffusion_model.transformer.config
-    decoder_sp = pipeline.decoder.SPATIAL_COMPRESSION_RATIO  # ty:ignore[unresolved-attribute]
-    pixel_h = transformer_cfg.height * decoder_sp  # ty:ignore[unresolved-attribute]
-    pixel_w = transformer_cfg.width * decoder_sp  # ty:ignore[unresolved-attribute]
+    assert isinstance(transformer_cfg, CosmosTransformerConfig)
+    assert isinstance(pipeline.decoder, (WanVAEDecoder, TeahvVAEDecoder))
+    decoder_sp = pipeline.decoder.SPATIAL_COMPRESSION_RATIO
+    pixel_h = transformer_cfg.height * decoder_sp
+    pixel_w = transformer_cfg.width * decoder_sp
 
     first_frames: list[torch.Tensor] = []
     hdmap_videos: list[torch.Tensor] = []
@@ -495,13 +510,13 @@ def main() -> None:
             f"view_names mismatch: saved {saved_view_names} vs current "
             f"{camera_names}. Re-run precompute with the matching --n_cameras."
         )
-        cache = pipeline.initialize_cache_from_embeddings(  # ty:ignore[call-non-callable]
+        cache = pipeline.initialize_cache_from_embeddings(
             text_embeddings=payload["text_embeddings"],
             image_embeddings=payload["image_embeddings"],
             view_names=saved_view_names,
         )
     elif precomputed_embeddings is not None:
-        cache = pipeline.initialize_cache_from_embeddings(  # ty:ignore[call-non-callable]
+        cache = pipeline.initialize_cache_from_embeddings(
             text_embeddings=precomputed_embeddings["text_embeddings"],
             image_embeddings=precomputed_embeddings["image_embeddings"],
             view_names=camera_names,
@@ -512,15 +527,15 @@ def main() -> None:
         )  # [B=1, V, 1, C, H, W]
         prompts_2d: list[list[str]] = [prompts]  # [B=1, V]
         cache = pipeline.initialize_cache(
-            text=prompts_2d,  # ty:ignore[unknown-argument]
-            image=first_frames_t,  # ty:ignore[unknown-argument]
-            view_names=camera_names,  # ty:ignore[unknown-argument]
+            text=prompts_2d,
+            image=first_frames_t,
+            view_names=camera_names,
         )
         # This demo runs a single rollout, so drop the one-shot text and
         # first-frame image encoders before the AR loop to free VRAM
         # (Cosmos-Reason1-7B alone is ~14 GB in bf16). The gRPC server keeps
         # them around since it reuses the pipeline across sessions.
-        pipeline.release_oneshot_encoders()  # ty:ignore[call-non-callable]
+        pipeline.release_oneshot_encoders()
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -530,7 +545,7 @@ def main() -> None:
     stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_frames(i)  # ty:ignore[call-non-callable]
+        num_frames = pipeline.get_num_frames(i)
         end = start + num_frames
         if end > hdmap_num_frames:
             break
@@ -540,7 +555,7 @@ def main() -> None:
         video_chunk = pipeline.generate(
             autoregressive_index=i,
             cache=cache,
-            hdmap=hdmap_videos_t[:, :, start:end],  # ty:ignore[unknown-argument]
+            hdmap=hdmap_videos_t[:, :, start:end],
         )
         stats = pipeline.finalize(i, cache)
         if stats is not None:

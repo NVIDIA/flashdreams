@@ -208,8 +208,8 @@ class AlpadreamsConditioningWrapper(nn.Module):
                     raise ValueError(
                         "Single-view pixel-shuffle checkpoints currently support len_t=4 only."
                     )
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "pixel_shuffle"
+                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-pshuffle-chunk4"
                 ]
                 hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
             else:
@@ -217,9 +217,9 @@ class AlpadreamsConditioningWrapper(nn.Module):
                     raise ValueError(
                         "Single-view VAE-encoding checkpoints currently support len_t in {2, 3}."
                     )
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "vae_encoding"
-                ][f"chunk{len_t}"]  # ty:ignore[invalid-argument-type]
+                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    f"1view-vae-chunk{len_t}"
+                ]
                 tokenizer_key = "vae" if no_tae else "lightvae"
                 hdmap_encoder_config = WanVAEEncoderConfig(
                     checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[tokenizer_key],
@@ -230,13 +230,13 @@ class AlpadreamsConditioningWrapper(nn.Module):
                     "Multi-view checkpoints currently support len_t=4 only."
                 )
             if encode_with_pixel_shuffle:
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
-                    "pixel_shuffle"
+                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "4view-pshuffle-chunk4"
                 ]
                 hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
             else:
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
-                    "vae_encoding"
+                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "4view-vae-chunk4"
                 ]
                 hdmap_encoder_config = WanVAEEncoderConfig(
                     checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
@@ -267,7 +267,7 @@ class AlpadreamsConditioningWrapper(nn.Module):
             window_size_t=local_attn_size,
             sink_size_t=sink_size,
             len_t=len_t,
-            checkpoint_path=checkpoint_path,  # ty:ignore[invalid-argument-type]
+            checkpoint_path=checkpoint_path,
             compile_network=compile_net,
         )
 

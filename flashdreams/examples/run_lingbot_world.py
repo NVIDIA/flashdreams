@@ -63,6 +63,7 @@ from flashdreams.recipes.lingbot_world.config import (
 )
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
+from flashdreams.recipes.lingbot_world.pipeline import LingbotWorldInferencePipeline
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/lingbot_world"
@@ -166,7 +167,7 @@ def main() -> None:
     camera_poses: list[torch.Tensor] = []
     first_frames: list[torch.Tensor] = []
     prompts: list[str] = []
-    trans_normalizer: float = 1.0
+    trans_normalizer: torch.Tensor | float = 1.0
     for entry in data:
         first_frame = media.read_image(entry["first_frame_path"])
         first_frame = cv2.resize(first_frame, (args.video_width, args.video_height))
@@ -185,7 +186,7 @@ def main() -> None:
 
         # Only needed for the world-scale normalizer; the actual Plücker
         # volume is rendered per-AR-step inside I2VCamCtrlEncoder.
-        _, trans_normalizer = compute_relative_poses(c2ws_t, framewise=True)  # ty:ignore[invalid-assignment]
+        _, trans_normalizer = compute_relative_poses(c2ws_t, framewise=True)
 
         with open(entry["text_prompt_path"], "r") as f:
             prompts.append(f.readlines()[0])
@@ -219,7 +220,8 @@ def main() -> None:
         .setup()
         .to(device=device)
     )
-    cache = pipeline.initialize_cache(text=prompts, image=first_frames_t)  # ty:ignore[unknown-argument]
+    assert isinstance(pipeline, LingbotWorldInferencePipeline)
+    cache = pipeline.initialize_cache(text=prompts, image=first_frames_t)
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -230,7 +232,7 @@ def main() -> None:
     stats_history: list[dict[str, float]] = []
     start = 0
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_output_frames(i)  # ty:ignore[call-non-callable]
+        num_frames = pipeline.get_num_output_frames(i)
         end = start + num_frames
         if end > total_camera_frames:
             break

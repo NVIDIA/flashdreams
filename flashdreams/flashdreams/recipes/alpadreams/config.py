@@ -48,18 +48,12 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoderConfig,
 )
 
-AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, dict[str, str | dict[str, str]]] = {
-    "single_view": {
-        "pixel_shuffle": "s3://flashdreams/assets/checkpoints/alpadreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt",
-        "vae_encoding": {
-            "chunk2": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt",
-            "chunk3": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
-        },
-    },
-    "4views": {
-        "pixel_shuffle": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
-        "vae_encoding": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
-    },
+AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
+    "1view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt",
+    "1view-vae-chunk2": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt",
+    "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
+    "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
+    "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
 }
 
 
@@ -173,9 +167,9 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-vae-chunk2"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -210,9 +204,9 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-vae-chunk2"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -242,9 +236,9 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "vae_encoding"
-                ]["chunk2"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-vae-chunk2"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -274,9 +268,9 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "vae_encoding"
-                ]["chunk3"],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-vae-chunk3"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -306,9 +300,9 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["single_view"][
-                    "pixel_shuffle"
-                ],  # type: ignore[index]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-pshuffle-chunk4"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
@@ -338,9 +332,9 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
             seed=seed,
             context_noise=128,
             transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["4views"][
-                    "pixel_shuffle"
-                ],  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "4view-pshuffle-chunk4"
+                ],
                 cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=4,

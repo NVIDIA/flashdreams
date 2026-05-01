@@ -16,7 +16,7 @@
 """Ring (sequence-parallel) attention built on the native SDPA primitive."""
 
 from contextlib import nullcontext
-from typing import ContextManager, Literal
+from typing import Any, Callable, ContextManager, Literal, cast
 
 import torch
 import torch.distributed._functional_collectives as funcol
@@ -24,6 +24,16 @@ from torch import Tensor
 from torch.distributed.tensor.device_mesh import DeviceMesh
 
 from flashdreams.core.attention.native import NativeAttention
+
+# For type checking, cast the native ops to the expected signature.
+_sdpa_cudnn: Callable[..., tuple[Tensor, ...]] = cast(
+    "Callable[..., tuple[Tensor, ...]]",
+    torch.ops.aten._scaled_dot_product_cudnn_attention,
+)
+_sdpa_flash: Callable[..., tuple[Any, ...]] = cast(
+    "Callable[..., tuple[Any, ...]]",
+    torch.ops.aten._scaled_dot_product_flash_attention,
+)
 
 
 def torch_sdpa_cudnn(
@@ -40,12 +50,12 @@ def torch_sdpa_cudnn(
     Returns:
         Attention output, or ``(output, lse)`` when ``return_lse=True``.
     """
-    out, lse, *_ = torch.ops.aten._scaled_dot_product_cudnn_attention(
-        query=query,  # ty:ignore[invalid-argument-type]
-        key=key,  # ty:ignore[invalid-argument-type]
-        value=value,  # ty:ignore[invalid-argument-type]
-        attn_bias=None,  # ty:ignore[invalid-argument-type]
-        compute_log_sumexp=True,  # ty:ignore[invalid-argument-type]
+    out, lse, *_ = _sdpa_cudnn(
+        query,
+        key,
+        value,
+        None,  # attn_bias
+        True,  # compute_log_sumexp
     )
     return out, (lse if return_lse else None)
 
@@ -64,11 +74,7 @@ def torch_sdpa_flash(
     Returns:
         Attention output, or ``(output, lse)`` when ``return_lse=True``.
     """
-    out, lse, *_ = torch.ops.aten._scaled_dot_product_flash_attention(
-        query=query,  # ty:ignore[invalid-argument-type]
-        key=key,  # ty:ignore[invalid-argument-type]
-        value=value,  # ty:ignore[invalid-argument-type]
-    )
+    out, lse, *_ = _sdpa_flash(query, key, value)
     return out, (lse if return_lse else None)
 
 

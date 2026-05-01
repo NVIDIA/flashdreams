@@ -19,6 +19,9 @@ no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
 extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
+# For pyright to pickup the correct python.
+venvPath = "."
+venv = ".venv"
 
 [tool.ty.environment]
 python-version = "3.12"

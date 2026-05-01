@@ -54,6 +54,7 @@ from flashdreams.core.distributed import init as distributed_init
 from flashdreams.recipes.wan.config.causal_wan22 import (
     CAUSAL_WAN22_CONFIG_BUILDERS,
 )
+from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -145,7 +146,8 @@ def main() -> None:
         .to(device=device)
     )
 
-    cache = pipeline.initialize_cache(text=[prompt], image=None)  # ty:ignore[unknown-argument]
+    assert isinstance(pipeline, WanInferencePipeline)
+    cache = pipeline.initialize_cache(text=[prompt], image=None)
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():
@@ -155,7 +157,7 @@ def main() -> None:
     chunks: list[torch.Tensor] = []
     stats_history: list[dict[str, float]] = []
     for i in range(args.total_blocks):
-        num_frames = pipeline.get_num_output_frames(i)  # ty:ignore[call-non-callable]
+        num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
         video_chunk = pipeline.generate(i, cache)
         stats = pipeline.finalize(i, cache)

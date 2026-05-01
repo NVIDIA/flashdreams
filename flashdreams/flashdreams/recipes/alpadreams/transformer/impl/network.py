@@ -127,7 +127,6 @@ class CosmosDiTNetwork(nn.Module):
         )
         self.t_embedding_norm = nn.RMSNorm(self.config.model_channels, eps=1e-6)
 
-        # Transformer blocks (API aligned with Block from minimal_v4_dit)
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -184,7 +183,8 @@ class CosmosDiTNetwork(nn.Module):
         cross_view_attn_group: ProcessGroup | None = None,
     ) -> None:
         for block in self.blocks:
-            block.set_context_parallel_group(self_attn_group, cross_view_attn_group)  # ty:ignore[call-non-callable]
+            assert isinstance(block, Block)
+            block.set_context_parallel_group(self_attn_group, cross_view_attn_group)
 
     def _fuse_shuffle_op_into_last_layer(self):
         """
@@ -261,13 +261,15 @@ class CosmosDiTNetwork(nn.Module):
 
         self.x_embedder.in_channels -= 1
         in_channels_to_keep = self.x_embedder.get_linear_in_channels()
-        self.x_embedder.proj[1].weight.data = (
-            self.x_embedder.proj[1].weight.data[:, :in_channels_to_keep].contiguous()  # ty:ignore[not-subscriptable]
-        )
-        if self.x_embedder.proj[1].bias is not None:
-            self.x_embedder.proj[1].bias.data = (
-                self.x_embedder.proj[1].bias.data[:in_channels_to_keep].contiguous()  # ty:ignore[not-subscriptable]
-            )
+        proj_linear = self.x_embedder.proj[1]
+        assert isinstance(proj_linear, nn.Linear)
+        proj_linear.weight.data = proj_linear.weight.data[
+            :, :in_channels_to_keep
+        ].contiguous()
+        if proj_linear.bias is not None:
+            proj_linear.bias.data = proj_linear.bias.data[
+                :in_channels_to_keep
+            ].contiguous()
 
         self._is_padding_mask_fused = True
         return
@@ -377,12 +379,13 @@ class CosmosDiTNetwork(nn.Module):
         if self.config.use_crossattn_projection:
             context = self.crossattn_proj(context)
 
-        return CosmosDiTNetworkCache(
-            block_caches=[
-                block.initialize_cache(chunk_size, window_size, sink_size, context)  # ty:ignore[call-non-callable]
-                for block in self.blocks
-            ],
-        )
+        block_caches: list[BlockCache] = []
+        for block in self.blocks:
+            assert isinstance(block, Block)
+            block_caches.append(
+                block.initialize_cache(chunk_size, window_size, sink_size, context)
+            )
+        return CosmosDiTNetworkCache(block_caches=block_caches)
 
     def forward(
         self,
@@ -457,6 +460,7 @@ class CosmosDiTNetwork(nn.Module):
         if eager_mode:
             cache.before_update(current_chunk_idx)
         for block_idx, block in enumerate(self.blocks):
+            assert isinstance(block, Block)
             x = block(
                 x=x,
                 emb=t_emb,

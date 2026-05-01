@@ -65,6 +65,7 @@ from flashdreams.recipes.wan.config.wan21 import (
     build_wan21_i2v_14b_480p,
     build_wan21_t2v_1pt3b_480p,
 )
+from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -155,7 +156,8 @@ def main() -> None:
             torch.from_numpy(first_frame).to(device=device, dtype=dtype) / 127.5 - 1.0
         )  # [H, W, 3] in range [-1, 1]
         image = rearrange(first_frame, "h w c -> 1 c h w")  # [T, 3, H, W]
-        cache = pipeline.initialize_cache(text=[prompt], image=image)  # ty:ignore[unknown-argument]
+        assert isinstance(pipeline, WanInferencePipeline)
+        cache = pipeline.initialize_cache(text=[prompt], image=image)
     else:
         pipeline = (
             build_wan21_t2v_1pt3b_480p(
@@ -167,7 +169,8 @@ def main() -> None:
             .to(device=device)
         )
 
-        cache = pipeline.initialize_cache(text=[prompt])  # ty:ignore[unknown-argument]
+        assert isinstance(pipeline, WanInferencePipeline)
+        cache = pipeline.initialize_cache(text=[prompt])
 
     generated_video = pipeline.generate(autoregressive_index=0, cache=cache)
     # Single-AR-step rollouts don't need finalize; run it for API
