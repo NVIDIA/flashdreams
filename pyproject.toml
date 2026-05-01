@@ -22,7 +22,7 @@ extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = ["flashdreams", "integrations/alpadreams"]
+extra-paths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to

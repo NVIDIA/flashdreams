@@ -16,7 +16,11 @@ from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIG_BUILDE
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
 from lingbot.webrtc.controls import CameraPoseIntegrator, KeyboardState
-from lingbot.webrtc.media import LingbotVideoTrack
+from lingbot.webrtc.media import (
+    EncodedVideoPacket,
+    LingbotVideoTrack,
+    PyNvVideoCodecH264ChunkEncoder,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 LOGGER = logging.getLogger(__name__)
@@ -36,9 +40,14 @@ class LingbotRuntimeConfig:
     compile_network: bool = True
     seed: int = 42
     device: str = "cuda:0"
+    fps: int = 16
     video_height: int = 464
     video_width: int = 832
     world_scale: float | None = None
+    video_encoder_bitrate: int = 4_000_000
+    video_encoder_gpu_id: int = 0
+    video_queue_max_size: int = 512
+    keyframe_interval_chunks: int = 30
 
     example_data_dir: Path = REPO_ROOT / "assets/example_data/lingbot_world"
     first_frame_filename: str = "image.jpg"
@@ -51,7 +60,10 @@ class LingbotRuntimeConfig:
 class LingbotStepResult:
     chunk_index: int
     num_frames: int
-    video_chunk: torch.Tensor
+    encoded_packets: list[EncodedVideoPacket]
+    encoder_backend: str
+    encode_ms: float
+    keyframes: int
     stats: dict[str, float] | None
 
 
@@ -60,6 +72,7 @@ class LingbotInferenceRuntime:
 
     def __init__(self, config: LingbotRuntimeConfig | None = None) -> None:
         self.config = config or LingbotRuntimeConfig()
+        self._validate_runtime_config()
 
         self.keyboard_state = KeyboardState()
         self.pose_integrator = CameraPoseIntegrator()
@@ -72,9 +85,20 @@ class LingbotInferenceRuntime:
         self._first_frames: torch.Tensor | None = None
         self._prompt: str | None = None
         self._world_scale = 1.0
+        self._video_encoder: PyNvVideoCodecH264ChunkEncoder | None = None
         self._closed = False
 
         self._step_lock = asyncio.Lock()
+
+    def _validate_runtime_config(self) -> None:
+        if self.config.fps <= 0:
+            raise ValueError("fps must be > 0")
+        if self.config.video_encoder_bitrate <= 0:
+            raise ValueError("video_encoder_bitrate must be > 0")
+        if self.config.video_queue_max_size < 0:
+            raise ValueError("video_queue_max_size must be >= 0")
+        if self.config.keyframe_interval_chunks <= 0:
+            raise ValueError("keyframe_interval_chunks must be > 0")
 
     async def initialize(self) -> None:
         if self._pipeline is not None:
@@ -232,7 +256,28 @@ class LingbotInferenceRuntime:
         )
         self._first_frames = first_frames_t
         self._prompt = prompt
+        self._initialize_video_encoder_sync()
         self._reset_rollout_sync()
+
+    def _initialize_video_encoder_sync(self) -> None:
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
+
+        self._video_encoder = PyNvVideoCodecH264ChunkEncoder(
+            width=self.config.video_width,
+            height=self.config.video_height,
+            fps=self.config.fps,
+            bitrate=self.config.video_encoder_bitrate,
+            gpu_id=self.config.video_encoder_gpu_id,
+        )
+
+        LOGGER.info(
+            "Using PyNvVideoCodec transport backend=%s bitrate=%s fps=%s",
+            self._video_encoder.backend,
+            self.config.video_encoder_bitrate,
+            self.config.fps,
+        )
 
     def _reset_rollout_sync(self) -> None:
         if self._pipeline is None:
@@ -255,8 +300,10 @@ class LingbotInferenceRuntime:
     def _close_sync(self) -> None:
         cache = self._cache
         pipeline = self._pipeline
+        video_encoder = self._video_encoder
         self._cache = None
         self._pipeline = None
+        self._video_encoder = None
         self._base_intrinsics = None
         self._first_frames = None
         self._prompt = None
@@ -265,6 +312,8 @@ class LingbotInferenceRuntime:
             del cache
         if pipeline is not None:
             del pipeline
+        if video_encoder is not None:
+            video_encoder.close()
 
         if self._device is not None and self._device.type == "cuda":
             torch.cuda.synchronize(device=self._device)
@@ -334,10 +383,38 @@ class LingbotInferenceRuntime:
         )
         stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
 
+        if self._video_encoder is None:
+            raise LingbotRuntimeError("Video encoder is not initialized.")
+
+        force_keyframe = (
+            self.autoregressive_index % self.config.keyframe_interval_chunks == 0
+        )
+        encoding_result = self._video_encoder.encode_chunk(
+            video_chunk,
+            force_keyframe=force_keyframe,
+        )
+        encoded_packets = encoding_result.packets
+        if not encoded_packets:
+            raise LingbotRuntimeError(
+                f"PyNvVideoCodec produced zero packets for chunk={self.autoregressive_index}"
+            )
+        LOGGER.info(
+            "Encoded chunk=%s backend=%s input_frames=%s packets=%s keyframes=%s encode_ms=%.2f",
+            self.autoregressive_index,
+            encoding_result.backend,
+            encoding_result.num_input_frames,
+            len(encoded_packets),
+            encoding_result.num_keyframes,
+            encoding_result.encode_ms,
+        )
+
         result = LingbotStepResult(
             chunk_index=self.autoregressive_index,
             num_frames=num_frames,
-            video_chunk=video_chunk.detach().cpu(),
+            encoded_packets=encoded_packets,
+            encoder_backend=encoding_result.backend,
+            encode_ms=encoding_result.encode_ms,
+            keyframes=encoding_result.num_keyframes,
             stats=stats,
         )
         self.autoregressive_index += 1
@@ -379,7 +456,14 @@ class LingbotWebRTCSessionManager:
         runtime_config: LingbotRuntimeConfig | None = None,
         fps: int = 16,
     ) -> None:
-        self.runtime_config = runtime_config or LingbotRuntimeConfig()
+        self.runtime_config = runtime_config or LingbotRuntimeConfig(fps=fps)
+        if self.runtime_config.fps != fps:
+            LOGGER.warning(
+                "Overriding runtime_config.fps=%s with session manager fps=%s",
+                self.runtime_config.fps,
+                fps,
+            )
+            self.runtime_config.fps = fps
         self.fps = fps
         self._runtime = LingbotInferenceRuntime(config=self.runtime_config)
         self._runtime_ready = False
@@ -398,9 +482,30 @@ class LingbotWebRTCSessionManager:
         await self._runtime.initialize()
         self._runtime_ready = True
 
+    @staticmethod
+    def _prefer_h264_video_codec(*, transceiver: Any, rtp_sender_cls: Any) -> None:
+        capabilities = rtp_sender_cls.getCapabilities("video").codecs
+        h264_codecs = [
+            codec for codec in capabilities if codec.mimeType.lower() == "video/h264"
+        ]
+        rtx_codecs = [
+            codec for codec in capabilities if codec.mimeType.lower() == "video/rtx"
+        ]
+        if not h264_codecs:
+            LOGGER.warning(
+                "No local H264 capability found; using aiortc default video codec preference."
+            )
+            return
+        transceiver.setCodecPreferences([*h264_codecs, *rtx_codecs])
+        LOGGER.info(
+            "Forced H264 codec preference for video transceiver (profiles=%s, rtx=%s).",
+            len(h264_codecs),
+            bool(rtx_codecs),
+        )
+
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
         try:
-            from aiortc import RTCPeerConnection, RTCSessionDescription
+            from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription
         except ModuleNotFoundError as exc:
             raise RuntimeError(
                 "aiortc is required for WebRTC signaling. Install aiortc dependency."
@@ -416,8 +521,18 @@ class LingbotWebRTCSessionManager:
             await self._runtime.reset_for_new_session()
 
             peer_connection = RTCPeerConnection()
-            video_track = LingbotVideoTrack(fps=self.fps)
-            peer_connection.addTrack(video_track)
+            video_track = LingbotVideoTrack(
+                fps=self.fps,
+                queue_max_size=self.runtime_config.video_queue_max_size,
+            )
+            video_transceiver = peer_connection.addTransceiver(
+                video_track,
+                direction="sendonly",
+            )
+            self._prefer_h264_video_codec(
+                transceiver=video_transceiver,
+                rtp_sender_cls=RTCRtpSender,
+            )
             managed_session = _ManagedLingbotSession(
                 runtime=self._runtime,
                 video_track=video_track,
@@ -547,14 +662,24 @@ class LingbotWebRTCSessionManager:
             step_result = await managed_session.runtime.apply_actions_and_generate(
                 action_payloads
             )
-            enqueued_frames = await managed_session.video_track.enqueue_chunk(
-                step_result.video_chunk
+            enqueued_frames = await managed_session.video_track.enqueue_encoded_packets(
+                step_result.encoded_packets
             )
+            queued_packets = len(step_result.encoded_packets)
+
             LOGGER.info(
-                "Finished action step chunk=%s num_frames=%s enqueued_frames=%s",
+                "Finished action step chunk=%s num_frames=%s enqueued_frames=%s "
+                "backend=%s packets=%s encode_ms=%s keyframes=%s "
+                "queue_depth=%s dropped_units=%s",
                 step_result.chunk_index,
                 step_result.num_frames,
                 enqueued_frames,
+                step_result.encoder_backend,
+                queued_packets,
+                f"{step_result.encode_ms:.2f}",
+                step_result.keyframes,
+                managed_session.video_track.queue_depth,
+                managed_session.video_track.dropped_units,
             )
             self._send_json(
                 channel,
@@ -563,6 +688,8 @@ class LingbotWebRTCSessionManager:
                     "chunk_index": step_result.chunk_index,
                     "num_frames": step_result.num_frames,
                     "enqueued_frames": enqueued_frames,
+                    "encoder_backend": step_result.encoder_backend,
+                    "queued_packets": queued_packets,
                 },
             )
         except Exception as exc:

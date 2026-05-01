@@ -592,6 +592,7 @@ dependencies = [
     { name = "aiortc" },
     { name = "flashdreams" },
     { name = "opencv-python-headless" },
+    { name = "pynvvideocodec" },
 ]
 
 [package.optional-dependencies]
@@ -606,6 +607,7 @@ requires-dist = [
     { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
     { name = "opencv-python-headless" },
+    { name = "pynvvideocodec" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
 ]

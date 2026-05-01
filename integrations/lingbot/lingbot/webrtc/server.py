@@ -62,6 +62,36 @@ def parse_args() -> argparse.Namespace:
         default="cuda:0",
         help="Torch device used for the Lingbot runtime.",
     )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=16,
+        help="Output FPS for WebRTC pacing and timestamping.",
+    )
+    parser.add_argument(
+        "--video_encoder_bitrate",
+        type=int,
+        default=4_000_000,
+        help="Target bitrate for encoded transport backends (bits/sec).",
+    )
+    parser.add_argument(
+        "--video_encoder_gpu_id",
+        type=int,
+        default=0,
+        help="GPU index used by NVENC-capable backends.",
+    )
+    parser.add_argument(
+        "--video_queue_max_size",
+        type=int,
+        default=512,
+        help="Max queued units in Lingbot video track (0 = unbounded).",
+    )
+    parser.add_argument(
+        "--keyframe_interval_chunks",
+        type=int,
+        default=30,
+        help="Force a keyframe every N generated chunks.",
+    )
     return parser.parse_args()
 
 
@@ -145,6 +175,11 @@ def build_runtime_config(args: argparse.Namespace) -> LingbotRuntimeConfig:
         config_name=args.config_name,
         compile_network=not args.no_compile,
         device=args.device,
+        fps=args.fps,
+        video_encoder_bitrate=args.video_encoder_bitrate,
+        video_encoder_gpu_id=args.video_encoder_gpu_id,
+        video_queue_max_size=args.video_queue_max_size,
+        keyframe_interval_chunks=args.keyframe_interval_chunks,
     )
 
 
@@ -155,7 +190,10 @@ def main() -> None:
     )
     args = parse_args()
     runtime_config = build_runtime_config(args)
-    session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
+    session_manager = LingbotWebRTCSessionManager(
+        runtime_config=runtime_config,
+        fps=args.fps,
+    )
     app = create_app(session_manager=session_manager)
     print(f"Starting on external IP: {get_external_ip()}")
     web.run_app(app, host=args.host, port=args.port)

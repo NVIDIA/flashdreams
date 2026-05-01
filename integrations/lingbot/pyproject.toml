@@ -13,6 +13,7 @@ dependencies = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
     "opencv-python-headless",
+    "pynvvideocodec",
 ]
 
 [tool.uv.sources]

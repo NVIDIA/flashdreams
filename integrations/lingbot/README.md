@@ -21,6 +21,13 @@ From repository root:
 uv run --package flash-lingbot python -m lingbot.webrtc.server --host 0.0.0.0 --port 8080 --config_name LingBot-World-Fast
 ```
 
+PyNvVideoCodec transport (mandatory):
+
+```bash
+uv run --package flash-lingbot python -m lingbot.webrtc.server \
+  --video_encoder_bitrate 4000000
+```
+
 Then open:
 
 - [http://localhost:8080/request_session](http://localhost:8080/request_session)
@@ -30,6 +37,7 @@ Then open:
 
 - CUDA-capable GPU for Lingbot inference.
 - `HF_TOKEN` exported for Hugging Face model access.
+- `pynvvideocodec` (PyNvVideoCodec) is required and used as the only encoder backend.
 - Lingbot example assets available under `assets/example_data/lingbot_world`:
   - `image.jpg`
   - `intrinsics.npy`
