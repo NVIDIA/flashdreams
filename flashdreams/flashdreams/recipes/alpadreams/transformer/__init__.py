@@ -197,9 +197,9 @@ class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
         self._pW = self.width // kw
 
         # First AR step whose forward runs on the KV cache's steady-state
-        # code path. The cache fills at AR step ``chunks_total // _pT - 1``; 
-        # the *next* step is the first one whose ``before_update`` sees 
-        # ``is_steady_state() == True`` and whose forward takes the steady branches. 
+        # code path. The cache fills at AR step ``chunks_total // _pT - 1``;
+        # the *next* step is the first one whose ``before_update`` sees
+        # ``is_steady_state() == True`` and whose forward takes the steady branches.
         # Drain must cover that first steady call so Dynamo traces / Inductor autotunes
         # those branches on the eager path.
         chunks_total = self.sink_size_t + self.window_size_t
