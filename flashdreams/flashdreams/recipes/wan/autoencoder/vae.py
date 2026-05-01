@@ -533,7 +533,7 @@ class WanVAE(nn.Module):
         # assign=True: meta params become the checkpoint tensors directly;
         # caller does .to(device, dtype) afterward. strict=False tolerates
         # the disabled half (encoder-only or decoder-only).
-        self.load_state_dict(load_checkpoint(vae_path), strict=False, assign=True)  # ty:ignore[invalid-argument-type]
+        self.load_state_dict(load_checkpoint(vae_path), strict=False, assign=True)
 
         self.register_buffer(
             "mean",

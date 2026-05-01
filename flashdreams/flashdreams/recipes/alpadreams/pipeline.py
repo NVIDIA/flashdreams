@@ -136,7 +136,9 @@ class AlpadreamsPipeline(
             "AlpadreamsPipeline requires a Wan or Taehv VAE decoder; "
             f"got {type(decoder).__name__}."
         )
-        self._decoder_temporal_compression: int = decoder.TEMPORAL_COMPRESSION_RATIO
+        self._decoder_temporal_compression: int = type(
+            decoder
+        ).TEMPORAL_COMPRESSION_RATIO
 
         # Take the view split outside of the transformer so the VAE does
         # not duplicate work across CP ranks.

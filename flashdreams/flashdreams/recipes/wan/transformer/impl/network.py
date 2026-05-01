@@ -470,7 +470,7 @@ if __name__ == "__main__":
     t2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
     )
-    t2v_network.load_state_dict(t2v_state_dict)  # ty:ignore[invalid-argument-type]
+    t2v_network.load_state_dict(t2v_state_dict)
     print("Test T2V network loading done")
 
     i2v_network_config = WanDiTNetwork14BConfig(
@@ -480,5 +480,5 @@ if __name__ == "__main__":
     i2v_state_dict = load_checkpoint(
         "https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P/blob/main/diffusion_pytorch_model.safetensors.index.json"
     )
-    i2v_network.load_state_dict(i2v_state_dict)  # ty:ignore[invalid-argument-type]
+    i2v_network.load_state_dict(i2v_state_dict)
     print("Test I2V network loading done")

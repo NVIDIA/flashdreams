@@ -31,7 +31,6 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoderConfig,
 )
 
-
 I2VCtrlEncoderCache: TypeAlias = WanVAECache
 """Per-AR-step I2V control encoder cache.
 

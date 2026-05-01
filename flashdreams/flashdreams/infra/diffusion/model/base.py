@@ -23,12 +23,23 @@ from typing import Any, Generic
 import torch
 import torch.nn as nn
 from torch import Tensor
+from typing_extensions import TypeVar
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler import Scheduler
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
+    TransformerAutoregressiveCache,
     TransformerCacheT,
+)
+
+# Distinct TypeVar for ``DiffusionModel.FinalState`` so the nested generic
+# owns its own parameter instead of shadowing the outer ``TransformerCacheT``
+# (which would make ty resolve ``FinalState`` calls to the TypeVar's default).
+_FinalStateCacheT = TypeVar(
+    "_FinalStateCacheT",
+    bound=TransformerAutoregressiveCache,
+    default=TransformerAutoregressiveCache,
 )
 
 
@@ -68,13 +79,13 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     """
 
     @dataclass(kw_only=True)
-    class FinalState(Generic[TransformerCacheT]):  # ty: ignore[shadowed-type-variable]
+    class FinalState(Generic[_FinalStateCacheT]):
         """State passed from ``generate`` to ``finalize``.
 
-        Reuses the enclosing ``DiffusionModel``'s ``TransformerCacheT`` so the
-        ``cache`` field stays type-equivalent with the model's transformer
-        cache; the inner ``Generic`` is required because nested classes do
-        not inherit the outer scope's type parameters.
+        Uses its own ``_FinalStateCacheT`` rather than the enclosing class's
+        ``TransformerCacheT`` because nested classes don't inherit outer-scope
+        type parameters; reusing the same TypeVar object would only shadow
+        it and confuse the type checker.
         """
 
         clean_latent: Tensor
@@ -83,7 +94,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         autoregressive_index: int
         """AR step this state was produced at."""
 
-        cache: TransformerCacheT
+        cache: _FinalStateCacheT
         """Long-lived AR cache used during generation."""
 
         input: Any = None
@@ -178,8 +189,9 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input=input,
         )
 
-        # Postpone KV cache update to the finalization step.
-        final_state = DiffusionModel.FinalState[TransformerCacheT](
+        # Postpone KV cache update to the finalization step. No runtime
+        # subscript: ``_FinalStateCacheT`` is bound from ``cache``'s type.
+        final_state = DiffusionModel.FinalState(
             clean_latent=clean_latent,
             autoregressive_index=autoregressive_index,
             cache=cache,

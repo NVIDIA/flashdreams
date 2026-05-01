@@ -1206,10 +1206,10 @@ def _video_vae(
     # load checkpoint
     if pretrained_path is not None:
         weights_dict = load_checkpoint(pretrained_path)
-        for k in weights_dict.keys():  # ty:ignore[call-non-callable]
-            if weights_dict[k].dtype != dtype:  # ty:ignore[not-subscriptable]
-                weights_dict[k] = weights_dict[k].to(dtype)  # ty:ignore[invalid-assignment, not-subscriptable]
-        model.load_state_dict(weights_dict, assign=True)  # ty:ignore[invalid-argument-type]
+        for k in weights_dict.keys():
+            if weights_dict[k].dtype != dtype:
+                weights_dict[k] = weights_dict[k].to(dtype)
+        model.load_state_dict(weights_dict, assign=True)
 
     return model
 

@@ -297,7 +297,7 @@ class TAEHV(nn.Module):
                 if k.startswith("decoder.") and not k.startswith("decoder.blocks.")
                 else k
             ): v
-            for k, v in sd.items()  # ty:ignore[call-non-callable]
+            for k, v in sd.items()
         }
         sd = _patch_tgrow_state_dict(sd, self.decoder.blocks)
         # assign=True: meta params become the checkpoint tensors directly;

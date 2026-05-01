@@ -22,7 +22,6 @@ from typing import Literal, TypeVar, cast
 import torch
 import torch.nn as nn
 
-
 M = TypeVar("M", bound=nn.Module)
 
 CompileMode = Literal[

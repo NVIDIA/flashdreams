@@ -36,6 +36,7 @@ from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork1pt3BConfig
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
+
 class _CausalForcingPaths(TypedDict):
     chunkwise: str
     framewise: str

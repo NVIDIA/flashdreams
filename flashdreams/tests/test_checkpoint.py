@@ -39,5 +39,5 @@ def test_load_checkpoint_from_s3() -> None:
         assert os.path.getsize(local_path) > 0
 
         state_dict_from_local = torch.load(local_path)
-        for k, v in state_dict.items():  # ty:ignore[call-non-callable]
+        for k, v in state_dict.items():
             assert (v == state_dict_from_local[k]).all()

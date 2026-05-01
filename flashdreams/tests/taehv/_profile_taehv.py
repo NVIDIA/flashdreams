@@ -75,7 +75,7 @@ def _build_pair(
     import copy
 
     weights = load_checkpoint(checkpoint_path)
-    weights = {k: v.to(dtype) for k, v in weights.items()}  # ty:ignore[call-non-callable]
+    weights = {k: v.to(dtype) for k, v in weights.items()}
 
     # Return a fresh shallow copy each call: the legacy ``patch_tgrow_layers``
     # mutates the dict in place, which would otherwise feed the new impl

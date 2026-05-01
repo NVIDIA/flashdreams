@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import torch
-
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig

@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import torch
 import torch.nn as nn
@@ -128,7 +128,10 @@ class StreamInferencePipeline(
         self.config = config
         self.encoder = config.encoder.setup() if config.encoder is not None else None
         self.decoder = config.decoder.setup() if config.decoder is not None else None
-        self.diffusion_model = config.diffusion_model.setup()
+        self.diffusion_model = cast(
+            "DiffusionModel[TransformerCacheT]",
+            config.diffusion_model.setup(),
+        )
 
     @property
     def device(self) -> torch.device:

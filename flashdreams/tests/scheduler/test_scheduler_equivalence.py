@@ -87,7 +87,7 @@ def _build_fm_pair() -> tuple[_ref_fm.FlowMatchSchedulerReference, FlowMatchSche
         shift=_FM_SHIFT,
         denoising_timesteps=list(_FM_DENOISING),
     )
-    return _ref_fm.FlowMatchSchedulerReference(ref_cfg), new_cfg.setup()  # ty:ignore[invalid-return-type]
+    return _ref_fm.FlowMatchSchedulerReference(ref_cfg), new_cfg.setup()
 
 
 @pytest.mark.parametrize("device", _devices(), ids=lambda d: d.type)
@@ -188,7 +188,7 @@ def _build_unipc_pair() -> tuple[
         shift=_UNIPC_SHIFT,
         solver_order=_UNIPC_ORDER,
     )
-    return _ref_unipc.FlowUniPCSchedulerReference(ref_cfg), new_cfg.setup()  # ty:ignore[invalid-return-type]
+    return _ref_unipc.FlowUniPCSchedulerReference(ref_cfg), new_cfg.setup()
 
 
 @pytest.mark.parametrize("device", _devices(), ids=lambda d: d.type)

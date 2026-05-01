@@ -88,7 +88,7 @@ def _build_fm_pair() -> tuple[FlowMatchSchedulerReference, FlowMatchScheduler]:
         shift=_FM_SHIFT,
         denoising_timesteps=list(_FM_DENOISING),
     ).setup()
-    return ref, new  # ty:ignore[invalid-return-type]
+    return ref, new
 
 
 def _build_unipc_pair() -> tuple[FlowUniPCSchedulerReference, FlowMatchUniPCScheduler]:
@@ -104,7 +104,7 @@ def _build_unipc_pair() -> tuple[FlowUniPCSchedulerReference, FlowMatchUniPCSche
         shift=_UNIPC_SHIFT,
         solver_order=_UNIPC_ORDER,
     ).setup()
-    return ref, new  # ty:ignore[invalid-return-type]
+    return ref, new
 
 
 def _make_stub_predict_flow():
