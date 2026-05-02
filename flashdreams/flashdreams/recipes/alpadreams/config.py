@@ -466,7 +466,7 @@ def experiment1_skip_finalize_kv_cache_noise100(
 def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     *,
     cp_size: int = 1,
-    compile_network: bool = True,
+    compile_network: bool = False,
     use_cuda_graph: bool = True,
     seed: int = 1,
 ) -> AlpadreamsPipelineConfig:

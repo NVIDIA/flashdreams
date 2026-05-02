@@ -328,8 +328,10 @@ class FlowMatchUniPCScheduler(Scheduler):
         last_sample: Tensor | None = None
 
         for i in range(N):
-            # Keep timesteps exact in scheduler buffers, but pass them to
-            # the network in the latent dtype for embedding layers.
+            # Schedule buffers are pinned to fp32 (to preserve integer
+            # timestep values under a stray `module.to(bf16)`), but the
+            # network expects timesteps in the input dtype so that
+            # downstream modulation / Linear layers stay consistent.
             timestep = self.timesteps[i].to(dtype=input_dtype)
 
             # Network forward (heavy compute -- everything else here is

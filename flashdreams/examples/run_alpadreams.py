@@ -74,10 +74,8 @@ Run::
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import os
-from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -125,14 +123,6 @@ def _num_chunks_args(
     if not _config_uses_num_chunks(config_name):
         raise ValueError("--num_chunks is only supported by the bidirectional config.")
     return {"num_chunks": requested_num_chunks}
-
-
-def _build_config(
-    builder: Callable[..., AlpadreamsPipelineConfig],
-    **kwargs: object,
-) -> AlpadreamsPipelineConfig:
-    parameters = inspect.signature(builder).parameters
-    return builder(**{key: value for key, value in kwargs.items() if key in parameters})
 
 
 def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
@@ -293,8 +283,7 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
     # Build config metadata only; the DiT/decoder are not instantiated in this path.
     num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
-    pipeline_config = _build_config(
-        builder,
+    pipeline_config = builder(
         cp_size=1,
         compile_network=False,
         seed=0,
@@ -452,8 +441,7 @@ def main() -> None:
             "Using bidirectional num_chunks="
             f"{num_chunks_args['num_chunks']} for this runtime."
         )
-    pipeline_config = _build_config(
-        builder,
+    pipeline_config = builder(
         cp_size=world_size,
         compile_network=not args.no_compile,
         seed=42 + rank,

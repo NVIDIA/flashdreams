@@ -545,8 +545,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
         network_call = self._network_call_uncond if uncond else self._network_call
         assert isinstance(network_call, CUDAGraphWrapper)
-        if cache.network_cache_uncond is not None:
-            return network_call
+        # Cond and CFG-uncond branches both mutate the rolling KV cache, so
+        # neither branch can be graph-captured until the cache is steady.
         return (
             network_call.drain
             if cache.autoregressive_index < self.config._steady_ar_idx
