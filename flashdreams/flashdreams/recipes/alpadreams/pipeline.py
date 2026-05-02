@@ -40,9 +40,11 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
+from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.transformer import (
     CosmosTransformer,
     CosmosTransformerCache,
+    CosmosTransformerConfig,
 )
 from flashdreams.recipes.taehv import TeahvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
@@ -151,6 +153,16 @@ class AlpadreamsPipeline(
     def device(self) -> torch.device:
         return self.diffusion_model.device
 
+    @property
+    def _transformer_config(self) -> CosmosTransformerConfig:
+        cfg = self.diffusion_model.transformer.config
+        assert isinstance(cfg, CosmosTransformerConfig)
+        return cfg
+
+    @property
+    def _use_negative_prompt(self) -> bool:
+        return self._transformer_config.guidance_scale > 1.0
+
     @torch.no_grad()
     def initialize_cache(
         self,
@@ -165,6 +177,8 @@ class AlpadreamsPipeline(
             image: First-frame pixels ``[B, V, 1, 3, H, W]`` in ``[-1, 1]``.
                 ``H``/``W`` must equal latent ``height``/``width`` times the
                 decoder's spatial compression ratio.
+                Bidirectional/CFG configs use the recipe's training negative
+                prompt automatically when ``guidance_scale > 1``.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.
         """
@@ -183,10 +197,20 @@ class AlpadreamsPipeline(
             [self.text_encoder(t) for t in text], dim=0
         )  # [B, V, L, D]
         image_embeddings = self.image_encoder(image)  # [B, V, 1, Cl, Hl, Wl]
+        negative_text_embeddings: Tensor | None = None
+        if self._use_negative_prompt:
+            negative_text_embeddings = torch.stack(
+                [
+                    self.text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                    for prompt_row in text
+                ],
+                dim=0,
+            )
 
         return self.initialize_cache_from_embeddings(
             text_embeddings=text_embeddings,
             image_embeddings=image_embeddings,
+            negative_text_embeddings=negative_text_embeddings,
             view_names=view_names,
         )
 
@@ -195,6 +219,7 @@ class AlpadreamsPipeline(
         self,
         text_embeddings: Tensor,
         image_embeddings: Tensor,
+        negative_text_embeddings: Tensor | None = None,
         view_names: list[str] | None = None,
     ) -> AlpadreamsPipelineCache:
         """Initialize the per-rollout cache from precomputed embeddings.
@@ -208,11 +233,16 @@ class AlpadreamsPipeline(
                 Pass the full multi-view tensor; the CP split is applied here.
             image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split
                 contract as ``text_embeddings``.
+            negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for
+                the recipe's training negative prompt. Required by
+                bidirectional/CFG transformer configs when ``guidance_scale > 1``.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.
         """
         text_embeddings = text_embeddings.to(device=self.device)
         image_embeddings = image_embeddings.to(device=self.device)
+        if negative_text_embeddings is not None:
+            negative_text_embeddings = negative_text_embeddings.to(device=self.device)
 
         text_embeddings = split_inputs_cp(
             text_embeddings,
@@ -224,15 +254,25 @@ class AlpadreamsPipeline(
             seq_dim=1,
             cp_group=self.V_group,
         )
+        if negative_text_embeddings is not None:
+            negative_text_embeddings = split_inputs_cp(
+                negative_text_embeddings,
+                seq_dim=1,
+                cp_group=self.V_group,
+            )
         if view_names is not None:
             view_names = split_inputs_cp_object_list(view_names, cp_group=self.V_group)
 
+        transformer_context = {
+            "text_embeddings": text_embeddings,
+            "image_embeddings": image_embeddings,
+            "view_names": view_names,
+        }
+        if negative_text_embeddings is not None:
+            transformer_context["negative_text_embeddings"] = negative_text_embeddings
+
         return super().initialize_cache(
-            transformer_context={
-                "text_embeddings": text_embeddings,
-                "image_embeddings": image_embeddings,
-                "view_names": view_names,
-            },
+            transformer_context=transformer_context,
         )
 
     @torch.no_grad()
@@ -240,7 +280,7 @@ class AlpadreamsPipeline(
         self,
         text: list[list[str]],
         image: Tensor,
-    ) -> dict[str, Tensor]:
+    ) -> dict[str, Tensor | None]:
         """Run only the one-shot encoders and return their outputs on CPU.
 
         Pair with ``initialize_cache_from_embeddings``: save the returned
@@ -254,7 +294,8 @@ class AlpadreamsPipeline(
 
         Returns:
             ``{"text_embeddings": [B, V, L, D],
-            "image_embeddings": [B, V, 1, Cl, Hl, Wl]}`` on CPU.
+            "image_embeddings": [B, V, 1, Cl, Hl, Wl],
+            "negative_text_embeddings": [B, V, L, D] | None}`` on CPU.
         """
         assert self.text_encoder is not None and self.image_encoder is not None, (
             "precompute_embeddings requires text_encoder and image_encoder "
@@ -267,9 +308,22 @@ class AlpadreamsPipeline(
             [self.text_encoder(t) for t in text], dim=0
         )  # [B, V, L, D]
         image_embeddings = self.image_encoder(image)  # [B, V, 1, Cl, Hl, Wl]
+
+        if self._use_negative_prompt:
+            negative_text_embeddings = torch.stack(
+                [
+                    self.text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                    for prompt_row in text
+                ],
+                dim=0,
+            ).cpu()
+        else:
+            negative_text_embeddings = None
+
         return {
             "text_embeddings": text_embeddings.cpu(),
             "image_embeddings": image_embeddings.cpu(),
+            "negative_text_embeddings": negative_text_embeddings,
         }
 
     def release_oneshot_encoders(self) -> None:

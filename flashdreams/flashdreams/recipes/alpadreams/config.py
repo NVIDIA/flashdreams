@@ -23,6 +23,9 @@ from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import (
     FlowMatchSchedulerConfig,
 )
+from flashdreams.infra.diffusion.scheduler.fm_unipc import (
+    FlowMatchUniPCSchedulerConfig,
+)
 from flashdreams.infra.encoder.text.cosmos_qwen import (
     CosmosReason1TextEncoderConfig,
 )
@@ -32,9 +35,7 @@ from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipelineConfig,
 )
-from flashdreams.recipes.alpadreams.transformer import (
-    CosmosTransformerConfig,
-)
+from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 from flashdreams.recipes.alpadreams.transformer.impl.network import (
     CosmosDiTNetworkConfig,
 )
@@ -54,6 +55,7 @@ AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
     "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
     "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
+    "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/alpadreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
 }
 
 
@@ -452,6 +454,104 @@ def experiment1_skip_finalize_kv_cache_noise100(
     )
 
 
+# ---------------------------------------------------------------------------
+# Alpadreams bidirectional (single-view / 2B / 720p / chunk48 / UniPC)
+# ---------------------------------------------------------------------------
+
+# TODO: The model is trained with 48 chunks, but generating 48 chunks currently
+# results in OOM, so we use 24 chunks for now. We should fix this later.
+_BIDIRECTIONAL_MAX_NUM_CHUNKS = 24
+
+
+def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    use_cuda_graph: bool = True,
+    seed: int = 1,
+    guidance_scale: float = 3.0,
+    enable_sync_and_profile: bool = False,
+    num_chunks: int = _BIDIRECTIONAL_MAX_NUM_CHUNKS,
+) -> AlpadreamsPipelineConfig:
+    """Single-view, bidirectional Cosmos2 2B / 720p / chunk48 pipeline.
+
+    ``num_chunks`` is the transformer's latent temporal length
+    (``len_t``) for the single generated block. The public pixel-space
+    frame count is derived later by the pipeline's decoder-aware
+    ``get_num_frames`` helper: with the default Wan decoder,
+    ``num_chunks=24`` yields ``1 + (24 - 1) * 4 = 93`` frames.
+    The underlying checkpoint was trained for 48 chunks, but this recipe
+    currently caps runtime generation at 24 chunks to avoid OOM.
+
+    The transformer checkpoint path is baked into the recipe; override
+    in this builder if you need a different one.
+    """
+    decoder_config = WanVAEDecoderConfig(
+        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+    )
+    assert 1 <= num_chunks <= _BIDIRECTIONAL_MAX_NUM_CHUNKS, (
+        f"num_chunks must be in [1, {_BIDIRECTIONAL_MAX_NUM_CHUNKS}], "
+        f"the current runtime cap for this bidirectional recipe; "
+        f"got num_chunks={num_chunks}."
+    )
+    return AlpadreamsPipelineConfig(
+        text_encoder=CosmosReason1TextEncoderConfig(),
+        image_encoder=WanVAEEncoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        ),
+        enable_sync_and_profile=enable_sync_and_profile,
+        encoder=WanVAEEncoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        ),
+        decoder=decoder_config,
+        diffusion_model=DiffusionModelConfig(
+            seed=seed,
+            transformer=CosmosTransformerConfig(
+                network=CosmosDiTNetworkConfig(
+                    in_channels=16,
+                    out_channels=16,
+                    patch_spatial=2,
+                    patch_temporal=1,
+                    model_channels=2048,
+                    num_blocks=28,
+                    num_heads=16,
+                    use_adaln_lora=True,
+                    adaln_lora_dim=256,
+                    use_crossattn_projection=True,
+                    crossattn_proj_in_channels=100352,
+                    crossattn_emb_channels=1024,
+                    timestep_scale=0.001,
+                ),
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-bidirectional-chunk48"
+                ],
+                batch_shape=_DEFAULT_BATCH_SHAPE,
+                num_views=1,
+                height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
+                width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
+                len_t=num_chunks,
+                cp_size=cp_size,
+                enable_hdmap_condition=True,
+                encode_with_pixel_shuffle=False,
+                h_extrapolation_ratio=1.0,
+                w_extrapolation_ratio=1.0,
+                window_size_t=num_chunks,
+                sink_size_t=0,
+                compile_network=compile_network,
+                use_cuda_graph=use_cuda_graph,
+                # This recipe emits a single block, so there is no next AR step
+                # that needs a refreshed KV cache.
+                skip_finalize_kv_cache=True,
+                guidance_scale=guidance_scale,
+            ),
+            scheduler=FlowMatchUniPCSchedulerConfig(
+                num_inference_steps=35,
+                shift=5.0,
+            ),
+        ),
+    )
+
+
 ALPADREAMS_CONFIG_BUILDERS: dict[str, Callable[..., AlpadreamsPipelineConfig]] = {
     "sv_2steps_chunk2_loc6_lightvae_lighttae": build_sv_2steps_chunk2_loc6_lightvae_lighttae,
     "sv_2steps_chunk2_loc6_lightvae_lighttae_perf": build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf,
@@ -459,6 +559,8 @@ ALPADREAMS_CONFIG_BUILDERS: dict[str, Callable[..., AlpadreamsPipelineConfig]] =
     "sv_2steps_chunk3_loc6_vae_vae": build_sv_2steps_chunk3_loc6_vae_vae,
     "sv_2steps_chunk4_loc8_pshuffle_lighttae": build_sv_2steps_chunk4_loc8_pshuffle_lighttae,
     "mv_2steps_chunk4_loc8_pshuffle_lighttae": build_mv_2steps_chunk4_loc8_pshuffle_lighttae,
+    # bidirectional
+    "sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m": build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m,
     # experiments
     "experiment1_baseline": experiment1_baseline,
     "experiment1_skip_finalize_kv_cache": experiment1_skip_finalize_kv_cache,

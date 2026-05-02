@@ -86,14 +86,26 @@ from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.recipes.alpadreams.config import (
     ALPADREAMS_CONFIG_BUILDERS,
 )
-from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
-from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
+from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
+from flashdreams.recipes.alpadreams.pipeline import (
+    AlpadreamsPipeline,
+    AlpadreamsPipelineConfig,
+)
+from flashdreams.recipes.alpadreams.transformer import (
+    CosmosTransformerConfig,
+)
 from flashdreams.recipes.taehv import TeahvVAEDecoder, TeahvVAEDecoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder, WanVAEDecoderConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
 EXAMPLE_DATA_DIR_LOCAL = str(REPO_ROOT / "assets/example_data/alpadreams")
+
+
+def _needs_negative_text(pipeline_config: AlpadreamsPipelineConfig) -> bool:
+    transformer_config = pipeline_config.diffusion_model.transformer
+    assert isinstance(transformer_config, CosmosTransformerConfig)
+    return transformer_config.guidance_scale > 1.0
 
 
 def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
@@ -243,6 +255,7 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     assert os.getenv("HF_TOKEN") is not None, "HF_TOKEN is not set"
 
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
+    # Build config metadata only; the DiT/decoder are not instantiated in this path.
     pipeline_config = builder(cp_size=1, compile_network=False, seed=0)
 
     assert (
@@ -253,6 +266,7 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
         "set to None. Use a config that keeps both encoders configured."
     )
 
+    needs_negative_text = _needs_negative_text(pipeline_config)
     transformer_cfg = pipeline_config.diffusion_model.transformer
     assert isinstance(transformer_cfg, CosmosTransformerConfig)
     assert isinstance(
@@ -276,9 +290,8 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
         first_frames.append(rearrange(first_frame_t, "h w c -> 1 c h w"))
         prompts.append(entry["prompt"])
 
-    first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(
-        0
-    )  # [B=1, V, 1, C, H, W]
+    # [B=1, V, 1, C, H, W]
+    first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(0)
     prompts_2d: list[list[str]] = [prompts]  # [B=1, V]
 
     with torch.no_grad():
@@ -299,6 +312,17 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
             "pixel_w": pixel_w,
         },
     }
+    if needs_negative_text:
+        with torch.no_grad():
+            negative_text_embeddings = torch.stack(
+                [
+                    text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                    for prompt_row in prompts_2d
+                ],
+                dim=0,
+            )
+        payload["negative_text_embeddings"] = negative_text_embeddings.cpu()
+        payload["metadata"]["negative_prompt"] = NEGATIVE_PROMPT
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     torch.save(payload, output_path)
     print(
@@ -384,6 +408,7 @@ def main() -> None:
         compile_network=not args.no_compile,
         seed=42 + rank,
     )
+    needs_negative_text = _needs_negative_text(pipeline_config)
 
     # Offload-text-encoder path: stand up ONLY the one-shot encoders
     # here, compute the embeddings, free the encoders, then null the
@@ -431,6 +456,15 @@ def main() -> None:
             "text_embeddings": text_embeddings,
             "image_embeddings": image_embeddings,
         }
+        if needs_negative_text:
+            with torch.no_grad():
+                precomputed_embeddings["negative_text_embeddings"] = torch.stack(
+                    [
+                        text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                        for prompt_row in pre_prompts_2d
+                    ],
+                    dim=0,
+                ).cpu()
 
         del text_encoder, image_encoder, pre_first_frames, pre_first_frames_t
         torch.cuda.synchronize()
@@ -480,7 +514,7 @@ def main() -> None:
             )
             first_frames.append(rearrange(first_frame_t, "h w c -> 1 c h w"))
 
-        hdmap_video_np = media.read_video(entry["hdmap_video_path"])
+        hdmap_video_np = media.read_video(entry["hdmap_video_path"])[..., :3]
         if hdmap_video_np.shape[1:3] != (pixel_h, pixel_w):
             hdmap_video_np = np.stack(
                 [cv2.resize(f, (pixel_w, pixel_h)) for f in hdmap_video_np], axis=0
@@ -513,12 +547,20 @@ def main() -> None:
         cache = pipeline.initialize_cache_from_embeddings(
             text_embeddings=payload["text_embeddings"],
             image_embeddings=payload["image_embeddings"],
+            negative_text_embeddings=(
+                payload["negative_text_embeddings"] if needs_negative_text else None
+            ),
             view_names=saved_view_names,
         )
     elif precomputed_embeddings is not None:
         cache = pipeline.initialize_cache_from_embeddings(
             text_embeddings=precomputed_embeddings["text_embeddings"],
             image_embeddings=precomputed_embeddings["image_embeddings"],
+            negative_text_embeddings=(
+                precomputed_embeddings["negative_text_embeddings"]
+                if needs_negative_text
+                else None
+            ),
             view_names=camera_names,
         )
     else:
@@ -544,14 +586,12 @@ def main() -> None:
     generated_video: list[torch.Tensor] = []
     stats_history: list[dict[str, float]] = []
     start = 0
+    print(f"total_blocks: {args.total_blocks}")
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_frames(i)
         end = start + num_frames
         if end > hdmap_num_frames:
             break
-        print(
-            f"autoregressive_index: {i}, num_frames: {num_frames}, start: {start}, end: {end}"
-        )
         video_chunk = pipeline.generate(
             autoregressive_index=i,
             cache=cache,
@@ -575,15 +615,19 @@ def main() -> None:
         )
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
-        save_path = f"{REPO_ROOT}/outputs/alpadreams_{config_name}_{world_size}gpus.mp4"
+        output_prefix = (
+            config_name
+            if config_name.startswith("alpadreams_")
+            else f"alpadreams_{config_name}"
+        )
+        save_path = f"{REPO_ROOT}/outputs/{output_prefix}_{world_size}gpus.mp4"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=30)
         print(f"saved generated video to {save_path}")
 
         if stats_history:
             stats_path = (
-                f"{REPO_ROOT}/outputs/"
-                f"stats_alpadreams_{config_name}_{world_size}gpus.json"
+                f"{REPO_ROOT}/outputs/stats_{output_prefix}_{world_size}gpus.json"
             )
             with open(stats_path, "w") as f:
                 json.dump(stats_history, f, indent=2)

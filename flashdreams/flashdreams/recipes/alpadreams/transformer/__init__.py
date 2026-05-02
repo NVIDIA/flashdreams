@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
@@ -74,6 +75,9 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
     network_cache: CosmosDiTNetworkCache
     """Per-block self-attn KV + (text-only) cross-attn KV."""
 
+    network_cache_uncond: CosmosDiTNetworkCache | None = None
+    """Unconditional cache for CFG; ``None`` disables CFG."""
+
     rope_adapter: RotaryPositionEmbedding3D
     """3D RoPE adapter, advanced via ``shift_t`` each step."""
 
@@ -99,9 +103,13 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
         # forward; predict_flow runs with eager_mode=False.
         self.autoregressive_index = autoregressive_index
         self.network_cache.before_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.before_update(autoregressive_index)
 
     def finalize(self, autoregressive_index: int) -> None:
         self.network_cache.after_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.after_update(autoregressive_index)
 
 
 ## Config
@@ -178,7 +186,13 @@ class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
     skip_finalize_kv_cache: bool = False
     """Skip the KV cache finalize step."""
 
+    guidance_scale: float = 1.0
+    """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
+
     def __post_init__(self) -> None:
+        assert self.guidance_scale >= 1.0, (
+            f"guidance_scale must be >= 1.0, got {self.guidance_scale}"
+        )
         if self.enable_hdmap_condition:
             self.network.additional_concat_ch = (
                 192 if self.encode_with_pixel_shuffle else 16
@@ -290,6 +304,11 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             if config.use_cuda_graph
             else self.network
         )
+        self._network_call_uncond: CUDAGraphWrapper | CosmosDiTNetwork = (
+            CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
+            if config.use_cuda_graph
+            else self.network
+        )
 
         # In the case of single view, we always flatten the latent tensor into
         # 4D [B, V, L, D]. This makes CP easier: just directly apply on L dimension.
@@ -382,6 +401,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         *,
         text_embeddings: Tensor,
         image_embeddings: Tensor,
+        negative_text_embeddings: Tensor | None = None,
         view_names: list[str] | None = None,
         **_unused: Any,
     ) -> CosmosTransformerCache:
@@ -393,12 +413,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             view_names: Length-``V`` view names; required when
                 ``num_views > 1``.
         """
-        from flashdreams.core.distributed.context_parallel import split_inputs_cp
-
         if self.cp_groups.V_group is not None:
             text_embeddings = split_inputs_cp(
                 text_embeddings, seq_dim=1, cp_group=self.cp_groups.V_group
             )
+            if negative_text_embeddings is not None:
+                negative_text_embeddings = split_inputs_cp(
+                    negative_text_embeddings,
+                    seq_dim=1,
+                    cp_group=self.cp_groups.V_group,
+                )
 
         cfg = self.config
         head_dim = cfg.network.model_channels // cfg.network.num_heads
@@ -422,6 +446,18 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
             context=text_embeddings,
         )
+        network_cache_uncond: CosmosDiTNetworkCache | None = None
+        if cfg.guidance_scale > 1.0:
+            assert negative_text_embeddings is not None, (
+                f"{type(cfg).__name__}.guidance_scale={cfg.guidance_scale} > 1.0 "
+                "requires negative_text_embeddings."
+            )
+            network_cache_uncond = self.network.initialize_cache(
+                chunk_size=num_tokens_per_view_per_step * cfg._pT,
+                window_size=num_tokens_per_view_per_step * cfg.window_size_t,
+                sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
+                context=negative_text_embeddings,
+            )
 
         view_indices: Tensor | None = None
         if cfg.network.enable_cross_view_attn:
@@ -463,9 +499,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         if self._use_cuda_graph:
             assert isinstance(self._network_call, CUDAGraphWrapper)
             self._network_call.reset()
+            assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
+            self._network_call_uncond.reset()
 
         return CosmosTransformerCache(
             network_cache=network_cache,
+            network_cache_uncond=network_cache_uncond,
             rope_adapter=rope_adapter,
             image=image_patched,
             mask_first_block=mask_first_patched,
@@ -495,12 +534,29 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
     ## Forward
 
-    def predict_flow(
+    def _select_network(self, cache: CosmosTransformerCache, *, uncond: bool) -> Any:
+        if not self._use_cuda_graph:
+            return self.network
+
+        network_call = self._network_call_uncond if uncond else self._network_call
+        assert isinstance(network_call, CUDAGraphWrapper)
+        if cache.network_cache_uncond is not None:
+            return network_call
+        return (
+            network_call.drain
+            if cache.autoregressive_index < self.config._steady_ar_idx
+            else network_call
+        )
+
+    def _predict_branch(
         self,
         noisy_latent: Tensor,
         timestep: Tensor,
         cache: CosmosTransformerCache,
-        input: Tensor | None = None,
+        network_cache: CosmosDiTNetworkCache,
+        input: Tensor | None,
+        *,
+        uncond: bool,
     ) -> Tensor:
         ar_idx = cache.autoregressive_index
         assert ar_idx >= 0, (
@@ -508,32 +564,45 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "predict_flow (DiffusionModel.generate handles this)."
         )
         rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * self.config._pT)
-
         noisy_latent = self._maybe_inject_image(noisy_latent, cache)
-        condition_video_input_mask = self._select_mask(cache)
-
-        # eager_mode=False keeps cache pointer-swap bookkeeping out of the
-        # network forward; it runs at the AR-step boundary instead.
-        if self._use_cuda_graph:
-            assert isinstance(self._network_call, CUDAGraphWrapper)
-            network = (
-                self._network_call.drain
-                if ar_idx < self.config._steady_ar_idx
-                else self._network_call
-            )
-        else:
-            network = self.network
-        return network(
+        return self._select_network(cache, uncond=uncond)(
             noisy_latent,
             timesteps=timestep,
             rope_freqs=rope_freqs,
-            cache=cache.network_cache,
-            condition_video_input_mask=condition_video_input_mask,
+            cache=network_cache,
+            condition_video_input_mask=self._select_mask(cache),
             current_chunk_idx=ar_idx,
             hdmap_condition=input,
             view_indices=cache.view_indices,
             eager_mode=False,
         )
+
+    def predict_flow(
+        self,
+        noisy_latent: Tensor,
+        timestep: Tensor,
+        cache: CosmosTransformerCache,
+        input: Tensor | None = None,
+    ) -> Tensor:
+        flow_cond = self._predict_branch(
+            noisy_latent=noisy_latent,
+            timestep=timestep,
+            cache=cache,
+            network_cache=cache.network_cache,
+            input=input,
+            uncond=False,
+        )
+        if cache.network_cache_uncond is None:
+            return flow_cond
+        flow_uncond = self._predict_branch(
+            noisy_latent=noisy_latent,
+            timestep=timestep,
+            cache=cache,
+            network_cache=cache.network_cache_uncond,
+            input=input,
+            uncond=True,
+        )
+        return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
 
     def postprocess_clean_latent(
         self,
