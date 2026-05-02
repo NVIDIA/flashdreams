@@ -16,6 +16,7 @@ Example:
 
     python flashdreams/scripts/convert_i4_dcp2pt.py \\
         --checkpoint_path s3://bucket/path/to/dcp/model \\
+        --config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \\
         --output_path checkpoints/bidirectional.pt
 """
 
@@ -27,14 +28,14 @@ from pathlib import Path
 import torch
 
 from flashdreams.core.checkpoint.load import load_distributed_checkpoint
-from flashdreams.recipes.alpadreams.config import ALPADREAMS_CONFIG_BUILDERS
+from flashdreams.recipes.alpadreams.config import (
+    ALPADREAMS_CONFIG_BUILDERS as CONFIG_BUILDERS,
+)
 from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 from flashdreams.recipes.alpadreams.transformer.impl.network import CosmosDiTNetwork
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CREDENTIAL_PATH = REPO_ROOT / "credentials/s3_checkpoint.secret"
-DEFAULT_CONFIG_NAME = "sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m"
-assert DEFAULT_CONFIG_NAME in ALPADREAMS_CONFIG_BUILDERS
 
 
 class NetCheckpointWrapper(torch.nn.Module):
@@ -69,12 +70,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default=DEFAULT_CONFIG_NAME,
-        choices=sorted(ALPADREAMS_CONFIG_BUILDERS.keys()),
-        help=(
-            "Alpadreams config builder used to construct the CosmosDiTNetwork "
-            "shape before loading the DCP checkpoint."
-        ),
+        required=True,
+        choices=sorted(CONFIG_BUILDERS.keys()),
+        help=("FlashDreams config builder used to instantiate the matching network."),
     )
     return parser.parse_args()
 
@@ -83,7 +81,7 @@ def main() -> None:
     args = parse_args()
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pipeline_config = ALPADREAMS_CONFIG_BUILDERS[args.config_name]()
+    pipeline_config = CONFIG_BUILDERS[args.config_name]()
     transformer_config = pipeline_config.diffusion_model.transformer
     assert isinstance(transformer_config, CosmosTransformerConfig), (
         "convert_i4_dcp2pt requires an Alpadreams Cosmos transformer config; "
@@ -102,13 +100,10 @@ def main() -> None:
         local_cache_dir=None,
     )
     network = wrapper.net
+
+    # Save the training-shape weights. CosmosTransformer fuses the padding-mask
+    # channel and output shuffle after loading this state dict.
     torch.save(network.state_dict(), args.output_path)
-
-    # Keep the exported state dict pre-fusion. CosmosTransformer applies
-    # this after loading so the saved file remains compatible with the
-    # original training-time checkpoint shape.
-    # network.update_parameters_after_loading_checkpoint()
-
     print(f"saved pre-fusion FlashDreams checkpoint to {args.output_path}")
 
 

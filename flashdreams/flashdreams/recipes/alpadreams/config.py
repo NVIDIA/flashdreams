@@ -55,6 +55,7 @@ AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
     "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
     "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
+    "1view-diffusion-forcing-chunk2": "s3://flashdreams/assets/checkpoints/alpadreams/16N@causal_cosmos2_2B_res720p_30fps_hdmap_hdmap_pretrained_chunk2_vae_mads1m_1080p@20260225100739_000010600.pt",
     "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/alpadreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
 }
 
@@ -111,12 +112,14 @@ def _transformer_config(
     *,
     checkpoint_path: str,
     cp_size: int,
-    compile_network: bool,
     num_views: int,
     len_t_latent: int,
     window_size_t: int,
     encode_with_pixel_shuffle: bool,
+    guidance_scale: float = 1.0,
     skip_finalize_kv_cache: bool = False,
+    compile_network: bool = True,
+    use_cuda_graph: bool = True,
 ) -> CosmosTransformerConfig:
     return CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(),
@@ -134,8 +137,9 @@ def _transformer_config(
         window_size_t=window_size_t,
         sink_size_t=0,
         compile_network=compile_network,
-        use_cuda_graph=True,
+        use_cuda_graph=use_cuda_graph,
         skip_finalize_kv_cache=skip_finalize_kv_cache,
+        guidance_scale=guidance_scale,
     )
 
 
@@ -455,21 +459,71 @@ def experiment1_skip_finalize_kv_cache_noise100(
 
 
 # ---------------------------------------------------------------------------
-# Alpadreams bidirectional (single-view / 2B / 720p / chunk48 / UniPC)
+# Alpadreams diffusion forcing (causal AR 2B / 720p / chunk2 UniPC)
 # ---------------------------------------------------------------------------
 
-_BIDIRECTIONAL_TRAIN_NUM_CHUNKS = 48
 
-
-def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
+def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     *,
     cp_size: int = 1,
     compile_network: bool = True,
     use_cuda_graph: bool = True,
     seed: int = 1,
-    guidance_scale: float = 3.0,
-    enable_sync_and_profile: bool = False,
-    num_chunks: int = _BIDIRECTIONAL_TRAIN_NUM_CHUNKS,
+) -> AlpadreamsPipelineConfig:
+    """Build the alpadreams diffusion-forcing causal AR pipeline.
+
+    The I4 config uses ``state_t=24``: 12 chunk2 latent blocks, or 93 decoded
+    frames with the Wan decoder.
+    """
+    return AlpadreamsPipelineConfig(
+        text_encoder=CosmosReason1TextEncoderConfig(),
+        image_encoder=WanVAEEncoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        ),
+        enable_sync_and_profile=False,
+        encoder=WanVAEEncoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        ),
+        decoder=WanVAEDecoderConfig(
+            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+        ),
+        diffusion_model=DiffusionModelConfig(
+            seed=seed,
+            context_noise=128,
+            transformer=_transformer_config(
+                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                    "1view-diffusion-forcing-chunk2"
+                ],
+                cp_size=cp_size,
+                compile_network=compile_network,
+                num_views=1,
+                len_t_latent=2,
+                window_size_t=24,
+                encode_with_pixel_shuffle=False,
+                skip_finalize_kv_cache=False,
+                use_cuda_graph=use_cuda_graph,
+                guidance_scale=3.0,
+            ),
+            scheduler=FlowMatchUniPCSchedulerConfig(
+                num_inference_steps=35,
+                shift=5.0,
+            ),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Alpadreams bidirectional (single-view / 2B / 720p / chunk48 / UniPC)
+# ---------------------------------------------------------------------------
+
+
+def build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    use_cuda_graph: bool = True,
+    seed: int = 1,
+    num_chunks: int = 48,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, bidirectional Cosmos2 2B / 720p / chunk48 pipeline.
 
@@ -492,50 +546,26 @@ def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
         image_encoder=WanVAEEncoderConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
         ),
-        enable_sync_and_profile=enable_sync_and_profile,
+        enable_sync_and_profile=True,
         encoder=WanVAEEncoderConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
         ),
         decoder=decoder_config,
         diffusion_model=DiffusionModelConfig(
             seed=seed,
-            transformer=CosmosTransformerConfig(
-                network=CosmosDiTNetworkConfig(
-                    in_channels=16,
-                    out_channels=16,
-                    patch_spatial=2,
-                    patch_temporal=1,
-                    model_channels=2048,
-                    num_blocks=28,
-                    num_heads=16,
-                    use_adaln_lora=True,
-                    adaln_lora_dim=256,
-                    use_crossattn_projection=True,
-                    crossattn_proj_in_channels=100352,
-                    crossattn_emb_channels=1024,
-                    timestep_scale=0.001,
-                ),
+            transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-bidirectional-chunk48"
                 ],
-                batch_shape=_DEFAULT_BATCH_SHAPE,
-                num_views=1,
-                height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-                width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
-                len_t=num_chunks,
                 cp_size=cp_size,
-                enable_hdmap_condition=True,
-                encode_with_pixel_shuffle=False,
-                h_extrapolation_ratio=3.0,
-                w_extrapolation_ratio=3.0,
-                window_size_t=num_chunks,
-                sink_size_t=0,
                 compile_network=compile_network,
-                use_cuda_graph=use_cuda_graph,
-                # This recipe emits a single block, so there is no next AR step
-                # that needs a refreshed KV cache.
+                num_views=1,
+                len_t_latent=num_chunks,
+                window_size_t=num_chunks,
+                encode_with_pixel_shuffle=False,
                 skip_finalize_kv_cache=True,
-                guidance_scale=guidance_scale,
+                use_cuda_graph=use_cuda_graph,
+                guidance_scale=3.0,
             ),
             scheduler=FlowMatchUniPCSchedulerConfig(
                 num_inference_steps=35,
@@ -552,8 +582,9 @@ ALPADREAMS_CONFIG_BUILDERS: dict[str, Callable[..., AlpadreamsPipelineConfig]] =
     "sv_2steps_chunk3_loc6_vae_vae": build_sv_2steps_chunk3_loc6_vae_vae,
     "sv_2steps_chunk4_loc8_pshuffle_lighttae": build_sv_2steps_chunk4_loc8_pshuffle_lighttae,
     "mv_2steps_chunk4_loc8_pshuffle_lighttae": build_mv_2steps_chunk4_loc8_pshuffle_lighttae,
-    # bidirectional
-    "sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m": build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m,
+    # teachers
+    "sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m": build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m,
+    "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m": build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m,
     # experiments
     "experiment1_baseline": experiment1_baseline,
     "experiment1_skip_finalize_kv_cache": experiment1_skip_finalize_kv_cache,

@@ -74,8 +74,10 @@ Run::
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -86,9 +88,7 @@ from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
-from flashdreams.recipes.alpadreams.config import (
-    ALPADREAMS_CONFIG_BUILDERS,
-)
+from flashdreams.recipes.alpadreams.config import ALPADREAMS_CONFIG_BUILDERS
 from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
@@ -113,7 +113,7 @@ def _needs_negative_text(pipeline_config: AlpadreamsPipelineConfig) -> bool:
 
 def _config_uses_num_chunks(config_name: str) -> bool:
     return config_name in [
-        "sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m"
+        "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m"
     ]
 
 
@@ -125,6 +125,14 @@ def _num_chunks_args(
     if not _config_uses_num_chunks(config_name):
         raise ValueError("--num_chunks is only supported by the bidirectional config.")
     return {"num_chunks": requested_num_chunks}
+
+
+def _build_config(
+    builder: Callable[..., AlpadreamsPipelineConfig],
+    **kwargs: object,
+) -> AlpadreamsPipelineConfig:
+    parameters = inspect.signature(builder).parameters
+    return builder(**{key: value for key, value in kwargs.items() if key in parameters})
 
 
 def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
@@ -285,7 +293,8 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
     # Build config metadata only; the DiT/decoder are not instantiated in this path.
     num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
-    pipeline_config = builder(
+    pipeline_config = _build_config(
+        builder,
         cp_size=1,
         compile_network=False,
         seed=0,
@@ -443,7 +452,8 @@ def main() -> None:
             "Using bidirectional num_chunks="
             f"{num_chunks_args['num_chunks']} for this runtime."
         )
-    pipeline_config = builder(
+    pipeline_config = _build_config(
+        builder,
         cp_size=world_size,
         compile_network=not args.no_compile,
         seed=42 + rank,
@@ -627,7 +637,6 @@ def main() -> None:
     generated_video: list[torch.Tensor] = []
     stats_history: list[dict[str, float]] = []
     start = 0
-    print(f"total_blocks: {args.total_blocks}")
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_frames(i)
         end = start + num_frames
@@ -646,7 +655,9 @@ def main() -> None:
 
     video = torch.cat(generated_video, dim=2)  # [B, V, T, C, H, W]
     generated_num_frames = video.shape[2]
-    print("end of streaming inference, generated_video.shape:", video.shape)
+
+    if rank == 0:
+        print("end of streaming inference, generated_video.shape:", video.shape)
 
     if rank == 0:
         condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()

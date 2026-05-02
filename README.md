@@ -116,6 +116,15 @@ uv run --package flashdreams --extra examples \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
     flashdreams/examples/run_alpadreams.py \
     --n_cameras 4 --total_blocks 20
+
+# - diffusion forcing AR model on bundled single-view example data
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+    flashdreams/examples/run_alpadreams.py \
+    --n_cameras 1 \
+    --total_blocks 12 \
+    --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+    --offload_text_encoder
 ```
 
 ## Instructions to run Alpadreams Bidirectional Model
@@ -142,7 +151,7 @@ uv run --package flashdreams --extra examples \
     flashdreams/examples/run_alpadreams.py \
     --total_blocks 1 \
     --num_chunks 24 \
-    --overwrite_config_name sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m
+    --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m
 ```
 
 Useful options:
