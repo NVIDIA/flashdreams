@@ -390,6 +390,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FlowMatchSchedulerConfig</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm_unipc</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.text.cosmos_qwen</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CosmosReason1TextEncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
@@ -399,9 +402,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AlpadreamsPipelineConfig</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.transformer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">CosmosTransformerConfig</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.transformer</span><span class="w"> </span><span class="kn">import</span> <span class="n">CosmosTransformerConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.transformer.impl.network</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CosmosDiTNetworkConfig</span><span class="p">,</span>
 <span class="p">)</span>
@@ -421,6 +422,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="s2">&quot;1view-vae-chunk3&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt&quot;</span><span class="p">,</span>
     <span class="s2">&quot;4view-pshuffle-chunk4&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
     <span class="s2">&quot;4view-vae-chunk4&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;1view-bidirectional-chunk48&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/alpadreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt&quot;</span><span class="p">,</span>
 <span class="p">}</span>
 
 
@@ -837,6 +839,100 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span>
 
 
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Alpadreams bidirectional (single-view / 2B / 720p / chunk48 / UniPC)</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+<span class="n">_BIDIRECTIONAL_TRAIN_NUM_CHUNKS</span> <span class="o">=</span> <span class="mi">48</span>
+
+
+<div class="viewcode-block" id="build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">guidance_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">3.0</span><span class="p">,</span>
+    <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">num_chunks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_BIDIRECTIONAL_TRAIN_NUM_CHUNKS</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Single-view, bidirectional Cosmos2 2B / 720p / chunk48 pipeline.</span>
+
+<span class="sd">    ``num_chunks`` is the transformer&#39;s latent temporal length</span>
+<span class="sd">    (``len_t``) for the single generated block. The public pixel-space</span>
+<span class="sd">    frame count is derived later by the pipeline&#39;s decoder-aware</span>
+<span class="sd">    ``get_num_frames`` helper. The underlying checkpoint was trained for</span>
+<span class="sd">    48 chunks; entrypoints may choose a smaller value for their runtime</span>
+<span class="sd">    memory budget.</span>
+
+<span class="sd">    The transformer checkpoint path is baked into the recipe; override</span>
+<span class="sd">    in this builder if you need a different one.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">decoder_config</span> <span class="o">=</span> <span class="n">WanVAEDecoderConfig</span><span class="p">(</span>
+        <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;vae&quot;</span><span class="p">],</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">num_chunks</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;num_chunks must be positive, got </span><span class="si">{</span><span class="n">num_chunks</span><span class="si">}</span><span class="s2">.&quot;</span>
+    <span class="k">return</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">(</span>
+        <span class="n">text_encoder</span><span class="o">=</span><span class="n">CosmosReason1TextEncoderConfig</span><span class="p">(),</span>
+        <span class="n">image_encoder</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span><span class="p">(</span>
+            <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;vae&quot;</span><span class="p">],</span>
+        <span class="p">),</span>
+        <span class="n">enable_sync_and_profile</span><span class="o">=</span><span class="n">enable_sync_and_profile</span><span class="p">,</span>
+        <span class="n">encoder</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span><span class="p">(</span>
+            <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;vae&quot;</span><span class="p">],</span>
+        <span class="p">),</span>
+        <span class="n">decoder</span><span class="o">=</span><span class="n">decoder_config</span><span class="p">,</span>
+        <span class="n">diffusion_model</span><span class="o">=</span><span class="n">DiffusionModelConfig</span><span class="p">(</span>
+            <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
+            <span class="n">transformer</span><span class="o">=</span><span class="n">CosmosTransformerConfig</span><span class="p">(</span>
+                <span class="n">network</span><span class="o">=</span><span class="n">CosmosDiTNetworkConfig</span><span class="p">(</span>
+                    <span class="n">in_channels</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                    <span class="n">out_channels</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                    <span class="n">patch_spatial</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                    <span class="n">patch_temporal</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                    <span class="n">model_channels</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+                    <span class="n">num_blocks</span><span class="o">=</span><span class="mi">28</span><span class="p">,</span>
+                    <span class="n">num_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                    <span class="n">use_adaln_lora</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">adaln_lora_dim</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+                    <span class="n">use_crossattn_projection</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">crossattn_proj_in_channels</span><span class="o">=</span><span class="mi">100352</span><span class="p">,</span>
+                    <span class="n">crossattn_emb_channels</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+                    <span class="n">timestep_scale</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
+                    <span class="s2">&quot;1view-bidirectional-chunk48&quot;</span>
+                <span class="p">],</span>
+                <span class="n">batch_shape</span><span class="o">=</span><span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">,</span>
+                <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">height</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_HEIGHT</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
+                <span class="n">width</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_WIDTH</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
+                <span class="n">len_t</span><span class="o">=</span><span class="n">num_chunks</span><span class="p">,</span>
+                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
+                <span class="n">enable_hdmap_condition</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">encode_with_pixel_shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">h_extrapolation_ratio</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+                <span class="n">w_extrapolation_ratio</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+                <span class="n">window_size_t</span><span class="o">=</span><span class="n">num_chunks</span><span class="p">,</span>
+                <span class="n">sink_size_t</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
+                <span class="n">use_cuda_graph</span><span class="o">=</span><span class="n">use_cuda_graph</span><span class="p">,</span>
+                <span class="c1"># This recipe emits a single block, so there is no next AR step</span>
+                <span class="c1"># that needs a refreshed KV cache.</span>
+                <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">guidance_scale</span><span class="o">=</span><span class="n">guidance_scale</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">scheduler</span><span class="o">=</span><span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">(</span>
+                <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">35</span><span class="p">,</span>
+                <span class="n">shift</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
 <span class="n">ALPADREAMS_CONFIG_BUILDERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;sv_2steps_chunk2_loc6_lightvae_lighttae&quot;</span><span class="p">:</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae</span><span class="p">,</span>
     <span class="s2">&quot;sv_2steps_chunk2_loc6_lightvae_lighttae_perf&quot;</span><span class="p">:</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">,</span>
@@ -844,6 +940,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="s2">&quot;sv_2steps_chunk3_loc6_vae_vae&quot;</span><span class="p">:</span> <span class="n">build_sv_2steps_chunk3_loc6_vae_vae</span><span class="p">,</span>
     <span class="s2">&quot;sv_2steps_chunk4_loc8_pshuffle_lighttae&quot;</span><span class="p">:</span> <span class="n">build_sv_2steps_chunk4_loc8_pshuffle_lighttae</span><span class="p">,</span>
     <span class="s2">&quot;mv_2steps_chunk4_loc8_pshuffle_lighttae&quot;</span><span class="p">:</span> <span class="n">build_mv_2steps_chunk4_loc8_pshuffle_lighttae</span><span class="p">,</span>
+    <span class="c1"># bidirectional</span>
+    <span class="s2">&quot;sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m&quot;</span><span class="p">:</span> <span class="n">build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m</span><span class="p">,</span>
     <span class="c1"># experiments</span>
     <span class="s2">&quot;experiment1_baseline&quot;</span><span class="p">:</span> <span class="n">experiment1_baseline</span><span class="p">,</span>
     <span class="s2">&quot;experiment1_skip_finalize_kv_cache&quot;</span><span class="p">:</span> <span class="n">experiment1_skip_finalize_kv_cache</span><span class="p">,</span>

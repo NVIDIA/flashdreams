@@ -407,9 +407,11 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">StreamInferencePipelineCache</span><span class="p">,</span>
     <span class="n">StreamInferencePipelineConfig</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">NEGATIVE_PROMPT</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.transformer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CosmosTransformer</span><span class="p">,</span>
     <span class="n">CosmosTransformerCache</span><span class="p">,</span>
+    <span class="n">CosmosTransformerConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv</span><span class="w"> </span><span class="kn">import</span> <span class="n">TeahvVAEDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -523,6 +525,12 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">device</span>
 
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_use_negative_prompt</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">config</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">CosmosTransformerConfig</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cfg</span><span class="o">.</span><span class="n">requires_negative_text_embeddings</span>
+
 <div class="viewcode-block" id="AlpadreamsPipeline.initialize_cache">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
@@ -539,6 +547,8 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            image: First-frame pixels ``[B, V, 1, 3, H, W]`` in ``[-1, 1]``.</span>
 <span class="sd">                ``H``/``W`` must equal latent ``height``/``width`` times the</span>
 <span class="sd">                decoder&#39;s spatial compression ratio.</span>
+<span class="sd">                CFG-enabled configs use the recipe&#39;s training negative prompt</span>
+<span class="sd">                automatically.</span>
 <span class="sd">            view_names: View names (length ``V``); required when</span>
 <span class="sd">                ``num_views &gt; 1``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -557,10 +567,20 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">text</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span>
         <span class="p">)</span>  <span class="c1"># [B, V, L, D]</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>  <span class="c1"># [B, V, 1, Cl, Hl, Wl]</span>
+        <span class="n">negative_text_embeddings</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_use_negative_prompt</span><span class="p">:</span>
+            <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">([</span><span class="n">NEGATIVE_PROMPT</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">prompt_row</span><span class="p">])</span>
+                    <span class="k">for</span> <span class="n">prompt_row</span> <span class="ow">in</span> <span class="n">text</span>
+                <span class="p">],</span>
+                <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="p">)</span>
 
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">initialize_cache_from_embeddings</span><span class="p">(</span>
             <span class="n">text_embeddings</span><span class="o">=</span><span class="n">text_embeddings</span><span class="p">,</span>
             <span class="n">image_embeddings</span><span class="o">=</span><span class="n">image_embeddings</span><span class="p">,</span>
+            <span class="n">negative_text_embeddings</span><span class="o">=</span><span class="n">negative_text_embeddings</span><span class="p">,</span>
             <span class="n">view_names</span><span class="o">=</span><span class="n">view_names</span><span class="p">,</span>
         <span class="p">)</span></div>
 
@@ -572,6 +592,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">text_embeddings</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">image_embeddings</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">negative_text_embeddings</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">view_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineCache</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache from precomputed embeddings.</span>
@@ -585,11 +606,16 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">                Pass the full multi-view tensor; the CP split is applied here.</span>
 <span class="sd">            image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split</span>
 <span class="sd">                contract as ``text_embeddings``.</span>
+<span class="sd">            negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for</span>
+<span class="sd">                the recipe&#39;s training negative prompt. Required when the</span>
+<span class="sd">                transformer config requires negative text embeddings.</span>
 <span class="sd">            view_names: View names (length ``V``); required when</span>
 <span class="sd">                ``num_views &gt; 1``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">text_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">negative_text_embeddings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="n">negative_text_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
 
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
             <span class="n">text_embeddings</span><span class="p">,</span>
@@ -601,15 +627,25 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
             <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="k">if</span> <span class="n">negative_text_embeddings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
+                <span class="n">negative_text_embeddings</span><span class="p">,</span>
+                <span class="n">seq_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">,</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="n">view_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
 
+        <span class="n">transformer_context</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">,</span>
+            <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="p">,</span>
+            <span class="s2">&quot;view_names&quot;</span><span class="p">:</span> <span class="n">view_names</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">negative_text_embeddings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">transformer_context</span><span class="p">[</span><span class="s2">&quot;negative_text_embeddings&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">negative_text_embeddings</span>
+
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
-            <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">,</span>
-                <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="p">,</span>
-                <span class="s2">&quot;view_names&quot;</span><span class="p">:</span> <span class="n">view_names</span><span class="p">,</span>
-            <span class="p">},</span>
+            <span class="n">transformer_context</span><span class="o">=</span><span class="n">transformer_context</span><span class="p">,</span>
         <span class="p">)</span></div>
 
 
@@ -620,7 +656,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
         <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Run only the one-shot encoders and return their outputs on CPU.</span>
 
 <span class="sd">        Pair with ``initialize_cache_from_embeddings``: save the returned</span>
@@ -634,7 +670,8 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">        Returns:</span>
 <span class="sd">            ``{&quot;text_embeddings&quot;: [B, V, L, D],</span>
-<span class="sd">            &quot;image_embeddings&quot;: [B, V, 1, Cl, Hl, Wl]}`` on CPU.</span>
+<span class="sd">            &quot;image_embeddings&quot;: [B, V, 1, Cl, Hl, Wl],</span>
+<span class="sd">            &quot;negative_text_embeddings&quot;: [B, V, L, D] | None}`` on CPU.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;precompute_embeddings requires text_encoder and image_encoder &quot;</span>
@@ -647,9 +684,22 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">text</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span>
         <span class="p">)</span>  <span class="c1"># [B, V, L, D]</span>
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>  <span class="c1"># [B, V, 1, Cl, Hl, Wl]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_use_negative_prompt</span><span class="p">:</span>
+            <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">([</span><span class="n">NEGATIVE_PROMPT</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">prompt_row</span><span class="p">])</span>
+                    <span class="k">for</span> <span class="n">prompt_row</span> <span class="ow">in</span> <span class="n">text</span>
+                <span class="p">],</span>
+                <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="kc">None</span>
+
         <span class="k">return</span> <span class="p">{</span>
             <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span>
             <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span>
+            <span class="s2">&quot;negative_text_embeddings&quot;</span><span class="p">:</span> <span class="n">negative_text_embeddings</span><span class="p">,</span>
         <span class="p">}</span></div>
 
 

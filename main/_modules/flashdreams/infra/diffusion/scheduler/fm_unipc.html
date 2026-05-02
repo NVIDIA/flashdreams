@@ -702,7 +702,12 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">last_sample</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
-            <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="c1"># Schedule buffers are pinned to fp32 (to preserve integer</span>
+            <span class="c1"># timestep values under a stray `module.to(bf16)`), but the</span>
+            <span class="c1"># network expects timesteps in the input dtype so that</span>
+            <span class="c1"># downstream modulation / Linear layers stay consistent.</span>
+            <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">input_dtype</span><span class="p">)</span>
+
             <span class="c1"># Network forward (heavy compute -- everything else here is</span>
             <span class="c1"># ~free relative to this).</span>
             <span class="n">flow</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">sample</span><span class="p">,</span> <span class="n">timestep</span><span class="p">)</span>
