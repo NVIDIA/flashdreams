@@ -480,7 +480,7 @@ def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
         image_encoder=WanVAEEncoderConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
         ),
-        enable_sync_and_profile=False,
+        enable_sync_and_profile=True,
         encoder=WanVAEEncoderConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
         ),
