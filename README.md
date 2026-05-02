@@ -129,8 +129,10 @@ on first use.
 The runner uses the same bundled single-view Alpadreams example data as the
 autoregressive demo and resizes inputs to the pixel resolution required by the
 selected bidirectional config (`704x1280` for the default checkpoint).
-The default bidirectional config uses 24 latent chunks (93 decoded frames with
-the Wan decoder) because 48 chunks currently OOM in this recipe.
+The bidirectional recipe defaults to the checkpoint-trained 48 latent chunks
+(189 decoded frames with the Wan decoder). If that is too large for your GPU
+setup, pass `--num_chunks` to choose a smaller single-block length; for example,
+`--num_chunks 24` yields 93 decoded frames.
 Unlike the autoregressive demo, this bidirectional recipe generates one
 full block per run, so keep `--total_blocks 1`.
 
@@ -139,6 +141,7 @@ uv run --package flashdreams --extra examples \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
     flashdreams/examples/run_alpadreams.py \
     --total_blocks 1 \
+    --num_chunks 24 \
     --overwrite_config_name sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m
 ```
 
@@ -151,6 +154,9 @@ Useful options:
   text, negative text, and first-frame image embeddings to a `.pt`, then exits.
 - `--embeddings_path`: loads a `.pt` produced by `--save_embeddings_path` and
   skips loading the one-shot encoders during inference.
+- `--num_chunks`: overrides the bidirectional recipe's latent chunk count. Omit
+  it to use the checkpoint-trained default (`48`); lower it when runtime memory
+  is tight.
 
 The generated comparison video is written to
 `outputs/{output_prefix}_{world_size}gpus.mp4`, where `output_prefix` is based

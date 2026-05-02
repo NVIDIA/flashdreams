@@ -24,11 +24,14 @@ Picks one of :data:`ALPADREAMS_CONFIG_BUILDERS` based on
   ``sv_2steps_chunk2_loc6_lightvae_lighttae``.
 - ``--n_cameras 4`` — four surrounding cameras, defaults to
   ``mv_2steps_chunk4_loc8_pshuffle_lighttae``.
+- ``--overwrite_config_name`` can select other registered configs, including
+  the single-block bidirectional Alpadreams recipe. For configs that expose
+  ``num_chunks``, ``--num_chunks`` forwards a user-chosen latent length.
 
-Each AR step consumes a per-chunk HDMap pixel tensor (pre-extracted
-from the example MP4s) and, at step 0 only, the first-frame pixel
-tensor that seeds the I2V mask injection inside
-:class:`CosmosTransformer`.
+Autoregressive configs consume one per-chunk HDMap pixel tensor (pre-extracted
+from the example MP4s) at each AR step. Single-block bidirectional configs consume 
+one full-block HDMap tensor. At step/block 0, the first-frame pixel tensor seeds 
+the I2V mask injection inside :class:`CosmosTransformer`.
 
 Run::
 

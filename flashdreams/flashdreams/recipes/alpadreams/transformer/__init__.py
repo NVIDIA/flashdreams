@@ -452,7 +452,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             context=text_embeddings,
         )
         network_cache_uncond: CosmosDiTNetworkCache | None = None
-        if cfg.guidance_scale > 1.0:
+        if cfg.requires_negative_text_embeddings:
             assert negative_text_embeddings is not None, (
                 f"{type(cfg).__name__}.guidance_scale={cfg.guidance_scale} > 1.0 "
                 "requires negative_text_embeddings."

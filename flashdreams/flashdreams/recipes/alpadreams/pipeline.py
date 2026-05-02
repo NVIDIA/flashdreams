@@ -173,8 +173,8 @@ class AlpadreamsPipeline(
             image: First-frame pixels ``[B, V, 1, 3, H, W]`` in ``[-1, 1]``.
                 ``H``/``W`` must equal latent ``height``/``width`` times the
                 decoder's spatial compression ratio.
-                Bidirectional/CFG configs use the recipe's training negative
-                prompt automatically when ``guidance_scale > 1``.
+                CFG-enabled configs use the recipe's training negative prompt
+                automatically.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.
         """
@@ -230,8 +230,8 @@ class AlpadreamsPipeline(
             image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split
                 contract as ``text_embeddings``.
             negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for
-                the recipe's training negative prompt. Required by
-                bidirectional/CFG transformer configs when ``guidance_scale > 1``.
+                the recipe's training negative prompt. Required when the
+                transformer config requires negative text embeddings.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.
         """
