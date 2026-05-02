@@ -189,6 +189,11 @@ class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
     guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
 
+    @property
+    def requires_negative_text_embeddings(self) -> bool:
+        """Whether cache initialization must receive negative text embeddings."""
+        return self.guidance_scale > 1.0
+
     def __post_init__(self) -> None:
         assert self.guidance_scale >= 1.0, (
             f"guidance_scale must be >= 1.0, got {self.guidance_scale}"

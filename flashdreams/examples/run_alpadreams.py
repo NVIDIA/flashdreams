@@ -105,7 +105,23 @@ EXAMPLE_DATA_DIR_LOCAL = str(REPO_ROOT / "assets/example_data/alpadreams")
 def _needs_negative_text(pipeline_config: AlpadreamsPipelineConfig) -> bool:
     transformer_config = pipeline_config.diffusion_model.transformer
     assert isinstance(transformer_config, CosmosTransformerConfig)
-    return transformer_config.guidance_scale > 1.0
+    return transformer_config.requires_negative_text_embeddings
+
+
+def _config_uses_num_chunks(config_name: str) -> bool:
+    return config_name in [
+        "sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m"
+    ]
+
+
+def _num_chunks_args(
+    config_name: str, requested_num_chunks: int | None
+) -> dict[str, int]:
+    if requested_num_chunks is None:
+        return {}
+    if not _config_uses_num_chunks(config_name):
+        raise ValueError("--num_chunks is only supported by the bidirectional config.")
+    return {"num_chunks": requested_num_chunks}
 
 
 def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
@@ -158,6 +174,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--total_blocks", type=int, default=60, help="Total blocks to generate."
+    )
+    parser.add_argument(
+        "--num_chunks",
+        type=int,
+        default=None,
+        help=(
+            "Optional latent chunk override for configs that expose num_chunks, "
+            "currently only the bidirectional recipe."
+        ),
     )
     parser.add_argument(
         "--overwrite_config_name",
@@ -256,7 +281,13 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
 
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
     # Build config metadata only; the DiT/decoder are not instantiated in this path.
-    pipeline_config = builder(cp_size=1, compile_network=False, seed=0)
+    num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
+    pipeline_config = builder(
+        cp_size=1,
+        compile_network=False,
+        seed=0,
+        **num_chunks_args,
+    )
 
     assert (
         pipeline_config.text_encoder is not None
@@ -403,10 +434,17 @@ def main() -> None:
         print("HF_TOKEN detected; using env-var auth for huggingface_hub")
 
     builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
+    num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
+    if num_chunks_args and rank == 0:
+        print(
+            "Using bidirectional num_chunks="
+            f"{num_chunks_args['num_chunks']} for this runtime."
+        )
     pipeline_config = builder(
         cp_size=world_size,
         compile_network=not args.no_compile,
         seed=42 + rank,
+        **num_chunks_args,
     )
     needs_negative_text = _needs_negative_text(pipeline_config)
 

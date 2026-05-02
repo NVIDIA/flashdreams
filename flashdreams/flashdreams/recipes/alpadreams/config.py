@@ -458,9 +458,7 @@ def experiment1_skip_finalize_kv_cache_noise100(
 # Alpadreams bidirectional (single-view / 2B / 720p / chunk48 / UniPC)
 # ---------------------------------------------------------------------------
 
-# TODO: The model is trained with 48 chunks, but generating 48 chunks currently
-# results in OOM, so we use 24 chunks for now. We should fix this later.
-_BIDIRECTIONAL_MAX_NUM_CHUNKS = 24
+_BIDIRECTIONAL_TRAIN_NUM_CHUNKS = 48
 
 
 def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
@@ -471,17 +469,16 @@ def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     seed: int = 1,
     guidance_scale: float = 3.0,
     enable_sync_and_profile: bool = False,
-    num_chunks: int = _BIDIRECTIONAL_MAX_NUM_CHUNKS,
+    num_chunks: int = _BIDIRECTIONAL_TRAIN_NUM_CHUNKS,
 ) -> AlpadreamsPipelineConfig:
     """Single-view, bidirectional Cosmos2 2B / 720p / chunk48 pipeline.
 
     ``num_chunks`` is the transformer's latent temporal length
     (``len_t``) for the single generated block. The public pixel-space
     frame count is derived later by the pipeline's decoder-aware
-    ``get_num_frames`` helper: with the default Wan decoder,
-    ``num_chunks=24`` yields ``1 + (24 - 1) * 4 = 93`` frames.
-    The underlying checkpoint was trained for 48 chunks, but this recipe
-    currently caps runtime generation at 24 chunks to avoid OOM.
+    ``get_num_frames`` helper. The underlying checkpoint was trained for
+    48 chunks; entrypoints may choose a smaller value for their runtime
+    memory budget.
 
     The transformer checkpoint path is baked into the recipe; override
     in this builder if you need a different one.
@@ -489,11 +486,7 @@ def build_sv_35steps_chunk48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     decoder_config = WanVAEDecoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
     )
-    assert 1 <= num_chunks <= _BIDIRECTIONAL_MAX_NUM_CHUNKS, (
-        f"num_chunks must be in [1, {_BIDIRECTIONAL_MAX_NUM_CHUNKS}], "
-        f"the current runtime cap for this bidirectional recipe; "
-        f"got num_chunks={num_chunks}."
-    )
+    assert num_chunks >= 1, f"num_chunks must be positive, got {num_chunks}."
     return AlpadreamsPipelineConfig(
         text_encoder=CosmosReason1TextEncoderConfig(),
         image_encoder=WanVAEEncoderConfig(

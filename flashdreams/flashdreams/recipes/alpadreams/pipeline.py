@@ -154,14 +154,10 @@ class AlpadreamsPipeline(
         return self.diffusion_model.device
 
     @property
-    def _transformer_config(self) -> CosmosTransformerConfig:
+    def _use_negative_prompt(self) -> bool:
         cfg = self.diffusion_model.transformer.config
         assert isinstance(cfg, CosmosTransformerConfig)
-        return cfg
-
-    @property
-    def _use_negative_prompt(self) -> bool:
-        return self._transformer_config.guidance_scale > 1.0
+        return cfg.requires_negative_text_embeddings
 
     @torch.no_grad()
     def initialize_cache(
