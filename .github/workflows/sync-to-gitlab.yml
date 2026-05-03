@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   sync-to-gitlab:
-    runs-on: [self-hosted, type/docker]
+    runs-on: nv-cpu-general
     env:
       # Required secrets:
       #   GITLAB_TOKEN        (PAT with write_repository + api scope)
