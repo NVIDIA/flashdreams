@@ -3,10 +3,9 @@ name: Sync GitHub main -> GitLab MR
 on:
   # Trigger on pushes to main (for production use after testing)
   push:
-    branches: [main]
-  # Trigger on pull request updates (for testing)
-  pull_request:
-    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - "pull-request/[0-9]+"  # For testing on PRs (NVIDIA self-hosted runner requirement)
 
 permissions:
   contents: read
