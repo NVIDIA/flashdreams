@@ -19,8 +19,12 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.infra.diffusion.scheduler.fm_unipc import (
+    FlowMatchUniPCSchedulerConfig,
+)
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.recipes.alpadreams.config import (
+    ALPADREAMS_CONFIG_BUILDERS,
     build_sv_2steps_chunk2_loc6_lightvae_lighttae,
 )
 from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
@@ -207,6 +211,56 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
 
     assert cache.network_cache_uncond is not None
     assert fake_network.cache_kwargs[-1]["context"] is negative_text_embeddings
+
+
+@pytest.mark.parametrize(
+    (
+        "config_name",
+        "expected_len_t",
+        "expected_window_size_t",
+        "expected_skip_finalize_kv_cache",
+    ),
+    [
+        (
+            "sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            2,
+            24,
+            False,
+        ),
+        (
+            "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            48,
+            48,
+            True,
+        ),
+    ],
+)
+def test_alpadreams_teacher_config_builders_wire_cfg_negative_text(
+    config_name: str,
+    expected_len_t: int,
+    expected_window_size_t: int,
+    expected_skip_finalize_kv_cache: bool,
+) -> None:
+    pipeline_config = ALPADREAMS_CONFIG_BUILDERS[config_name](
+        compile_network=False,
+        use_cuda_graph=False,
+    )
+    transformer_config = pipeline_config.diffusion_model.transformer
+
+    assert isinstance(transformer_config, CosmosTransformerConfig)
+    assert transformer_config.guidance_scale > 1.0
+    assert transformer_config.requires_negative_text_embeddings
+    assert transformer_config.len_t == expected_len_t
+    assert transformer_config.window_size_t == expected_window_size_t
+    assert (
+        transformer_config.skip_finalize_kv_cache
+        is expected_skip_finalize_kv_cache
+    )
+
+    scheduler_config = pipeline_config.diffusion_model.scheduler
+    assert isinstance(scheduler_config, FlowMatchUniPCSchedulerConfig)
+    assert scheduler_config.num_inference_steps == 35
+    assert scheduler_config.shift == 5.0
 
 
 def test_alpadreams_streaming_inference():
