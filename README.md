@@ -1,5 +1,7 @@
 # FlashDreams
 
+<!-- Sync test marker. Remove after testing. -->
+
 ## Environment setup
 
 Install all workspace packages (flashdreams core + every integration) into a venv:
