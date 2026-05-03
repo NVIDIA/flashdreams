@@ -101,6 +101,7 @@ from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder, WanVAEDecoder
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
 EXAMPLE_DATA_DIR_LOCAL = str(REPO_ROOT / "assets/example_data/alpadreams")
+IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 
 def _needs_negative_text(pipeline_config: AlpadreamsPipelineConfig) -> bool:
@@ -123,6 +124,45 @@ def _num_chunks_args(
     if not _config_uses_num_chunks(config_name):
         raise ValueError("--num_chunks is only supported by the bidirectional config.")
     return {"num_chunks": requested_num_chunks}
+
+
+def _split_user_paths(value: str | None, *, n_cameras: int, name: str) -> list[str] | None:
+    if value is None:
+        return None
+    paths = [path.strip() for path in value.split(",") if path.strip()]
+    if len(paths) != n_cameras:
+        raise ValueError(
+            f"{name} expects {n_cameras} path(s), got {len(paths)}. "
+            "Use comma-separated paths for multi-view runs."
+        )
+    return paths
+
+
+def _apply_data_overrides(
+    data: list[dict],
+    *,
+    hdmap_video_path: str | None,
+    first_frame_path: str | None,
+) -> None:
+    hdmap_paths = _split_user_paths(
+        hdmap_video_path, n_cameras=len(data), name="--hdmap_video_path"
+    )
+    first_frame_paths = _split_user_paths(
+        first_frame_path, n_cameras=len(data), name="--first_frame_path"
+    )
+    for i, entry in enumerate(data):
+        if hdmap_paths is not None:
+            entry["hdmap_video_path"] = hdmap_paths[i]
+        if first_frame_paths is not None:
+            entry["first_frame_path"] = first_frame_paths[i]
+
+
+def _read_first_frame(path: str) -> np.ndarray:
+    if Path(path).suffix.lower() in IMAGE_SUFFIXES:
+        return media.read_image(path)[..., :3]
+    video = media.read_video(path)
+    assert video.shape[0] > 0, f"Video has no frames: {path}"
+    return video[0, ..., :3]
 
 
 def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
@@ -177,6 +217,18 @@ def parse_args() -> argparse.Namespace:
         "--total_blocks", type=int, default=60, help="Total blocks to generate."
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=1,
+        help="Base random seed. Each distributed rank uses seed + rank.",
+    )
+    parser.add_argument(
+        "--output_fps",
+        type=int,
+        default=30,
+        help="FPS used when saving the HDMap + generated video canvas.",
+    )
+    parser.add_argument(
         "--num_chunks",
         type=int,
         default=None,
@@ -191,6 +243,25 @@ def parse_args() -> argparse.Namespace:
         default=None,
         choices=[None, *sorted(ALPADREAMS_CONFIG_BUILDERS.keys())],
         help="Optionally override the per-n_cameras default config name.",
+    )
+    parser.add_argument(
+        "--hdmap_video_path",
+        type=str,
+        default=None,
+        help=(
+            "Optional HDMap video path override. For multi-view runs, pass "
+            "one comma-separated path per camera in the default camera order."
+        ),
+    )
+    parser.add_argument(
+        "--first_frame_path",
+        type=str,
+        default=None,
+        help=(
+            "Optional first-frame image or video path override. If a video is "
+            "provided, frame 0 is used. For multi-view runs, pass one "
+            "comma-separated path per camera in the default camera order."
+        ),
     )
     parser.add_argument(
         "--no_compile",
@@ -248,6 +319,11 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     lightweight). No distributed init: this is a single-GPU producer.
     """
     config_meta, data = _build_data(args.n_cameras)
+    _apply_data_overrides(
+        data,
+        hdmap_video_path=args.hdmap_video_path,
+        first_frame_path=args.first_frame_path,
+    )
     config_name = (
         args.overwrite_config_name
         if args.overwrite_config_name is not None
@@ -314,7 +390,7 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     first_frames: list[torch.Tensor] = []
     prompts: list[str] = []
     for entry in data:
-        first_frame = media.read_image(entry["first_frame_path"])
+        first_frame = _read_first_frame(entry["first_frame_path"])
         first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))
         first_frame_t = (
             torch.from_numpy(first_frame).to(dtype=dtype, device=device) / 127.5 - 1.0
@@ -388,6 +464,11 @@ def main() -> None:
         return
 
     config_meta, data = _build_data(args.n_cameras)
+    _apply_data_overrides(
+        data,
+        hdmap_video_path=args.hdmap_video_path,
+        first_frame_path=args.first_frame_path,
+    )
     config_name = (
         args.overwrite_config_name
         if args.overwrite_config_name is not None
@@ -444,7 +525,7 @@ def main() -> None:
     pipeline_config = builder(
         cp_size=world_size,
         compile_network=not args.no_compile,
-        seed=42 + rank,
+        seed=args.seed + rank,
         **num_chunks_args,
     )
     needs_negative_text = _needs_negative_text(pipeline_config)
@@ -474,7 +555,7 @@ def main() -> None:
         pre_first_frames: list[torch.Tensor] = []
         pre_prompts: list[str] = []
         for entry in data:
-            ff = media.read_image(entry["first_frame_path"])
+            ff = _read_first_frame(entry["first_frame_path"])
             ff = cv2.resize(ff, (pre_pixel_w, pre_pixel_h))
             ff_t = torch.from_numpy(ff).to(dtype=dtype, device=device) / 127.5 - 1.0
             pre_first_frames.append(rearrange(ff_t, "h w c -> 1 c h w"))
@@ -545,7 +626,7 @@ def main() -> None:
     needs_first_frames = args.embeddings_path is None and not args.offload_text_encoder
     for entry in data:
         if needs_first_frames:
-            first_frame = media.read_image(entry["first_frame_path"])
+            first_frame = _read_first_frame(entry["first_frame_path"])
             first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))
             first_frame_t = (
                 torch.from_numpy(first_frame).to(dtype=dtype, device=device) / 127.5
@@ -662,7 +743,7 @@ def main() -> None:
         )
         save_path = f"{REPO_ROOT}/outputs/{output_prefix}_{world_size}gpus.mp4"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        media.write_video(save_path, canvas, fps=30)
+        media.write_video(save_path, canvas, fps=args.output_fps)
         print(f"saved generated video to {save_path}")
 
         if stats_history:
