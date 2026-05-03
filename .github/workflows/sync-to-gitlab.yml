@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   sync-to-gitlab:
-    runs-on: nv-cpu-general
+    runs-on: linux-amd64-cpu8
     env:
       # Required secrets:
       #   GITLAB_TOKEN        (PAT with write_repository + api scope)
