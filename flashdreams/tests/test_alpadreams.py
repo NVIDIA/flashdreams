@@ -252,10 +252,7 @@ def test_alpadreams_teacher_config_builders_wire_cfg_negative_text(
     assert transformer_config.requires_negative_text_embeddings
     assert transformer_config.len_t == expected_len_t
     assert transformer_config.window_size_t == expected_window_size_t
-    assert (
-        transformer_config.skip_finalize_kv_cache
-        is expected_skip_finalize_kv_cache
-    )
+    assert transformer_config.skip_finalize_kv_cache is expected_skip_finalize_kv_cache
 
     scheduler_config = pipeline_config.diffusion_model.scheduler
     assert isinstance(scheduler_config, FlowMatchUniPCSchedulerConfig)

@@ -126,7 +126,9 @@ def _num_chunks_args(
     return {"num_chunks": requested_num_chunks}
 
 
-def _split_user_paths(value: str | None, *, n_cameras: int, name: str) -> list[str] | None:
+def _split_user_paths(
+    value: str | None, *, n_cameras: int, name: str
+) -> list[str] | None:
     if value is None:
         return None
     paths = [path.strip() for path in value.split(",") if path.strip()]
