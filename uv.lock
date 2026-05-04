@@ -12,7 +12,6 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "alpadreams-truesight",
     "flash-alpadreams",
     "flash-lingbot",
     "flashdreams",
@@ -150,32 +149,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/a6/f8/d9c74d0daf3f74284
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/b3/6b4067be973ae96ba0d615946e314c5ae35f9f993eca561b356540bb0c2b/alabaster-1.0.0-py3-none-any.whl", hash = "sha256:fc6786402dc3fcb2de3cabd5fe455a2db534b371124f1f21de8731783dec828b", size = 13929, upload-time = "2024-07-26T18:15:02.05Z" },
 ]
-
-[[package]]
-name = "alpadreams-truesight"
-version = "0.1.0"
-source = { editable = "internal/alpadreams_truesight" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "mediapy" },
-    { name = "opencv-python-headless" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-manual-marker" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "opencv-python-headless" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-manual-marker", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "annotated-doc"
