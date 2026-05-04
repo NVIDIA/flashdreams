@@ -69,6 +69,7 @@ class LingbotRuntimeConfig:
     config_name: str = "lingbot-world-fast-flash"
     compile_network: bool = True
     seed: int = 42
+    context_parallel_size: int = 1
     device: str = "cuda:0"
     video_height: int = 464
     video_width: int = 832
@@ -314,14 +315,18 @@ class LingbotInferenceRuntime:
             if self._world_scale <= 0:
                 self._world_scale = 1.0
 
-        base_pipeline_config = LINGBOT_WORLD_CONFIGS[self.config.config_name]
+        rollout_seed = (
+            self.config.seed + self.rank
+            if self.config.context_parallel_size > 1
+            else self.config.seed
+        )   
         pipeline_config = derive_config(
-            base_pipeline_config,
+            base_config=LINGBOT_WORLD_CONFIGS[self.config.config_name],
             enable_sync_and_profile=True,
             diffusion_model=dict(
-                seed=self.config.seed,
+                seed=rollout_seed,
                 transformer=dict(compile_network=self.config.compile_network),
-            ),
+            )
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
         self._first_frames = first_frames_t

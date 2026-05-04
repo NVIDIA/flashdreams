@@ -161,13 +161,65 @@ def create_app(
 
 
 def build_runtime_config(
-    args: argparse.Namespace, *, device_override: str | None = None
+    args: argparse.Namespace,
+    *,
+    device_override: str | None = None,
+    context_parallel_size: int = 1,
 ) -> LingbotRuntimeConfig:
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
+        context_parallel_size=context_parallel_size,
         device=device_override or args.device,
     )
+
+
+def initialize_distributed(
+    *, default_device: str | torch.device = "cuda:0"
+) -> tuple[torch.device, int, int]:
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA is required for inference in the Lingbot WebRTC server."
+        )
+
+    has_rank = "RANK" in os.environ
+    has_world_size = "WORLD_SIZE" in os.environ
+    if has_rank != has_world_size:
+        raise RuntimeError(
+            "Distributed launch expects both RANK and WORLD_SIZE to be set."
+        )
+
+    distributed_launch = has_rank and has_world_size
+    if distributed_launch:
+        distributed_init()
+        world_rank = dist.get_rank()
+        world_size = dist.get_world_size()
+    else:
+        world_rank = 0
+        world_size = 1
+
+    device_count = torch.cuda.device_count()
+    if device_count < 1:
+        raise RuntimeError("CUDA device count must be >= 1 for inference.")
+    if distributed_launch:
+        local_rank = world_rank % device_count
+        torch_device = torch.device(f"cuda:{local_rank}")
+    else:
+        torch_device = torch.device(default_device)
+        if torch_device.type != "cuda":
+            raise RuntimeError(
+                f"CUDA device is required for inference, got {torch_device}."
+            )
+        if torch_device.index is None:
+            torch_device = torch.device("cuda:0")
+    torch.cuda.set_device(torch_device)
+
+    LOGGER.info(
+        "Rank %s initialized Lingbot runtime with context_parallel_size %s",
+        world_rank,
+        world_size,
+    )
+    return torch_device, world_rank, world_size
 
 
 def main() -> None:
@@ -177,23 +229,15 @@ def main() -> None:
     )
     args = parse_args()
 
-    world_rank = 0
-    has_rank = "RANK" in os.environ
-    has_world_size = "WORLD_SIZE" in os.environ
-    if has_rank or has_world_size:
-        if not (has_rank and has_world_size):
-            raise RuntimeError(
-                "Distributed launch expects both RANK and WORLD_SIZE to be set."
-            )
-        local_device_idx = distributed_init()
-        if local_device_idx is None:
-            raise RuntimeError("Distributed launch must provide a CUDA local rank.")
-        world_rank = dist.get_rank()
-        runtime_device = f"cuda:{local_device_idx}"
-    else:
-        runtime_device = args.device
+    runtime_device, world_rank, context_parallel_size = initialize_distributed(
+        default_device=args.device
+    )
 
-    runtime_config = build_runtime_config(args, device_override=runtime_device)
+    runtime_config = build_runtime_config(
+        args,
+        device_override=str(runtime_device),
+        context_parallel_size=context_parallel_size,
+    )
     session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
     if world_rank == 0:
         app = create_app(session_manager=session_manager)
