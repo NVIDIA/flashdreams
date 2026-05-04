@@ -40,6 +40,40 @@ Multi GPU, multi view
 Each rank owns one camera; ring attention shards the per-camera context
 across the world.
 
+Diffusion forcing, single view
+------------------------------
+
+.. code-block:: bash
+
+   uv run --package flashdreams --extra examples \
+     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+       flashdreams/examples/run_alpadreams.py \
+       --n_cameras 1 \
+       --total_blocks 12 \
+       --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --offload_text_encoder
+
+With the usual ``--total_blocks 12`` rollout, the chunk2 checkpoint decodes to
+93 frames.
+
+Bidirectional, single view
+--------------------------
+
+.. code-block:: bash
+
+   uv run --package flashdreams --extra examples \
+     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+       flashdreams/examples/run_alpadreams.py \
+       --n_cameras 1 \
+       --total_blocks 1 \
+       --num_chunks 24 \
+       --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --offload_text_encoder
+
+The bidirectional checkpoint generates one full block per run. Omit
+``--num_chunks`` for the trained 48-chunk length, or set ``--num_chunks 24`` for
+a shorter 93-frame run.
+
 Credentials
 -----------
 

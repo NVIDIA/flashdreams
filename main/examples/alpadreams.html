@@ -404,6 +404,36 @@ for the perf-tuned variant (CUDA-graph captured forward + light VAE/TAE).</p>
 <p>Each rank owns one camera; ring attention shards the per-camera context
 across the world.</p>
 </section>
+<section id="diffusion-forcing-single-view">
+<h2>Diffusion forcing, single view<a class="headerlink" href="#diffusion-forcing-single-view" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams/examples/run_alpadreams.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--n_cameras<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--overwrite_config_name<span class="w"> </span>sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--offload_text_encoder
+</pre></div>
+</div>
+<p>With the usual <code class="docutils literal notranslate"><span class="pre">--total_blocks</span> <span class="pre">12</span></code> rollout, the chunk2 checkpoint decodes to
+93 frames.</p>
+</section>
+<section id="bidirectional-single-view">
+<h2>Bidirectional, single view<a class="headerlink" href="#bidirectional-single-view" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams/examples/run_alpadreams.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--n_cameras<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_chunks<span class="w"> </span><span class="m">24</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--overwrite_config_name<span class="w"> </span>sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--offload_text_encoder
+</pre></div>
+</div>
+<p>The bidirectional checkpoint generates one full block per run. Omit
+<code class="docutils literal notranslate"><span class="pre">--num_chunks</span></code> for the trained 48-chunk length, or set <code class="docutils literal notranslate"><span class="pre">--num_chunks</span> <span class="pre">24</span></code> for
+a shorter 93-frame run.</p>
+</section>
 <section id="credentials">
 <h2>Credentials<a class="headerlink" href="#credentials" title="Link to this heading">#</a></h2>
 <p>Checkpoints are pulled from the team S3 bucket. Drop a JSON file at
@@ -470,6 +500,8 @@ loader picks it up automatically.</p>
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#single-gpu-single-view">Single GPU, single view</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-gpu-multi-view">Multi GPU, multi view</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#diffusion-forcing-single-view">Diffusion forcing, single view</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bidirectional-single-view">Bidirectional, single view</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#credentials">Credentials</a></li>
 </ul>
   </nav></div>
