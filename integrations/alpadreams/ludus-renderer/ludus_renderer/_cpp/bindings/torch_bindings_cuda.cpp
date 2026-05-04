@@ -15,6 +15,7 @@
 
 #include "torch_common.inl"
 #include "torch_types.h"
+#include "../cudaraster/CudaRaster.hpp"
 #include <tuple>
 
 //------------------------------------------------------------------------
@@ -36,6 +37,29 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         .def("set_max_tessellation_levels", &LudusCudaStateWrapper::setMaxTessellationLevels)
         .def("upload_color_palette",     &LudusCudaStateWrapper::uploadColorPalette)
         .def("set_msaa_samples",         &LudusCudaStateWrapper::setMsaaSamples);
+
+    // CudaRaster low-level API test wrapper
+    pybind11::class_<CudaRasterTestWrapper>(m, "CudaRasterTestWrapper").def(pybind11::init<int>())
+        .def("set_buffer_size",             &CudaRasterTestWrapper::setBufferSize)
+        .def("set_viewport",                &CudaRasterTestWrapper::setViewport)
+        .def("set_render_mode_flags",       &CudaRasterTestWrapper::setRenderModeFlags)
+        .def("deferred_clear",              &CudaRasterTestWrapper::deferredClear)
+        .def("set_vertex_buffer",           &CudaRasterTestWrapper::setVertexBuffer)
+        .def("set_index_buffer",            &CudaRasterTestWrapper::setIndexBuffer)
+        .def("set_tiebreaker_color_buffer", &CudaRasterTestWrapper::setTiebreakerColorBuffer)
+        .def("set_deterministic_tiebreaker",&CudaRasterTestWrapper::setDeterministicTiebreaker)
+        .def("draw_triangles",              &CudaRasterTestWrapper::drawTriangles)
+        .def("swap_depth_and_peel",         &CudaRasterTestWrapper::swapDepthAndPeel)
+        .def("get_color_buffer",            &CudaRasterTestWrapper::getColorBuffer)
+        .def("get_depth_buffer",            &CudaRasterTestWrapper::getDepthBuffer)
+        .def("get_buffer_width",            &CudaRasterTestWrapper::getBufferWidth)
+        .def("get_buffer_height",           &CudaRasterTestWrapper::getBufferHeight)
+        .def("get_num_images",              &CudaRasterTestWrapper::getNumImages);
+
+    m.attr("CR_RENDER_MODE_ENABLE_BACKFACE_CULLING") =
+        pybind11::int_((int)CR::CudaRaster::RenderModeFlag_EnableBackfaceCulling);
+    m.attr("CR_RENDER_MODE_ENABLE_DEPTH_PEELING") =
+        pybind11::int_((int)CR::CudaRaster::RenderModeFlag_EnableDepthPeeling);
 
     // CUDA rendering ops
     m.def("ludus_render_fwd_cuda", &ludus_render_fwd_cuda, "ludus f-theta CUDA-only rendering (no opengl)");

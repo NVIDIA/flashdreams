@@ -14,6 +14,7 @@
 // limitations under the License.
 
 #include "torch_common.inl"
+#include <optional>
 
 //------------------------------------------------------------------------
 // Forward declarations.
@@ -118,6 +119,36 @@ public:
 
     LudusCudaState*             pState;
     int                         cudaDeviceIdx;
+};
+
+//------------------------------------------------------------------------
+// Python CudaRaster API test wrapper.
+
+class CudaRasterTestWrapper
+{
+public:
+    CudaRasterTestWrapper       (int cudaDeviceIdx);
+    ~CudaRasterTestWrapper      (void);
+
+    void setBufferSize          (int width, int height, int numImages);
+    void setViewport            (int width, int height, int offsetX, int offsetY);
+    void setRenderModeFlags     (unsigned int flags);
+    void deferredClear          (unsigned int clearColor);
+    void setVertexBuffer        (torch::Tensor vertices);
+    void setIndexBuffer         (torch::Tensor indices);
+    void setTiebreakerColorBuffer(torch::Tensor colors);
+    void setDeterministicTiebreaker(bool enable);
+    bool drawTriangles          (std::optional<torch::Tensor> ranges, bool peel);
+    void swapDepthAndPeel       (void);
+    torch::Tensor getColorBuffer(void);
+    torch::Tensor getDepthBuffer(void);
+    int getBufferWidth          (void) const;
+    int getBufferHeight         (void) const;
+    int getNumImages            (void) const;
+
+private:
+    class Impl;
+    Impl*                       m_impl;
 };
 
 //------------------------------------------------------------------------

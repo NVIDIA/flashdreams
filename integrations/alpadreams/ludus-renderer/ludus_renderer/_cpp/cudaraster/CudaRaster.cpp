@@ -93,4 +93,19 @@ void CudaRaster::swapDepthAndPeel(void)
     m_impl->swapDepthAndPeel();
 }
 
+int CudaRaster::getBufferWidth(void) const
+{
+    return m_impl->getBufferWidth();
+}
+
+int CudaRaster::getBufferHeight(void) const
+{
+    return m_impl->getBufferHeight();
+}
+
+int CudaRaster::getNumImages(void) const
+{
+    return m_impl->getNumImages();
+}
+
 //------------------------------------------------------------------------

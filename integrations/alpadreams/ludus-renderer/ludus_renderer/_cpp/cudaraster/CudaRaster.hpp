@@ -58,6 +58,9 @@ public:
     void*                   getColorBuffer          (void);                                              // GPU pointer managed by CudaRaster.
     void*                   getDepthBuffer          (void);                                              // GPU pointer managed by CudaRaster.
     void                    swapDepthAndPeel        (void);                                              // Swap depth and peeling buffers.
+    int                     getBufferWidth          (void) const;                                        // Actual color/depth buffer width in pixels after internal tile alignment.
+    int                     getBufferHeight         (void) const;                                        // Actual color/depth buffer height in pixels after internal tile alignment.
+    int                     getNumImages            (void) const;                                        // Number of images in color/depth buffers (as set by setBufferSize).
 
 private:
 					        CudaRaster           	(const CudaRaster&); // forbidden

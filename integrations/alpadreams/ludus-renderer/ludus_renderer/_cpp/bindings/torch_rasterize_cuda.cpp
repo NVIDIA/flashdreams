@@ -17,7 +17,167 @@
 #include "torch_types.h"
 #include "../common/common.h"
 #include "../render/ludus_cuda.h"
+#include "../cudaraster/CudaRaster.hpp"
 #include <tuple>
+
+//------------------------------------------------------------------------
+// Low-level CudaRaster wrapper for API contract testing.
+
+class CudaRasterTestWrapper::Impl
+{
+public:
+    Impl(int cudaDeviceIdx_)
+    : raster(new CR::CudaRaster())
+    , cudaDeviceIdx(cudaDeviceIdx_)
+    {
+    }
+
+    ~Impl(void)
+    {
+        delete raster;
+    }
+
+    CR::CudaRaster* raster;
+    int cudaDeviceIdx;
+    // Tensor refs held so caller-managed GPU memory stays alive for the raster's pointers.
+    torch::Tensor vertices;
+    torch::Tensor indices;
+    torch::Tensor tiebreakerColors;
+    torch::Tensor ranges;
+};
+
+CudaRasterTestWrapper::CudaRasterTestWrapper(int cudaDeviceIdx)
+{
+    m_impl = new Impl(cudaDeviceIdx);
+}
+
+CudaRasterTestWrapper::~CudaRasterTestWrapper(void)
+{
+    delete m_impl;
+}
+
+void CudaRasterTestWrapper::setBufferSize(int width, int height, int numImages)
+{
+    m_impl->raster->setBufferSize(width, height, numImages);
+}
+
+void CudaRasterTestWrapper::setViewport(int width, int height, int offsetX, int offsetY)
+{
+    m_impl->raster->setViewport(width, height, offsetX, offsetY);
+}
+
+void CudaRasterTestWrapper::setRenderModeFlags(unsigned int flags)
+{
+    m_impl->raster->setRenderModeFlags(flags);
+}
+
+void CudaRasterTestWrapper::deferredClear(unsigned int clearColor)
+{
+    m_impl->raster->deferredClear(clearColor);
+}
+
+void CudaRasterTestWrapper::setVertexBuffer(torch::Tensor vertices)
+{
+    NVDR_CHECK(vertices.device().is_cuda(), "setVertexBuffer expects CUDA tensor");
+    NVDR_CHECK(vertices.dtype() == torch::kFloat32, "setVertexBuffer expects float32 tensor");
+    NVDR_CHECK(vertices.dim() == 2 && vertices.size(1) == 4, "setVertexBuffer expects [N, 4] tensor");
+    NVDR_CHECK(vertices.get_device() == m_impl->cudaDeviceIdx,
+               "setVertexBuffer tensor must be on wrapper CUDA device");
+    m_impl->vertices = vertices.contiguous();
+    m_impl->raster->setVertexBuffer(m_impl->vertices.data_ptr<float>(), (int)m_impl->vertices.size(0));
+}
+
+void CudaRasterTestWrapper::setIndexBuffer(torch::Tensor indices)
+{
+    NVDR_CHECK(indices.device().is_cuda(), "setIndexBuffer expects CUDA tensor");
+    NVDR_CHECK(indices.dtype() == torch::kInt32, "setIndexBuffer expects int32 tensor");
+    NVDR_CHECK(indices.dim() == 2 && indices.size(1) == 3, "setIndexBuffer expects [N, 3] tensor");
+    NVDR_CHECK(indices.get_device() == m_impl->cudaDeviceIdx,
+               "setIndexBuffer tensor must be on wrapper CUDA device");
+    m_impl->indices = indices.contiguous();
+    m_impl->raster->setIndexBuffer(m_impl->indices.data_ptr<int32_t>(), (int)m_impl->indices.size(0));
+}
+
+void CudaRasterTestWrapper::setTiebreakerColorBuffer(torch::Tensor colors)
+{
+    NVDR_CHECK(colors.device().is_cuda(), "setTiebreakerColorBuffer expects CUDA tensor");
+    NVDR_CHECK(colors.dtype() == torch::kInt32, "setTiebreakerColorBuffer expects int32 tensor");
+    NVDR_CHECK(colors.dim() == 1, "setTiebreakerColorBuffer expects [N] tensor");
+    NVDR_CHECK(colors.get_device() == m_impl->cudaDeviceIdx,
+               "setTiebreakerColorBuffer tensor must be on wrapper CUDA device");
+    m_impl->tiebreakerColors = colors.contiguous();
+    m_impl->raster->setTiebreakerColorBuffer(m_impl->tiebreakerColors.data_ptr<int32_t>());
+}
+
+void CudaRasterTestWrapper::setDeterministicTiebreaker(bool enable)
+{
+    m_impl->raster->setDeterministicTiebreaker(enable);
+}
+
+bool CudaRasterTestWrapper::drawTriangles(std::optional<torch::Tensor> ranges, bool peel)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, m_impl->cudaDeviceIdx));
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    if (!ranges.has_value())
+        return m_impl->raster->drawTriangles(nullptr, peel, stream);
+
+    torch::Tensor rangesTensor = ranges.value();
+    NVDR_CHECK(!rangesTensor.device().is_cuda(), "drawTriangles ranges must be CPU tensor");
+    NVDR_CHECK(rangesTensor.dtype() == torch::kInt32, "drawTriangles ranges must be int32 tensor");
+    NVDR_CHECK(rangesTensor.dim() == 2 && rangesTensor.size(1) == 2, "drawTriangles ranges must have shape [N, 2]");
+    NVDR_CHECK(rangesTensor.size(0) == m_impl->raster->getNumImages(),
+               "drawTriangles ranges first dimension must equal numImages");
+    m_impl->ranges = rangesTensor.contiguous();
+    return m_impl->raster->drawTriangles(m_impl->ranges.data_ptr<int32_t>(), peel, stream);
+}
+
+void CudaRasterTestWrapper::swapDepthAndPeel(void)
+{
+    m_impl->raster->swapDepthAndPeel();
+}
+
+torch::Tensor CudaRasterTestWrapper::getColorBuffer(void)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, m_impl->cudaDeviceIdx));
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    int w = m_impl->raster->getBufferWidth();
+    int h = m_impl->raster->getBufferHeight();
+    int n = m_impl->raster->getNumImages();
+    torch::TensorOptions opts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA, m_impl->cudaDeviceIdx);
+    torch::Tensor out = torch::empty({n, h, w}, opts);
+    size_t bytes = (size_t)n * (size_t)h * (size_t)w * sizeof(int32_t);
+    AT_CUDA_CHECK(cudaMemcpyAsync(out.data_ptr<int32_t>(), m_impl->raster->getColorBuffer(), bytes, cudaMemcpyDeviceToDevice, stream));
+    return out;
+}
+
+torch::Tensor CudaRasterTestWrapper::getDepthBuffer(void)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, m_impl->cudaDeviceIdx));
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    int w = m_impl->raster->getBufferWidth();
+    int h = m_impl->raster->getBufferHeight();
+    int n = m_impl->raster->getNumImages();
+    torch::TensorOptions opts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA, m_impl->cudaDeviceIdx);
+    torch::Tensor out = torch::empty({n, h, w}, opts);
+    size_t bytes = (size_t)n * (size_t)h * (size_t)w * sizeof(int32_t);
+    AT_CUDA_CHECK(cudaMemcpyAsync(out.data_ptr<int32_t>(), m_impl->raster->getDepthBuffer(), bytes, cudaMemcpyDeviceToDevice, stream));
+    return out;
+}
+
+int CudaRasterTestWrapper::getBufferWidth(void) const
+{
+    return m_impl->raster->getBufferWidth();
+}
+
+int CudaRasterTestWrapper::getBufferHeight(void) const
+{
+    return m_impl->raster->getBufferHeight();
+}
+
+int CudaRasterTestWrapper::getNumImages(void) const
+{
+    return m_impl->raster->getNumImages();
+}
 
 //------------------------------------------------------------------------
 // FLU to RDF conversion (same as GL path).

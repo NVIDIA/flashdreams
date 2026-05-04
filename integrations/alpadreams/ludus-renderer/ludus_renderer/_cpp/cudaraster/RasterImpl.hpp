@@ -40,6 +40,9 @@ public:
     void*                   getColorBuffer          (void) { return m_colorBuffer.getPtr(); } // GPU pointer.
     void*                   getDepthBuffer          (void) { return m_depthBuffer.getPtr(); } // GPU pointer.
     void                    swapDepthAndPeel        (void);
+    int                     getBufferWidth          (void) const { return m_bufferSizePixels.x; }
+    int                     getBufferHeight         (void) const { return m_bufferSizePixels.y; }
+    int                     getNumImages            (void) const { return m_numImages; }
     size_t                  getTotalBufferSizes     (void) const;
 
 private:
