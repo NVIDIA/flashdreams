@@ -8,29 +8,13 @@ on:
     tags:
       - '**'
 
+# Authenticate uv against the Artifactory PyPI index.
+# The secret is a read-only Artifactory access token for the
+# svc-oss-flashdreams-pypi-local-cicd service account.
+env:
+  UV_HTTP_BASIC_FLASHDREAMS_PYPI: "svc-oss-flashdreams-pypi-local-cicd:${{ secrets.ARTIFACTORY_FLASHDREAMS_PYPI_TOKEN }}"
+
 jobs:
-  lint:
-    runs-on: linux-amd64-cpu8
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install dependencies
-        run: |
-          # ty needs third-party packages to resolve imports. Skip packages
-          # that cannot be installed on CPU-only runners:
-          # - transformer-engine-torch: source-only, requires CUDA to compile
-          # - ludus-renderer: unavailable in CI
-          uv sync --extra dev --group lint \
-            --no-install-package transformer-engine-torch \
-            --no-install-package ludus-renderer
-
-      - name: Run linter checks
-        run: uv run --no-sync pre-commit run -a
-
   cpu:
     runs-on: linux-amd64-cpu8
     steps:
@@ -44,6 +28,20 @@ jobs:
 
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: |
+          # ty needs third-party packages to resolve imports. Skip packages
+          # that cannot be installed on CPU-only runners:
+          # - transformer-engine-torch: source-only, requires CUDA to compile
+          uv sync --extra dev --group lint \
+            --no-install-package transformer-engine-torch
+
+      - name: Run linter checks
+        run: uv run --no-sync pre-commit run -a
 
       - name: Run wheel build
         run: |

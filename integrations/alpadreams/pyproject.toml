@@ -20,11 +20,11 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-ludus-renderer = { index = "ludus_renderer_gitlab" }
+ludus-renderer = { index = "flashdreams_pypi" }
 
 [[tool.uv.index]]
-name = "ludus_renderer_gitlab"
-url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple"
+name = "flashdreams_pypi"
+url = "https://artifactory.nvidia.com/artifactory/api/pypi/oss-flashdreams-pypi-local/simple"
 explicit = true
 
 [project.optional-dependencies]

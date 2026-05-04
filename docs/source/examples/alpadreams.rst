@@ -43,6 +43,28 @@ across the world.
 Credentials
 -----------
 
+Artifactory
+~~~~~~~~~~~
+
+Alpadreams depends on the the ``ludus-renderer`` package. This
+is _currently_ hosted in a Artifactory PyPI repository.
+``uv`` authenticates via ``~/.netrc``. Add the following
+entry with your personal Artifactory identity token:
+
+.. code-block:: text
+
+   machine artifactory.nvidia.com
+     login <your-nvidia-username>
+     password <your-artifactory-identity-token>
+
+To generate a token, go to
+`Artifactory → User Profile → Identity Tokens <https://artifactory.nvidia.com/ui/admin/artifactory/user_profile>`_
+and create one scoped to the ``oss-flashdreams-pypi-local`` repository
+(or use a broader scope if you have one).
+
+S3 checkpoints
+~~~~~~~~~~~~~~
+
 Checkpoints are pulled from the team S3 bucket. Drop a JSON file at
 ``credentials/s3_checkpoint.secret`` with ``aws_access_key_id``,
 ``aws_secret_access_key``, ``endpoint_url``, ``region_name`` and the

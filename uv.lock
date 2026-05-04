@@ -574,7 +574,7 @@ requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
-    { name = "ludus-renderer", specifier = "==0.5.0+cuda", index = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple" },
+    { name = "ludus-renderer", specifier = "==0.5.0+cuda", index = "https://artifactory.nvidia.com/artifactory/api/pypi/oss-flashdreams-pypi-local/simple" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1004,7 +1004,7 @@ wheels = [
 [[package]]
 name = "ludus-renderer"
 version = "0.5.0+cuda"
-source = { registry = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple" }
+source = { registry = "https://artifactory.nvidia.com/artifactory/api/pypi/oss-flashdreams-pypi-local/simple" }
 dependencies = [
     { name = "ffmpeg" },
     { name = "imageio" },
@@ -1019,9 +1019,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "torch" },
 ]
-sdist = { url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/files/99403b745029880c011c287903b744ab3dde5400eaf7305af7df8c79f85f97da/ludus_renderer-0.5.0+cuda.tar.gz", hash = "sha256:99403b745029880c011c287903b744ab3dde5400eaf7305af7df8c79f85f97da" }
+sdist = { url = "https://artifactory.nvidia.com/artifactory/api/pypi/oss-flashdreams-pypi-local/ludus-renderer/0.5.0+cuda/ludus_renderer-0.5.0+cuda.tar.gz", hash = "sha256:99403b745029880c011c287903b744ab3dde5400eaf7305af7df8c79f85f97da" }
 wheels = [
-    { url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/files/0f1f32f34ac4d7472bb8b447ed36ec19c8a30e50f7c5568cd1b7fc4bccc2c926/ludus_renderer-0.5.0+cuda-py3-none-any.whl", hash = "sha256:0f1f32f34ac4d7472bb8b447ed36ec19c8a30e50f7c5568cd1b7fc4bccc2c926" },
+    { url = "https://artifactory.nvidia.com/artifactory/api/pypi/oss-flashdreams-pypi-local/ludus-renderer/0.5.0+cuda/ludus_renderer-0.5.0+cuda-py3-none-any.whl", hash = "sha256:0f1f32f34ac4d7472bb8b447ed36ec19c8a30e50f7c5568cd1b7fc4bccc2c926" },
 ]
 
 [[package]]
