@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ludus-renderer"
+version = "0.8.6"
+description = "Ludus Renderer - GPU-native F-theta mesh shader rendering"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{name = "NVIDIA"}]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch>=2.0",
+    "pandas",
+    "pyarrow",
+    "scipy",
+    "pillow",
+    "PyNvVideoCodec",
+    "setuptools",
+    "ninja>=1.13.0",
+    "nvidia-nvcomp-cu12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "imageio-ffmpeg",
+    "opencv-python",
+]
+
+[tool.setuptools]
+packages = [
+    "ludus_renderer",
+    "ludus_renderer._ops",
+    "ludus_renderer.torch",
+    "ludus_renderer.torch.api",
+]
+
+[tool.setuptools.package-data]
+"ludus_renderer" = [
+    "_cpp/common/*.h",
+    "_cpp/common/*.cpp",
+    "_cpp/render/*.h",
+    "_cpp/render/*.cpp",
+    "_cpp/render/*.cu",
+    "_cpp/cudaraster/*.hpp",
+    "_cpp/cudaraster/*.cpp",
+    "_cpp/cudaraster/*.cu",
+    "_cpp/cudaraster/*.inl",
+    "_cpp/bindings/*.h",
+    "_cpp/bindings/*.inl",
+    "_cpp/bindings/*.cpp",
+    "_cpp/nvjpeg/*.h",
+    "_cpp/nvjpeg/*.cpp",
+    "_cpp/nvjpeg/*.cu",
+    "_cpp/loader/*.h",
+    "_cpp/loader/*.cpp",
+    "_cpp/loader/*.cu",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "manual: requires GPU and/or network access (opt-in only)",
+]

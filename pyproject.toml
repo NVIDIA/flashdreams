@@ -7,6 +7,8 @@ members = [
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
+    # Explicitly list subpackages
+    "integrations/alpadreams/ludus-renderer",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -41,6 +43,7 @@ transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.
 extraPaths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
@@ -59,6 +62,7 @@ python-version = "3.12"
 extra-paths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
@@ -80,7 +84,7 @@ invalid-method-override = "ignore"
 
 [tool.ty.analysis]
 # These packages have no type stubs or are unavailable in CI; treat imports as Any
-replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**"]
+replace-imports-with-any = ["transformer_engine.**"]
 
 [dependency-groups]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]

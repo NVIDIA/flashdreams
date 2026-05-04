@@ -222,7 +222,7 @@ class LudusRenderer:
             timestamps_batch,
             camera_type_id_batch,
             camera_poses_batch,
-            resolution=(H, W),
+            resolution=(H, W),  # ty:ignore[invalid-argument-type]
         )
 
         rgb = images[:, :, :, :3]
@@ -232,7 +232,7 @@ class LudusRenderer:
             rgb.squeeze(0)
             .permute(0, 3, 1, 2)
             .contiguous()
-            .view(n_cameras, n_frames, 3, H, W)
+            .view(n_cameras, n_frames, 3, H, W)  # ty:ignore[invalid-argument-type]
         )
 
     def cleanup(self) -> None:

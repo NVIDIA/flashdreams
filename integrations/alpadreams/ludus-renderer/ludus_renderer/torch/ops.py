@@ -13,36 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+"""
+Backward compatibility layer for ludus_renderer.torch.ops imports.
 
-[project]
-name = "flash-alpadreams"
-version = "0.1.0"
-description = "Alpadreams inference with flashdreams"
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-    "flashdreams",
-    "mediapy>=1.1",
-    "ludus-renderer",
-    "grpcio-tools",
-    "grpcio",
-    "imageio",
-    "opencv-python-headless",
-    "shapely"
-]
+New code should import directly from ludus_renderer:
+    from ludus_renderer import LudusTimestampedContext, CAMERA_TYPE_REGULAR
 
-[tool.uv.sources]
-flashdreams = { workspace = true }
-ludus-renderer = { workspace = true }
+This module re-exports the same symbols for backward compatibility:
+    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR  # Still works
+"""
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-manual-marker",
-]
-
-[tool.setuptools.packages.find]
-exclude = ["tests"]
+# Re-export everything from _ops
+from .._ops import *
