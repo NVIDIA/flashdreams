@@ -17,6 +17,18 @@ override-dependencies = ["nvidia-cublas>=13.4"]
 # so TE builds against the resolved torch from the project venv.
 no-build-isolation-package = ["transformer-engine-torch"]
 
+# The `transformer-engine-torch==2.14.0` sdist on PyPI is missing its
+# `build_tools/` directory, so any from-source build (which is the only option
+# since there is no prebuilt wheel) crashes inside setup.py with
+# `ModuleNotFoundError: No module named 'build_tools'`. Tracked upstream in
+# https://github.com/NVIDIA/TransformerEngine/issues/1567 — fixed after 2.14.0.
+# Override the source to build from the v2.14.1 git tag, whose tree includes
+# `build_tools/`. Inside the prebuilt flashdreams container TE is already
+# installed system-wide, so this override is only exercised on host-side
+# `uv sync` runs.
+[tool.uv.sources]
+transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.14.1", subdirectory = "transformer_engine/pytorch" }
+
 [tool.pyright]
 extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
 # For pyright to pickup the correct python.
