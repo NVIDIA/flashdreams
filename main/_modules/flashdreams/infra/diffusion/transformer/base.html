@@ -406,7 +406,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    (default ``start`` / ``finalize`` are no-ops). Subclass and add fields</span>
 <span class="sd">    plus AR bookkeeping for real per-rollout state.</span>
 
-<span class="sd">    Typical usage example:</span>
+<span class="sd">    Examples:</span>
 
 <span class="sd">        cache.start(autoregressive_index)</span>
 <span class="sd">        # one or more denoising steps...</span>
@@ -451,7 +451,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    transformers also subclass ``TransformerAutoregressiveCache`` and</span>
 <span class="sd">    override ``initialize_autoregressive_cache``.</span>
 
-<span class="sd">    Typical usage example:</span>
+<span class="sd">    Examples:</span>
 
 <span class="sd">        class MyTransformer(Transformer[MyCache]):</span>
 <span class="sd">            def predict_flow(self, noisy_latent, timestep, cache, input=None):</span>

@@ -405,8 +405,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Configure attention format and backend.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            qkv_format: &quot;bshd&quot; (B, S, H, D) or &quot;bhsd&quot; (B, H, S, D). Default is &quot;bhsd&quot;.</span>
-<span class="sd">            backend: One of &quot;math&quot;, &quot;efficient&quot;, &quot;cudnn&quot;, &quot;flash&quot; for ``sdpa_kernel``.</span>
+<span class="sd">            qkv_format: Layout of the QKV tensors; ``&quot;bhsd&quot;`` is ``(B, H, S, D)``,</span>
+<span class="sd">                ``&quot;bshd&quot;`` is ``(B, S, H, D)``.</span>
+<span class="sd">            backend: SDPA backend selected via ``sdpa_kernel``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="k">assert</span> <span class="n">qkv_format</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid qkv format: </span><span class="si">{</span><span class="n">qkv_format</span><span class="si">}</span><span class="s2">&quot;</span>

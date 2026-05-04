@@ -459,9 +459,11 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Configure ring attention format and backend.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            qkv_format: &quot;bshd&quot; (B, S, H, D) or &quot;bhsd&quot; (B, H, S, D). Default is &quot;bhsd&quot;.</span>
-<span class="sd">            backend: &quot;cudnn&quot; or &quot;flash&quot; for the manual ring SDPA ops.</span>
-<span class="sd">            convert_to_fp32: Use float32 for LSE merge across ring steps.</span>
+<span class="sd">            qkv_format: Layout of the QKV tensors; ``&quot;bhsd&quot;`` is ``(B, H, S, D)``,</span>
+<span class="sd">                ``&quot;bshd&quot;`` is ``(B, S, H, D)``.</span>
+<span class="sd">            backend: Local SDPA backend used inside the ring step.</span>
+<span class="sd">            convert_to_fp32: Promote partial outputs to ``float32`` for the</span>
+<span class="sd">                cross-rank log-sum-exp merge.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="k">assert</span> <span class="n">qkv_format</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid qkv format: </span><span class="si">{</span><span class="n">qkv_format</span><span class="si">}</span><span class="s2">&quot;</span>

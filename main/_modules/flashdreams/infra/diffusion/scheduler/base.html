@@ -423,7 +423,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    declare their own ``num_inference_steps`` / ``shift`` fields (the base</span>
 <span class="sd">    holds no shared dataclass fields).</span>
 
-<span class="sd">    Typical usage example:</span>
+<span class="sd">    Examples:</span>
 
 <span class="sd">        scheduler = config.setup()</span>
 <span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)</span>
@@ -472,7 +472,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.</span>
 
 <span class="sd">        Timestep value semantics are scheduler-specific: FlowMatch snaps to</span>
 <span class="sd">        the nearest entry of its 1000-step training table; FlowUniPC</span>

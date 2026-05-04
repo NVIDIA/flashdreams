@@ -570,9 +570,8 @@ VAE the network was trained against. <code class="docutils literal notranslate">
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/alpadreams/pipeline.html#AlpadreamsPipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference internal" href="infra.html#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.base.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a>[<a class="reference internal" href="infra.html#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a>, <code class="xref py py-class docutils literal notranslate"><span class="pre">CosmosTransformerCache</span></code>, <a class="reference internal" href="infra.html#flashdreams.infra.decoder.DecoderAutoregressiveCache" title="flashdreams.infra.decoder.base.DecoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">DecoderAutoregressiveCache</span></code></a>]</p>
 <p>Alpadreams streaming inference pipeline (Cosmos DiT + HDMap + I2V mask).</p>
-<p>Typical usage example:</p>
-<blockquote>
-<div><p>pipeline: AlpadreamsPipeline = …</p>
+<p class="rubric">Examples</p>
+<p>pipeline: AlpadreamsPipeline = …</p>
 <dl class="simple">
 <dt>cache = pipeline.initialize_cache(</dt><dd><p>text=[[“A driving scene…”]],
 image=first_frames,
@@ -584,7 +583,6 @@ chunk = pipeline.generate(0, cache, hdmap=hdmap_chunk_0)
 pipeline.finalize(0, cache)
 chunk = pipeline.generate(1, cache, hdmap=hdmap_chunk_1)
 pipeline.finalize(1, cache)  # optional for the last rollout</p>
-</div></blockquote>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.initialize_cache">
 <span class="sig-name descname"><span class="pre">initialize_cache</span></span><span class="sig-paren">(</span>
@@ -804,15 +802,13 @@ cross-attention conditioning.</p>
 <p>T2V and I2V share the same rollout loop; the difference is whether you
 pass an <code class="docutils literal notranslate"><span class="pre">image</span></code> to <code class="docutils literal notranslate"><span class="pre">initialize_cache</span></code>. The pipeline config’s
 <code class="docutils literal notranslate"><span class="pre">encoder</span></code> slot must agree (<code class="docutils literal notranslate"><span class="pre">None</span></code> for T2V, an I2V config for I2V).</p>
-<p>Typical usage example:</p>
-<blockquote>
-<div><p>pipeline: WanInferencePipeline = …</p>
+<p class="rubric">Examples</p>
+<p>pipeline: WanInferencePipeline = …</p>
 <p>cache = pipeline.initialize_cache(text=[“A cat surfing.”])
 chunk = pipeline.generate(0, cache)
 pipeline.finalize(0, cache)
 chunk = pipeline.generate(1, cache)
 pipeline.finalize(1, cache)  # optional for the last rollout</p>
-</div></blockquote>
 <p>For I2V, also pass <code class="docutils literal notranslate"><span class="pre">image=first_frame</span></code> to <code class="docutils literal notranslate"><span class="pre">initialize_cache</span></code>.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.wan.pipeline.WanInferencePipeline.initialize_cache">
@@ -1025,6 +1021,18 @@ from <code class="docutils literal notranslate"><span class="pre">cache.image</s
 <dd><p>Bases: <a class="reference internal" href="infra.html#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">InstantiateConfig</span></code></a>[<a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder" title="flashdreams.recipes.taehv.TeahvVAEDecoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">TeahvVAEDecoder</span></code></a>]</p>
 <p>Config for the TAEHV decoder.</p>
 <dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path">
+<span class="sig-name descname"><span class="pre">checkpoint_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth'</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path" title="Link to this definition">#</a></dt>
+<dd><p>Path to a pretrained TAEHV checkpoint. Defaults to the <code class="docutils literal notranslate"><span class="pre">lighttae</span></code> weights.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype">
+<span class="sig-name descname"><span class="pre">dtype</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+git474b964 ))"><span class="pre">dtype</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">torch.bfloat16</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype" title="Link to this definition">#</a></dt>
+<dd><p>Network parameter / activation dtype.</p>
+</dd></dl>
+
+<dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph">
 <span class="sig-name descname"><span class="pre">use_cuda_graph</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph" title="Link to this definition">#</a></dt>
 <dd><p>Wrap the decoder forward in a CUDA graph for replay.</p>
@@ -1053,6 +1061,18 @@ from <code class="docutils literal notranslate"><span class="pre">cache.image</s
 tensor <code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">T,</span> <span class="pre">C,</span> <span class="pre">H,</span> <span class="pre">W]</span></code> in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>.</p>
 <p>Set <code class="docutils literal notranslate"><span class="pre">torch.backends.cudnn.benchmark</span> <span class="pre">=</span> <span class="pre">True</span></code> at process start for ~5%
 extra on the eager seed/tail chunks.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.mean">
+<span class="sig-name descname"><span class="pre">mean</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git474b964 ))"><span class="pre">Tensor</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.mean" title="Link to this definition">#</a></dt>
+<dd><p>Per-channel latent mean buffer; registered only when <code class="docutils literal notranslate"><span class="pre">need_scaled</span></code>.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.std">
+<span class="sig-name descname"><span class="pre">std</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git474b964 ))"><span class="pre">Tensor</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.std" title="Link to this definition">#</a></dt>
+<dd><p>Per-channel latent standard deviation buffer; registered only when <code class="docutils literal notranslate"><span class="pre">need_scaled</span></code>.</p>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">
 <span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">TAEHVCache</span></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
@@ -1071,15 +1091,20 @@ extra on the eager seed/tail chunks.</p>
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git474b964 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.forward" title="Link to this definition">#</a></dt>
-<dd><p>Define the computation performed at every call.</p>
-<p>Should be overridden by all subclasses.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although the recipe for forward pass needs to be defined within
-this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
-instead of this since the former takes care of running the
-registered hooks while the latter silently ignores them.</p>
-</div>
+<dd><p>Decode a latent chunk to a video tensor in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – Latent of shape <code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">Tl,</span> <span class="pre">Cl,</span> <span class="pre">Hl,</span> <span class="pre">Wl]</span></code>.</p></li>
+<li><p><strong>autoregressive_index</strong> – Unused by TAEHV; kept for the
+<a class="reference internal" href="infra.html#flashdreams.infra.decoder.Decoder" title="flashdreams.infra.decoder.Decoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Decoder</span></code></a> interface.</p></li>
+<li><p><strong>cache</strong> – Streaming decoder cache; created on the fly when <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Video tensor of shape <code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">T,</span> <span class="pre">C,</span> <span class="pre">H,</span> <span class="pre">W]</span></code> in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>.</p>
+</dd>
+</dl>
 </dd></dl>
 
 </dd></dl>
@@ -1192,11 +1217,15 @@ registered hooks while the latter silently ignores them.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-flashdreams.recipes.taehv">TAEHV</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig"><code class="docutils literal notranslate"><span class="pre">TeahvVAEDecoderConfig</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path"><code class="docutils literal notranslate"><span class="pre">checkpoint_path</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype"><code class="docutils literal notranslate"><span class="pre">dtype</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph"><code class="docutils literal notranslate"><span class="pre">use_cuda_graph</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_compile"><code class="docutils literal notranslate"><span class="pre">use_compile</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder"><code class="docutils literal notranslate"><span class="pre">TeahvVAEDecoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.mean"><code class="docutils literal notranslate"><span class="pre">mean</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.std"><code class="docutils literal notranslate"><span class="pre">std</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.forward"><code class="docutils literal notranslate"><span class="pre">forward()</span></code></a></li>
 </ul>

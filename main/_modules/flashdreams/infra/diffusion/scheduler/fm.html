@@ -452,7 +452,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            x_t = (1 - sigma(t)) * x0 + sigma(t) * eps</span>
 <span class="sd">        return x0</span>
 
-<span class="sd">    Typical usage example:</span>
+<span class="sd">    Examples:</span>
 
 <span class="sd">        scheduler = FlowMatchSchedulerConfig(</span>
 <span class="sd">            num_inference_steps=4,</span>
@@ -602,7 +602,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward corruption at an arbitrary timestep.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the forward corruption at an arbitrary timestep.</span>
 
 <span class="sd">        Snaps ``timestep`` to the nearest entry of the warped training table</span>
 <span class="sd">        and uses it as sigma in the standard lerp.</span>

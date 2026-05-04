@@ -408,7 +408,11 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;TeahvVAEDecoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">TeahvVAEDecoder</span><span class="p">)</span>
 
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;lighttae&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights.&quot;&quot;&quot;</span>
+
     <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Network parameter / activation dtype.&quot;&quot;&quot;</span>
+
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the decoder forward in a CUDA graph for replay.&quot;&quot;&quot;</span>
 
@@ -432,23 +436,27 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">TEMPORAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
     <span class="n">SPATIAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span>
 
-    <span class="c1"># Lighttae per-channel scaling buffers (registered when need_scaled).</span>
     <span class="n">mean</span><span class="p">:</span> <span class="n">Tensor</span>
-    <span class="n">std</span><span class="p">:</span> <span class="n">Tensor</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-channel latent mean buffer; registered only when ``need_scaled``.&quot;&quot;&quot;</span>
 
-    <span class="c1"># Per-channel scaling for the lighttae checkpoint.</span>
+    <span class="n">std</span><span class="p">:</span> <span class="n">Tensor</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-channel latent standard deviation buffer; registered only when ``need_scaled``.&quot;&quot;&quot;</span>
+
     <span class="n">_LIGHTTAE_MEAN</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
         <span class="o">-</span><span class="mf">0.7571</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.7089</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.9113</span><span class="p">,</span> <span class="mf">0.1075</span><span class="p">,</span>
         <span class="o">-</span><span class="mf">0.1745</span><span class="p">,</span> <span class="mf">0.9653</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.1517</span><span class="p">,</span> <span class="mf">1.5508</span><span class="p">,</span>
         <span class="mf">0.4134</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.0715</span><span class="p">,</span> <span class="mf">0.5517</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.3632</span><span class="p">,</span>
         <span class="o">-</span><span class="mf">0.1922</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.9497</span><span class="p">,</span> <span class="mf">0.2503</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.2921</span><span class="p">,</span>
     <span class="p">)</span>  <span class="c1"># fmt: skip</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-channel mean for the ``lighttae`` checkpoint&#39;s latent scaling.&quot;&quot;&quot;</span>
+
     <span class="n">_LIGHTTAE_STD</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
         <span class="mf">2.8184</span><span class="p">,</span> <span class="mf">1.4541</span><span class="p">,</span> <span class="mf">2.3275</span><span class="p">,</span> <span class="mf">2.6558</span><span class="p">,</span>
         <span class="mf">1.2196</span><span class="p">,</span> <span class="mf">1.7708</span><span class="p">,</span> <span class="mf">2.6052</span><span class="p">,</span> <span class="mf">2.0743</span><span class="p">,</span>
         <span class="mf">3.2687</span><span class="p">,</span> <span class="mf">2.1526</span><span class="p">,</span> <span class="mf">2.8652</span><span class="p">,</span> <span class="mf">1.5579</span><span class="p">,</span>
         <span class="mf">1.6382</span><span class="p">,</span> <span class="mf">1.1253</span><span class="p">,</span> <span class="mf">2.8251</span><span class="p">,</span> <span class="mf">1.9160</span><span class="p">,</span>
     <span class="p">)</span>  <span class="c1"># fmt: skip</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-channel standard deviation for the ``lighttae`` checkpoint&#39;s latent scaling.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">TeahvVAEDecoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
@@ -492,6 +500,17 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
         <span class="n">cache</span><span class="p">:</span> <span class="n">TAEHVCache</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Decode a latent chunk to a video tensor in ``[-1, 1]``.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            input: Latent of shape ``[..., Tl, Cl, Hl, Wl]``.</span>
+<span class="sd">            autoregressive_index: Unused by TAEHV; kept for the</span>
+<span class="sd">                :class:`~flashdreams.infra.decoder.Decoder` interface.</span>
+<span class="sd">            cache: Streaming decoder cache; created on the fly when ``None``.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Video tensor of shape ``[..., T, C, H, W]`` in ``[-1, 1]``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">cache</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">cache</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">initialize_autoregressive_cache</span><span class="p">()</span>
 

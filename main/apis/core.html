@@ -487,7 +487,7 @@ Layout along that dimension: [sink tokens | local window tokens]. Sink tokens ar
 never evicted; the local window rolls left as new chunks are added if full. Chunks are
 non-overlapping: each update adds one chunk of <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> tokens at the
 next logical position in the full sequence.</p>
-<p>Note: Currently only support total_size (sink_size + window_size) divisible by chunk_size.</p>
+<p>Note: Currently only supports <code class="docutils literal notranslate"><span class="pre">total_size</span></code> (<code class="docutils literal notranslate"><span class="pre">sink_size</span> <span class="pre">+</span> <span class="pre">window_size</span></code>) divisible by <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code>.</p>
 <dl class="simple">
 <dt>Phases:</dt><dd><ul class="simple">
 <li><p>Filling: cache not yet full; tokens are written contiguously;

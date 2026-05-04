@@ -403,7 +403,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    non-overlapping: each update adds one chunk of ``chunk_size`` tokens at the</span>
 <span class="sd">    next logical position in the full sequence.</span>
 
-<span class="sd">    Note: Currently only support total_size (sink_size + window_size) divisible by chunk_size.</span>
+<span class="sd">    Note: Currently only supports ``total_size`` (``sink_size + window_size``) divisible by ``chunk_size``.</span>
 
 <span class="sd">    Phases:</span>
 <span class="sd">        - Filling: cache not yet full; tokens are written contiguously;</span>
@@ -482,38 +482,34 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">return</span> <span class="n">cache</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># k and v should have the same shape except for the last dimension</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">v_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span>
             <span class="s2">&quot;k and v must have the same shape except for the last dimension&quot;</span>
         <span class="p">)</span>
 
-        <span class="c1"># update seq_dim to be positive</span>
         <span class="n">tensor_dim</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">)</span>
         <span class="k">assert</span> <span class="o">-</span><span class="n">tensor_dim</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span> <span class="o">&lt;</span> <span class="n">tensor_dim</span><span class="p">,</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;seq_dim must be in [-</span><span class="si">{</span><span class="n">tensor_dim</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">tensor_dim</span><span class="si">}</span><span class="s2">), got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
+        <span class="c1"># Normalize seq_dim to a non-negative index so downstream</span>
+        <span class="c1"># indexing math doesn&#39;t have to special-case negatives.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span> <span class="o">+</span> <span class="n">tensor_dim</span>
 
-        <span class="c1"># check non-negative sink size</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;sink_size must be non-negative&quot;</span>
 
-        <span class="c1"># buffer length at seq_dim must equal sink_size + window_size</span>
         <span class="n">expected_length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_size</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span> <span class="o">==</span> <span class="n">expected_length</span><span class="p">,</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;k_shape[seq_dim] (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span><span class="si">}</span><span class="s2">) must equal sink_size + window_size (</span><span class="si">{</span><span class="n">expected_length</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
 
-        <span class="c1"># check window_size + sink_size should be divisible by chunk_size</span>
         <span class="k">assert</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">window_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;window_size + sink_size (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">window_size</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span><span class="si">}</span><span class="s2">) must be divisible by chunk_size (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
 
-        <span class="c1"># initialize k and v</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_k</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_v</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">v_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_seq_slice</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">slice</span> <span class="o">|</span> <span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return an index tuple that slices the sequence dimension to [start:end]; other dims are :.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return an index tuple selecting ``[start:end]`` on ``seq_dim`` and all elements elsewhere.&quot;&quot;&quot;</span>
         <span class="n">idx</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">slice</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">slice</span><span class="p">(</span><span class="kc">None</span><span class="p">)]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">)</span>
         <span class="n">idx</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
         <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
@@ -699,7 +695,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span><span class="si">=}</span><span class="s2"> should be either </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2"> or </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="si">}</span><span class="s2">.&quot;</span>
             <span class="p">)</span>
 
-        <span class="c1"># reset the current chunk index as the last step.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="kc">None</span></div>
 
 
