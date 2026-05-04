@@ -136,6 +136,12 @@ def parse_args() -> argparse.Namespace:
             "Disable torch.compile of the DiT network (faster startup, slower steps)."
         ),
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Base random seed. Each distributed rank adds its rank to this value.",
+    )
     return parser.parse_args()
 
 
@@ -174,7 +180,7 @@ def main() -> None:
         builder(
             cp_size=world_size,
             compile_network=not args.no_compile,
-            seed=42 + rank,
+            seed=args.seed + rank,
             i2v=is_i2v,
             enable_sync_and_profile=True,
         )
