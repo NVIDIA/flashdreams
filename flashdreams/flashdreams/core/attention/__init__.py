@@ -15,8 +15,20 @@
 
 """Attention primitives and KV cache for streaming inference."""
 
+from flashdreams.core.attention.bsa import (
+    BlockSparseAttention,
+    build_local_spatial_block_mask,
+    build_topk_block_mask,
+)
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.native import NativeAttention
 from flashdreams.core.attention.ring import RingAttention
 
-__all__ = ["NativeAttention", "RingAttention", "BlockKVCache"]
+__all__ = [
+    "BlockKVCache",
+    "BlockSparseAttention",
+    "NativeAttention",
+    "RingAttention",
+    "build_local_spatial_block_mask",
+    "build_topk_block_mask",
+]

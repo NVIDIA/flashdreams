@@ -30,6 +30,7 @@ from flashdreams.core.distributed.context_parallel import (
 from flashdreams.infra.config import InstantiateConfig
 
 from .modules import (
+    _ALPADREAMS_BSA_WINDOW,
     Block,
     BlockCache,
     FinalLayer,
@@ -325,27 +326,56 @@ class CosmosDiTNetwork(nn.Module):
     ) -> Tensor:
         """Patchify and optionally CP-split the input video tensor.
 
-        If ``flatten_thw`` is ``False`` the patchify pattern is
-        ``b v (t kt) c (h kh) (w kw) -> b v t (h w) (c kt kh kw)``; otherwise
-        it is ``b v (t kt) c (h kh) (w kw) -> b v (t h w) (c kt kh kw)``.
+        ``flatten_thw=False`` uses the multi-view pattern
+        ``b v (t kt) c (h kh) (w kw) -> b v t (h w) (c kt kh kw)``.
+
+        ``flatten_thw=True`` (single-view, ``BlockSparseAttention``
+        path) fuses patchify with FlashVSR's 3-D window-partition so
+        the seq axis comes out in **128-token block-major order**
+        already: each contiguous ``wf*wh*ww`` span along ``L`` is one
+        ``(wf, wh, ww)`` 3-D window over the post-patch ``(T, H, W)``
+        token grid. Doing it here means the partition is paid once
+        per AR step instead of N-blocks × per-layer; it's the cheap-
+        est place to put it because the patchify rearrange is already
+        a permute + contiguous. The single-view assumption keeps the
+        seq axis from interleaving with the view axis (cross-view
+        attention's ``b v (t hw) d -> b t v hw d`` rearrange would
+        miscount otherwise).
 
         Returns:
-            Patched tensor with shape ``[B, V, T, HW, D]`` or ``[B, V, L, D]``.
+            Patched tensor with shape ``[B, V, T, HW, D]`` or
+            ``[B, V, L, D]``.
         """
         assert x.ndim == 6, f"x must be a 6D tensor, but got shape {x.shape}"
 
         if flatten_thw:
-            pattern = "... v (t kt) c (h kh) (w kw) -> ... v (t h w) (c kt kh kw)"
+            assert x.shape[-5] == 1, (
+                f"flatten_thw=True is single-view only; got V={x.shape[-5]}."
+            )
+            wf, wh, ww = _ALPADREAMS_BSA_WINDOW
+            pattern = (
+                "... v (nf wf kt) c (nh wh kh) (nw ww kw) "
+                "-> ... v (nf nh nw wf wh ww) (c kt kh kw)"
+            )
+            x = rearrange(
+                x,
+                pattern,
+                kt=self.config.patch_temporal,
+                kh=self.config.patch_spatial,
+                kw=self.config.patch_spatial,
+                wf=wf,
+                wh=wh,
+                ww=ww,
+            )
         else:
             pattern = "... v (t kt) c (h kh) (w kw) -> ... v t (h w) (c kt kh kw)"
-
-        x = rearrange(
-            x,
-            pattern,
-            kt=self.config.patch_temporal,
-            kh=self.config.patch_spatial,
-            kw=self.config.patch_spatial,
-        )
+            x = rearrange(
+                x,
+                pattern,
+                kt=self.config.patch_temporal,
+                kh=self.config.patch_spatial,
+                kw=self.config.patch_spatial,
+            )
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
@@ -371,18 +401,19 @@ class CosmosDiTNetwork(nn.Module):
     ) -> Tensor:
         """Unpatchify and optionally CP-gather the tensor back to video shape.
 
-        If ``flatten_thw`` is ``False`` the unpatchify pattern is
-        ``b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)``; otherwise
-        it is ``b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)``.
+        Inverse of :meth:`patchify_and_maybe_split_cp`. The
+        ``flatten_thw=True`` branch undoes the fused
+        patchify + window-partition in a single rearrange.
 
         Returns:
             Unpatched tensor with shape ``[B, V, T, C, H, W]``.
         """
         if flatten_thw:
-            pattern = "b v (t h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)"
             assert x.ndim == 4, f"x must be a 4D tensor, but got shape {x.shape}"
+            assert x.shape[-3] == 1, (
+                f"flatten_thw=True is single-view only; got V={x.shape[-3]}."
+            )
         else:
-            pattern = "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)"
             assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
 
         if process_groups is not None:
@@ -397,15 +428,35 @@ class CosmosDiTNetwork(nn.Module):
                     )
                     x = cat_outputs_cp(x, seq_dim=cp_dim, cp_group=process_group)
 
-        x = rearrange(
-            x,
-            pattern,
-            h=pH,
-            w=pW,
-            kt=self.config.patch_temporal,
-            kh=self.config.patch_spatial,
-            kw=self.config.patch_spatial,
-        )
+        if flatten_thw:
+            wf, wh, ww = _ALPADREAMS_BSA_WINDOW
+            pattern = (
+                "b v (nf nh nw wf wh ww) (c kt kh kw) "
+                "-> b v (nf wf kt) c (nh wh kh) (nw ww kw)"
+            )
+            x = rearrange(
+                x,
+                pattern,
+                nh=pH // wh,
+                nw=pW // ww,
+                wf=wf,
+                wh=wh,
+                ww=ww,
+                kt=self.config.patch_temporal,
+                kh=self.config.patch_spatial,
+                kw=self.config.patch_spatial,
+            )
+        else:
+            pattern = "b v t (h w) (c kt kh kw) -> b v (t kt) c (h kh) (w kw)"
+            x = rearrange(
+                x,
+                pattern,
+                h=pH,
+                w=pW,
+                kt=self.config.patch_temporal,
+                kh=self.config.patch_spatial,
+                kw=self.config.patch_spatial,
+            )
         return x  # [B, V, T, C, H, W]
 
     def initialize_cache(

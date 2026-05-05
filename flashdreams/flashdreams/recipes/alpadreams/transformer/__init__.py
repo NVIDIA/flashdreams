@@ -23,6 +23,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
@@ -42,11 +43,42 @@ from .impl.context_parallel import (
     HierarchicalCPGroups,
     create_hierarchical_cp_groups,
 )
+from .impl.modules import _ALPADREAMS_BSA_WINDOW
 from .impl.network import (
     CosmosDiTNetwork,
     CosmosDiTNetworkCache,
     CosmosDiTNetworkConfig,
 )
+
+
+def _reorder_rope_freqs_to_block_major(
+    rope_freqs: Tensor,
+    thw: tuple[int, int, int],
+    window: tuple[int, int, int],
+) -> Tensor:
+    """Reorder ``[L, 1, 1, d]`` rope freqs from row-major to BSA block-major.
+
+    The rope adapter builds ``freqs_*`` with einops ``(t h w)``
+    (row-major) ordering, but the alpadreams patchify emits the
+    network input in 128-token block-major order. Reorder once here
+    so ``apply_rope_freqs`` lines each token up with its own ``(t,
+    h, w)`` rope; without this every q/k token gets the wrong rope
+    after patchify and attention quality collapses.
+    """
+    T, H, W = thw
+    wf, wh, ww = window
+    L = rope_freqs.shape[0]
+    assert L == T * H * W, (
+        f"rope_freqs length {L} must equal T*H*W={T * H * W} "
+        f"(thw={thw}); CP-split rope is not handled here."
+    )
+    return rearrange(
+        rope_freqs.reshape(T, H, W, *rope_freqs.shape[1:]),
+        "(nf wf) (nh wh) (nw ww) ... -> (nf nh nw wf wh ww) ...",
+        wf=wf,
+        wh=wh,
+        ww=ww,
+    )
 
 ## Default camera names / view-index mapping
 
@@ -575,6 +607,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "predict_flow (DiffusionModel.generate handles this)."
         )
         rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * self.config._pT)
+        if self.flatten_thw:
+            rope_freqs = _reorder_rope_freqs_to_block_major(
+                rope_freqs,
+                thw=(self.config._pT, self.config._pH, self.config._pW),
+                window=_ALPADREAMS_BSA_WINDOW,
+            )
         noisy_latent = self._maybe_inject_image(noisy_latent, cache)
         return self._select_network(cache, uncond=uncond)(
             noisy_latent,

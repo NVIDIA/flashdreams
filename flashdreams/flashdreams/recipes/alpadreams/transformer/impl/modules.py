@@ -24,8 +24,30 @@ from einops import rearrange, repeat
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention
+from flashdreams.core.attention import (
+    BlockKVCache,
+    BlockSparseAttention,
+    RingAttention,
+)
 from flashdreams.recipes.wan.transformer.impl.rope import apply_rope_freqs
+
+# Hardcoded BSA self-attention layout for the alpadreams 720p config:
+# post-patchify token grid is (T_q=2, H=88//2=44, W=160//2=80); BSA's
+# 128-token block constraint factors cleanly with window=(2, 4, 16),
+# giving a (1, 11, 5) block grid per chunk (55 blocks of 128 tokens =
+# 7040). The KV cache temporal dim grows over rollout (T_k in
+# ``{2, 4, ...}``) so ``T_k`` is derived dynamically inside ``apply_kv``
+# from the cached K's sequence length.
+_ALPADREAMS_BSA_T_Q: int = 2
+_ALPADREAMS_BSA_HW: tuple[int, int] = (44, 80)
+_ALPADREAMS_BSA_WINDOW: tuple[int, int, int] = (2, 4, 16)
+# By the time q/k/v reach :class:`SelfAttention.apply_kv` they're
+# already in 128-token block-major order: the alpadreams patchify
+# (:meth:`CosmosDiTNetwork.patchify_and_maybe_split_cp` with
+# ``flatten_thw=True``) bakes a FlashVSR-style 3-D window-partition
+# into its einops pattern, and ``rope_freqs`` is reordered to match
+# at the alpadreams transformer wrapper. So this module never has to
+# permute q/k/v again per layer.
 
 
 class GPT2FeedForward(nn.Module):
@@ -392,7 +414,82 @@ class MultiHeadAttention(nn.Module):
 
 
 class SelfAttention(MultiHeadAttention):
-    """Self-attention: queries and K/V are derived from the same ``x`` each step."""
+    """Self-attention: queries and K/V are derived from the same ``x`` each step.
+
+    Overrides the parent's :class:`RingAttention` with
+    :class:`BlockSparseAttention` so the self-attention path can run
+    block-sparse over the post-patchify ``(T, H, W)`` token grid. Cross-
+    and cross-view-attention keep using :class:`RingAttention` because
+    their K/V come from non-3D-structured context.
+    """
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+    ) -> None:
+        super().__init__(
+            query_dim=query_dim,
+            context_dim=context_dim,
+            n_heads=n_heads,
+            head_dim=head_dim,
+        )
+        # Swap the parent's RingAttention with BSA. ``topk_ratio``
+        # defaults to ``1.0`` (dense, matches RingAttention numerics)
+        # so this is a drop-in until we tune a sparser ratio.
+        self.attn_op = BlockSparseAttention(
+            qkv_format="bshd",
+            window=_ALPADREAMS_BSA_WINDOW,
+        )
+
+    def apply_kv(
+        self,
+        x: Tensor,
+        kv_cache: BlockKVCache,
+        rope_freqs: Tensor | None = None,
+    ) -> Tensor:
+        """Run BSA self-attention against the cached K/V.
+
+        ``q_thw`` is fixed at ``(_ALPADREAMS_BSA_T_Q, *_ALPADREAMS_BSA_HW)``
+        because each AR chunk feeds exactly ``T_q`` post-patchify
+        frames into the query. ``kv_thw`` derives ``T_k`` from the
+        cached K's sequence length so the BSA call tracks the
+        streaming KV cache as it grows past one chunk
+        (e.g. ``T_k = 2 → 4`` once the second window is committed).
+        """
+        batch_shape = x.shape[:-2]
+        batch_size = math.prod(batch_shape)
+        L, D = x.shape[-2:]
+        n, d = self.n_heads, self.head_dim
+        assert n * d == D, "n * d must be equal to D"
+
+        q = self.q_norm(self.q_proj(x).reshape(batch_size, L, n, d))
+        if rope_freqs is not None:
+            q = apply_rope_freqs(q, rope_freqs)
+
+        cached_k = kv_cache.cached_k()
+        cached_v = kv_cache.cached_v()
+
+        H_tok, W_tok = _ALPADREAMS_BSA_HW
+        Sk = cached_k.shape[1]
+        spatial = H_tok * W_tok
+        assert Sk % spatial == 0, (
+            f"Cached K seq length {Sk} must be a multiple of H*W={spatial} "
+            f"so T_k is integral."
+        )
+        T_k = Sk // spatial
+        q_thw = (_ALPADREAMS_BSA_T_Q, H_tok, W_tok)
+        kv_thw = (T_k, H_tok, W_tok)
+
+        # q/cached_k/v are already in 128-token block-major order
+        # (see the module docstring): patchify fused the 3-D window-
+        # partition into its einops pattern and the KV cache appends
+        # in that same order, so we hand them to BSA as-is.
+        out = self.attn_op(q, cached_k, cached_v, q_thw=q_thw, kv_thw=kv_thw)
+        out = out.reshape(batch_shape + (L, n * d))
+        return self.output_proj(out)
 
     def initialize_cache(
         self,
