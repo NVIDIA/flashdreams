@@ -157,3 +157,9 @@ uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --i
 # Multi-camera benchmark (8 cameras per timestamp)
 uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --multicam
 ```
+
+# Contributing
+
+Contributions are welcome, thank you. This project only accepts contributions under the
+Apache License, Version 2.0. All contributions must be signed off in accordance with the
+[Developer Certificate of Origin (DCO)](CONTRIBUTING).

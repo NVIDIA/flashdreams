@@ -1,16 +1,16 @@
 """
-Cleanroom contract suite for `CR::CudaRaster` (the C++ class under
+Contract suite for `FW::CudaRaster` (the C++ class under
 `ludus_renderer/_cpp/cudaraster/`).
 
 Purpose
 -------
-The current `cudaraster/` directory is a post-Volta modernization of the
-HPG-2011 CudaRaster code carried through nvdiffrast (NVIDIA Source Code
-License). The plan is a cleanroom replacement using the original BSD-3
-CudaRaster (HPG 2011) plus minimal Volta+ porting work, to remove the
-NVIDIA-Source-Code-License obligation. This suite pins the contract that
-replacement must satisfy, written without reference to the existing
-implementation's internals.
+The `cudaraster/` directory now contains the original BSD-3-Clause
+CudaRaster code from the HPG 2011 paper "High-Performance Software
+Rasterization on GPUs" by Laine and Karras. This suite pins the API
+contract that the ported implementation must satisfy. The upstream code
+requires adaptation: Volta+ warp divergence fixes, API shims to match
+the `CR::CudaRaster` interface that ludus_cuda.cu expects, and removal
+of the FW framework dependencies.
 
 Marker conventions used in this file
 ------------------------------------
