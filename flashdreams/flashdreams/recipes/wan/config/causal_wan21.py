@@ -130,6 +130,8 @@ def _transformer_config(
     cp_size: int,
     compile_network: bool,
     len_t_latent: int = _DEFAULT_LEN_T_LATENT,
+    window_size_t: int = 21,
+    sink_size_t: int = 0,
     stamp_image_latent: bool = False,
 ) -> Wan21TransformerConfig:
     """Wan 1.3B transformer defaults for causal/streaming inference."""
@@ -145,8 +147,8 @@ def _transformer_config(
         len_t=len_t_latent,
         cp_size=cp_size,
         guidance_scale=1.0,
-        window_size_t=21,
-        sink_size_t=0,
+        window_size_t=window_size_t,
+        sink_size_t=sink_size_t,
         stamp_image_latent=stamp_image_latent,
         compile_network=compile_network,
     )
@@ -216,6 +218,35 @@ def build_self_forcing_lighttae(
     )
 
 
+def build_self_forcing_sink_s3w18(
+    *,
+    cp_size: int = 1,
+    compile_network: bool = True,
+    seed: int = 42,
+    i2v: bool = False,
+    enable_sync_and_profile: bool = False,
+) -> WanInferencePipelineConfig:
+    """Self-Forcing checkpoint with 3 sink frames and 18-frame recent window."""
+    return WanInferencePipelineConfig(
+        enable_sync_and_profile=enable_sync_and_profile,
+        encoder=_pipeline_encoder_config(i2v=i2v),
+        decoder=_wan_vae_decoder_config(),
+        diffusion_model=DiffusionModelConfig(
+            seed=seed,
+            transformer=_transformer_config(
+                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
+                    "self_forcing"
+                ],
+                cp_size=cp_size,
+                compile_network=compile_network,
+                window_size_t=18,
+                sink_size_t=3,
+            ),
+            scheduler=_scheduler_config(num_inference_steps=4),
+        ),
+    )
+
+
 def build_causal_forcing_chunkwise(
     *,
     cp_size: int = 1,
@@ -276,6 +307,7 @@ def build_causal_forcing_framewise(
 
 CAUSAL_WAN21_CONFIG_BUILDERS: dict[str, Callable[..., WanInferencePipelineConfig]] = {
     "self_forcing": build_self_forcing,
+    "self_forcing_sink_s3w18": build_self_forcing_sink_s3w18,
     "self_forcing_lighttae": build_self_forcing_lighttae,
     "causal_forcing_chunkwise": build_causal_forcing_chunkwise,
     "causal_forcing_framewise": build_causal_forcing_framewise,
