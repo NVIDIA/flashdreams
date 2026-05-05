@@ -16,7 +16,8 @@
 """Attention primitives: native SDPA, ring attention, and block KV cache."""
 
 from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.core.attention.memrope_kvcache import MemRoPEKVCache
 from flashdreams.core.attention.native import NativeAttention
 from flashdreams.core.attention.ring import RingAttention
 
-__all__ = ["NativeAttention", "RingAttention", "BlockKVCache"]
+__all__ = ["NativeAttention", "RingAttention", "BlockKVCache", "MemRoPEKVCache"]
