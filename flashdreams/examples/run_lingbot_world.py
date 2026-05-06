@@ -82,9 +82,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default="LingBot-World-Fast",
+        default="LingBot-World-Fast-Flash",
         choices=sorted(LINGBOT_WORLD_CONFIG_BUILDERS.keys()),
         help="Streaming checkpoint preset to load.",
+    )
+    parser.add_argument(
+        "--window_size_t",
+        type=int,
+        default=15,
+        help="Window size in latent frames.",
+    )
+    parser.add_argument(
+        "--sink_size_t",
+        type=int,
+        default=3,
+        help="Sink size in latent frames.",
     )
     parser.add_argument(
         "--total_blocks",
@@ -216,6 +228,8 @@ def main() -> None:
             compile_network=not args.no_compile,
             seed=42 + rank,
             enable_sync_and_profile=True,
+            window_size_t=args.window_size_t,
+            sink_size_t=args.sink_size_t,
         )
         .setup()
         .to(device=device)
@@ -267,7 +281,7 @@ def main() -> None:
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
         save_path = (
-            f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus.mp4"
+            f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus_window{args.window_size_t}_sink{args.sink_size_t}.mp4"
         )
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
