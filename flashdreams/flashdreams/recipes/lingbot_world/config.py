@@ -15,12 +15,13 @@
 
 """Pipeline-config builders for streaming Lingbot World camera-control I2V.
 
-Each builder takes only the runtime knobs the caller owns (CP size,
-``torch.compile`` toggle, seed, profiling) and returns a fully
-constructed pipeline config. Shape knobs (batch / view / resolution /
-per-chunk latent T) are pinned to canonical Lingbot defaults; callers
-that want different shapes should construct the transformer config
-directly.
+Each builder takes only the runtime knobs the caller owns
+(``torch.compile`` toggle, seed, profiling, streaming window) and
+returns a fully constructed pipeline config. CP size is auto-detected
+from ``torch.distributed.get_world_size()`` inside the transformer.
+Shape knobs (batch / view / resolution / per-chunk latent T) are pinned
+to canonical Lingbot defaults; callers that want different shapes
+should construct the transformer config directly.
 """
 
 from __future__ import annotations
@@ -64,10 +65,12 @@ _DEFAULT_DENOISING_TIMESTEPS = [999, 978, 947, 825]
 _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
 
 _DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1, 1)  # [B=1, V=1]
-_DEFAULT_VIDEO_HEIGHT = 464
-_DEFAULT_VIDEO_WIDTH = 832
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 464
+DEFAULT_VIDEO_WIDTH = 832
 _DEFAULT_LEN_T_LATENT = 3
-_WAN_VAE_SPATIAL_COMPRESSION = 8
+WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _wan_vae_decoder_config() -> WanVAEDecoderConfig:
@@ -104,7 +107,6 @@ def _scheduler_config(
 def _transformer_config(
     *,
     checkpoint_path: str,
-    cp_size: int,
     compile_network: bool,
     window_size_t: int = 60,
     sink_size_t: int = 0,
@@ -114,13 +116,14 @@ def _transformer_config(
         network=LingbotWorldDiTNetwork14BConfig(
             patch_embedding_type="conv3d",
             control_type="cam",
+            # 16 noise channels + 4-channel mask + 16-channel image latent
+            # (channel-concat I2V layout). Must match the
+            # ``concat_image_mask_to_latent=True`` setting below.
+            in_dim=16 + 4 + 16,
         ),
         checkpoint_path=checkpoint_path,
         batch_shape=_DEFAULT_BATCH_SHAPE,
-        height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-        width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
         len_t=_DEFAULT_LEN_T_LATENT,
-        cp_size=cp_size,
         # CFG off by default to match the upstream Lingbot checkpoint.
         guidance_scale=1.0,
         # Streaming defaults.
@@ -152,7 +155,6 @@ def _pipeline_encoder_config() -> I2VCamCtrlEncoderConfig:
 
 def build_lingbot_world_fast(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     enable_sync_and_profile: bool = False,
@@ -170,7 +172,6 @@ def build_lingbot_world_fast(
                 checkpoint_path=AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS[
                     "LingBot-World-Fast"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 window_size_t=window_size_t,
                 sink_size_t=sink_size_t,
@@ -182,7 +183,6 @@ def build_lingbot_world_fast(
 
 def build_lingbot_world_fast_flash(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     enable_sync_and_profile: bool = False,
@@ -200,7 +200,6 @@ def build_lingbot_world_fast_flash(
                 checkpoint_path=AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS[
                     "LingBot-World-Fast"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 window_size_t=window_size_t,
                 sink_size_t=sink_size_t,

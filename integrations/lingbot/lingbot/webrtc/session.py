@@ -222,7 +222,6 @@ class LingbotInferenceRuntime:
         builder = LINGBOT_WORLD_CONFIG_BUILDERS[self.config.config_name]
         self._pipeline = (
             builder(
-                cp_size=1,
                 compile_network=self.config.compile_network,
                 seed=self.config.seed,
                 enable_sync_and_profile=True,

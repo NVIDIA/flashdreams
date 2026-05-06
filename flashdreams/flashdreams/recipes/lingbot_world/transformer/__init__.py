@@ -20,7 +20,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import overload
 
-import torch
 from torch import Tensor
 
 from flashdreams.recipes.lingbot_world.encoder.camctrl import I2VCamCtrlEmbeddings
@@ -41,11 +40,13 @@ from .impl.network import (
 class LingbotWorldTransformerCache(Wan21TransformerCache):
     """Long-lived AR cache for the Lingbot World transformer.
 
-    The guidance scale lives on the config because it is a model-level
-    hyperparameter, not per-rollout state.
+    Narrows :class:`Wan21TransformerCache`'s network-cache slots to the
+    Plücker-aware Lingbot variant. Inherits ``rope_adapter`` /
+    ``rope_freqs`` / ``autoregressive_index`` from the parent and the
+    same ``start`` / ``finalize`` lifecycle.
     """
 
-    network_cache_cond: LingbotWorldDiTNetworkCache
+    network_cache: LingbotWorldDiTNetworkCache
     """Conditional per-block KV / cross-attn cache."""
 
     network_cache_uncond: LingbotWorldDiTNetworkCache | None = None
@@ -56,9 +57,12 @@ class LingbotWorldTransformerCache(Wan21TransformerCache):
 class LingbotWorldTransformerConfig(Wan21TransformerConfig):
     """Config for the Lingbot World transformer.
 
-    Each instance is bound to one ``(batch_shape, height, width,
-    len_t)`` layout and one ``cp_size``. The I2V channel-concat ``in_dim``
-    is enforced in ``__post_init__``.
+    Bakes in the temporal layout (``len_t``, ``window_size_t``,
+    ``sink_size_t``); per-rollout spatial layout (``height``, ``width``)
+    is supplied to
+    :meth:`Wan21Transformer.initialize_autoregressive_cache`. CP size is
+    auto-detected from ``torch.distributed.get_world_size()`` (see
+    :class:`Wan21TransformerConfig`).
     """
 
     _target: type["LingbotWorldTransformer"] = field(
@@ -73,12 +77,8 @@ class LingbotWorldTransformerConfig(Wan21TransformerConfig):
 class LingbotWorldTransformer(Wan21Transformer):
     """Lingbot World DiT (Wan 2.1 + per-block Plücker camera control)."""
 
-    def __init__(
-        self,
-        config: LingbotWorldTransformerConfig,
-        device: torch.device | None = None,
-    ) -> None:
-        super().__init__(config, device=device)
+    def __init__(self, config: LingbotWorldTransformerConfig) -> None:
+        super().__init__(config)
 
     def predict_flow(
         self,

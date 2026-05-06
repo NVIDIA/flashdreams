@@ -241,7 +241,6 @@ def main() -> None:
         builder_overrides["sink_size_t"] = args.sink_size_t
     pipeline = (
         builder(
-            cp_size=world_size,
             compile_network=not args.no_compile,
             seed=42 + rank,
             enable_sync_and_profile=True,

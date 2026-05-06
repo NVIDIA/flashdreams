@@ -80,7 +80,6 @@ def _default_branch_config() -> Wan21TransformerConfig:
     return Wan21TransformerConfig(
         network=WanDiTNetwork14BConfig(),
         len_t=3,
-        compile_network=True,
     )
 
 
@@ -121,8 +120,12 @@ class Wan22TransformerConfig(InstantiateConfig["Wan22Transformer"]):
     Wan 2.2 dispatches to one of two Wan 2.1 networks based on whether the
     timestep is above or below ``boundary_ratio * num_train_timesteps``.
     Both branches must agree on patch_size / in_dim / dim / batch_shape /
-    height / width / len_t / cp_size / guidance_scale (asserted in
-    ``__post_init__``). Wan 2.2 has no CFG or I2V support here.
+    len_t / guidance_scale (asserted in ``__post_init__``). The per-rollout
+    spatial layout (``height``, ``width``) is supplied to
+    :meth:`Wan22Transformer.initialize_autoregressive_cache` and forwarded
+    to both branches. The CP size is auto-detected from
+    ``torch.distributed.get_world_size()``, same as Wan 2.1. Wan 2.2 has
+    no CFG or I2V support here.
     """
 
     _target: type["Wan22Transformer"] = field(default_factory=lambda: Wan22Transformer)
@@ -165,10 +168,7 @@ class Wan22TransformerConfig(InstantiateConfig["Wan22Transformer"]):
         # branch — the two sub-configs can't disagree.
         for key in (
             "batch_shape",
-            "height",
-            "width",
             "len_t",
-            "cp_size",
             "guidance_scale",
         ):
             assert getattr(hi, key) == getattr(lo, key), (
@@ -188,20 +188,8 @@ class Wan22TransformerConfig(InstantiateConfig["Wan22Transformer"]):
         return self.transformer_high_noise.batch_shape
 
     @property
-    def height(self) -> int:
-        return self.transformer_high_noise.height
-
-    @property
-    def width(self) -> int:
-        return self.transformer_high_noise.width
-
-    @property
     def len_t(self) -> int:
         return self.transformer_high_noise.len_t
-
-    @property
-    def cp_size(self) -> int:
-        return self.transformer_high_noise.cp_size
 
     @property
     def dtype(self) -> torch.dtype:
@@ -226,19 +214,11 @@ class Wan22Transformer(Transformer[Wan22TransformerCache]):
     transformer_high_noise: Wan21Transformer
     transformer_low_noise: Wan21Transformer
 
-    def __init__(
-        self,
-        config: Wan22TransformerConfig,
-        device: torch.device | None = None,
-    ) -> None:
+    def __init__(self, config: Wan22TransformerConfig) -> None:
         super().__init__(config)
         self.config: Wan22TransformerConfig = config
-        self.transformer_high_noise = Wan21Transformer(
-            config.transformer_high_noise, device=device
-        )
-        self.transformer_low_noise = Wan21Transformer(
-            config.transformer_low_noise, device=device
-        )
+        self.transformer_high_noise = Wan21Transformer(config.transformer_high_noise)
+        self.transformer_low_noise = Wan21Transformer(config.transformer_low_noise)
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
@@ -249,21 +229,28 @@ class Wan22Transformer(Transformer[Wan22TransformerCache]):
     def initialize_autoregressive_cache(
         self,
         *,
+        height: int,
+        width: int,
         text_embeddings: Tensor,
         image_embeddings: Tensor | None = None,
         **_unused: Any,
     ) -> Wan22TransformerCache:
         """Build a seeded transformer cache for a new rollout.
 
-        Both branches see the same text/image conditioning, matching upstream
-        Wan 2.2. CFG is not supported here.
+        Both branches see the same text/image conditioning and the same
+        per-rollout spatial layout, matching upstream Wan 2.2. CFG is not
+        supported here.
         """
         return Wan22TransformerCache(
             transformer_high_noise=self.transformer_high_noise.initialize_autoregressive_cache(
+                height=height,
+                width=width,
                 text_embeddings=text_embeddings,
                 image_embeddings=image_embeddings,
             ),
             transformer_low_noise=self.transformer_low_noise.initialize_autoregressive_cache(
+                height=height,
+                width=width,
                 text_embeddings=text_embeddings,
                 image_embeddings=image_embeddings,
             ),

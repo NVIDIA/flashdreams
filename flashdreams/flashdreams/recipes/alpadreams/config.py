@@ -66,9 +66,11 @@ AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1,)
-_DEFAULT_VIDEO_HEIGHT = 704
-_DEFAULT_VIDEO_WIDTH = 1280
-_WAN_VAE_SPATIAL_COMPRESSION = 8
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`AlpadreamsPipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 704
+DEFAULT_VIDEO_WIDTH = 1280
+WAN_VAE_SPATIAL_COMPRESSION = 8
 _DEFAULT_DENOISING_TIMESTEPS = [1000, 450]
 _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
 
@@ -111,7 +113,6 @@ def _scheduler_config(
 def _transformer_config(
     *,
     checkpoint_path: str,
-    cp_size: int,
     num_views: int,
     len_t_latent: int,
     window_size_t: int,
@@ -122,16 +123,17 @@ def _transformer_config(
     use_cuda_graph: bool = True,
 ) -> CosmosTransformerConfig:
     return CosmosTransformerConfig(
-        network=CosmosDiTNetworkConfig(),
+        network=CosmosDiTNetworkConfig(
+            # HDMap conditioning channel count: 192 for the pixel-shuffle
+            # HDMap branch, 16 for the Wan-VAE HDMap branch. (0 disables
+            # HDMap conditioning entirely; no shipped builder uses that.)
+            additional_concat_ch=192 if encode_with_pixel_shuffle else 16,
+            enable_cross_view_attn=num_views > 1,
+        ),
         checkpoint_path=checkpoint_path,
         batch_shape=_DEFAULT_BATCH_SHAPE,
         num_views=num_views,
-        height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-        width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
         len_t=len_t_latent,
-        cp_size=cp_size,
-        enable_hdmap_condition=True,
-        encode_with_pixel_shuffle=encode_with_pixel_shuffle,
         h_extrapolation_ratio=3.0,
         w_extrapolation_ratio=3.0,
         window_size_t=window_size_t,
@@ -163,7 +165,6 @@ def _wan_vae_encoder(
 
 def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
@@ -181,7 +182,6 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-vae-chunk2"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=2,
@@ -196,7 +196,6 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae(
 # Performance optimized version of the above config
 def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     skip_finalize_kv_cache: bool = False,
@@ -220,7 +219,6 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-vae-chunk2"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=2,
@@ -235,7 +233,6 @@ def build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
 
 def build_sv_2steps_chunk2_loc6_vae_vae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
@@ -253,7 +250,6 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-vae-chunk2"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=2,
@@ -267,7 +263,6 @@ def build_sv_2steps_chunk2_loc6_vae_vae(
 
 def build_sv_2steps_chunk3_loc6_vae_vae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
@@ -285,7 +280,6 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-vae-chunk3"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=3,
@@ -299,7 +293,6 @@ def build_sv_2steps_chunk3_loc6_vae_vae(
 
 def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
@@ -317,7 +310,6 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-pshuffle-chunk4"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=4,
@@ -331,7 +323,6 @@ def build_sv_2steps_chunk4_loc8_pshuffle_lighttae(
 
 def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
@@ -349,7 +340,6 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "4view-pshuffle-chunk4"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=4,
                 len_t_latent=4,
@@ -364,13 +354,11 @@ def build_mv_2steps_chunk4_loc8_pshuffle_lighttae(
 # experiments1
 def experiment1_baseline(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 450]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=False,
@@ -380,13 +368,11 @@ def experiment1_baseline(
 
 def experiment1_skip_finalize_kv_cache(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 450]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=True,
@@ -396,13 +382,11 @@ def experiment1_skip_finalize_kv_cache(
 
 def experiment1_skip_finalize_kv_cache_noise350(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 350]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=True,
@@ -412,13 +396,11 @@ def experiment1_skip_finalize_kv_cache_noise350(
 
 def experiment1_skip_finalize_kv_cache_noise250(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 250]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=True,
@@ -428,13 +410,11 @@ def experiment1_skip_finalize_kv_cache_noise250(
 
 def experiment1_skip_finalize_kv_cache_noise150(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 150]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=True,
@@ -444,13 +424,11 @@ def experiment1_skip_finalize_kv_cache_noise150(
 
 def experiment1_skip_finalize_kv_cache_noise100(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
 ) -> AlpadreamsPipelineConfig:
     denoising_timesteps = [1000, 100]
     return build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf(
-        cp_size=cp_size,
         compile_network=compile_network,
         seed=seed,
         skip_finalize_kv_cache=True,
@@ -465,7 +443,6 @@ def experiment1_skip_finalize_kv_cache_noise100(
 
 def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     use_cuda_graph: bool = True,
     seed: int = 1,
@@ -494,7 +471,6 @@ def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-diffusion-forcing-chunk2"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=2,
@@ -519,7 +495,6 @@ def build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
 
 def build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     use_cuda_graph: bool = True,
     seed: int = 1,
@@ -557,7 +532,6 @@ def build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m(
                 checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
                     "1view-bidirectional-chunk48"
                 ],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 num_views=1,
                 len_t_latent=num_chunks,

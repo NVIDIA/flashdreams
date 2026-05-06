@@ -190,10 +190,13 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     cfg = SimpleNamespace(
         guidance_scale=3.0,
         requires_negative_text_embeddings=True,
-        network=fake_network,
-        _pH=2,
-        _pW=2,
-        _pT=1,
+        network=SimpleNamespace(
+            patch_temporal=1,
+            patch_spatial=1,
+            model_channels=fake_network.model_channels,
+            num_heads=fake_network.num_heads,
+            enable_cross_view_attn=fake_network.enable_cross_view_attn,
+        ),
         len_t=1,
         window_size_t=1,
         sink_size_t=0,
@@ -205,6 +208,8 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     transformer.config = cast(Any, cfg)
     transformer.cp_groups = HierarchicalCPGroups(rank=0)
     transformer.network = cast(Any, fake_network)
+    transformer._output_height = None
+    transformer._output_width = None
     # ``Transformer.device`` is a property reading from ``self.parameters()``;
     # register a placeholder so it resolves to CPU instead of asserting.
     transformer.register_parameter(
@@ -224,11 +229,15 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
 
     with pytest.raises(AssertionError, match="requires negative_text_embeddings"):
         transformer.initialize_autoregressive_cache(
+            height=2,
+            width=2,
             text_embeddings=text_embeddings,
             image_embeddings=image_embeddings,
         )
 
     cache = transformer.initialize_autoregressive_cache(
+        height=2,
+        width=2,
         text_embeddings=text_embeddings,
         image_embeddings=image_embeddings,
         negative_text_embeddings=negative_text_embeddings,

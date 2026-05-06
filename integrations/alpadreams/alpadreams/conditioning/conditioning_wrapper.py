@@ -101,7 +101,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
         resolution_wh: tuple[int, int],
         local_attn_size: int,
         sink_size: int,
-        cp_size: int = 1,
         denoising_step_list: list[int],
         num_frames_per_block: int,
         compile_net: bool,
@@ -152,7 +151,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
             resolution_wh=resolution_wh,
             local_attn_size=local_attn_size,
             sink_size=sink_size,
-            cp_size=cp_size,
             denoising_step_list=denoising_step_list,
             len_t=len_t,
             compile_net=compile_net,
@@ -189,7 +187,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
         resolution_wh: tuple[int, int],
         local_attn_size: int,
         sink_size: int,
-        cp_size: int,
         denoising_step_list: list[int],
         len_t: int,
         compile_net: bool,
@@ -253,15 +250,18 @@ class AlpadreamsConditioningWrapper(nn.Module):
 
         _, height = resolution_wh
         extrapolation = 2.0 if height <= 480 else 3.0
+        # Per-rollout latent (height, width) is supplied later via
+        # :meth:`AlpadreamsPipeline.initialize_cache` (derived from the
+        # encoded first-frame's shape).
         transformer_config = CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(),
+            network=CosmosDiTNetworkConfig(
+                # HDMap conditioning channel count: 192 for pixel-shuffle,
+                # 16 for the Wan-VAE branch.
+                additional_concat_ch=192 if encode_with_pixel_shuffle else 16,
+                enable_cross_view_attn=n_cameras > 1,
+            ),
             batch_shape=(1,),
-            height=height // 8,
-            width=resolution_wh[0] // 8,
-            enable_hdmap_condition=True,
-            encode_with_pixel_shuffle=encode_with_pixel_shuffle,
             num_views=n_cameras,
-            cp_size=cp_size,
             h_extrapolation_ratio=extrapolation,
             w_extrapolation_ratio=extrapolation,
             window_size_t=local_attn_size,

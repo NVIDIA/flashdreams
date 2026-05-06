@@ -86,7 +86,12 @@ from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
-from flashdreams.recipes.alpadreams.config import ALPADREAMS_CONFIG_BUILDERS
+from flashdreams.recipes.alpadreams.config import (
+    ALPADREAMS_CONFIG_BUILDERS,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_VIDEO_WIDTH,
+    WAN_VAE_SPATIAL_COMPRESSION,
+)
 from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
@@ -362,7 +367,6 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     # Build config metadata only; the DiT/decoder are not instantiated in this path.
     num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
     pipeline_config = builder(
-        cp_size=1,
         compile_network=False,
         seed=0,
         **num_chunks_args,
@@ -382,9 +386,10 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
     assert isinstance(
         pipeline_config.decoder, (WanVAEDecoderConfig, TeahvVAEDecoderConfig)
     )
-    decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO
-    pixel_h = transformer_cfg.height * decoder_sp
-    pixel_w = transformer_cfg.width * decoder_sp
+    # Per-rollout latent (h, w) is no longer baked into the transformer
+    # config; use the recipe's canonical pixel-space defaults.
+    pixel_h = DEFAULT_VIDEO_HEIGHT
+    pixel_w = DEFAULT_VIDEO_WIDTH
 
     text_encoder = pipeline_config.text_encoder.setup().to(device=device)
     image_encoder = pipeline_config.image_encoder.setup().to(device=device)
@@ -525,7 +530,6 @@ def main() -> None:
             f"{num_chunks_args['num_chunks']} for this runtime."
         )
     pipeline_config = builder(
-        cp_size=world_size,
         compile_network=not args.no_compile,
         seed=args.seed + rank,
         **num_chunks_args,
@@ -543,16 +547,17 @@ def main() -> None:
             and pipeline_config.image_encoder is not None
         ), "Cannot precompute: encoder configs are already None on this builder."
 
-        # Read the input pixel resolution off the configs without
-        # instantiating the transformer or decoder.
-        pre_transformer_cfg = pipeline_config.diffusion_model.transformer
-        assert isinstance(pre_transformer_cfg, CosmosTransformerConfig)
+        # The recipe's canonical pixel-space defaults govern resizing;
+        # per-rollout latent dims are derived from the resulting image
+        # later in ``pipeline.initialize_cache``.
+        assert isinstance(
+            pipeline_config.diffusion_model.transformer, CosmosTransformerConfig
+        )
         assert isinstance(
             pipeline_config.decoder, (WanVAEDecoderConfig, TeahvVAEDecoderConfig)
         )
-        pre_decoder_sp = pipeline_config.decoder._target.SPATIAL_COMPRESSION_RATIO
-        pre_pixel_h = pre_transformer_cfg.height * pre_decoder_sp
-        pre_pixel_w = pre_transformer_cfg.width * pre_decoder_sp
+        pre_pixel_h = DEFAULT_VIDEO_HEIGHT
+        pre_pixel_w = DEFAULT_VIDEO_WIDTH
 
         pre_first_frames: list[torch.Tensor] = []
         pre_prompts: list[str] = []
@@ -609,15 +614,15 @@ def main() -> None:
     assert isinstance(pipeline, AlpadreamsPipeline)
     pipeline.to(device=device)
 
-    # The transformer config bakes in a fixed (latent) resolution. Resize
-    # all pixel-space inputs (first frame, HDMap video) to the matching
-    # pixel-space resolution before feeding them to the pipeline.
+    # Per-rollout (latent) resolution is no longer baked into the
+    # transformer config; resize pixel-space inputs to the recipe's
+    # canonical defaults so the encoded image latent's spatial dims drive
+    # the per-rollout (height, width) inside ``pipeline.initialize_cache``.
     transformer_cfg = pipeline.diffusion_model.transformer.config
     assert isinstance(transformer_cfg, CosmosTransformerConfig)
     assert isinstance(pipeline.decoder, (WanVAEDecoder, TeahvVAEDecoder))
-    decoder_sp = pipeline.decoder.SPATIAL_COMPRESSION_RATIO
-    pixel_h = transformer_cfg.height * decoder_sp
-    pixel_w = transformer_cfg.width * decoder_sp
+    pixel_h = DEFAULT_VIDEO_HEIGHT
+    pixel_w = DEFAULT_VIDEO_WIDTH
 
     first_frames: list[torch.Tensor] = []
     hdmap_videos: list[torch.Tensor] = []

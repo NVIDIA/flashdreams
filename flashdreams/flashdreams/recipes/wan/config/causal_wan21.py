@@ -94,10 +94,12 @@ _DEFAULT_DENOISING_TIMESTEPS = [1000, 750, 500, 250]
 _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
 
 _DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1,)
-_DEFAULT_VIDEO_HEIGHT = 480
-_DEFAULT_VIDEO_WIDTH = 832
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 480
+DEFAULT_VIDEO_WIDTH = 832
 _DEFAULT_LEN_T_LATENT = 3  # framewise variant overrides to 1.
-_WAN_VAE_SPATIAL_COMPRESSION = 8
+WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _wan_vae_decoder_config() -> WanVAEDecoderConfig:
@@ -127,7 +129,6 @@ def _scheduler_config(num_inference_steps: int = 4) -> FlowMatchSchedulerConfig:
 def _transformer_config(
     *,
     checkpoint_path: str,
-    cp_size: int,
     compile_network: bool,
     len_t_latent: int = _DEFAULT_LEN_T_LATENT,
     stamp_image_latent: bool = False,
@@ -140,10 +141,7 @@ def _transformer_config(
         checkpoint_path=checkpoint_path,
         state_dict_transform=_remap_self_or_causal_forcing_state_dict,
         batch_shape=_DEFAULT_BATCH_SHAPE,
-        height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-        width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
         len_t=len_t_latent,
-        cp_size=cp_size,
         guidance_scale=1.0,
         window_size_t=21,
         sink_size_t=0,
@@ -168,7 +166,6 @@ def _pipeline_encoder_config(*, i2v: bool) -> InstantiateConfig[Any] | None:
 
 def build_self_forcing(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     i2v: bool = False,
@@ -183,7 +180,6 @@ def build_self_forcing(
             seed=seed,
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
-                cp_size=cp_size,
                 compile_network=compile_network,
             ),
             scheduler=_scheduler_config(num_inference_steps=4),
@@ -193,7 +189,6 @@ def build_self_forcing(
 
 def build_self_forcing_lighttae(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     i2v: bool = False,
@@ -208,7 +203,6 @@ def build_self_forcing_lighttae(
             seed=seed,
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
-                cp_size=cp_size,
                 compile_network=compile_network,
             ),
             scheduler=_scheduler_config(num_inference_steps=4),
@@ -218,7 +212,6 @@ def build_self_forcing_lighttae(
 
 def build_causal_forcing_chunkwise(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     i2v: bool = False,
@@ -235,7 +228,6 @@ def build_causal_forcing_chunkwise(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
                 ]["chunkwise"],
-                cp_size=cp_size,
                 compile_network=compile_network,
             ),
             scheduler=_scheduler_config(num_inference_steps=4),
@@ -245,7 +237,6 @@ def build_causal_forcing_chunkwise(
 
 def build_causal_forcing_framewise(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     i2v: bool = False,
@@ -262,7 +253,6 @@ def build_causal_forcing_framewise(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
                 ]["framewise"],
-                cp_size=cp_size,
                 compile_network=compile_network,
                 # framewise: one latent frame per chunk; I2V replaces it with
                 # the image latent at AR step 0.

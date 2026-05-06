@@ -54,7 +54,7 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     the residual stream diverges after the first cross-attention layer.
     """
 
-    network_cache_cond: WanDiTNetworkCache
+    network_cache: WanDiTNetworkCache
     """Conditional per-block KV / cross-attention caches."""
 
     network_cache_uncond: WanDiTNetworkCache | None = None
@@ -63,14 +63,11 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     rope_adapter: RotaryPositionEmbedding3D
     """3D RoPE adapter; advances along T per AR step."""
 
-    len_t: int
-    """Tokens along T per AR chunk (post-patchify, pre-CP)."""
-
-    len_h: int
-    """Tokens along H (post-patchify, pre-CP)."""
-
-    len_w: int
-    """Tokens along W (post-patchify, pre-CP)."""
+    rope_freqs: Tensor | None = None
+    """Self-attention RoPE frequencies for the current AR step.
+    Shape ``[L, 1, 1, head_dim // 2]`` after CP. Recomputed once per
+    AR step in :meth:`start` and reused across cond and uncond branches
+    (and across all scheduler steps within the AR step)."""
 
     autoregressive_index: int = -1
     """Current AR step index, set by ``start``."""
@@ -78,14 +75,18 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     def start(self, autoregressive_index: int) -> None:
         # Hoist per-block KV pre-update out of the (graph-captured) network
         # forward; predict_flow runs with eager_mode=False so the network
-        # itself does not call before_update.
+        # itself does not call before_update. Same for shift_t: tying the
+        # AR index into the captured graph as a Python int would re-trigger
+        # cat/repeat on every cond/uncond pass.
+        self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
+
         self.autoregressive_index = autoregressive_index
-        self.network_cache_cond.before_update(autoregressive_index)
+        self.network_cache.before_update(autoregressive_index)
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.before_update(autoregressive_index)
 
     def finalize(self, autoregressive_index: int) -> None:
-        self.network_cache_cond.after_update(autoregressive_index)
+        self.network_cache.after_update(autoregressive_index)
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.after_update(autoregressive_index)
 
@@ -97,19 +98,26 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
 class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     """Config for the Wan 2.1 transformer.
 
-    One instance is bound to a single ``(batch_shape, height, width, len_t)``
-    layout and a single context-parallel size. Wan flattens ``T*H*W`` into
-    one token axis and shards it across the THW CP group.
+    Bakes in the temporal layout (``len_t``, ``window_size_t``,
+    ``sink_size_t``) and the CFG / compile knobs. Per-rollout spatial
+    layout (``height``, ``width``) is supplied to
+    :meth:`Wan21Transformer.initialize_autoregressive_cache` so one
+    instance can serve multiple resolutions. Wan flattens ``T*H*W`` into
+    one token axis and shards it across the THW CP group; the CP size
+    is auto-detected from ``torch.distributed.get_world_size()`` at
+    construction time, so the launcher
+    (``torchrun --nproc_per_node=N``) is the single source of truth.
 
     The two I2V flags are independent and composable:
 
     - ``stamp_image_latent``: overwrite the noisy latent with the clean
       image latent at masked positions every denoising step, and re-stamp
-      the predicted ``x0`` the same way. ``in_dim`` unchanged. (flashdreams
-      mask-inject recipe; used by causal_wan21.)
-    - ``concat_image_mask_to_latent``: append the 4-channel mask and 16-
-      channel image latent along the channel dim, growing ``in_dim`` by 20.
-      Matches the official Wan 2.1 14B I2V layout.
+      the predicted ``x0`` the same way. ``network.in_dim`` unchanged.
+      (flashdreams mask-inject recipe; used by causal_wan21.)
+    - ``concat_image_mask_to_latent``: append the 4-channel mask and
+      16-channel image latent along the channel dim. Builders that set
+      this flag must also set ``network.in_dim = 16 + 4 + 16`` to match
+      the official Wan 2.1 14B I2V layout.
 
     With both enabled, the stamp runs first and the result is then
     concatenated with the mask + image latent.
@@ -128,18 +136,8 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     batch_shape: tuple[int, ...] = (1,)
     """Batch dims of the latent (excluding the L, D dims)."""
 
-    height: int = 60
-    """Latent height (post-VAE) in pixels."""
-
-    width: int = 104
-    """Latent width (post-VAE) in pixels."""
-
     len_t: int = 21
     """Latent frames per AR chunk (post-VAE)."""
-
-    cp_size: int = 1
-    """THW context-parallel group size; must equal
-    ``torch.distributed.get_world_size()``."""
 
     guidance_scale: float = 1.0
     """CFG scale ``s``: ``flow = uncond + s * (cond - uncond)``. ``1.0``
@@ -155,7 +153,7 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     h_extrapolation_ratio: float = 1.0
     w_extrapolation_ratio: float = 1.0
 
-    compile_network: bool = False
+    compile_network: bool = True
     """``torch.compile`` the network on init."""
 
     use_cuda_graph: bool = True
@@ -164,7 +162,7 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     calls. ``predict_flow`` dispatches to ``wrapper.drain`` while the KV
     cache is still filling and to ``wrapper`` once it reaches steady state."""
 
-    warmup_iters: int = 2
+    cuda_graph_warmup_iters: int = 2
     """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
     stamp_image_latent: bool = False
@@ -173,39 +171,6 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     concat_image_mask_to_latent: bool = False
     """See class docstring (channel-concat I2V layout)."""
 
-    def __post_init__(self) -> None:
-        assert self.guidance_scale >= 1.0, (
-            f"guidance_scale must be >= 1.0 (got {self.guidance_scale})"
-        )
-
-        if self.concat_image_mask_to_latent:
-            self.network.in_dim += 4 + 16
-
-        kt, kh, kw = self.network.patch_size
-        assert (
-            self.len_t % kt == 0 and self.height % kh == 0 and self.width % kw == 0
-        ), (
-            f"({self.len_t}, {self.height}, {self.width}) must be divisible by "
-            f"patch_size ({kt}, {kh}, {kw})"
-        )
-        self._pT = self.len_t // kt
-        self._pH = self.height // kh
-        self._pW = self.width // kw
-
-        # First AR step whose forward runs on the KV cache's steady-state
-        # code path. The cache fills at AR step ``chunks_total // _pT - 1``;
-        # the *next* step is the first one whose ``before_update`` sees
-        # ``is_steady_state() == True`` and whose forward takes the steady branches.
-        # Drain must cover that first steady call so Inductor autotunes those
-        # branches on the eager path before capture.
-        chunks_total = self.sink_size_t + self.window_size_t
-        assert chunks_total % self._pT == 0, (
-            f"sink_size_t + window_size_t ({chunks_total}) must be "
-            f"divisible by _pT ({self._pT}) so the BlockKVCache can fit "
-            f"a whole number of AR chunks."
-        )
-        self._steady_ar_idx = chunks_total // self._pT
-
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
     """Wan 2.1 DiT adapted to the infra Transformer interface."""
@@ -213,52 +178,35 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
     config: Wan21TransformerConfig
     network: WanDiTNetwork
 
-    def __init__(
-        self,
-        config: Wan21TransformerConfig,
-        device: torch.device | None = None,
-    ) -> None:
+    def __init__(self, config: Wan21TransformerConfig) -> None:
         super().__init__(config)
         self.config = config
 
-        # Launcher contract: cp_size == world_size. Wire the THW CP group to
-        # WORLD so existing CP-aware Wan plumbing works.
-        self.cp_group = None
-        self.cp_size = 1
+        # Auto-detect CP size from the launcher (``torchrun
+        # --nproc_per_node=N``) — the single source of truth. Wan flattens
+        # T*H*W into one token axis and shards it across the WORLD group.
         if torch.distributed.is_initialized():
-            world_size = torch.distributed.get_world_size()
-            assert config.cp_size == world_size, (
-                f"WanTransformerConfig.cp_size ({config.cp_size}) must match "
-                f"torch.distributed.get_world_size() ({world_size})"
+            self._cp_size = torch.distributed.get_world_size()
+            self._cp_group = (
+                torch.distributed.group.WORLD if self._cp_size > 1 else None
             )
-            self.cp_size = world_size
-            self.cp_group = torch.distributed.group.WORLD if world_size > 1 else None
         else:
-            assert config.cp_size == 1, (
-                f"WanTransformerConfig.cp_size must be 1 in non-distributed mode "
-                f"(got {config.cp_size})"
-            )
+            self._cp_size = 1
+            self._cp_group = None
 
-        # Token layout (pre-CP). Per-rank token count is on self.latent_shape[-2].
-        # _pT / _pH / _pW are computed in config.__post_init__.
-        self._pT = config._pT
-        self._pH = config._pH
-        self._pW = config._pW
-        total_tokens = self._pT * self._pH * self._pW
-        assert total_tokens % self.cp_size == 0, (
-            f"Wan token length ({total_tokens} from len_t={config.len_t}, "
-            f"height={config.height}, width={config.width}, "
-            f"patch_size={config.network.patch_size}) must be divisible by "
-            f"cp_size={self.cp_size}"
+        # Pre-patchify temporal divisibility check; per-rollout
+        # (height, width) is populated by initialize_autoregressive_cache.
+        kt, _, _ = config.network.patch_size
+        assert config.len_t % kt == 0, (
+            f"len_t ({config.len_t}) must be divisible by patch_size[0] ({kt})."
         )
+        self._output_height: int | None = None
+        self._output_width: int | None = None
 
-        # Network ----------------------------------------------------------------
         self.network = config.network.setup()
-        if device is not None:
-            self.network = self.network.to(device=device)
         self.network = self.network.to(dtype=config.dtype)
         self.network.eval()
-        self.network.set_context_parallel_group(cp_group=self.cp_group)
+        self.network.set_context_parallel_group(cp_group=self._cp_group)
 
         if config.checkpoint_path is not None:
             state_dict = load_checkpoint(config.checkpoint_path)
@@ -274,39 +222,53 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         # filling phase -> wrapper.drain (eager, drains Inductor autotune);
         # steady-state -> wrapper.__call__ (warmup + capture + replay).
         # Cond and CFG-uncond branches each get their own wrapper since each
-        # mutates an independent rolling KV cache.
+        # mutates an independent rolling KV cache. The dispatch threshold
+        # matches the KV cache's filling -> steady transition so the captured
+        # region only sees steady-state paths.
         self._use_cuda_graph = config.use_cuda_graph
-        self._network_call_cond: CUDAGraphWrapper | WanDiTNetwork = (
-            CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
+        chunks_total = config.sink_size_t + config.window_size_t
+        assert chunks_total % config.len_t == 0, (
+            f"sink_size_t + window_size_t ({chunks_total}) must be "
+            f"divisible by len_t ({config.len_t}) so the BlockKVCache can "
+            f"fit a whole number of AR chunks."
+        )
+        self._cuda_graph_capture_ar_idx: int = chunks_total // config.len_t
+        self._network_call: CUDAGraphWrapper | WanDiTNetwork = (
+            CUDAGraphWrapper(self.network, warmup_iters=config.cuda_graph_warmup_iters)
             if config.use_cuda_graph
             else self.network
         )
         self._network_call_uncond: CUDAGraphWrapper | WanDiTNetwork = (
-            CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
+            CUDAGraphWrapper(self.network, warmup_iters=config.cuda_graph_warmup_iters)
             if config.use_cuda_graph
             else self.network
         )
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
-        """Per-rank latent shape ``[*batch_shape, L, D]``.
+        """Per-rank post-patchify latent shape ``[*batch_shape, L/cp, D]``.
 
-        ``L = pT*pH*pW / cp_size`` (Wan flattens THW into one token axis and
-        shards across the THW CP group). ``D`` reports the noise channel
-        count only; the mask / image-latent channels added by
-        ``concat_image_mask_to_latent`` come from ``input`` in ``predict_flow``,
-        not from the noise tensor.
+        Wan flattens THW into one token axis and shards across the THW
+        CP group. ``D = network.out_dim * prod(patch_size)`` is the
+        noise channel count; the mask / image-latent channels added by
+        ``concat_image_mask_to_latent`` come from ``input`` in
+        ``predict_flow``, not from the noise tensor.
+
+        Per-rollout ``(height, width)`` is populated by
+        :meth:`initialize_autoregressive_cache`; reading earlier asserts.
         """
+        assert self._output_height is not None and self._output_width is not None, (
+            "latent_shape requires an initialized rollout; call "
+            "initialize_autoregressive_cache(..., height=..., width=...) first."
+        )
         cfg = self.config
         kt, kh, kw = cfg.network.patch_size
-        L = (self._pT * self._pH * self._pW) // self.cp_size
-        # Strip the (4 + 16) bump applied in __post_init__ so the bumped
-        # in_dim only reshapes the patch-embedding weight, not the noise tensor.
-        noise_in_dim = cfg.network.in_dim
-        if cfg.concat_image_mask_to_latent:
-            noise_in_dim -= 4 + 16
-        D = noise_in_dim * kt * kh * kw
-        return (*cfg.batch_shape, L, D)
+        L = (cfg.len_t // kt) * (self._output_height // kh) * (self._output_width // kw)
+        return (
+            *cfg.batch_shape,
+            L // self._cp_size,
+            cfg.network.out_dim * kt * kh * kw,
+        )
 
     @torch.no_grad()
     def _build_network_cache(
@@ -315,11 +277,22 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         text_embeddings: Tensor,
         image_embeddings: Tensor | None = None,
     ) -> WanDiTNetworkCache:
-        """Build one network cache (cond or uncond branch)."""
-        cp_size = self.cp_size
+        """Build one network cache (cond or uncond branch).
+
+        Caller must have populated ``self._output_height/_output_width``
+        (done by :meth:`initialize_autoregressive_cache`) before invoking
+        this.
+        """
+        assert self._output_height is not None and self._output_width is not None, (
+            "_build_network_cache called before height/width were stashed."
+        )
+        cfg = self.config
+        kt, kh, kw = cfg.network.patch_size
+        pHW = (self._output_height // kh) * (self._output_width // kw)
+        cp_size = self._cp_size
         chunk_size = self.latent_shape[-2]  # already CP-divided
-        window_size = (self.config.window_size_t * self._pH * self._pW) // cp_size
-        sink_size = (self.config.sink_size_t * self._pH * self._pW) // cp_size
+        window_size = (cfg.window_size_t // kt * pHW) // cp_size
+        sink_size = (cfg.sink_size_t // kt * pHW) // cp_size
         return self.network.initialize_cache(
             chunk_size=chunk_size,
             window_size=window_size,
@@ -332,6 +305,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
     def initialize_autoregressive_cache(
         self,
         *,
+        height: int,
+        width: int,
         text_embeddings: Tensor,
         image_embeddings: Tensor | None = None,
         negative_text_embeddings: Tensor | None = None,
@@ -344,6 +319,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         ``postprocess_clean_latent``.
 
         Args:
+            height: Pre-patchify latent height (post-VAE).
+            width: Pre-patchify latent width (post-VAE).
             text_embeddings: Conditional UMT5 embeddings ``[..., text_len, text_dim]``.
             image_embeddings: Conditional CLIP image embeddings (only used by
                 networks with ``cross_attn_enable_img=True``). Shared with the
@@ -355,7 +332,26 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             Populated cache. ``network_cache_uncond`` is ``None`` iff CFG is
             disabled.
         """
-        network_cache_cond = self._build_network_cache(
+        # Stash the per-rollout spatial layout. ``_build_network_cache``
+        # below and ``latent_shape`` / ``unpatchify_and_maybe_gather_cp``
+        # at AR-step time read these.
+        cfg = self.config
+        kt, kh, kw = cfg.network.patch_size
+        assert height % kh == 0 and width % kw == 0, (
+            f"(height, width) = ({height}, {width}) must be divisible by "
+            f"patch_size={cfg.network.patch_size[1:]}."
+        )
+        self._output_height = height
+        self._output_width = width
+        total_tokens = (cfg.len_t // kt) * (height // kh) * (width // kw)
+        assert total_tokens % self._cp_size == 0, (
+            f"Wan token length ({total_tokens} from len_t={cfg.len_t}, "
+            f"height={height}, width={width}, "
+            f"patch_size={cfg.network.patch_size}) must be divisible by "
+            f"cp_size={self._cp_size}"
+        )
+
+        network_cache = self._build_network_cache(
             text_embeddings=text_embeddings,
             image_embeddings=image_embeddings,
         )
@@ -373,32 +369,29 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
 
         head_dim = self.config.network.dim // self.config.network.num_heads
         rope_adapter = RotaryPositionEmbedding3D(
-            len_t=self._pT,
-            len_h=self._pH,
-            len_w=self._pW,
+            len_t=cfg.len_t // kt,
+            len_h=height // kh,
+            len_w=width // kw,
             head_dim=head_dim,
             h_extrapolation_ratio=self.config.h_extrapolation_ratio,
             w_extrapolation_ratio=self.config.w_extrapolation_ratio,
             interleaved=True,
             device=self.device,
         )
-        rope_adapter.set_context_parallel_group(cp_group=self.cp_group)
+        rope_adapter.set_context_parallel_group(cp_group=self._cp_group)
 
         # Reset any prior CUDA graph: it refers to slot pointers from the
         # previous cache, which the new cache invalidates.
         if self._use_cuda_graph:
-            assert isinstance(self._network_call_cond, CUDAGraphWrapper)
-            self._network_call_cond.reset()
+            assert isinstance(self._network_call, CUDAGraphWrapper)
+            self._network_call.reset()
             assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
             self._network_call_uncond.reset()
 
         return Wan21TransformerCache(
-            network_cache_cond=network_cache_cond,
+            network_cache=network_cache,
             network_cache_uncond=network_cache_uncond,
             rope_adapter=rope_adapter,
-            len_t=self._pT,
-            len_h=self._pH,
-            len_w=self._pW,
         )
 
     def _stamp_image_latent(
@@ -413,37 +406,32 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         """
         return latent * (1.0 - control.mask) + control.latent * control.mask
 
-    def _select_network(self, cache: Wan21TransformerCache, *, uncond: bool) -> Any:
+    def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
+        # Filling phase: eager ``.drain`` (drains Inductor autotune and
+        # exercises the KV cache's slice-returning filling path).
+        # Steady phase: ``wrapper.__call__`` (warmup + capture + replay).
+        # Cond and CFG-uncond branches both mutate their rolling KV cache,
+        # so neither branch can be graph-captured until the cache is steady.
         if not self._use_cuda_graph:
             return self.network
-
-        network_call = self._network_call_uncond if uncond else self._network_call_cond
+        network_call = self._network_call_uncond if uncond else self._network_call
         assert isinstance(network_call, CUDAGraphWrapper)
-        # Cond and CFG-uncond branches both mutate their rolling KV cache, so
-        # neither branch can be graph-captured until the cache is steady.
         return (
             network_call.drain
-            if cache.autoregressive_index < self.config._steady_ar_idx
+            if autoregressive_index < self._cuda_graph_capture_ar_idx
             else network_call
         )
 
-    def predict_flow(
+    def _build_network_input(
         self,
         noisy_latent: Tensor,
-        timestep: Tensor,
-        cache: Wan21TransformerCache,
-        input: I2VCtrl | None = None,
-        network_extra_kwargs: dict[str, Any] = {},
+        input: I2VCtrl | None,
     ) -> Tensor:
-        ar_idx = cache.autoregressive_index
-        assert ar_idx >= 0, (
-            "Wan21TransformerCache.start(autoregressive_index) must be called "
-            "before predict_flow (DiffusionModel.generate handles this)."
-        )
-        rope_freqs = cache.rope_adapter.shift_t(autoregressive_index=ar_idx)
+        """Apply the (optional) I2V stamp / channel-concat to the noisy latent.
 
-        # I2V conditioning: see Wan21TransformerConfig docstring for the two
-        # composable modes. T2V (input is None) takes neither path.
+        See :class:`Wan21TransformerConfig` for the two composable I2V
+        modes. T2V (``input is None``) takes neither path.
+        """
         network_input = noisy_latent
         if self.config.stamp_image_latent:
             assert isinstance(input, I2VCtrl), (
@@ -461,27 +449,66 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             # the official 14B I2V network expects (4 ch * K=4 patch entries).
             mask = input.mask[..., :16]
             network_input = torch.cat([network_input, mask, input.latent], dim=-1)
+        return network_input
 
-        flow_cond = self._select_network(cache, uncond=False)(
+    def _predict_flow(
+        self,
+        network_input: Tensor,
+        timestep: Tensor,
+        cache: Wan21TransformerCache,
+        autoregressive_index: int,
+        network_extra_kwargs: dict[str, Any],
+        *,
+        uncond: bool,
+    ) -> Tensor:
+        network_cache = cache.network_cache_uncond if uncond else cache.network_cache
+        assert network_cache is not None, (
+            "uncond=True requires cache.network_cache_uncond, but it is None "
+            "(CFG was not enabled at cache build time)."
+        )
+        return self._select_network(autoregressive_index, uncond=uncond)(
             x=network_input,
             timesteps=timestep,
-            cache=cache.network_cache_cond,
-            rope_freqs=rope_freqs,
-            current_chunk_idx=ar_idx,
+            cache=network_cache,
+            rope_freqs=cache.rope_freqs,
+            current_chunk_idx=autoregressive_index,
             eager_mode=False,
             **network_extra_kwargs,
         )
+
+    def predict_flow(
+        self,
+        noisy_latent: Tensor,
+        timestep: Tensor,
+        cache: Wan21TransformerCache,
+        input: I2VCtrl | None = None,
+        network_extra_kwargs: dict[str, Any] | None = None,
+    ) -> Tensor:
+        ar_idx = cache.autoregressive_index
+        assert ar_idx >= 0, (
+            "Wan21TransformerCache.start(autoregressive_index) must be called "
+            "before predict_flow (DiffusionModel.generate handles this)."
+        )
+        network_extra_kwargs = network_extra_kwargs or {}
+        network_input = self._build_network_input(noisy_latent, input)
+
+        flow_cond = self._predict_flow(
+            network_input=network_input,
+            timestep=timestep,
+            cache=cache,
+            autoregressive_index=ar_idx,
+            network_extra_kwargs=network_extra_kwargs,
+            uncond=False,
+        )
         if cache.network_cache_uncond is None:
             return flow_cond
-
-        flow_uncond = self._select_network(cache, uncond=True)(
-            x=network_input,
-            timesteps=timestep,
-            cache=cache.network_cache_uncond,
-            rope_freqs=rope_freqs,
-            current_chunk_idx=ar_idx,
-            eager_mode=False,
-            **network_extra_kwargs,
+        flow_uncond = self._predict_flow(
+            network_input=network_input,
+            timestep=timestep,
+            cache=cache,
+            autoregressive_index=ar_idx,
+            network_extra_kwargs=network_extra_kwargs,
+            uncond=True,
         )
         return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
 
@@ -520,15 +547,20 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             )
         return self.network.patchify_and_maybe_split_cp(
             x,
-            process_groups=[self.cp_group],
+            process_groups=[self._cp_group],
             cp_dims=[-2],
         )
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
+        assert self._output_height is not None and self._output_width is not None, (
+            "unpatchify_and_maybe_gather_cp requires an initialized rollout; "
+            "call initialize_autoregressive_cache(..., height=..., width=...) first."
+        )
+        _, kh, kw = self.config.network.patch_size
         return self.network.unpatchify_and_maybe_gather_cp(
-            pH=self._pH,
-            pW=self._pW,
+            pH=self._output_height // kh,
+            pW=self._output_width // kw,
             x=x,
-            process_groups=[self.cp_group],
+            process_groups=[self._cp_group],
             cp_dims=[-2],
         )
