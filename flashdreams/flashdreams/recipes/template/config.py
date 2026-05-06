@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import prod
 from typing import cast
 
 import torch
@@ -32,8 +33,17 @@ from flashdreams.recipes.template.transformer import TemplateTransformerConfig
 from flashdreams.recipes.template.transformer.network import TemplateDiTConfig
 
 _DEFAULT_IN_CHANNELS = 4
+"""Raw latent channel count for encoder / decoder. The network's
+``in_channels`` is the post-patch width
+``_DEFAULT_IN_CHANNELS * prod(_DEFAULT_PATCH_SIZE)``."""
+
 _DEFAULT_CONTROL_CHANNELS = 8
 _DEFAULT_OUT_CHANNELS = 3
+
+_DEFAULT_PATCH_SIZE: tuple[int, int, int] = (2, 2, 2)
+"""``(kt, kh, kw)`` 3D patch fold applied by the transformer before
+the network sees the latent. Must agree with
+:attr:`TemplateTransformerConfig.patch_size`."""
 
 _DEFAULT_MODEL_CHANNELS = 128
 """``head_dim = model_channels // num_heads`` must be a size cuDNN's
@@ -83,11 +93,12 @@ def build_cfg_offline(
             context_noise=0,
             transformer=TemplateTransformerConfig(
                 network=TemplateDiTConfig(
-                    in_channels=_DEFAULT_IN_CHANNELS,
+                    in_channels=_DEFAULT_IN_CHANNELS * prod(_DEFAULT_PATCH_SIZE),
                     context_channels=16,
                     model_channels=_DEFAULT_MODEL_CHANNELS,
                     num_heads=_DEFAULT_NUM_HEADS,
                 ),
+                patch_size=_DEFAULT_PATCH_SIZE,
                 len_t=_DEFAULT_LEN_T_BIDIRECTIONAL,
                 window_size_t=_DEFAULT_LEN_T_BIDIRECTIONAL,
                 sink_size_t=0,

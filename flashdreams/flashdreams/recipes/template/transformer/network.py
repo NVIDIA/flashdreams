@@ -26,10 +26,6 @@ from torch.distributed import ProcessGroup
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.ring import RingAttention
-from flashdreams.core.distributed.context_parallel import (
-    cat_outputs_cp,
-    split_inputs_cp,
-)
 from flashdreams.infra.config import InstantiateConfig
 
 
@@ -49,13 +45,13 @@ class TemplateDiTCache:
     """Per-rollout context tokens ``[B, N_ctx, D]``, injected as an
     additive bias on every forward."""
 
-    def before_update(self, chunk_idx: int) -> None:
-        """Prepare the KV cache for writing chunk ``chunk_idx``."""
-        self.kv_cache.before_update(chunk_idx)
+    def before_update(self, autoregressive_index: int) -> None:
+        """Prepare the KV cache for writing chunk ``autoregressive_index``."""
+        self.kv_cache.before_update(autoregressive_index)
 
-    def after_update(self, chunk_idx: int) -> None:
-        """Commit bookkeeping after chunk ``chunk_idx`` has been written."""
-        self.kv_cache.after_update(chunk_idx)
+    def after_update(self, autoregressive_index: int) -> None:
+        """Commit bookkeeping after chunk ``autoregressive_index`` has been written."""
+        self.kv_cache.after_update(autoregressive_index)
 
 
 @dataclass(kw_only=True)
@@ -65,7 +61,9 @@ class TemplateDiTConfig(InstantiateConfig["TemplateDiT"]):
     _target: type["TemplateDiT"] = field(default_factory=lambda: TemplateDiT)
 
     in_channels: int = 4
-    """Latent channel count; matches the noise tensor's last dim after flattening."""
+    """Per-token channel width seen by the network — the
+    **post-patchify** channel dim. Builders must set this to
+    ``raw_channels * prod(TemplateTransformerConfig.patch_size)``."""
 
     context_channels: int = 16
     """Channel count of the pre-encoded context token tensor."""
@@ -94,10 +92,10 @@ class TemplateDiT(nn.Module):
     → FFN → output projection.
 
     Per-step usage:
-        1. ``cache.before_update(chunk_idx)`` — hoisted to
+        1. ``cache.before_update(autoregressive_index)`` — hoisted to
            :meth:`~flashdreams.recipes.template.transformer.TemplateTransformerCache.start`.
         2. ``forward(noisy_latent, timesteps, cache, control)``.
-        3. ``cache.after_update(chunk_idx)`` — hoisted to
+        3. ``cache.after_update(autoregressive_index)`` — hoisted to
            :meth:`~flashdreams.recipes.template.transformer.TemplateTransformerCache.finalize`.
     """
 
@@ -138,51 +136,13 @@ class TemplateDiT(nn.Module):
 
         self.output_proj = nn.Linear(D, config.in_channels)
 
-        self._cp_group: ProcessGroup | None = None
-
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
-        """Wire the CP group used by attention and the patchify helpers.
+        """Forward the CP group to :class:`RingAttention`.
 
         Args:
-            cp_group: Context-parallel group; ``None`` disables CP and
-                makes the patchify helpers no-ops.
+            cp_group: Context-parallel group; ``None`` disables CP.
         """
-        self._cp_group = cp_group
         self.attn.set_context_parallel_group(cp_group)
-
-    def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
-        """Flatten ``[B, C, T, H, W]`` to ``[B, L=T*H*W, C]`` and CP-split along ``L``.
-
-        Args:
-            x: Pre-patchify latent ``[B, C, T, H, W]``.
-
-        Returns:
-            Per-rank ``[B, L/cp, C]`` latent (no split when
-            ``_cp_group`` is ``None``).
-        """
-        assert x.ndim == 5, f"Expected [B, C, T, H, W], got {tuple(x.shape)}."
-        B, C, T, H, W = x.shape
-        x = x.permute(0, 2, 3, 4, 1).reshape(B, T * H * W, C)
-        return split_inputs_cp(x, seq_dim=1, cp_group=self._cp_group)
-
-    def unpatchify_and_maybe_gather_cp(
-        self, x: Tensor, *, T: int, H: int, W: int
-    ) -> Tensor:
-        """Inverse of :meth:`patchify_and_maybe_split_cp`.
-
-        Args:
-            x: Per-rank latent ``[B, L/cp, C]``.
-            T: Pre-flatten temporal length.
-            H: Pre-flatten height.
-            W: Pre-flatten width.
-
-        Returns:
-            ``[B, C, T, H, W]`` with the CP shards concatenated along ``L``.
-        """
-        x = cat_outputs_cp(x, seq_dim=1, cp_group=self._cp_group)
-        B, L, C = x.shape
-        assert L == T * H * W, f"L mismatch: {L=} vs T*H*W={T * H * W}."
-        return x.reshape(B, T, H, W, C).permute(0, 4, 1, 2, 3).contiguous()
 
     def initialize_cache(
         self,
