@@ -426,10 +426,8 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="c1">## Canonical Lingbot World streaming defaults</span>
 
-<span class="c1"># Upstream Fast 4-step schedule and its independently distilled Flash 2-step</span>
-<span class="c1"># variant (the Flash list is not a prefix of the Fast list).</span>
+<span class="c1"># Upstream Fast 4-step distilled schedule.</span>
 <span class="n">_DEFAULT_DENOISING_TIMESTEPS</span> <span class="o">=</span> <span class="p">[</span><span class="mi">999</span><span class="p">,</span> <span class="mi">978</span><span class="p">,</span> <span class="mi">947</span><span class="p">,</span> <span class="mi">825</span><span class="p">]</span>
-<span class="n">_FLASH_DENOISING_TIMESTEPS</span> <span class="o">=</span> <span class="p">[</span><span class="mi">999</span><span class="p">,</span> <span class="mi">947</span><span class="p">]</span>
 <span class="n">_DEFAULT_NUM_TRAIN_TIMESTEPS</span> <span class="o">=</span> <span class="mi">1000</span>
 
 <span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>  <span class="c1"># [B=1, V=1]</span>
@@ -454,8 +452,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Lingbot World flow-match scheduler.</span>
 
-<span class="sd">    Parameterized by the full timestep list because the Fast and Flash</span>
-<span class="sd">    variants ship independently distilled schedules.</span>
+<span class="sd">    Takes the timestep list as a parameter so future variants that ship a</span>
+<span class="sd">    different distilled schedule can plug it in without touching the rest</span>
+<span class="sd">    of the builder. Both currently-shipped Lingbot World presets pass</span>
+<span class="sd">    ``_DEFAULT_DENOISING_TIMESTEPS``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">(</span>
         <span class="n">num_inference_steps</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">denoising_timesteps</span><span class="p">),</span>
@@ -473,6 +473,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">window_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span>
+    <span class="n">sink_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LingbotWorldTransformerConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Lingbot World 14B transformer defaults for streaming inference.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">LingbotWorldTransformerConfig</span><span class="p">(</span>
@@ -489,8 +491,8 @@ SPDX-License-Identifier: Apache-2.0
         <span class="c1"># CFG off by default to match the upstream Lingbot checkpoint.</span>
         <span class="n">guidance_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
         <span class="c1"># Streaming defaults.</span>
-        <span class="n">window_size_t</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span>
-        <span class="n">sink_size_t</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
+        <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
         <span class="c1"># I2V channel-concat (mask + first-frame latent), not stamping.</span>
         <span class="n">stamp_image_latent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">concat_image_mask_to_latent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -523,6 +525,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">window_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span>
+    <span class="n">sink_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LingbotWorldInferencePipelineConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;LingBot-World-Fast checkpoint, Wan VAE decoder, 4-step distilled schedule.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">LingbotWorldInferencePipelineConfig</span><span class="p">(</span>
@@ -537,6 +541,8 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
+                <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
+                <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
             <span class="p">),</span>
             <span class="n">scheduler</span><span class="o">=</span><span class="n">_scheduler_config</span><span class="p">(</span><span class="n">_DEFAULT_DENOISING_TIMESTEPS</span><span class="p">),</span>
         <span class="p">),</span>
@@ -552,8 +558,10 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">window_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>
+    <span class="n">sink_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LingbotWorldInferencePipelineConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;LingBot-World-Fast checkpoint, TAEHV decoder, 2-step distilled schedule.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;LingBot-World-Fast checkpoint, TAEHV decoder.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">LingbotWorldInferencePipelineConfig</span><span class="p">(</span>
         <span class="n">enable_sync_and_profile</span><span class="o">=</span><span class="n">enable_sync_and_profile</span><span class="p">,</span>
         <span class="n">encoder</span><span class="o">=</span><span class="n">_pipeline_encoder_config</span><span class="p">(),</span>
@@ -566,8 +574,10 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="p">],</span>
                 <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
+                <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
+                <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
             <span class="p">),</span>
-            <span class="n">scheduler</span><span class="o">=</span><span class="n">_scheduler_config</span><span class="p">(</span><span class="n">_FLASH_DENOISING_TIMESTEPS</span><span class="p">),</span>
+            <span class="n">scheduler</span><span class="o">=</span><span class="n">_scheduler_config</span><span class="p">(</span><span class="n">_DEFAULT_DENOISING_TIMESTEPS</span><span class="p">),</span>
         <span class="p">),</span>
     <span class="p">)</span></div>
 
