@@ -24,6 +24,7 @@ import torch
 from einops import rearrange
 from torch import Tensor
 
+from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
@@ -55,6 +56,12 @@ class TemplateTransformerCache(TransformerAutoregressiveCache):
     network_cache_uncond: TemplateDiTCache | None = None
     """Unconditional cache. ``None`` disables CFG."""
 
+    rope_adapter: RotaryPositionEmbedding3D
+    """3D RoPE adapter, advanced via ``shift_t`` each step."""
+
+    rope_freqs: Tensor | None = None
+    """Self attn rope freqs. Shape [L, 1, 1, d // 2]."""
+
     autoregressive_index: int = -1
     """AR step index for the chunk currently being processed; ``-1``
     before the first :meth:`start` call."""
@@ -65,6 +72,8 @@ class TemplateTransformerCache(TransformerAutoregressiveCache):
         Hoisting ``before_update`` out of the network forward keeps the
         captured region shape-stable across AR steps.
         """
+        self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
+
         self.autoregressive_index = autoregressive_index
         self.network_cache.before_update(autoregressive_index)
         if self.network_cache_uncond is not None:
@@ -106,6 +115,12 @@ class TemplateTransformerConfig(InstantiateConfig["TemplateTransformer"]):
     :meth:`TemplateTransformer.initialize_autoregressive_cache`. The
     default :class:`~flashdreams.infra.encoder.NullEncoder` is identity;
     swap in a text or CLIP image encoder here."""
+
+    # rope adapter config
+    h_extrapolation_ratio: float = 3.0
+    """RoPE extrapolation along H. Default to 3.0 for 720p."""
+    w_extrapolation_ratio: float = 3.0
+    """RoPE extrapolation along W. Default to 3.0 for 720p."""
 
     dtype: torch.dtype = torch.bfloat16
     """Parameter and activation dtype."""
@@ -350,6 +365,18 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
                 dtype=dtype,
             )
 
+        # initialize the rope adapter
+        rope_adapter = RotaryPositionEmbedding3D(
+            len_t=cfg.len_t // kt,
+            len_h=height // kh,
+            len_w=width // kw,
+            head_dim=cfg.network.model_channels // cfg.network.num_heads,
+            h_extrapolation_ratio=cfg.h_extrapolation_ratio,
+            w_extrapolation_ratio=cfg.w_extrapolation_ratio,
+            device=device,
+        )
+        rope_adapter.set_context_parallel_group(cp_group=self._cp_group)
+
         self._batch_size = batch_size
         self._output_height = height
         self._output_width = width
@@ -372,9 +399,10 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         return TemplateTransformerCache(
             network_cache=network_cache,
             network_cache_uncond=network_cache_uncond,
+            rope_adapter=rope_adapter,
         )
 
-    def _select_network(self, cache: TemplateTransformerCache, *, uncond: bool) -> Any:
+    def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
         # Filling phase: eager ``.drain`` (drains Inductor autotune and
         # exercises the KV cache's slice-returning filling path).
         # Steady phase: ``wrapper.__call__`` (warmup + capture + replay).
@@ -389,7 +417,7 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         )
         return (
             network_call.drain
-            if cache.autoregressive_index < self._cuda_graph_capture_ar_idx
+            if autoregressive_index < self._cuda_graph_capture_ar_idx
             else network_call
         )
 
@@ -398,19 +426,25 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         noisy_latent: Tensor,
         timestep: Tensor,
         cache: TemplateTransformerCache,
-        network_cache: TemplateDiTCache,
         control: Tensor | None,
         *,
         uncond: bool,
     ) -> Tensor:
-        assert cache.autoregressive_index >= 0, (
+        autoregressive_index = cache.autoregressive_index
+        assert autoregressive_index >= 0, (
             "Cache.start(autoregressive_index) must be called before "
             "predict_flow (DiffusionModel.generate handles this)."
         )
-        return self._select_network(cache, uncond=uncond)(
+        network_cache = cache.network_cache_uncond if uncond else cache.network_cache
+        assert network_cache is not None, (
+            "uncond=True requires cache.network_cache_uncond, but it is None "
+            "(CFG was not enabled at cache build time)."
+        )
+        return self._select_network(autoregressive_index, uncond=uncond)(
             noisy_latent,
             timesteps=timestep,
             cache=network_cache,
+            rope_freqs=cache.rope_freqs,
             control=control,
         )
 
@@ -439,7 +473,6 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
             noisy_latent=noisy_latent,
             timestep=timestep,
             cache=cache,
-            network_cache=cache.network_cache,
             control=input,
             uncond=False,
         )
@@ -450,7 +483,6 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
                 noisy_latent=noisy_latent,
                 timestep=timestep,
                 cache=cache,
-                network_cache=cache.network_cache_uncond,
                 control=input,
                 uncond=True,
             )

@@ -440,7 +440,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             "Wan21TransformerCache.start(autoregressive_index) must be called "
             "before predict_flow (DiffusionModel.generate handles this)."
         )
-        rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * cache.len_t)
+        rope_freqs = cache.rope_adapter.shift_t(autoregressive_index=ar_idx)
 
         # I2V conditioning: see Wan21TransformerConfig docstring for the two
         # composable modes. T2V (input is None) takes neither path.

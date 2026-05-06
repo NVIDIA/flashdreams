@@ -26,6 +26,7 @@ from torch.distributed import ProcessGroup
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.ring import RingAttention
+from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.infra.config import InstantiateConfig
 
 
@@ -189,6 +190,7 @@ class TemplateDiT(nn.Module):
         *,
         timesteps: Tensor,
         cache: TemplateDiTCache,
+        rope_freqs: Tensor,
         control: Tensor | None = None,
     ) -> Tensor:
         """Predict flow for one per-rank AR chunk.
@@ -199,6 +201,7 @@ class TemplateDiT(nn.Module):
             timesteps: Scalar timestep.
             cache: Per-rollout cache. AR-step bookkeeping is hoisted
                 to :class:`TemplateTransformerCache`.
+            rope_freqs: Self attn rope freqs. Shape [L/cp, 1, 1, d // 2].
             control: Per-AR-step control latent, same shape as
                 ``noisy_latent``; ``None`` skips the control bias.
 
@@ -216,10 +219,12 @@ class TemplateDiT(nn.Module):
         ctx_bias = cache.context.mean(dim=1)  # [B, D]
         x = x + t_emb.view(1, 1, D) + ctx_bias.view(B, 1, D)
 
-        x = self._self_attn_block(x, kv_cache=cache.kv_cache)
+        x = self._self_attn_block(x, rope_freqs, kv_cache=cache.kv_cache)
         return self.output_proj(x)
 
-    def _self_attn_block(self, x: Tensor, *, kv_cache: BlockKVCache) -> Tensor:
+    def _self_attn_block(
+        self, x: Tensor, rope_freqs: Tensor, *, kv_cache: BlockKVCache
+    ) -> Tensor:
         """Run one pre-norm self-attention + FFN residual block.
 
         Q is this rank's current chunk; K/V come from ``kv_cache``
@@ -232,6 +237,9 @@ class TemplateDiT(nn.Module):
         q = self.q_proj(h).view(B, L_local, self._num_heads, self._head_dim)
         k = self.k_proj(h).view(B, L_local, self._num_heads, self._head_dim)
         v = self.v_proj(h).view(B, L_local, self._num_heads, self._head_dim)
+
+        q = apply_rope_freqs(q, rope_freqs)
+        k = apply_rope_freqs(k, rope_freqs)
 
         kv_cache.update(k, v)
         k_local = kv_cache.cached_k()  # [B, S_local, H, d_h]

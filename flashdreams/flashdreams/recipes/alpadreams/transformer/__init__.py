@@ -574,7 +574,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "Cache.start(autoregressive_index) must be called before "
             "predict_flow (DiffusionModel.generate handles this)."
         )
-        rope_freqs = cache.rope_adapter.shift_t(offset=ar_idx * self.config._pT)
+        rope_freqs = cache.rope_adapter.shift_t(autoregressive_index=ar_idx)
         noisy_latent = self._maybe_inject_image(noisy_latent, cache)
         return self._select_network(cache, uncond=uncond)(
             noisy_latent,
