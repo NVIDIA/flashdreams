@@ -60,7 +60,14 @@ class TemplateTransformerCache(TransformerAutoregressiveCache):
     """3D RoPE adapter, advanced via ``shift_t`` each step."""
 
     rope_freqs: Tensor | None = None
-    """Self attn rope freqs. Shape [L, 1, 1, d // 2]."""
+    """Self-attention RoPE frequencies, refreshed each AR step by
+    :meth:`start` via :meth:`RotaryPositionEmbedding3D.shift_t`.
+
+    Shape ``[L_per_chunk / cp_size, 1, 1, d // 2]`` after
+    :meth:`RotaryPositionEmbedding3D.set_context_parallel_group` has
+    sharded the table along the sequence axis (``cp_size == 1`` when CP
+    is disabled, so the shape collapses to ``[L_per_chunk, 1, 1, d //
+    2]``)."""
 
     autoregressive_index: int = -1
     """AR step index for the chunk currently being processed; ``-1``
@@ -105,10 +112,13 @@ class TemplateTransformerConfig(InstantiateConfig["TemplateTransformer"]):
     network: TemplateDiTConfig = field(default_factory=TemplateDiTConfig)
     """Underlying DiT network config."""
 
-    patch_size: tuple[int, int, int] = (2, 2, 2)
+    patch_size: tuple[int, int, int] = (1, 1, 1)
     """3D ``(kt, kh, kw)`` patch size folded into the token-channel dim.
     :attr:`TemplateDiTConfig.in_channels` must equal
-    ``raw_channels * prod(patch_size)``."""
+    ``raw_channels * prod(patch_size)``. Defaults to ``(1, 1, 1)`` (no
+    packing) so the bare config is self-consistent with
+    :attr:`TemplateDiTConfig`'s default ``in_channels=4``; builders
+    that want patch packing must set both fields together."""
 
     context_encoder: InstantiateConfig[Any] = field(default_factory=NullEncoderConfig)
     """One-shot encoder applied to raw ``context`` inside
@@ -330,10 +340,25 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
             f"(len_t, height, width) = ({cfg.len_t}, {height}, {width}) "
             f"must be divisible by patch_size={cfg.patch_size}."
         )
+        assert cfg.window_size_t % kt == 0 and cfg.sink_size_t % kt == 0, (
+            f"(window_size_t, sink_size_t) = "
+            f"({cfg.window_size_t}, {cfg.sink_size_t}) must be divisible "
+            f"by patch_size[0]={kt}; otherwise the // kt truncation below "
+            f"silently mis-sizes the KV cache and breaks window/sink "
+            f"semantics."
+        )
         pHW = (height // kh) * (width // kw)
-        chunk_size = (cfg.len_t // kt * pHW) // self._cp_size
-        window_size = (cfg.window_size_t // kt * pHW) // self._cp_size
-        sink_size = (cfg.sink_size_t // kt * pHW) // self._cp_size
+        chunk_tokens = cfg.len_t // kt * pHW
+        window_tokens = cfg.window_size_t // kt * pHW
+        sink_tokens = cfg.sink_size_t // kt * pHW
+        assert chunk_tokens % self._cp_size == 0, (
+            f"per-chunk token count {chunk_tokens} (= len_t/kt * pH * pW) "
+            f"must be divisible by cp_size={self._cp_size}; otherwise "
+            f"split_inputs_cp would truncate. Pad len_t / height / width."
+        )
+        chunk_size = chunk_tokens // self._cp_size
+        window_size = window_tokens // self._cp_size
+        sink_size = sink_tokens // self._cp_size
 
         device = context_embeddings.device
         dtype = cfg.dtype

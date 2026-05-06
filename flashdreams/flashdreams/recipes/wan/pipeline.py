@@ -108,13 +108,24 @@ class WanInferencePipeline(
 
         pipeline: WanInferencePipeline = ...
 
-        cache = pipeline.initialize_cache(text=["A cat surfing."])
+        # T2V: latent (height, width) are required (the pipeline has no
+        # image to derive them from). Convert from a target pixel size
+        # via the decoder's ``spatial_compression_ratio``:
+        #   height = pixel_h // pipeline.decoder.spatial_compression_ratio
+        cache = pipeline.initialize_cache(
+            text=["A cat surfing."], height=60, width=104
+        )
         chunk = pipeline.generate(0, cache)
         pipeline.finalize(0, cache)
         chunk = pipeline.generate(1, cache)
         pipeline.finalize(1, cache)  # optional for the last rollout
 
-    For I2V, also pass ``image=first_frame`` to ``initialize_cache``.
+        # I2V: pass ``image=first_frame``. ``height`` / ``width`` are
+        # derived from the image and the decoder's spatial compression
+        # ratio; passing them is optional (and cross-checked when set).
+        i2v_cache = pipeline.initialize_cache(
+            text=["A cat surfing."], image=first_frame
+        )
     """
 
     text_encoder: UMT5TextEncoder
