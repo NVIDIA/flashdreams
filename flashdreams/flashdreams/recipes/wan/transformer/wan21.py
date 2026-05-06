@@ -183,9 +183,7 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
 
         kt, kh, kw = self.network.patch_size
         assert (
-            self.len_t % kt == 0
-            and self.height % kh == 0
-            and self.width % kw == 0
+            self.len_t % kt == 0 and self.height % kh == 0 and self.width % kw == 0
         ), (
             f"({self.len_t}, {self.height}, {self.width}) must be divisible by "
             f"patch_size ({kt}, {kh}, {kw})"
@@ -415,15 +413,11 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         """
         return latent * (1.0 - control.mask) + control.latent * control.mask
 
-    def _select_network(
-        self, cache: Wan21TransformerCache, *, uncond: bool
-    ) -> Any:
+    def _select_network(self, cache: Wan21TransformerCache, *, uncond: bool) -> Any:
         if not self._use_cuda_graph:
             return self.network
 
-        network_call = (
-            self._network_call_uncond if uncond else self._network_call_cond
-        )
+        network_call = self._network_call_uncond if uncond else self._network_call_cond
         assert isinstance(network_call, CUDAGraphWrapper)
         # Cond and CFG-uncond branches both mutate their rolling KV cache, so
         # neither branch can be graph-captured until the cache is steady.

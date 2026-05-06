@@ -280,9 +280,7 @@ def main() -> None:
         canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
-        save_path = (
-            f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus_window{args.window_size_t}_sink{args.sink_size_t}.mp4"
-        )
+        save_path = f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus_window{args.window_size_t}_sink{args.sink_size_t}.mp4"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
         print(f"saved generated video to {save_path}")
