@@ -24,6 +24,7 @@ from typing import Any, overload
 import torch
 from torch import Tensor
 
+from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.config import InstantiateConfig
@@ -39,7 +40,6 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetworkCache,
     WanDiTNetworkConfig,
 )
-from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 
 ## Autoregressive cache (per-rollout, mutated across AR steps)
 

@@ -23,6 +23,7 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
     FlowMatchUniPCSchedulerConfig,
 )
 from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.recipes.alpadreams import transformer as alpadreams_transformer_module
 from flashdreams.recipes.alpadreams.config import (
     ALPADREAMS_CONFIG_BUILDERS,
     build_sv_2steps_chunk2_loc6_lightvae_lighttae,
@@ -31,7 +32,6 @@ from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
 from flashdreams.recipes.alpadreams.transformer import (
     CosmosTransformer,
-    CosmosTransformerCache,
     CosmosTransformerConfig,
 )
 from flashdreams.recipes.alpadreams.transformer.impl.context_parallel import (
@@ -147,7 +147,23 @@ def test_alpadreams_initialize_cache_encodes_cfg_negative_prompt(
 def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """``CosmosTransformer.initialize_autoregressive_cache`` must reject
+    missing ``negative_text_embeddings`` under CFG (``guidance_scale > 1``)
+    and, when provided, must thread them into the uncond ``network_cache``.
+
+    We exercise the real method end-to-end and only stub out the heavy
+    leaves (``RotaryPositionEmbedding3D``, the network's
+    ``initialize_cache``, and patchify) so the test stays CPU-only and
+    free of irrelevant config plumbing.
+    """
+
     class FakeNetwork:
+        # ``cfg.network.{model_channels,num_heads,enable_cross_view_attn}``
+        # are read directly by ``initialize_autoregressive_cache``.
+        model_channels = 4
+        num_heads = 2
+        enable_cross_view_attn = False
+
         def __init__(self) -> None:
             self.cache_kwargs: list[dict[str, Any]] = []
 
@@ -155,49 +171,58 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
             self.cache_kwargs.append(kwargs)
             return object()
 
-    def fake_parent_initialize_cache(
-        self: CosmosTransformer,
-        *,
-        text_embeddings: torch.Tensor,
-        image_embeddings: torch.Tensor,
-        view_names: list[str] | None = None,
-        **unused: Any,
-    ) -> CosmosTransformerCache:
-        del self, text_embeddings, view_names, unused
-        return CosmosTransformerCache(
-            network_cache=cast(Any, object()),
-            rope_adapter=cast(Any, object()),
-            image=image_embeddings,
-            mask_first_block=torch.ones(1),
-            mask_other_blocks=torch.zeros(1),
-        )
+    class FakeRopeAdapter:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def set_context_parallel_group(self, cp_group: Any = None) -> None:
+            del cp_group
 
     monkeypatch.setattr(
-        CosmosTransformer,
-        "initialize_autoregressive_cache",
-        fake_parent_initialize_cache,
+        alpadreams_transformer_module,
+        "RotaryPositionEmbedding3D",
+        FakeRopeAdapter,
     )
 
     transformer = CosmosTransformer.__new__(CosmosTransformer)
     torch.nn.Module.__init__(transformer)
-    transformer.config = SimpleNamespace(
+    fake_network = FakeNetwork()
+    cfg = SimpleNamespace(
         guidance_scale=3.0,
+        requires_negative_text_embeddings=True,
+        network=fake_network,
         _pH=2,
         _pW=2,
         _pT=1,
+        len_t=1,
         window_size_t=1,
         sink_size_t=0,
+        h_extrapolation_ratio=1.0,
+        w_extrapolation_ratio=1.0,
+        dtype=torch.float32,
+        num_views=1,
     )
+    transformer.config = cast(Any, cfg)
     transformer.cp_groups = HierarchicalCPGroups(rank=0)
-    fake_network = FakeNetwork()
-    transformer.network = fake_network
+    transformer.network = cast(Any, fake_network)
+    # ``Transformer.device`` is a property reading from ``self.parameters()``;
+    # register a placeholder so it resolves to CPU instead of asserting.
+    transformer.register_parameter(
+        "_test_device_anchor", torch.nn.Parameter(torch.empty(0, device="cpu"))
+    )
     transformer._use_cuda_graph = False
+    monkeypatch.setattr(
+        transformer,
+        "patchify_and_maybe_split_cp",
+        lambda x: x,
+        raising=False,
+    )
 
     text_embeddings = torch.randn(1, 1, 2, 3)
     image_embeddings = torch.randn(1, 1, 1, 2, 2, 2)
     negative_text_embeddings = torch.randn(1, 1, 2, 3)
 
-    with pytest.raises(AssertionError, match="negative_text_embeddings is required"):
+    with pytest.raises(AssertionError, match="requires negative_text_embeddings"):
         transformer.initialize_autoregressive_cache(
             text_embeddings=text_embeddings,
             image_embeddings=image_embeddings,

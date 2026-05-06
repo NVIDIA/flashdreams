@@ -109,6 +109,8 @@ def test_wan21_requires_cp_size_one_without_distributed(monkeypatch) -> None:
                 height=4,
                 width=4,
                 cp_size=2,
+                window_size_t=4,
+                sink_size_t=0,
             )
         )
 

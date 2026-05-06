@@ -25,6 +25,9 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.core.attention.rope import (
+    RotaryPositionEmbedding3D,
+)
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.compile import compile_module
@@ -33,9 +36,6 @@ from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
-)
-from flashdreams.core.attention.rope import (
-    RotaryPositionEmbedding3D,
 )
 
 from .impl.context_parallel import (
