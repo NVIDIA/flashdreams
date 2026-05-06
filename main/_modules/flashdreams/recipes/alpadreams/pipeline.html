@@ -396,9 +396,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">split_inputs_cp</span><span class="p">,</span>
     <span class="n">split_inputs_cp_object_list</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">DecoderAutoregressiveCache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderAutoregressiveCache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.text.cosmos_qwen</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingDecoderCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingEncoderCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.text.cosmos_reason1</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CosmosReason1TextEncoder</span><span class="p">,</span>
     <span class="n">CosmosReason1TextEncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
@@ -421,9 +421,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">)</span>
 
 <span class="n">AlpadreamsPipelineCache</span><span class="p">:</span> <span class="n">TypeAlias</span> <span class="o">=</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
-    <span class="n">EncoderAutoregressiveCache</span><span class="p">,</span>  <span class="c1"># EncCacheT</span>
+    <span class="n">StreamingEncoderCache</span><span class="p">,</span>  <span class="c1"># StreamingEncoderCacheT</span>
     <span class="n">CosmosTransformerCache</span><span class="p">,</span>  <span class="c1"># TransformerCacheT</span>
-    <span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>  <span class="c1"># DecCacheT</span>
+    <span class="n">StreamingDecoderCache</span><span class="p">,</span>  <span class="c1"># StreamingDecoderCacheT</span>
 <span class="p">]</span>
 
 
@@ -460,9 +460,9 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">AlpadreamsPipeline</span><span class="p">(</span>
     <span class="n">StreamInferencePipeline</span><span class="p">[</span>
-        <span class="n">EncoderAutoregressiveCache</span><span class="p">,</span>
+        <span class="n">StreamingEncoderCache</span><span class="p">,</span>
         <span class="n">CosmosTransformerCache</span><span class="p">,</span>
-        <span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>
+        <span class="n">StreamingDecoderCache</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Alpadreams streaming inference pipeline (Cosmos DiT + HDMap + I2V mask).</span>
@@ -605,7 +605,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            text_embeddings: ``[B, V, L, D]``. Moved to ``self.device``.</span>
 <span class="sd">                Pass the full multi-view tensor; the CP split is applied here.</span>
 <span class="sd">            image_embeddings: ``[B, V, 1, Cl, Hl, Wl]``. Same device / split</span>
-<span class="sd">                contract as ``text_embeddings``.</span>
+<span class="sd">                contract as ``text_embeddings``. ``Hl`` / ``Wl`` define the</span>
+<span class="sd">                per-rollout latent ``(height, width)`` forwarded to the</span>
+<span class="sd">                transformer.</span>
 <span class="sd">            negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for</span>
 <span class="sd">                the recipe&#39;s training negative prompt. Required when the</span>
 <span class="sd">                transformer config requires negative text embeddings.</span>
@@ -616,6 +618,11 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">image_embeddings</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">negative_text_embeddings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">negative_text_embeddings</span> <span class="o">=</span> <span class="n">negative_text_embeddings</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="c1"># The image latent&#39;s [..., Hl, Wl] are the per-rollout latent</span>
+        <span class="c1"># spatial dims; thread them to the transformer cache init.</span>
+        <span class="n">height</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">width</span> <span class="o">=</span> <span class="n">image_embeddings</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
 
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="n">split_inputs_cp</span><span class="p">(</span>
             <span class="n">text_embeddings</span><span class="p">,</span>
@@ -637,6 +644,8 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">view_names</span> <span class="o">=</span> <span class="n">split_inputs_cp_object_list</span><span class="p">(</span><span class="n">view_names</span><span class="p">,</span> <span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">V_group</span><span class="p">)</span>
 
         <span class="n">transformer_context</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="n">height</span><span class="p">,</span>
+            <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="n">width</span><span class="p">,</span>
             <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">,</span>
             <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="p">,</span>
             <span class="s2">&quot;view_names&quot;</span><span class="p">:</span> <span class="n">view_names</span><span class="p">,</span>

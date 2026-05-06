@@ -394,8 +394,8 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">DecCacheT</span><span class="p">,</span>
-    <span class="n">Decoder</span><span class="p">,</span>
+    <span class="n">StreamingDecoder</span><span class="p">,</span>
+    <span class="n">StreamingDecoderCacheT</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">DiffusionModel</span><span class="p">,</span>
@@ -405,8 +405,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">TransformerCacheT</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">EncCacheT</span><span class="p">,</span>
-    <span class="n">Encoder</span><span class="p">,</span>
+    <span class="n">StreamingEncoder</span><span class="p">,</span>
+    <span class="n">StreamingEncoderCacheT</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.profiler</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventProfiler</span>
 
@@ -430,10 +430,14 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Transformer + scheduler config.&quot;&quot;&quot;</span>
 
     <span class="n">decoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional output decoder.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional output :class:`StreamingDecoder` with a per-rollout cache,</span>
+<span class="sd">    called as ``decoder(input, autoregressive_index, cache)``. Use</span>
+<span class="sd">    ``None`` to return the clean latent unchanged.&quot;&quot;&quot;</span>
 
     <span class="n">encoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional per-AR-step input encoder.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional per-AR-step input encoder. Must be a</span>
+<span class="sd">    :class:`StreamingEncoder`; one-shot encoders go on</span>
+<span class="sd">    ``transformer.context_encoder`` instead.&quot;&quot;&quot;</span>
 
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Record per-stage CUDA events and log timing per AR step. Calls</span>
@@ -444,16 +448,18 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="StreamInferencePipelineCache">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipelineCache</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">DecCacheT</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipelineCache</span><span class="p">(</span>
+    <span class="n">Generic</span><span class="p">[</span><span class="n">StreamingEncoderCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">StreamingDecoderCacheT</span><span class="p">]</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-rollout cache held by the pipeline.&quot;&quot;&quot;</span>
 
     <span class="n">transformer_cache</span><span class="p">:</span> <span class="n">TransformerCacheT</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Long-lived transformer AR cache (always present).&quot;&quot;&quot;</span>
 
-    <span class="n">encoder_cache</span><span class="p">:</span> <span class="n">EncCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">encoder_cache</span><span class="p">:</span> <span class="n">StreamingEncoderCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Encoder AR cache; ``None`` iff the pipeline has no encoder.&quot;&quot;&quot;</span>
 
-    <span class="n">decoder_cache</span><span class="p">:</span> <span class="n">DecCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">decoder_cache</span><span class="p">:</span> <span class="n">StreamingDecoderCacheT</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder AR cache; ``None`` iff the pipeline has no decoder.&quot;&quot;&quot;</span>
 
     <span class="n">final_state</span><span class="p">:</span> <span class="s2">&quot;DiffusionModel.FinalState[TransformerCacheT] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span>
@@ -473,9 +479,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipeline</span><span class="p">(</span>
     <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">Generic</span><span class="p">[</span>
-        <span class="n">EncCacheT</span><span class="p">,</span>
+        <span class="n">StreamingEncoderCacheT</span><span class="p">,</span>
         <span class="n">TransformerCacheT</span><span class="p">,</span>
-        <span class="n">DecCacheT</span><span class="p">,</span>
+        <span class="n">StreamingDecoderCacheT</span><span class="p">,</span>
     <span class="p">],</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;End-to-end streaming inference pipeline.</span>
@@ -494,8 +500,8 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        pipeline.finalize(1, cache)  # optional for the last rollout</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">encoder</span><span class="p">:</span> <span class="n">Encoder</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
-    <span class="n">decoder</span><span class="p">:</span> <span class="n">Decoder</span><span class="p">[</span><span class="n">DecCacheT</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">encoder</span><span class="p">:</span> <span class="n">StreamingEncoder</span><span class="p">[</span><span class="n">StreamingEncoderCacheT</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">decoder</span><span class="p">:</span> <span class="n">StreamingDecoder</span><span class="p">[</span><span class="n">StreamingDecoderCacheT</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">diffusion_model</span><span class="p">:</span> <span class="n">DiffusionModel</span><span class="p">[</span><span class="n">TransformerCacheT</span><span class="p">]</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -519,7 +525,9 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">transformer_context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">encoder_context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">decoder_context</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">DecCacheT</span><span class="p">]:</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
+        <span class="n">StreamingEncoderCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">StreamingDecoderCacheT</span>
+    <span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a fresh per-rollout cache.</span>
 
 <span class="sd">        Each ``*_context`` dict is forwarded as keyword arguments to the</span>
@@ -562,7 +570,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-        <span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">DecCacheT</span><span class="p">],</span>
+        <span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
+            <span class="n">StreamingEncoderCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">StreamingDecoderCacheT</span>
+        <span class="p">],</span>
         <span class="nb">input</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate one chunk for this AR step.</span>
@@ -641,7 +651,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">finalize</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-        <span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span><span class="n">EncCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">DecCacheT</span><span class="p">],</span>
+        <span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
+            <span class="n">StreamingEncoderCacheT</span><span class="p">,</span> <span class="n">TransformerCacheT</span><span class="p">,</span> <span class="n">StreamingDecoderCacheT</span>
+        <span class="p">],</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Advance the diffusion AR cache for the next AR step.</span>
 

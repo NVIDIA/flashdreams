@@ -391,7 +391,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">Decoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingVideoDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
 
 <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
@@ -423,7 +423,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <div class="viewcode-block" id="TeahvVAEDecoder">
 <a class="viewcode-back" href="../../../apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder">[docs]</a>
-<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoder</span><span class="p">(</span><span class="n">Decoder</span><span class="p">[</span><span class="n">TAEHVCache</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoder</span><span class="p">(</span><span class="n">StreamingVideoDecoder</span><span class="p">[</span><span class="n">TAEHVCache</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;TAEHV (Tiny AutoEncoder for Hunyuan Video) decoder.</span>
 
 <span class="sd">    Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video</span>
@@ -505,7 +505,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        Args:</span>
 <span class="sd">            input: Latent of shape ``[..., Tl, Cl, Hl, Wl]``.</span>
 <span class="sd">            autoregressive_index: Unused by TAEHV; kept for the</span>
-<span class="sd">                :class:`~flashdreams.infra.decoder.Decoder` interface.</span>
+<span class="sd">                :class:`~flashdreams.infra.decoder.StreamingDecoder` interface.</span>
 <span class="sd">            cache: Streaming decoder cache; created on the fly when ``None``.</span>
 
 <span class="sd">        Returns:</span>
@@ -537,7 +537,38 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">spatial_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span>
+
+<div class="viewcode-block" id="TeahvVAEDecoder.get_output_temporal_size">
+<a class="viewcode-back" href="../../../apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_output_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">input_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Causal: AR 0 first latent frame decodes to a single pixel frame.&quot;&quot;&quot;</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">input_temporal_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">r</span>
+        <span class="k">return</span> <span class="n">input_temporal_size</span> <span class="o">*</span> <span class="n">r</span></div>
+
+
+<div class="viewcode-block" id="TeahvVAEDecoder.get_input_temporal_size">
+<a class="viewcode-back" href="../../../apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_input_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span><span class="n">output_temporal_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;AR 0 output_temporal_size=</span><span class="si">{</span><span class="n">output_temporal_size</span><span class="si">}</span><span class="s2"> must satisfy &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(N - 1) % temporal_compression_ratio=</span><span class="si">{</span><span class="n">r</span><span class="si">}</span><span class="s2"> == 0.&quot;</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">output_temporal_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">r</span>
+        <span class="k">assert</span> <span class="n">output_temporal_size</span> <span class="o">%</span> <span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;AR&gt;=1 output_temporal_size=</span><span class="si">{</span><span class="n">output_temporal_size</span><span class="si">}</span><span class="s2"> must be divisible &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;by temporal_compression_ratio=</span><span class="si">{</span><span class="n">r</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">output_temporal_size</span> <span class="o">//</span> <span class="n">r</span></div>
+</div>
 
 
 

@@ -98,17 +98,32 @@ scheduler works for any latent layout.
 Encoder
 -------
 
-Encoders turn raw conditioning (text prompts, reference images, …) into
-the latent tensors consumed by the transformer. Like every other
-component, they are stateful across AR steps via an
-:class:`EncoderAutoregressiveCache`.
+Encoders turn raw conditioning (text prompts, reference images, per-AR-step
+control inputs, …) into latent tensors. Two flavours:
+
+- :class:`Encoder` is stateless and one-shot. ``forward(self, input)``.
+  Used as ``transformer.context_encoder`` for text / CLIP-image / identity.
+- :class:`StreamingEncoder` is stateful and per-AR-step. ``forward(self,
+  input, autoregressive_index, cache)`` with an
+  :class:`StreamingEncoderCache`. Used as ``pipeline.encoder`` for
+  per-step control (HDMap, camera trajectory, I2V first-frame VAE).
+- :class:`StreamingVideoEncoder` extends :class:`StreamingEncoder` with
+  the contracts a streaming pixel-video encoder always needs: spatial /
+  temporal compression ratios plus AR-step-aware temporal size mappers
+  between pixel and latent space.
 
 .. currentmodule:: flashdreams.infra.encoder
 
 .. autoclass:: Encoder
    :members:
 
-.. autoclass:: EncoderAutoregressiveCache
+.. autoclass:: StreamingEncoder
+   :members:
+
+.. autoclass:: StreamingVideoEncoder
+   :members:
+
+.. autoclass:: StreamingEncoderCache
    :members:
 
 .. autoclass:: NullEncoderConfig
@@ -121,14 +136,27 @@ Decoder
 -------
 
 Decoders turn the latents emitted by the diffusion model back into pixel
-frames. They keep a :class:`DecoderAutoregressiveCache` so the streaming
-pipeline can decode one chunk at a time with the correct temporal
-context.
+frames. Single base class with two specialisations:
+
+- :class:`StreamingDecoder` is stateful. ``forward(self, input,
+  autoregressive_index, cache)`` with a :class:`StreamingDecoderCache`.
+  Use for chunk-by-chunk streaming decoders (e.g. WAN VAE that maintains
+  a temporal cache across AR steps); stateless decoders just return an
+  empty :class:`StreamingDecoderCache` from
+  :meth:`StreamingDecoder.initialize_autoregressive_cache` and ignore
+  ``autoregressive_index`` / ``cache`` in ``forward``.
+- :class:`StreamingVideoDecoder` extends :class:`StreamingDecoder` with
+  the contracts a streaming pixel-video decoder always needs: spatial /
+  temporal compression ratios plus AR-step-aware temporal size mappers
+  between latent and pixel space.
 
 .. currentmodule:: flashdreams.infra.decoder
 
-.. autoclass:: Decoder
+.. autoclass:: StreamingDecoder
    :members:
 
-.. autoclass:: DecoderAutoregressiveCache
+.. autoclass:: StreamingVideoDecoder
+   :members:
+
+.. autoclass:: StreamingDecoderCache
    :members:

@@ -393,7 +393,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm_unipc</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FlowMatchUniPCSchedulerConfig</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.text.cosmos_qwen</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.text.cosmos_reason1</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CosmosReason1TextEncoderConfig</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.alpadreams.encoder.pixel_shuffle</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -433,9 +433,11 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># ---------------------------------------------------------------------------</span>
 
 <span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,)</span>
-<span class="n">_DEFAULT_VIDEO_HEIGHT</span> <span class="o">=</span> <span class="mi">704</span>
-<span class="n">_DEFAULT_VIDEO_WIDTH</span> <span class="o">=</span> <span class="mi">1280</span>
-<span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="c1"># Canonical pixel-space defaults; callers pass the matching latent</span>
+<span class="c1"># (height, width) into :meth:`AlpadreamsPipeline.initialize_cache`.</span>
+<span class="n">DEFAULT_VIDEO_HEIGHT</span> <span class="o">=</span> <span class="mi">704</span>
+<span class="n">DEFAULT_VIDEO_WIDTH</span> <span class="o">=</span> <span class="mi">1280</span>
+<span class="n">WAN_VAE_SPATIAL_COMPRESSION</span> <span class="o">=</span> <span class="mi">8</span>
 <span class="n">_DEFAULT_DENOISING_TIMESTEPS</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">450</span><span class="p">]</span>
 <span class="n">_DEFAULT_NUM_TRAIN_TIMESTEPS</span> <span class="o">=</span> <span class="mi">1000</span>
 
@@ -478,7 +480,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">def</span><span class="w"> </span><span class="nf">_transformer_config</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">num_views</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">len_t_latent</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">window_size_t</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -489,16 +490,17 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CosmosTransformerConfig</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">CosmosTransformerConfig</span><span class="p">(</span>
-        <span class="n">network</span><span class="o">=</span><span class="n">CosmosDiTNetworkConfig</span><span class="p">(),</span>
+        <span class="n">network</span><span class="o">=</span><span class="n">CosmosDiTNetworkConfig</span><span class="p">(</span>
+            <span class="c1"># HDMap conditioning channel count: 192 for the pixel-shuffle</span>
+            <span class="c1"># HDMap branch, 16 for the Wan-VAE HDMap branch. (0 disables</span>
+            <span class="c1"># HDMap conditioning entirely; no shipped builder uses that.)</span>
+            <span class="n">additional_concat_ch</span><span class="o">=</span><span class="mi">192</span> <span class="k">if</span> <span class="n">encode_with_pixel_shuffle</span> <span class="k">else</span> <span class="mi">16</span><span class="p">,</span>
+            <span class="n">enable_cross_view_attn</span><span class="o">=</span><span class="n">num_views</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="p">),</span>
         <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">checkpoint_path</span><span class="p">,</span>
         <span class="n">batch_shape</span><span class="o">=</span><span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">,</span>
         <span class="n">num_views</span><span class="o">=</span><span class="n">num_views</span><span class="p">,</span>
-        <span class="n">height</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_HEIGHT</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
-        <span class="n">width</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_WIDTH</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
         <span class="n">len_t</span><span class="o">=</span><span class="n">len_t_latent</span><span class="p">,</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
-        <span class="n">enable_hdmap_condition</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">encode_with_pixel_shuffle</span><span class="o">=</span><span class="n">encode_with_pixel_shuffle</span><span class="p">,</span>
         <span class="n">h_extrapolation_ratio</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
         <span class="n">w_extrapolation_ratio</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
         <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
@@ -532,7 +534,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_lightvae_lighttae">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_2steps_chunk2_loc6_lightvae_lighttae</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
@@ -550,7 +551,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-vae-chunk2&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -568,7 +568,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">skip_finalize_kv_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
@@ -592,7 +591,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-vae-chunk2&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -610,7 +608,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_vae_vae">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_2steps_chunk2_loc6_vae_vae</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
@@ -628,7 +625,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-vae-chunk2&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -645,7 +641,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk3_loc6_vae_vae">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_2steps_chunk3_loc6_vae_vae</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
@@ -663,7 +658,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-vae-chunk3&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
@@ -680,7 +674,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk4_loc8_pshuffle_lighttae">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_2steps_chunk4_loc8_pshuffle_lighttae</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
@@ -698,7 +691,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-pshuffle-chunk4&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
@@ -715,7 +707,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_mv_2steps_chunk4_loc8_pshuffle_lighttae">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_mv_2steps_chunk4_loc8_pshuffle_lighttae</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
@@ -733,7 +724,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;4view-pshuffle-chunk4&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
@@ -749,13 +739,11 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># experiments1</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_baseline</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">450</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
@@ -765,13 +753,11 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_skip_finalize_kv_cache</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">450</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -781,13 +767,11 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_skip_finalize_kv_cache_noise350</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">350</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -797,13 +781,11 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_skip_finalize_kv_cache_noise250</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">250</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -813,13 +795,11 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_skip_finalize_kv_cache_noise150</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">150</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -829,13 +809,11 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="k">def</span><span class="w"> </span><span class="nf">experiment1_skip_finalize_kv_cache_noise100</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AlpadreamsPipelineConfig</span><span class="p">:</span>
     <span class="n">denoising_timesteps</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">100</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf</span><span class="p">(</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
         <span class="n">skip_finalize_kv_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -852,7 +830,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
@@ -881,7 +858,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-diffusion-forcing-chunk2&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -909,7 +885,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
@@ -947,7 +922,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;1view-bidirectional-chunk48&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">num_views</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">len_t_latent</span><span class="o">=</span><span class="n">num_chunks</span><span class="p">,</span>

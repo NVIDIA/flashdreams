@@ -463,13 +463,17 @@ through every component.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder">
 <span class="sig-name descname"><span class="pre">decoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder" title="Link to this definition">#</a></dt>
-<dd><p>Optional output decoder.</p>
+<dd><p>Optional output <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code> with a per-rollout cache,
+called as <code class="docutils literal notranslate"><span class="pre">decoder(input,</span> <span class="pre">autoregressive_index,</span> <span class="pre">cache)</span></code>. Use
+<code class="docutils literal notranslate"><span class="pre">None</span></code> to return the clean latent unchanged.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder">
 <span class="sig-name descname"><span class="pre">encoder</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder" title="Link to this definition">#</a></dt>
-<dd><p>Optional per-AR-step input encoder.</p>
+<dd><p>Optional per-AR-step input encoder. Must be a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code>; one-shot encoders go on
+<code class="docutils literal notranslate"><span class="pre">transformer.context_encoder</span></code> instead.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -490,7 +494,7 @@ through every component.</p>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipeline" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">EncCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">DecCacheT</span></code>]</p>
+<dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingEncoderCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingDecoderCacheT</span></code>]</p>
 <p>End-to-end streaming inference pipeline.</p>
 <p>Generic over the encoder, transformer, and decoder cache types. The
 encoder’s input/output types are forwarded as <code class="docutils literal notranslate"><span class="pre">Any</span></code> so the
@@ -512,7 +516,7 @@ pipeline.finalize(1, cache)  # optional for the last rollout</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">decoder_context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">EncCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">DecCacheT</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipeline.initialize_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache" title="Link to this definition">#</a></dt>
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">StreamingEncoderCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">StreamingDecoderCacheT</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipeline.initialize_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh per-rollout cache.</p>
 <p>Each <code class="docutils literal notranslate"><span class="pre">*_context</span></code> dict is forwarded as keyword arguments to the
 corresponding component’s <code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache</span></code>.</p>
@@ -539,7 +543,7 @@ when there is no decoder.</p></li>
 
 <dl>
 <dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">EncCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">DecCacheT</span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">StreamingEncoderCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">StreamingDecoderCacheT</span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 </dl>
 
@@ -570,7 +574,7 @@ otherwise the unpatchified clean latent from the diffusion model.</p>
 
 <dl>
 <dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">EncCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">DecCacheT</span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="flashdreams.infra.pipeline.base.StreamInferencePipelineCache"><span class="pre">StreamInferencePipelineCache</span></a><span class="p"><span class="pre">[</span></span><span class="pre">StreamingEncoderCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">StreamingDecoderCacheT</span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipeline.finalize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipeline.finalize" title="Link to this definition">#</a></dt>
@@ -603,15 +607,15 @@ logged via <code class="docutils literal notranslate"><span class="pre">logger.i
 <dl>
 <dd><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">transformer_cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">TransformerCacheT</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">encoder_cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EncCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">decoder_cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">DecCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">encoder_cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">StreamingEncoderCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">decoder_cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">StreamingDecoderCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">final_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FinalState</span><span class="p"><span class="pre">[</span></span><span class="pre">TransformerCacheT</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">event_profiler</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EventProfiler</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/pipeline/base.html#StreamInferencePipelineCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">EncCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">DecCacheT</span></code>]</p>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingEncoderCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">TransformerCacheT</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingDecoderCacheT</span></code>]</p>
 <p>Per-rollout cache held by the pipeline.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.transformer_cache">
@@ -621,13 +625,13 @@ logged via <code class="docutils literal notranslate"><span class="pre">logger.i
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">
-<span class="sig-name descname"><span class="pre">encoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">EncCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">encoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">StreamingEncoderCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache" title="Link to this definition">#</a></dt>
 <dd><p>Encoder AR cache; <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no encoder.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache">
-<span class="sig-name descname"><span class="pre">decoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">DecCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">decoder_cache</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">StreamingDecoderCacheT</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache" title="Link to this definition">#</a></dt>
 <dd><p>Decoder AR cache; <code class="docutils literal notranslate"><span class="pre">None</span></code> iff the pipeline has no decoder.</p>
 </dd></dl>
 
@@ -1363,10 +1367,20 @@ on-device (no Python sync) and uses the matching sigma in the lerp.</p>
 </section>
 <section id="encoder">
 <h2>Encoder<a class="headerlink" href="#encoder" title="Link to this heading">#</a></h2>
-<p>Encoders turn raw conditioning (text prompts, reference images, …) into
-the latent tensors consumed by the transformer. Like every other
-component, they are stateful across AR steps via an
-<code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
+<p>Encoders turn raw conditioning (text prompts, reference images, per-AR-step
+control inputs, …) into latent tensors. Two flavours:</p>
+<ul class="simple">
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Encoder</span></code> is stateless and one-shot. <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input)</span></code>.
+Used as <code class="docutils literal notranslate"><span class="pre">transformer.context_encoder</span></code> for text / CLIP-image / identity.</p></li>
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code> is stateful and per-AR-step. <code class="docutils literal notranslate"><span class="pre">forward(self,</span>
+<span class="pre">input,</span> <span class="pre">autoregressive_index,</span> <span class="pre">cache)</span></code> with an
+<code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoderCache</span></code>. Used as <code class="docutils literal notranslate"><span class="pre">pipeline.encoder</span></code> for
+per-step control (HDMap, camera trajectory, I2V first-frame VAE).</p></li>
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingVideoEncoder</span></code> extends <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code> with
+the contracts a streaming pixel-video encoder always needs: spatial /
+temporal compression ratios plus AR-step-aware temporal size mappers
+between pixel and latent space.</p></li>
+</ul>
 <dl class="py class">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.Encoder">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Encoder</span></span><span class="sig-paren">(</span>
@@ -1376,35 +1390,150 @@ component, they are stateful across AR steps via an
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#Encoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.Encoder" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">EncCacheT</span></code>]</p>
-<p>Encoder interface, generic over the per-rollout cache type.</p>
-<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is not pinned by the base: subclasses pick whatever
-signature fits. Encoders called by <code class="docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must
-match its call shape: <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span> <span class="pre">autoregressive_index=0,</span>
-<span class="pre">cache=None)</span></code>. Stateless one-shot encoders (text, CLIP image) can use
-a slimmer <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input)</span></code>.</p>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a></p>
+<p>Stateless encoder.</p>
+<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is not pinned by the base. Encoders used as a
+<code class="docutils literal notranslate"><span class="pre">context_encoder</span></code> (one-shot, called once inside
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">Transformer.initialize_autoregressive_cache()</span></code>) must match the
+slim call shape <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input)</span></code>.</p>
+<p>For per-AR-step encoders that need a per-rollout cache, inherit
+from <a class="reference internal" href="#flashdreams.infra.encoder.StreamingEncoder" title="flashdreams.infra.encoder.StreamingEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code></a> instead.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingEncoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingEncoder</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingEncoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingEncoderCacheT</span></code>]</p>
+<p>Streaming encoder, generic over the per-rollout cache type.</p>
+<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is not pinned by the base. Streaming encoders called by
+<code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must match its call shape:
+<code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span> <span class="pre">autoregressive_index=0,</span> <span class="pre">cache=None)</span></code>.</p>
 <dl class="py method">
-<dt class="sig sig-object py" id="flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
 
 <dl>
 <dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">EncCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#Encoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">StreamingEncoderCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingEncoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh per-rollout cache.</p>
-<p>Override to return the encoder’s concrete cache type. Stateless
-encoders (e.g. text, CLIP image) return a fresh
-<code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
+<p>Override to return the encoder’s concrete cache type.</p>
 </dd></dl>
 
 </dd></dl>
 
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.encoder.EncoderAutoregressiveCache">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">EncoderAutoregressiveCache</span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#EncoderAutoregressiveCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingVideoEncoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingVideoEncoder</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingVideoEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingVideoEncoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.encoder.StreamingEncoder" title="flashdreams.infra.encoder.base.StreamingEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingEncoderCacheT</span></code>]</p>
+<p>Streaming pixel-video encoder.</p>
+<p>Pins down the contracts that every streaming pixel→latent video
+encoder satisfies in addition to <a class="reference internal" href="#flashdreams.infra.encoder.StreamingEncoder" title="flashdreams.infra.encoder.StreamingEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code></a>:</p>
+<ul class="simple">
+<li><p>Spatial and temporal compression ratios between the pixel and
+latent grids (constants of the architecture).</p></li>
+<li><p>AR-step-aware temporal size mappers, so a pipeline can size its
+inputs and outputs without knowing the encoder’s concrete
+temporal cache topology (causal first-frame padding, sliding
+windows, etc.).</p></li>
+</ul>
+<p>Spatial scaling is trivially <code class="docutils literal notranslate"><span class="pre">side</span> <span class="pre">//</span> <span class="pre">spatial_compression_ratio</span></code>
+in either direction; the AR-step-asymmetric piece is the temporal
+size, which gets its own mapper. Typically AR 0 takes
+<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">+</span> <span class="pre">(T_lat</span> <span class="pre">-</span> <span class="pre">1)</span> <span class="pre">*</span> <span class="pre">r</span></code> pixel frames to produce <code class="docutils literal notranslate"><span class="pre">T_lat</span></code> latent
+frames because of causal first-frame padding, while AR ≥ 1 takes
+<code class="docutils literal notranslate"><span class="pre">T_lat</span> <span class="pre">*</span> <span class="pre">r</span></code> pixel frames.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio">
+<span class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">spatial_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel side ÷ latent side. Constant across AR steps.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio">
+<span class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">temporal_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel frames ÷ latent frames in steady state (AR ≥ 1).</p>
+<p>AR 0 typically takes one extra (un-grouped) pixel frame to
+produce its first latent frame because of causal first-frame
+padding; that asymmetry lives inside
+<a class="reference internal" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size" title="flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a> /
+<a class="reference internal" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size" title="flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_input_temporal_size()</span></code></a>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size">
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_output_temporal_size</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">input_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingVideoEncoder.get_output_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Latent frame count produced from <code class="docutils literal notranslate"><span class="pre">input_temporal_size</span></code> pixel frames.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>autoregressive_index</strong> – AR step index (0-based).</p></li>
+<li><p><strong>input_temporal_size</strong> – Number of pixel frames fed at this step.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Number of latent frames emitted at this step.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size">
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_input_temporal_size</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">output_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingVideoEncoder.get_input_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Pixel frame count needed to produce <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> latents.</p>
+<p>Inverse of <a class="reference internal" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size" title="flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a>. Implementations
+should assert <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> is achievable at this AR
+step (i.e. the corresponding pixel count comes out as a
+positive integer).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>autoregressive_index</strong> – AR step index (0-based).</p></li>
+<li><p><strong>output_temporal_size</strong> – Desired number of latent frames.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Number of pixel frames needed at this step.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.infra.encoder.StreamingEncoderCache">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingEncoderCache</span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#StreamingEncoderCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.StreamingEncoderCache" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
-<p>Per-rollout encoder cache. Empty by default; subclass to add fields.</p>
+<p>Per-rollout cache for <a class="reference internal" href="#flashdreams.infra.encoder.StreamingEncoder" title="flashdreams.infra.encoder.StreamingEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingEncoder</span></code></a>.</p>
+<p>Empty by default; subclass to add fields (e.g. last-frame latent,
+cross-step accumulators).</p>
 </dd></dl>
 
 <dl class="py class">
@@ -1430,43 +1559,20 @@ encoders (e.g. text, CLIP image) return a fresh
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.base.Encoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Encoder</span></code></a>[<a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a>]</p>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.encoder.Encoder" title="flashdreams.infra.encoder.base.Encoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">Encoder</span></code></a></p>
 <p>Identity encoder: returns its input unchanged.</p>
-<p>Wire as the pipeline’s <code class="docutils literal notranslate"><span class="pre">encoder</span></code> slot to pass already-encoded tensors
-straight to the diffusion model.</p>
+<p>Wire as the transformer’s <code class="docutils literal notranslate"><span class="pre">context_encoder</span></code> slot to pass already-
+encoded tensors straight to the diffusion model.</p>
 <p class="rubric">Examples</p>
 <dl class="simple">
-<dt>config = StreamInferencePipelineConfig(</dt><dd><p>encoder=NullEncoderConfig(),
+<dt>config = TransformerConfig(</dt><dd><p>context_encoder=NullEncoderConfig(),
 …,</p>
 </dd>
 </dl>
 <p>)</p>
 <dl class="py method">
-<dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache">
-<span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
-
-<dl>
-<dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
-</dl>
-
-<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><span class="pre">EncoderAutoregressiveCache</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
-<dd><p>Build a fresh per-rollout cache.</p>
-<p>Override to return the encoder’s concrete cache type. Stateless
-encoders (e.g. text, CLIP image) return a fresh
-<code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code>.</p>
-</dd></dl>
-
-<dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder.forward">
-<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span>
-
-<dl>
-<dd><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache" title="flashdreams.infra.encoder.base.EncoderAutoregressiveCache"><span class="pre">EncoderAutoregressiveCache</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
-</dl>
-
-<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder.forward" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder.forward" title="Link to this definition">#</a></dt>
 <dd><p>Define the computation performed at every call.</p>
 <p>Should be overridden by all subclasses.</p>
 <div class="admonition note">
@@ -1484,33 +1590,43 @@ registered hooks while the latter silently ignores them.</p>
 <section id="decoder">
 <h2>Decoder<a class="headerlink" href="#decoder" title="Link to this heading">#</a></h2>
 <p>Decoders turn the latents emitted by the diffusion model back into pixel
-frames. They keep a <code class="xref py py-class docutils literal notranslate"><span class="pre">DecoderAutoregressiveCache</span></code> so the streaming
-pipeline can decode one chunk at a time with the correct temporal
-context.</p>
+frames. Single base class with two specialisations:</p>
+<ul class="simple">
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code> is stateful. <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span>
+<span class="pre">autoregressive_index,</span> <span class="pre">cache)</span></code> with a <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoderCache</span></code>.
+Use for chunk-by-chunk streaming decoders (e.g. WAN VAE that maintains
+a temporal cache across AR steps); stateless decoders just return an
+empty <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoderCache</span></code> from
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">StreamingDecoder.initialize_autoregressive_cache()</span></code> and ignore
+<code class="docutils literal notranslate"><span class="pre">autoregressive_index</span></code> / <code class="docutils literal notranslate"><span class="pre">cache</span></code> in <code class="docutils literal notranslate"><span class="pre">forward</span></code>.</p></li>
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingVideoDecoder</span></code> extends <code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code> with
+the contracts a streaming pixel-video decoder always needs: spatial /
+temporal compression ratios plus AR-step-aware temporal size mappers
+between latent and pixel space.</p></li>
+</ul>
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.decoder.Decoder">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Decoder</span></span><span class="sig-paren">(</span>
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingDecoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingDecoder</span></span><span class="sig-paren">(</span>
 
 <dl>
 <dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#Decoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.Decoder" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">DecCacheT</span></code>]</p>
-<p>Decoder interface, generic over the per-rollout cache type.</p>
-<p>Input is a latent tensor; output is the decoded sample (e.g. RGB video).
-<code class="docutils literal notranslate"><span class="pre">forward</span></code> isn’t pinned by the base. Decoders called by
-<code class="docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must match its call shape:
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingDecoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingDecoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a>, <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git474b964 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Generic" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Generic</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingDecoderCacheT</span></code>]</p>
+<p>Streaming decoder, generic over the per-rollout cache type.</p>
+<p><code class="docutils literal notranslate"><span class="pre">forward</span></code> is not pinned by the base. Streaming decoders called by
+<code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code> must match its call shape:
 <code class="docutils literal notranslate"><span class="pre">forward(self,</span> <span class="pre">input,</span> <span class="pre">autoregressive_index=0,</span> <span class="pre">cache=None)</span></code>.</p>
 <dl class="py method">
-<dt class="sig sig-object py" id="flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span>
 
 <dl>
 <dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em>,</dd>
 </dl>
 
-<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">DecCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#Decoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">StreamingDecoderCacheT</span></span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingDecoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
 <dd><p>Build a fresh per-rollout cache.</p>
 <p>Override to return the decoder’s concrete cache type.</p>
 </dd></dl>
@@ -1518,10 +1634,108 @@ context.</p>
 </dd></dl>
 
 <dl class="py class">
-<dt class="sig sig-object py" id="flashdreams.infra.decoder.DecoderAutoregressiveCache">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">DecoderAutoregressiveCache</span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#DecoderAutoregressiveCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.DecoderAutoregressiveCache" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingVideoDecoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingVideoDecoder</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#flashdreams.infra.config.InstantiateConfig" title="flashdreams.infra.config.base.InstantiateConfig"><span class="pre">InstantiateConfig</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingVideoDecoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingVideoDecoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.infra.decoder.StreamingDecoder" title="flashdreams.infra.decoder.base.StreamingDecoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code></a>[<code class="xref py py-obj docutils literal notranslate"><span class="pre">StreamingDecoderCacheT</span></code>]</p>
+<p>Streaming pixel-video decoder.</p>
+<p>Pins down the contracts that every streaming latent→pixel video
+decoder satisfies in addition to <a class="reference internal" href="#flashdreams.infra.decoder.StreamingDecoder" title="flashdreams.infra.decoder.StreamingDecoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code></a>:</p>
+<ul class="simple">
+<li><p>Spatial and temporal compression ratios between the latent and
+pixel grids (constants of the architecture).</p></li>
+<li><p>AR-step-aware temporal size mappers, so a pipeline can size its
+inputs and outputs without knowing the decoder’s concrete
+temporal cache topology (causal first-frame padding, sliding
+windows, etc.).</p></li>
+</ul>
+<p>Spatial scaling is trivially <code class="docutils literal notranslate"><span class="pre">side</span> <span class="pre">*</span> <span class="pre">spatial_compression_ratio</span></code>
+in either direction; the AR-step-asymmetric piece is the temporal
+size, which gets its own mapper. Typically AR 0 produces fewer
+pixel frames per latent frame than AR ≥ 1 because of causal
+first-frame padding.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">
+<span class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">spatial_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel side ÷ latent side. Constant across AR steps.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio">
+<span class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">temporal_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel frames ÷ latent frames in steady state (AR ≥ 1).</p>
+<p>AR 0 typically yields fewer pixel frames per latent frame
+because of causal first-frame padding; that asymmetry lives
+inside <a class="reference internal" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size" title="flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a> /
+<a class="reference internal" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size" title="flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_input_temporal_size()</span></code></a>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_output_temporal_size</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">input_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingVideoDecoder.get_output_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Pixel frame count produced by <code class="docutils literal notranslate"><span class="pre">input_temporal_size</span></code> latent frames.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>autoregressive_index</strong> – AR step index (0-based).</p></li>
+<li><p><strong>input_temporal_size</strong> – Number of latent frames fed at this step.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Number of pixel frames emitted at this step.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">
+<span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">get_input_temporal_size</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">output_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingVideoDecoder.get_input_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Latent frame count needed to produce <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> pixels.</p>
+<p>Inverse of <a class="reference internal" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size" title="flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a>. Implementations
+should assert <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> is achievable at this AR
+step (i.e. divisible by the right ratio after subtracting any
+causal padding).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>autoregressive_index</strong> – AR step index (0-based).</p></li>
+<li><p><strong>output_temporal_size</strong> – Desired number of pixel frames.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Number of latent frames needed at this step.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.infra.decoder.StreamingDecoderCache">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">StreamingDecoderCache</span></span><a class="reference internal" href="../_modules/flashdreams/infra/decoder/base.html#StreamingDecoderCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.decoder.StreamingDecoderCache" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
-<p>Per-rollout decoder cache. Empty by default; subclass to add fields.</p>
+<p>Per-rollout cache for <a class="reference internal" href="#flashdreams.infra.decoder.StreamingDecoder" title="flashdreams.infra.decoder.StreamingDecoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingDecoder</span></code></a>.</p>
+<p>Empty by default; subclass to add fields (e.g. temporal feature
+buffers carried across AR steps).</p>
 </dd></dl>
 
 </section>
@@ -1688,25 +1902,39 @@ context.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#encoder">Encoder</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.Encoder"><code class="docutils literal notranslate"><span class="pre">Encoder</span></code></a><ul class="nav section-nav flex-column">
-<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.Encoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.Encoder"><code class="docutils literal notranslate"><span class="pre">Encoder</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingEncoder"><code class="docutils literal notranslate"><span class="pre">StreamingEncoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.EncoderAutoregressiveCache"><code class="docutils literal notranslate"><span class="pre">EncoderAutoregressiveCache</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingVideoEncoder"><code class="docutils literal notranslate"><span class="pre">StreamingVideoEncoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio"><code class="docutils literal notranslate"><span class="pre">spatial_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio"><code class="docutils literal notranslate"><span class="pre">temporal_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size"><code class="docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size"><code class="docutils literal notranslate"><span class="pre">get_input_temporal_size()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.StreamingEncoderCache"><code class="docutils literal notranslate"><span class="pre">StreamingEncoderCache</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoderConfig"><code class="docutils literal notranslate"><span class="pre">NullEncoderConfig</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder"><code class="docutils literal notranslate"><span class="pre">NullEncoder</span></code></a><ul class="nav section-nav flex-column">
-<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.encoder.NullEncoder.forward"><code class="docutils literal notranslate"><span class="pre">forward()</span></code></a></li>
 </ul>
 </li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decoder">Decoder</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.Decoder"><code class="docutils literal notranslate"><span class="pre">Decoder</span></code></a><ul class="nav section-nav flex-column">
-<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingDecoder"><code class="docutils literal notranslate"><span class="pre">StreamingDecoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">initialize_autoregressive_cache()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.DecoderAutoregressiveCache"><code class="docutils literal notranslate"><span class="pre">DecoderAutoregressiveCache</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingVideoDecoder"><code class="docutils literal notranslate"><span class="pre">StreamingVideoDecoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio"><code class="docutils literal notranslate"><span class="pre">spatial_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio"><code class="docutils literal notranslate"><span class="pre">temporal_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size"><code class="docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size"><code class="docutils literal notranslate"><span class="pre">get_input_temporal_size()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.decoder.StreamingDecoderCache"><code class="docutils literal notranslate"><span class="pre">StreamingDecoderCache</span></code></a></li>
 </ul>
 </li>
 </ul>

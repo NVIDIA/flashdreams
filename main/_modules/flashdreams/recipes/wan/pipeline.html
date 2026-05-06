@@ -385,12 +385,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">cast</span><span class="p">,</span> <span class="n">runtime_checkable</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingVideoDecoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingVideoEncoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.image.clip</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CLIPImageEncoder</span><span class="p">,</span>
     <span class="n">CLIPImageEncoderConfig</span><span class="p">,</span>
@@ -406,7 +407,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.i2v</span><span class="w"> </span><span class="kn">import</span> <span class="n">I2VCtrlEncoderCache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="n">WanVAECache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">NEGATIVE_PROMPT</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">NEGATIVE_PROMPT</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.transformer.wan21</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Wan21TransformerCache</span><span class="p">,</span>
     <span class="n">Wan21TransformerConfig</span><span class="p">,</span>
@@ -415,21 +416,6 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">Wan22TransformerCache</span><span class="p">,</span>
     <span class="n">Wan22TransformerConfig</span><span class="p">,</span>
 <span class="p">)</span>
-
-
-<span class="nd">@runtime_checkable</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">_HasTemporalCompressionRatio</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Structural contract used by the I2V frame-count helpers.</span>
-
-<span class="sd">    ``get_num_input_frames`` and ``get_num_output_frames`` only need to know the encoder&#39;s</span>
-<span class="sd">    ``temporal_compression_ratio``; locking it to a concrete subclass</span>
-<span class="sd">    excludes downstream recipes (e.g. Lingbot World&#39;s</span>
-<span class="sd">    :class:`I2VCamCtrlEncoder`) that satisfy the same shape contract</span>
-<span class="sd">    without inheriting from :class:`I2VCtrlEncoder`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="nd">@property</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">temporal_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span> <span class="o">...</span>
 
 
 <div class="viewcode-block" id="WanInferencePipelineCache">
@@ -497,13 +483,24 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">        pipeline: WanInferencePipeline = ...</span>
 
-<span class="sd">        cache = pipeline.initialize_cache(text=[&quot;A cat surfing.&quot;])</span>
+<span class="sd">        # T2V: latent (height, width) are required (the pipeline has no</span>
+<span class="sd">        # image to derive them from). Convert from a target pixel size</span>
+<span class="sd">        # via the decoder&#39;s ``spatial_compression_ratio``:</span>
+<span class="sd">        #   height = pixel_h // pipeline.decoder.spatial_compression_ratio</span>
+<span class="sd">        cache = pipeline.initialize_cache(</span>
+<span class="sd">            text=[&quot;A cat surfing.&quot;], height=60, width=104</span>
+<span class="sd">        )</span>
 <span class="sd">        chunk = pipeline.generate(0, cache)</span>
 <span class="sd">        pipeline.finalize(0, cache)</span>
 <span class="sd">        chunk = pipeline.generate(1, cache)</span>
 <span class="sd">        pipeline.finalize(1, cache)  # optional for the last rollout</span>
 
-<span class="sd">    For I2V, also pass ``image=first_frame`` to ``initialize_cache``.</span>
+<span class="sd">        # I2V: pass ``image=first_frame``. ``height`` / ``width`` are</span>
+<span class="sd">        # derived from the image and the decoder&#39;s spatial compression</span>
+<span class="sd">        # ratio; passing them is optional (and cross-checked when set).</span>
+<span class="sd">        i2v_cache = pipeline.initialize_cache(</span>
+<span class="sd">            text=[&quot;A cat surfing.&quot;], image=first_frame</span>
+<span class="sd">        )</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoder</span>
@@ -531,6 +528,9 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
         <span class="n">image</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">height</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WanInferencePipelineCache</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache for a batch of prompts.</span>
 
@@ -539,9 +539,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">                transformer&#39;s ``batch_shape``.</span>
 <span class="sd">            image: First-frame pixels of shape ``[*batch_shape, 1, 3, H, W]``</span>
 <span class="sd">                in ``[-1, 1]``. Required for I2V (``self.encoder`` is set),</span>
-<span class="sd">                forbidden for T2V. ``H`` / ``W`` must equal the transformer&#39;s</span>
-<span class="sd">                latent ``height`` / ``width`` times the decoder spatial</span>
-<span class="sd">                compression ratio.</span>
+<span class="sd">                forbidden for T2V. ``H`` / ``W`` must equal</span>
+<span class="sd">                ``height * decoder.spatial_compression_ratio`` and likewise</span>
+<span class="sd">                for ``W``.</span>
+<span class="sd">            height: Pre-patchify latent height (post-VAE). Optional for</span>
+<span class="sd">                I2V — derived from ``image`` when omitted; required for T2V.</span>
+<span class="sd">            width: Pre-patchify latent width (post-VAE). Same rules as</span>
+<span class="sd">                ``height``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Cache to thread through ``generate`` / ``finalize``.</span>
@@ -574,6 +578,39 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="s2">&quot;Image was not provided but the pipeline has an I2V input encoder.&quot;</span>
             <span class="p">)</span>
 
+        <span class="c1"># Derive (or cross-check) latent (height, width) from the image when</span>
+        <span class="c1"># it is provided. The decoder owns the pixel&lt;-&gt;latent ratio; the</span>
+        <span class="c1"># encoder is assumed to share it (Wan VAE encoder/decoder do).</span>
+        <span class="k">if</span> <span class="n">image</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">,</span> <span class="n">StreamingVideoDecoder</span><span class="p">),</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;I2V requires a StreamingVideoDecoder; &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">sp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">spatial_compression_ratio</span>
+            <span class="n">pixel_h</span><span class="p">,</span> <span class="n">pixel_w</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">assert</span> <span class="n">pixel_h</span> <span class="o">%</span> <span class="n">sp</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">pixel_w</span> <span class="o">%</span> <span class="n">sp</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;image pixel size (</span><span class="si">{</span><span class="n">pixel_h</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">pixel_w</span><span class="si">}</span><span class="s2">) must be divisible &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;by decoder.spatial_compression_ratio=</span><span class="si">{</span><span class="n">sp</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">derived_h</span><span class="p">,</span> <span class="n">derived_w</span> <span class="o">=</span> <span class="n">pixel_h</span> <span class="o">//</span> <span class="n">sp</span><span class="p">,</span> <span class="n">pixel_w</span> <span class="o">//</span> <span class="n">sp</span>
+            <span class="k">if</span> <span class="n">height</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">height</span> <span class="o">=</span> <span class="n">derived_h</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">height</span> <span class="o">==</span> <span class="n">derived_h</span><span class="p">,</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;height=</span><span class="si">{</span><span class="n">height</span><span class="si">}</span><span class="s2"> does not match image latent height &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;derived from pixels (</span><span class="si">{</span><span class="n">derived_h</span><span class="si">}</span><span class="s2">).&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">width</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">width</span> <span class="o">=</span> <span class="n">derived_w</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">width</span> <span class="o">==</span> <span class="n">derived_w</span><span class="p">,</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;width=</span><span class="si">{</span><span class="n">width</span><span class="si">}</span><span class="s2"> does not match image latent width &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;derived from pixels (</span><span class="si">{</span><span class="n">derived_w</span><span class="si">}</span><span class="s2">).&quot;</span>
+                <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">height</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">width</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;T2V (image=None) requires explicit `height` and `width` latent dims.&quot;</span>
+        <span class="p">)</span>
+
         <span class="n">image_embeddings</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">assert</span> <span class="n">image</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
@@ -584,6 +621,8 @@ SPDX-License-Identifier: Apache-2.0
 
         <span class="n">parent</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
             <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="n">height</span><span class="p">,</span>
+                <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="n">width</span><span class="p">,</span>
                 <span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">,</span>
                 <span class="s2">&quot;negative_text_embeddings&quot;</span><span class="p">:</span> <span class="n">negative_text_embeddings</span><span class="p">,</span>
                 <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="p">,</span>
@@ -658,15 +697,11 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_input_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of input video frames the model expects at this AR step.&quot;&quot;&quot;</span>
         <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">,</span> <span class="n">_HasTemporalCompressionRatio</span><span class="p">),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;get_num_input_frames requires an I2V encoder exposing &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;`temporal_compression_ratio`; got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">,</span> <span class="n">StreamingVideoEncoder</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;get_num_input_frames requires a StreamingVideoEncoder; &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
         <span class="p">)</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">len_t</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">get_input_temporal_size</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">len_t</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="WanInferencePipeline.get_num_output_frames">
@@ -674,15 +709,11 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_output_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of decoded video frames produced at this AR step.&quot;&quot;&quot;</span>
         <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">,</span> <span class="n">_HasTemporalCompressionRatio</span><span class="p">),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;get_num_output_frames requires a decoder exposing &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;`temporal_compression_ratio`; got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">,</span> <span class="n">StreamingVideoDecoder</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;get_num_output_frames requires a StreamingVideoDecoder; &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">.&quot;</span>
         <span class="p">)</span>
-        <span class="n">temporal_compression_ratio</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">len_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">len_t</span> <span class="o">*</span> <span class="n">temporal_compression_ratio</span></div>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">get_output_temporal_size</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">len_t</span><span class="p">)</span></div>
 </div>
 
 </pre></div>

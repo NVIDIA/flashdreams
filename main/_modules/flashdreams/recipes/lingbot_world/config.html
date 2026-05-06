@@ -382,12 +382,13 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">&quot;&quot;&quot;Pipeline-config builders for streaming Lingbot World camera-control I2V.</span>
 
-<span class="sd">Each builder takes only the runtime knobs the caller owns (CP size,</span>
-<span class="sd">``torch.compile`` toggle, seed, profiling) and returns a fully</span>
-<span class="sd">constructed pipeline config. Shape knobs (batch / view / resolution /</span>
-<span class="sd">per-chunk latent T) are pinned to canonical Lingbot defaults; callers</span>
-<span class="sd">that want different shapes should construct the transformer config</span>
-<span class="sd">directly.</span>
+<span class="sd">Each builder takes only the runtime knobs the caller owns</span>
+<span class="sd">(``torch.compile`` toggle, seed, profiling, streaming window) and</span>
+<span class="sd">returns a fully constructed pipeline config. CP size is auto-detected</span>
+<span class="sd">from ``torch.distributed.get_world_size()`` inside the transformer.</span>
+<span class="sd">Shape knobs (batch / view / resolution / per-chunk latent T) are pinned</span>
+<span class="sd">to canonical Lingbot defaults; callers that want different shapes</span>
+<span class="sd">should construct the transformer config directly.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -431,10 +432,12 @@ SPDX-License-Identifier: Apache-2.0
 <span class="n">_DEFAULT_NUM_TRAIN_TIMESTEPS</span> <span class="o">=</span> <span class="mi">1000</span>
 
 <span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>  <span class="c1"># [B=1, V=1]</span>
-<span class="n">_DEFAULT_VIDEO_HEIGHT</span> <span class="o">=</span> <span class="mi">464</span>
-<span class="n">_DEFAULT_VIDEO_WIDTH</span> <span class="o">=</span> <span class="mi">832</span>
+<span class="c1"># Canonical pixel-space defaults; callers pass the matching latent</span>
+<span class="c1"># (height, width) into :meth:`WanInferencePipeline.initialize_cache`.</span>
+<span class="n">DEFAULT_VIDEO_HEIGHT</span> <span class="o">=</span> <span class="mi">464</span>
+<span class="n">DEFAULT_VIDEO_WIDTH</span> <span class="o">=</span> <span class="mi">832</span>
 <span class="n">_DEFAULT_LEN_T_LATENT</span> <span class="o">=</span> <span class="mi">3</span>
-<span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">WAN_VAE_SPATIAL_COMPRESSION</span> <span class="o">=</span> <span class="mi">8</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_wan_vae_decoder_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">WanVAEDecoderConfig</span><span class="p">:</span>
@@ -471,7 +474,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">def</span><span class="w"> </span><span class="nf">_transformer_config</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
     <span class="n">window_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span>
     <span class="n">sink_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
@@ -481,13 +483,14 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">network</span><span class="o">=</span><span class="n">LingbotWorldDiTNetwork14BConfig</span><span class="p">(</span>
             <span class="n">patch_embedding_type</span><span class="o">=</span><span class="s2">&quot;conv3d&quot;</span><span class="p">,</span>
             <span class="n">control_type</span><span class="o">=</span><span class="s2">&quot;cam&quot;</span><span class="p">,</span>
+            <span class="c1"># 16 noise channels + 4-channel mask + 16-channel image latent</span>
+            <span class="c1"># (channel-concat I2V layout). Must match the</span>
+            <span class="c1"># ``concat_image_mask_to_latent=True`` setting below.</span>
+            <span class="n">in_dim</span><span class="o">=</span><span class="mi">16</span> <span class="o">+</span> <span class="mi">4</span> <span class="o">+</span> <span class="mi">16</span><span class="p">,</span>
         <span class="p">),</span>
         <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">checkpoint_path</span><span class="p">,</span>
         <span class="n">batch_shape</span><span class="o">=</span><span class="n">_DEFAULT_BATCH_SHAPE</span><span class="p">,</span>
-        <span class="n">height</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_HEIGHT</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
-        <span class="n">width</span><span class="o">=</span><span class="n">_DEFAULT_VIDEO_WIDTH</span> <span class="o">//</span> <span class="n">_WAN_VAE_SPATIAL_COMPRESSION</span><span class="p">,</span>
         <span class="n">len_t</span><span class="o">=</span><span class="n">_DEFAULT_LEN_T_LATENT</span><span class="p">,</span>
-        <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
         <span class="c1"># CFG off by default to match the upstream Lingbot checkpoint.</span>
         <span class="n">guidance_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
         <span class="c1"># Streaming defaults.</span>
@@ -521,7 +524,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.lingbot_world.config.build_lingbot_world_fast">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_lingbot_world_fast</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
@@ -539,7 +541,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;LingBot-World-Fast&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
                 <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
@@ -554,7 +555,6 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.lingbot_world.config.build_lingbot_world_fast_flash">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_lingbot_world_fast_flash</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">enable_sync_and_profile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
@@ -572,7 +572,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS</span><span class="p">[</span>
                     <span class="s2">&quot;LingBot-World-Fast&quot;</span>
                 <span class="p">],</span>
-                <span class="n">cp_size</span><span class="o">=</span><span class="n">cp_size</span><span class="p">,</span>
                 <span class="n">compile_network</span><span class="o">=</span><span class="n">compile_network</span><span class="p">,</span>
                 <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
                 <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>

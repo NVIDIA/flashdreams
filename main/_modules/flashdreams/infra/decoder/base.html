@@ -380,7 +380,22 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Decoder interface.&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;Decoder interfaces.</span>
+
+<span class="sd">Two flavours:</span>
+
+<span class="sd">- :class:`StreamingDecoder` is stateful. ``forward(self, input,</span>
+<span class="sd">  autoregressive_index, cache)`` plus a per-rollout</span>
+<span class="sd">  :class:`StreamingDecoderCache`. Use for chunk-by-chunk streaming</span>
+<span class="sd">  decoders (e.g. the WAN VAE that maintains a temporal cache across AR</span>
+<span class="sd">  steps); also fine for stateless decoders — just return an empty</span>
+<span class="sd">  :class:`StreamingDecoderCache` and ignore ``autoregressive_index`` /</span>
+<span class="sd">  ``cache`` in ``forward``.</span>
+<span class="sd">- :class:`StreamingVideoDecoder` extends :class:`StreamingDecoder` with</span>
+<span class="sd">  the contracts a streaming pixel-video decoder always needs: spatial</span>
+<span class="sd">  and temporal compression ratios, plus AR-step-aware temporal size</span>
+<span class="sd">  mappers between latent and pixel space.</span>
+<span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
@@ -392,29 +407,32 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 
 
-<div class="viewcode-block" id="DecoderAutoregressiveCache">
-<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.DecoderAutoregressiveCache">[docs]</a>
+<div class="viewcode-block" id="StreamingDecoderCache">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingDecoderCache">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">DecoderAutoregressiveCache</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-rollout decoder cache. Empty by default; subclass to add fields.&quot;&quot;&quot;</span></div>
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamingDecoderCache</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-rollout cache for :class:`StreamingDecoder`.</span>
+
+<span class="sd">    Empty by default; subclass to add fields (e.g. temporal feature</span>
+<span class="sd">    buffers carried across AR steps).</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
 
 
 
-<span class="n">DecCacheT</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span>
-    <span class="s2">&quot;DecCacheT&quot;</span><span class="p">,</span>
-    <span class="n">bound</span><span class="o">=</span><span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>
-    <span class="n">default</span><span class="o">=</span><span class="n">DecoderAutoregressiveCache</span><span class="p">,</span>
+<span class="n">StreamingDecoderCacheT</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span>
+    <span class="s2">&quot;StreamingDecoderCacheT&quot;</span><span class="p">,</span>
+    <span class="n">bound</span><span class="o">=</span><span class="n">StreamingDecoderCache</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="n">StreamingDecoderCache</span><span class="p">,</span>
 <span class="p">)</span>
 
 
-<div class="viewcode-block" id="Decoder">
-<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.Decoder">[docs]</a>
-<span class="k">class</span><span class="w"> </span><span class="nc">Decoder</span><span class="p">(</span><span class="n">ABC</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">DecCacheT</span><span class="p">]):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decoder interface, generic over the per-rollout cache type.</span>
+<div class="viewcode-block" id="StreamingDecoder">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingDecoder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamingDecoder</span><span class="p">(</span><span class="n">ABC</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">StreamingDecoderCacheT</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Streaming decoder, generic over the per-rollout cache type.</span>
 
-<span class="sd">    Input is a latent tensor; output is the decoded sample (e.g. RGB video).</span>
-<span class="sd">    ``forward`` isn&#39;t pinned by the base. Decoders called by</span>
-<span class="sd">    ``StreamInferencePipeline`` must match its call shape:</span>
+<span class="sd">    ``forward`` is not pinned by the base. Streaming decoders called by</span>
+<span class="sd">    :class:`StreamInferencePipeline` must match its call shape:</span>
 <span class="sd">    ``forward(self, input, autoregressive_index=0, cache=None)``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -422,13 +440,96 @@ SPDX-License-Identifier: Apache-2.0
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
-<div class="viewcode-block" id="Decoder.initialize_autoregressive_cache">
-<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.Decoder.initialize_autoregressive_cache">[docs]</a>
+<div class="viewcode-block" id="StreamingDecoder.initialize_autoregressive_cache">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">[docs]</a>
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DecCacheT</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StreamingDecoderCacheT</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a fresh per-rollout cache.</span>
 
 <span class="sd">        Override to return the decoder&#39;s concrete cache type.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="StreamingVideoDecoder">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamingVideoDecoder</span><span class="p">(</span><span class="n">StreamingDecoder</span><span class="p">[</span><span class="n">StreamingDecoderCacheT</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Streaming pixel-video decoder.</span>
+
+<span class="sd">    Pins down the contracts that every streaming latent→pixel video</span>
+<span class="sd">    decoder satisfies in addition to :class:`StreamingDecoder`:</span>
+
+<span class="sd">    - Spatial and temporal compression ratios between the latent and</span>
+<span class="sd">      pixel grids (constants of the architecture).</span>
+<span class="sd">    - AR-step-aware temporal size mappers, so a pipeline can size its</span>
+<span class="sd">      inputs and outputs without knowing the decoder&#39;s concrete</span>
+<span class="sd">      temporal cache topology (causal first-frame padding, sliding</span>
+<span class="sd">      windows, etc.).</span>
+
+<span class="sd">    Spatial scaling is trivially ``side * spatial_compression_ratio``</span>
+<span class="sd">    in either direction; the AR-step-asymmetric piece is the temporal</span>
+<span class="sd">    size, which gets its own mapper. Typically AR 0 produces fewer</span>
+<span class="sd">    pixel frames per latent frame than AR ≥ 1 because of causal</span>
+<span class="sd">    first-frame padding.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">spatial_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel side ÷ latent side. Constant across AR steps.&quot;&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">temporal_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel frames ÷ latent frames in steady state (AR ≥ 1).</span>
+
+<span class="sd">        AR 0 typically yields fewer pixel frames per latent frame</span>
+<span class="sd">        because of causal first-frame padding; that asymmetry lives</span>
+<span class="sd">        inside :meth:`get_output_temporal_size` /</span>
+<span class="sd">        :meth:`get_input_temporal_size`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="StreamingVideoDecoder.get_output_temporal_size">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_output_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">input_temporal_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel frame count produced by ``input_temporal_size`` latent frames.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            autoregressive_index: AR step index (0-based).</span>
+<span class="sd">            input_temporal_size: Number of latent frames fed at this step.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Number of pixel frames emitted at this step.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="StreamingVideoDecoder.get_input_temporal_size">
+<a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_input_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">output_temporal_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Latent frame count needed to produce ``output_temporal_size`` pixels.</span>
+
+<span class="sd">        Inverse of :meth:`get_output_temporal_size`. Implementations</span>
+<span class="sd">        should assert ``output_temporal_size`` is achievable at this AR</span>
+<span class="sd">        step (i.e. divisible by the right ratio after subtracting any</span>
+<span class="sd">        causal padding).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            autoregressive_index: AR step index (0-based).</span>
+<span class="sd">            output_temporal_size: Desired number of pixel frames.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Number of latent frames needed at this step.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 </div>
 
