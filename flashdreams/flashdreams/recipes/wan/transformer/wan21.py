@@ -27,6 +27,7 @@ from torch import Tensor
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
@@ -75,13 +76,18 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     """Current AR step index, set by ``start``."""
 
     def start(self, autoregressive_index: int) -> None:
+        # Hoist per-block KV pre-update out of the (graph-captured) network
+        # forward; predict_flow runs with eager_mode=False so the network
+        # itself does not call before_update.
         self.autoregressive_index = autoregressive_index
+        self.network_cache_cond.before_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.before_update(autoregressive_index)
 
     def finalize(self, autoregressive_index: int) -> None:
-        # The per-block KV update happens inside the network forward in
-        # eager_mode=True. DiffusionModel.finalize has already re-keyed both
-        # branches with the clean representation, so nothing to do here.
-        return
+        self.network_cache_cond.after_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.after_update(autoregressive_index)
 
 
 ## Transformer
@@ -152,6 +158,15 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     compile_network: bool = False
     """``torch.compile`` the network on init."""
 
+    use_cuda_graph: bool = True
+    """Wrap the network in ``CUDAGraphWrapper`` for steady-state replay.
+    Caller must keep non-staged inputs at stable storage addresses across
+    calls. ``predict_flow`` dispatches to ``wrapper.drain`` while the KV
+    cache is still filling and to ``wrapper`` once it reaches steady state."""
+
+    warmup_iters: int = 2
+    """Eager calls before capture (>= 2 to drain Inductor autotune)."""
+
     stamp_image_latent: bool = False
     """See class docstring (mask-inject I2V recipe)."""
 
@@ -165,6 +180,33 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
 
         if self.concat_image_mask_to_latent:
             self.network.in_dim += 4 + 16
+
+        kt, kh, kw = self.network.patch_size
+        assert (
+            self.len_t % kt == 0
+            and self.height % kh == 0
+            and self.width % kw == 0
+        ), (
+            f"({self.len_t}, {self.height}, {self.width}) must be divisible by "
+            f"patch_size ({kt}, {kh}, {kw})"
+        )
+        self._pT = self.len_t // kt
+        self._pH = self.height // kh
+        self._pW = self.width // kw
+
+        # First AR step whose forward runs on the KV cache's steady-state
+        # code path. The cache fills at AR step ``chunks_total // _pT - 1``;
+        # the *next* step is the first one whose ``before_update`` sees
+        # ``is_steady_state() == True`` and whose forward takes the steady branches.
+        # Drain must cover that first steady call so Inductor autotunes those
+        # branches on the eager path before capture.
+        chunks_total = self.sink_size_t + self.window_size_t
+        assert chunks_total % self._pT == 0, (
+            f"sink_size_t + window_size_t ({chunks_total}) must be "
+            f"divisible by _pT ({self._pT}) so the BlockKVCache can fit "
+            f"a whole number of AR chunks."
+        )
+        self._steady_ar_idx = chunks_total // self._pT
 
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
@@ -200,10 +242,10 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             )
 
         # Token layout (pre-CP). Per-rank token count is on self.latent_shape[-2].
-        kt, kh, kw = config.network.patch_size
-        self._pT = config.len_t // kt
-        self._pH = config.height // kh
-        self._pW = config.width // kw
+        # _pT / _pH / _pW are computed in config.__post_init__.
+        self._pT = config._pT
+        self._pH = config._pH
+        self._pW = config._pW
         total_tokens = self._pT * self._pH * self._pW
         assert total_tokens % self.cp_size == 0, (
             f"Wan token length ({total_tokens} from len_t={config.len_t}, "
@@ -229,6 +271,23 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
 
         if config.compile_network:
             self.network = compile_module(self.network)
+
+        # Per-rollout dispatch when use_cuda_graph=True:
+        # filling phase -> wrapper.drain (eager, drains Inductor autotune);
+        # steady-state -> wrapper.__call__ (warmup + capture + replay).
+        # Cond and CFG-uncond branches each get their own wrapper since each
+        # mutates an independent rolling KV cache.
+        self._use_cuda_graph = config.use_cuda_graph
+        self._network_call_cond: CUDAGraphWrapper | WanDiTNetwork = (
+            CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
+            if config.use_cuda_graph
+            else self.network
+        )
+        self._network_call_uncond: CUDAGraphWrapper | WanDiTNetwork = (
+            CUDAGraphWrapper(self.network, warmup_iters=config.warmup_iters)
+            if config.use_cuda_graph
+            else self.network
+        )
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
@@ -327,6 +386,14 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         )
         rope_adapter.set_context_parallel_group(cp_group=self.cp_group)
 
+        # Reset any prior CUDA graph: it refers to slot pointers from the
+        # previous cache, which the new cache invalidates.
+        if self._use_cuda_graph:
+            assert isinstance(self._network_call_cond, CUDAGraphWrapper)
+            self._network_call_cond.reset()
+            assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
+            self._network_call_uncond.reset()
+
         return Wan21TransformerCache(
             network_cache_cond=network_cache_cond,
             network_cache_uncond=network_cache_uncond,
@@ -347,6 +414,24 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         is a plain per-token blend ``(1 - m) * latent + m * control.latent``.
         """
         return latent * (1.0 - control.mask) + control.latent * control.mask
+
+    def _select_network(
+        self, cache: Wan21TransformerCache, *, uncond: bool
+    ) -> Any:
+        if not self._use_cuda_graph:
+            return self.network
+
+        network_call = (
+            self._network_call_uncond if uncond else self._network_call_cond
+        )
+        assert isinstance(network_call, CUDAGraphWrapper)
+        # Cond and CFG-uncond branches both mutate their rolling KV cache, so
+        # neither branch can be graph-captured until the cache is steady.
+        return (
+            network_call.drain
+            if cache.autoregressive_index < self.config._steady_ar_idx
+            else network_call
+        )
 
     def predict_flow(
         self,
@@ -383,25 +468,25 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             mask = input.mask[..., :16]
             network_input = torch.cat([network_input, mask, input.latent], dim=-1)
 
-        flow_cond = self.network(
+        flow_cond = self._select_network(cache, uncond=False)(
             x=network_input,
             timesteps=timestep,
             cache=cache.network_cache_cond,
             rope_freqs=rope_freqs,
             current_chunk_idx=ar_idx,
-            eager_mode=True,
+            eager_mode=False,
             **network_extra_kwargs,
         )
         if cache.network_cache_uncond is None:
             return flow_cond
 
-        flow_uncond = self.network(
+        flow_uncond = self._select_network(cache, uncond=True)(
             x=network_input,
             timesteps=timestep,
             cache=cache.network_cache_uncond,
             rope_freqs=rope_freqs,
             current_chunk_idx=ar_idx,
-            eager_mode=True,
+            eager_mode=False,
             **network_extra_kwargs,
         )
         return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
