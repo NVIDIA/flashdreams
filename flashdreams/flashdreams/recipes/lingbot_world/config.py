@@ -155,6 +155,8 @@ def build_lingbot_world_fast(
     compile_network: bool = True,
     seed: int = 42,
     enable_sync_and_profile: bool = False,
+    window_size_t: int = 60,
+    sink_size_t: int = 0,
 ) -> LingbotWorldInferencePipelineConfig:
     """LingBot-World-Fast checkpoint, Wan VAE decoder, 4-step distilled schedule."""
     return LingbotWorldInferencePipelineConfig(
@@ -169,6 +171,8 @@ def build_lingbot_world_fast(
                 ],
                 cp_size=cp_size,
                 compile_network=compile_network,
+                window_size_t=window_size_t,
+                sink_size_t=sink_size_t,
             ),
             scheduler=_scheduler_config(_DEFAULT_DENOISING_TIMESTEPS),
         ),
