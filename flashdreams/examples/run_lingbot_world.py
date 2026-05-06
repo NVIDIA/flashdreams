@@ -64,6 +64,9 @@ from flashdreams.recipes.lingbot_world.config import (
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
 from flashdreams.recipes.lingbot_world.pipeline import LingbotWorldInferencePipeline
+from flashdreams.recipes.lingbot_world.transformer import (
+    LingbotWorldTransformerConfig,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/lingbot_world"
@@ -89,14 +92,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--window_size_t",
         type=int,
-        default=15,
-        help="Window size in latent frames.",
+        default=None,
+        help=(
+            "Override the streaming window size (latent frames). "
+            "Defaults to the value baked into the selected --config_name."
+        ),
     )
     parser.add_argument(
         "--sink_size_t",
         type=int,
-        default=3,
-        help="Sink size in latent frames.",
+        default=None,
+        help=(
+            "Override the streaming sink size (latent frames). "
+            "Defaults to the value baked into the selected --config_name."
+        ),
     )
     parser.add_argument(
         "--total_blocks",
@@ -222,14 +231,21 @@ def main() -> None:
 
     # --------------------------------------------------------- pipeline init
     builder = LINGBOT_WORLD_CONFIG_BUILDERS[args.config_name]
+    # Only forward window/sink overrides when the user explicitly set them, so
+    # the per-preset defaults baked into each builder (e.g. 60/0 for Fast,
+    # 15/3 for Fast-Flash) survive when the CLI flags are omitted.
+    builder_overrides: dict[str, int] = {}
+    if args.window_size_t is not None:
+        builder_overrides["window_size_t"] = args.window_size_t
+    if args.sink_size_t is not None:
+        builder_overrides["sink_size_t"] = args.sink_size_t
     pipeline = (
         builder(
             cp_size=world_size,
             compile_network=not args.no_compile,
             seed=42 + rank,
             enable_sync_and_profile=True,
-            window_size_t=args.window_size_t,
-            sink_size_t=args.sink_size_t,
+            **builder_overrides,
         )
         .setup()
         .to(device=device)
@@ -280,7 +296,26 @@ def main() -> None:
         canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
-        save_path = f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus_window{args.window_size_t}_sink{args.sink_size_t}.mp4"
+        # Resolve the effective window/sink for the filename: CLI overrides
+        # win, otherwise read what the transformer config actually used.
+        transformer_cfg = pipeline.diffusion_model.transformer.config
+        assert isinstance(transformer_cfg, LingbotWorldTransformerConfig), (
+            f"Expected LingbotWorldTransformerConfig, got {type(transformer_cfg).__name__}"
+        )
+        effective_window = (
+            args.window_size_t
+            if args.window_size_t is not None
+            else transformer_cfg.window_size_t
+        )
+        effective_sink = (
+            args.sink_size_t
+            if args.sink_size_t is not None
+            else transformer_cfg.sink_size_t
+        )
+        save_path = (
+            f"{REPO_ROOT}/outputs/lingbot_{args.config_name}_{world_size}gpus"
+            f"_window{effective_window}_sink{effective_sink}.mp4"
+        )
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
         print(f"saved generated video to {save_path}")

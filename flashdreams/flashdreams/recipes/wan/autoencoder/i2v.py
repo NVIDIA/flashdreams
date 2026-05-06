@@ -87,6 +87,9 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
         self._last_latent: Tensor | None = None
 
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
+        # New rollout: the previous rollout's first-frame latent must not
+        # leak into AR steps >= 5 of this one.
+        self._last_latent = None
         return self.encoder.initialize_autoregressive_cache()
 
     @torch.no_grad()
@@ -96,6 +99,10 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
         autoregressive_index: int = 0,
         cache: I2VCtrlEncoderCache | None = None,
     ) -> I2VCtrl:
+        # Defensive reset: covers callers that drive the encoder directly
+        # without going through ``initialize_autoregressive_cache``.
+        if autoregressive_index == 0:
+            self._last_latent = None
         # TODO: the Wan VAE encoder is identity after chunk 5, so for I2V we
         # could cache and skip the VAE call past that point. Hardcoded for now
         # to be fixed later.
@@ -106,7 +113,12 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
                 cache=cache,
             )
         else:
-            assert self._last_latent is not None
+            assert self._last_latent is not None, (
+                "I2VCtrlEncoder has no cached latent at "
+                f"autoregressive_index={autoregressive_index}; "
+                "the rollout must have started at autoregressive_index=0 "
+                "and run contiguously through index 4."
+            )
             latent = self._last_latent
         # Mask shape matches latent so they patchify identically and the
         # downstream blend is a plain elementwise multiply.

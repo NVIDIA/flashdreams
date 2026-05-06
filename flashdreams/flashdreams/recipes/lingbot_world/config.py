@@ -59,8 +59,7 @@ AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
 
 ## Canonical Lingbot World streaming defaults
 
-# Upstream Fast 4-step schedule and its independently distilled Flash 2-step
-# variant (the Flash list is not a prefix of the Fast list).
+# Upstream Fast 4-step distilled schedule.
 _DEFAULT_DENOISING_TIMESTEPS = [999, 978, 947, 825]
 _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
 
@@ -86,8 +85,10 @@ def _scheduler_config(
 ) -> FlowMatchSchedulerConfig:
     """Lingbot World flow-match scheduler.
 
-    Parameterized by the full timestep list because the Fast and Flash
-    variants ship independently distilled schedules.
+    Takes the timestep list as a parameter so future variants that ship a
+    different distilled schedule can plug it in without touching the rest
+    of the builder. Both currently-shipped Lingbot World presets pass
+    ``_DEFAULT_DENOISING_TIMESTEPS``.
     """
     return FlowMatchSchedulerConfig(
         num_inference_steps=len(denoising_timesteps),
