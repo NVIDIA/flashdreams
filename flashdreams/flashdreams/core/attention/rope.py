@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""3D rotary position embeddings with CP-aware shifting for the Wan DiT."""
+"""3D rotary position embeddings with CP-aware shifting.
+
+Used by DiTs (e.g. Wan, AlpaDreams) that patchify into a (T, H, W) sequence.
+"""
 
 from typing import TypeVar
 

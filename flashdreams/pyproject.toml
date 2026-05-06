@@ -27,8 +27,8 @@ dependencies = [
     # transformer-engine has no Windows wheels (manylinux only). Gate it on
     # Linux so `uv sync` works on Windows hosts; the FlashDreams Linux CI /
     # NGC container path resolves it normally. The pure-PyTorch RoPE
-    # fallback in flashdreams/recipes/wan/transformer/impl/rope.py keeps
-    # the runtime path Windows-clean.
+    # fallback in flashdreams/core/attention/rope.py keeps the runtime
+    # path Windows-clean.
     "transformer-engine[pytorch,core-cu13]>=2.12; sys_platform != 'win32'",
     # ``torch.compile`` lowers conv/elementwise kernels through Inductor +
     # Triton. On Windows the upstream PyPI ``triton`` package is Linux-only,

@@ -39,7 +39,7 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetworkCache,
     WanDiTNetworkConfig,
 )
-from flashdreams.recipes.wan.transformer.impl.rope import RotaryPositionEmbedding3D
+from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 
 ## Autoregressive cache (per-rollout, mutated across AR steps)
 

@@ -34,7 +34,7 @@ from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
 )
-from flashdreams.recipes.wan.transformer.impl.rope import (
+from flashdreams.core.attention.rope import (
     RotaryPositionEmbedding3D,
 )
 

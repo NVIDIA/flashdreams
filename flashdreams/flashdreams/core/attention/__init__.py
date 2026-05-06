@@ -18,5 +18,15 @@
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.native import NativeAttention
 from flashdreams.core.attention.ring import RingAttention
+from flashdreams.core.attention.rope import (
+    RotaryPositionEmbedding3D,
+    apply_rope_freqs,
+)
 
-__all__ = ["NativeAttention", "RingAttention", "BlockKVCache"]
+__all__ = [
+    "BlockKVCache",
+    "NativeAttention",
+    "RingAttention",
+    "RotaryPositionEmbedding3D",
+    "apply_rope_freqs",
+]

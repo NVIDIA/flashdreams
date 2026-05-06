@@ -27,7 +27,7 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashdreams.core.attention import BlockKVCache, RingAttention
-from flashdreams.recipes.wan.transformer.impl.rope import apply_rope_freqs
+from flashdreams.core.attention.rope import apply_rope_freqs
 
 
 def sinusoidal_embedding_1d(dim: int, position: Tensor) -> Tensor:
