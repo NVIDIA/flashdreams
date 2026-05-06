@@ -29,7 +29,7 @@ from transformers import AutoTokenizer, UMT5EncoderModel
 
 from flashdreams.core.io.hf import should_use_local_files_only
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.encoder import Encoder
 
 
 def prompt_clean(text: str) -> str:
@@ -86,9 +86,6 @@ class UMT5TextEncoder(Encoder):
             subfolder="tokenizer",
             local_files_only=local_files_only,
         )
-
-    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
-        return EncoderAutoregressiveCache()
 
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:

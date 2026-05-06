@@ -24,7 +24,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder
+from flashdreams.infra.encoder import StreamingVideoEncoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAECache,
     WanVAEEncoder,
@@ -64,7 +64,7 @@ class I2VCtrlEncoderConfig(InstantiateConfig["I2VCtrlEncoder"]):
     the encoded latent matches the network's input distribution."""
 
 
-class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
+class I2VCtrlEncoder(StreamingVideoEncoder[I2VCtrlEncoderCache]):
     """Per-AR-step I2V control encoder.
 
     Forward takes the AR-step pixel chunk ``[B, T_pixel, 3, H, W]`` in
@@ -134,3 +134,17 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.encoder.spatial_compression_ratio
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        return self.encoder.get_output_temporal_size(
+            autoregressive_index, input_temporal_size
+        )
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        return self.encoder.get_input_temporal_size(
+            autoregressive_index, output_temporal_size
+        )

@@ -29,9 +29,9 @@ from flashdreams.core.distributed.context_parallel import (
     split_inputs_cp,
     split_inputs_cp_object_list,
 )
-from flashdreams.infra.decoder import DecoderAutoregressiveCache
-from flashdreams.infra.encoder import EncoderAutoregressiveCache
-from flashdreams.infra.encoder.text.cosmos_qwen import (
+from flashdreams.infra.decoder import StreamingDecoderCache
+from flashdreams.infra.encoder import StreamingEncoderCache
+from flashdreams.infra.encoder.text.cosmos_reason1 import (
     CosmosReason1TextEncoder,
     CosmosReason1TextEncoderConfig,
 )
@@ -54,9 +54,9 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 )
 
 AlpadreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
-    EncoderAutoregressiveCache,  # EncCacheT
+    StreamingEncoderCache,  # StreamingEncoderCacheT
     CosmosTransformerCache,  # TransformerCacheT
-    DecoderAutoregressiveCache,  # DecCacheT
+    StreamingDecoderCache,  # StreamingDecoderCacheT
 ]
 
 
@@ -88,9 +88,9 @@ class AlpadreamsPipelineConfig(StreamInferencePipelineConfig):
 
 class AlpadreamsPipeline(
     StreamInferencePipeline[
-        EncoderAutoregressiveCache,
+        StreamingEncoderCache,
         CosmosTransformerCache,
-        DecoderAutoregressiveCache,
+        StreamingDecoderCache,
     ]
 ):
     """Alpadreams streaming inference pipeline (Cosmos DiT + HDMap + I2V mask).

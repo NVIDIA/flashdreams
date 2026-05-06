@@ -18,13 +18,15 @@ Minimal end-to-end recipe exercising every contract in
   is the single source of truth. Attention uses
   `flashdreams.core.attention.RingAttention` (fuses the KV gather with
   SDPA via an LSE merge).
-- **Per-AR-step control input** — `TemplateControlEncoder`. Setting
-  `encoder=None` exercises the no-control branch
-  (`test_template_no_control`).
+- **Per-AR-step control input** — `TemplateControlEncoder` (a
+  `StreamingEncoder`). Setting `encoder=None` exercises the no-control
+  branch (`test_template_no_control`).
 - **One-shot context encoder** — `TemplateTransformerConfig.context_encoder`
-  (defaults to `NullEncoderConfig`, identity). Plug in a text or CLIP
-  image encoder here.
-- **Output decoding** — `TemplateDecoder`.
+  (an `Encoder`; defaults to `NullEncoderConfig`, identity). Plug in a
+  text or CLIP image encoder here.
+- **Output decoding** — `TemplateDecoder` (a `StreamingDecoder` that
+  ignores its empty cache; swap for a `StreamingVideoDecoder` subclass
+  when the recipe needs spatial / temporal compression contracts).
 - **Config derivation** — `build_cfg_autoregressive` is a
   `derive_config` patch on top of `build_cfg_offline`.
 - **`torch.compile` + `CUDAGraphWrapper`** — off by default; flip via

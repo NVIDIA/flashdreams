@@ -13,16 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Decoder base interface."""
+"""Streaming decoder base interfaces."""
 
 from flashdreams.infra.decoder.base import (
-    DecCacheT,
-    Decoder,
-    DecoderAutoregressiveCache,
+    StreamingDecoder,
+    StreamingDecoderCache,
+    StreamingDecoderCacheT,
+    StreamingVideoDecoder,
 )
 
 __all__ = [
-    "DecCacheT",
-    "Decoder",
-    "DecoderAutoregressiveCache",
+    "StreamingDecoder",
+    "StreamingDecoderCache",
+    "StreamingDecoderCacheT",
+    "StreamingVideoDecoder",
 ]

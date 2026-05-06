@@ -21,7 +21,7 @@ from torch import Tensor, nn
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.encoder.text.cosmos_qwen import CosmosReason1TextEncoderConfig
+from flashdreams.infra.encoder.text.cosmos_reason1 import CosmosReason1TextEncoderConfig
 from flashdreams.recipes.alpadreams.config import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,

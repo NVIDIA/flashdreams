@@ -28,7 +28,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from flashdreams.core.io.hf import should_use_local_files_only
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.encoder import Encoder
 
 
 @dataclass(kw_only=True)
@@ -77,9 +77,6 @@ class CLIPImageEncoder(Encoder):
             subfolder="image_processor",
             local_files_only=local_files_only,
         )
-
-    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
-        return EncoderAutoregressiveCache()
 
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:

@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.infra.decoder import DecoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoderCache
 
 DecoderResult = namedtuple("DecoderResult", ("frame", "memory"))
 TWorkItem = namedtuple("TWorkItem", ("input_tensor", "block_index"))
@@ -189,7 +189,7 @@ def apply_model_with_memblocks(
 
 
 @dataclass
-class TAEHVCache(DecoderAutoregressiveCache):
+class TAEHVCache(StreamingDecoderCache):
     enc_conv_idx: List[int]
     enc_feat_map: List[Optional[torch.Tensor]]
     dec_conv_idx: List[int]

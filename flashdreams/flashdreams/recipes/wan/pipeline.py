@@ -18,12 +18,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, cast, runtime_checkable
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.encoder import StreamingVideoEncoder
 from flashdreams.infra.encoder.image.clip import (
     CLIPImageEncoder,
     CLIPImageEncoderConfig,
@@ -48,31 +49,6 @@ from flashdreams.recipes.wan.transformer.wan22 import (
     Wan22TransformerCache,
     Wan22TransformerConfig,
 )
-
-
-@runtime_checkable
-class _HasSpatialCompressionRatio(Protocol):
-    """Structural contract for the decoder used to derive latent ``(H, W)``
-    from input image pixels in :meth:`WanInferencePipeline.initialize_cache`.
-    """
-
-    @property
-    def spatial_compression_ratio(self) -> int: ...
-
-
-@runtime_checkable
-class _HasTemporalCompressionRatio(Protocol):
-    """Structural contract used by the I2V frame-count helpers.
-
-    ``get_num_input_frames`` and ``get_num_output_frames`` only need to know the encoder's
-    ``temporal_compression_ratio``; locking it to a concrete subclass
-    excludes downstream recipes (e.g. Lingbot World's
-    :class:`I2VCamCtrlEncoder`) that satisfy the same shape contract
-    without inheriting from :class:`I2VCtrlEncoder`.
-    """
-
-    @property
-    def temporal_compression_ratio(self) -> int: ...
 
 
 @dataclass(kw_only=True)
@@ -218,11 +194,11 @@ class WanInferencePipeline(
         # it is provided. The decoder owns the pixel<->latent ratio; the
         # encoder is assumed to share it (Wan VAE encoder/decoder do).
         if image is not None:
-            assert isinstance(self.decoder, _HasSpatialCompressionRatio), (
-                f"I2V requires a decoder exposing `spatial_compression_ratio`; "
+            assert isinstance(self.decoder, StreamingVideoDecoder), (
+                f"I2V requires a StreamingVideoDecoder; "
                 f"got {type(self.decoder).__name__}."
             )
-            sp = cast(int, self.decoder.spatial_compression_ratio)
+            sp = self.decoder.spatial_compression_ratio
             pixel_h, pixel_w = image.shape[-2], image.shape[-1]
             assert pixel_h % sp == 0 and pixel_w % sp == 0, (
                 f"image pixel size ({pixel_h}, {pixel_w}) must be divisible "
@@ -327,25 +303,17 @@ class WanInferencePipeline(
     def get_num_input_frames(self, autoregressive_index: int) -> int:
         """Number of input video frames the model expects at this AR step."""
         len_t = self._transformer_config.len_t
-        assert isinstance(self.encoder, _HasTemporalCompressionRatio), (
-            f"get_num_input_frames requires an I2V encoder exposing "
-            f"`temporal_compression_ratio`; got {type(self.encoder).__name__}."
+        assert isinstance(self.encoder, StreamingVideoEncoder), (
+            f"get_num_input_frames requires a StreamingVideoEncoder; "
+            f"got {type(self.encoder).__name__}."
         )
-        temporal_compression_ratio = cast(int, self.encoder.temporal_compression_ratio)
-        if autoregressive_index == 0:
-            return 1 + (len_t - 1) * temporal_compression_ratio
-        else:
-            return len_t * temporal_compression_ratio
+        return self.encoder.get_input_temporal_size(autoregressive_index, len_t)
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
         """Number of decoded video frames produced at this AR step."""
         len_t = self._transformer_config.len_t
-        assert isinstance(self.decoder, _HasTemporalCompressionRatio), (
-            f"get_num_output_frames requires a decoder exposing "
-            f"`temporal_compression_ratio`; got {type(self.decoder).__name__}."
+        assert isinstance(self.decoder, StreamingVideoDecoder), (
+            f"get_num_output_frames requires a StreamingVideoDecoder; "
+            f"got {type(self.decoder).__name__}."
         )
-        temporal_compression_ratio = cast(int, self.decoder.temporal_compression_ratio)
-        if autoregressive_index == 0:
-            return 1 + (len_t - 1) * temporal_compression_ratio
-        else:
-            return len_t * temporal_compression_ratio
+        return self.decoder.get_output_temporal_size(autoregressive_index, len_t)

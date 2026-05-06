@@ -26,7 +26,7 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from flashdreams.core.io.hf import should_use_local_files_only
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.encoder import Encoder
 
 
 @dataclass(kw_only=True)
@@ -63,7 +63,7 @@ class CosmosReason1TextEncoder(Encoder):
     Examples:
 
       >>> encoder = CosmosReason1TextEncoderConfig().setup().to("cuda")
-      >>> embeddings = encoder(["a beautiful sunset"])
+      >>> embeddings = encoder(["a beautiful sunset"]) # [1, 512, 100352]
     """
 
     FULL_CONCAT = "full_concat"
@@ -97,9 +97,6 @@ class CosmosReason1TextEncoder(Encoder):
 
         self.hidden_size = self.model.config.hidden_size  # 3584 for Qwen2.5-7B
         self.num_layers = self.model.config.num_hidden_layers  # 28 for Qwen2.5-7B
-
-    def initialize_autoregressive_cache(self) -> EncoderAutoregressiveCache:
-        return EncoderAutoregressiveCache()
 
     def _mean_normalize(self, tensor: Tensor) -> Tensor:
         return (tensor - tensor.mean(dim=-1, keepdim=True)) / (

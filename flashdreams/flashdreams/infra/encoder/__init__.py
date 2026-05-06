@@ -13,20 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Encoder base interface and the null encoder."""
+"""Encoder base interfaces (stateless and streaming) and the null encoder."""
 
 from flashdreams.infra.encoder.base import (
-    EncCacheT,
     Encoder,
-    EncoderAutoregressiveCache,
     NullEncoder,
     NullEncoderConfig,
+    StreamingEncoder,
+    StreamingEncoderCache,
+    StreamingEncoderCacheT,
+    StreamingVideoEncoder,
 )
 
 __all__ = [
-    "EncCacheT",
     "Encoder",
-    "EncoderAutoregressiveCache",
     "NullEncoder",
     "NullEncoderConfig",
+    "StreamingEncoder",
+    "StreamingEncoderCache",
+    "StreamingEncoderCacheT",
+    "StreamingVideoEncoder",
 ]

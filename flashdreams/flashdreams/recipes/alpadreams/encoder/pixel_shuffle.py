@@ -29,13 +29,13 @@ from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import (
-    Encoder,
-    EncoderAutoregressiveCache,
+    StreamingEncoderCache,
+    StreamingVideoEncoder,
 )
 
 
 @dataclass(kw_only=True)
-class PixelShuffleVAEEncoderCache(EncoderAutoregressiveCache):
+class PixelShuffleVAEEncoderCache(StreamingEncoderCache):
     """AR cache that tracks step index for frame selection."""
 
     autoregressive_index: int = -1
@@ -54,7 +54,7 @@ class PixelShuffleVAEEncoderConfig(InstantiateConfig["PixelShuffleVAEEncoder"]):
     """Which frame in each 4-frame window to keep."""
 
 
-class PixelShuffleVAEEncoder(Encoder[PixelShuffleVAEEncoderCache]):
+class PixelShuffleVAEEncoder(StreamingVideoEncoder[PixelShuffleVAEEncoderCache]):
     """Stateless pseudo-VAE: frame select + 8x8 spatial unshuffle.
 
     Input is a video of shape ``[..., T, C, H, W]`` in ``[-1, 1]``.
@@ -121,6 +121,31 @@ class PixelShuffleVAEEncoder(Encoder[PixelShuffleVAEEncoderCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.SPATIAL_COMPRESSION_RATIO
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        """Causal: AR 0 needs an extra (un-grouped) pixel frame for the first latent."""
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            assert (input_temporal_size - 1) % r == 0, (
+                f"AR 0 input_temporal_size={input_temporal_size} must satisfy "
+                f"(N - 1) % temporal_compression_ratio={r} == 0."
+            )
+            return 1 + (input_temporal_size - 1) // r
+        assert input_temporal_size % r == 0, (
+            f"AR>=1 input_temporal_size={input_temporal_size} must be divisible "
+            f"by temporal_compression_ratio={r}."
+        )
+        return input_temporal_size // r
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            return 1 + (output_temporal_size - 1) * r
+        return output_temporal_size * r
 
 
 if __name__ == "__main__":

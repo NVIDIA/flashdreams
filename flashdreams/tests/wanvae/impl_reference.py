@@ -12,14 +12,14 @@ from loguru import logger
 from torch.distributed import ProcessGroup
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.infra.decoder import DecoderAutoregressiveCache
-from flashdreams.infra.encoder import EncoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoderCache
+from flashdreams.infra.encoder import StreamingEncoderCache
 
 CACHE_T = 2
 
 
 @dataclass
-class WanVAECache(EncoderAutoregressiveCache, DecoderAutoregressiveCache):
+class WanVAECache(StreamingEncoderCache, StreamingDecoderCache):
     enc_conv_idx: List[int]
     enc_feat_map: List[Optional[torch.Tensor]]
     dec_conv_idx: List[int]

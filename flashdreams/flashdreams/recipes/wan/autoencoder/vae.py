@@ -30,8 +30,8 @@ from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
-from flashdreams.infra.decoder import Decoder, DecoderAutoregressiveCache
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoderCache, StreamingVideoDecoder
+from flashdreams.infra.encoder import StreamingEncoderCache, StreamingVideoEncoder
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
@@ -97,7 +97,7 @@ _LATENT_STD = (
 
 
 @dataclass
-class WanVAECache(EncoderAutoregressiveCache, DecoderAutoregressiveCache):
+class WanVAECache(StreamingEncoderCache, StreamingDecoderCache):
     """Streaming state for one encode + decode rollout.
 
     Both dicts are populated lazily on the first chunk and advanced in place
@@ -718,7 +718,7 @@ class WanVAEEncoderConfig(InstantiateConfig["WanVAEEncoder"]):
     with the full-channel ``vae`` checkpoint."""
 
 
-class WanVAEEncoder(Encoder[WanVAECache]):
+class WanVAEEncoder(StreamingVideoEncoder[WanVAECache]):
     """Wan VAE encoder.
 
     Forward input is a video tensor ``[..., T, C, H, W]`` in ``[-1, 1]``;
@@ -771,6 +771,31 @@ class WanVAEEncoder(Encoder[WanVAECache]):
     def spatial_compression_ratio(self) -> int:
         return self.vae.spatial_compression_ratio
 
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        """Causal: AR 0 needs an extra (un-grouped) pixel frame for the first latent."""
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            assert (input_temporal_size - 1) % r == 0, (
+                f"AR 0 input_temporal_size={input_temporal_size} must satisfy "
+                f"(N - 1) % temporal_compression_ratio={r} == 0."
+            )
+            return 1 + (input_temporal_size - 1) // r
+        assert input_temporal_size % r == 0, (
+            f"AR>=1 input_temporal_size={input_temporal_size} must be divisible "
+            f"by temporal_compression_ratio={r}."
+        )
+        return input_temporal_size // r
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            return 1 + (output_temporal_size - 1) * r
+        return output_temporal_size * r
+
 
 @dataclass(kw_only=True)
 class WanVAEDecoderConfig(InstantiateConfig["WanVAEDecoder"]):
@@ -788,7 +813,7 @@ class WanVAEDecoderConfig(InstantiateConfig["WanVAEDecoder"]):
     ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
 
 
-class WanVAEDecoder(Decoder[WanVAECache]):
+class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
     """Wan VAE decoder.
 
     Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video
@@ -843,3 +868,28 @@ class WanVAEDecoder(Decoder[WanVAECache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.vae.spatial_compression_ratio
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        """Causal: AR 0 first latent frame decodes to a single pixel frame."""
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            return 1 + (input_temporal_size - 1) * r
+        return input_temporal_size * r
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            assert (output_temporal_size - 1) % r == 0, (
+                f"AR 0 output_temporal_size={output_temporal_size} must satisfy "
+                f"(N - 1) % temporal_compression_ratio={r} == 0."
+            )
+            return 1 + (output_temporal_size - 1) // r
+        assert output_temporal_size % r == 0, (
+            f"AR>=1 output_temporal_size={output_temporal_size} must be divisible "
+            f"by temporal_compression_ratio={r}."
+        )
+        return output_temporal_size // r

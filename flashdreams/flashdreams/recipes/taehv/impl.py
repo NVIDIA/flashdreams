@@ -27,11 +27,11 @@ import torch.nn.functional as F
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
-from flashdreams.infra.decoder import DecoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoderCache
 
 
 @dataclass
-class TAEHVCache(DecoderAutoregressiveCache):
+class TAEHVCache(StreamingDecoderCache):
     """Streaming decoder cache; one slot per ``MemBlock`` keyed by ``id(module)``.
 
     Each slot holds the last input frame of the previous chunk, used as

@@ -24,7 +24,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.decoder import Decoder
+from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
 
 AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
@@ -51,7 +51,7 @@ class TeahvVAEDecoderConfig(InstantiateConfig["TeahvVAEDecoder"]):
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
-class TeahvVAEDecoder(Decoder[TAEHVCache]):
+class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
     """TAEHV (Tiny AutoEncoder for Hunyuan Video) decoder.
 
     Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video
@@ -128,7 +128,7 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
         Args:
             input: Latent of shape ``[..., Tl, Cl, Hl, Wl]``.
             autoregressive_index: Unused by TAEHV; kept for the
-                :class:`~flashdreams.infra.decoder.Decoder` interface.
+                :class:`~flashdreams.infra.decoder.StreamingDecoder` interface.
             cache: Streaming decoder cache; created on the fly when ``None``.
 
         Returns:
@@ -160,6 +160,31 @@ class TeahvVAEDecoder(Decoder[TAEHVCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.SPATIAL_COMPRESSION_RATIO
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        """Causal: AR 0 first latent frame decodes to a single pixel frame."""
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            return 1 + (input_temporal_size - 1) * r
+        return input_temporal_size * r
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        r = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            assert (output_temporal_size - 1) % r == 0, (
+                f"AR 0 output_temporal_size={output_temporal_size} must satisfy "
+                f"(N - 1) % temporal_compression_ratio={r} == 0."
+            )
+            return 1 + (output_temporal_size - 1) // r
+        assert output_temporal_size % r == 0, (
+            f"AR>=1 output_temporal_size={output_temporal_size} must be divisible "
+            f"by temporal_compression_ratio={r}."
+        )
+        return output_temporal_size // r
 
 
 if __name__ == "__main__":

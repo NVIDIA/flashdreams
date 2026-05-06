@@ -1,6 +1,6 @@
 ---
 name: flashdreams-recipes
-description: Navigate the flashdreams package layout and recipe architecture — what belongs in core vs infra vs recipes, which abstract contracts a recipe must fulfil (Transformer, Encoder, Decoder, Pipeline, configs), how AR caches / CP / CFG / KV cache / CUDA-graph wrapping fit together, and where new tests live. Use when adding a new recipe under flashdreams/flashdreams/recipes/, when editing an existing recipe's configs or pipeline wiring, when porting a network into the flashdreams framework, or when the user asks where a piece of code should live. The `template` recipe is the source of truth for the reference design.
+description: Navigate the flashdreams package layout and recipe architecture — what belongs in core vs infra vs recipes, which abstract contracts a recipe must fulfil (Transformer, Encoder, StreamingDecoder, Pipeline, configs), how AR caches / CP / CFG / KV cache / CUDA-graph wrapping fit together, and where new tests live. Use when adding a new recipe under flashdreams/flashdreams/recipes/, when editing an existing recipe's configs or pipeline wiring, when porting a network into the flashdreams framework, or when the user asks where a piece of code should live. The `template` recipe is the source of truth for the reference design.
 ---
 
 # flashdreams recipe architecture
@@ -12,7 +12,7 @@ A map of how `flashdreams/` is organized and how a single rollout flows through 
 ## TL;DR
 
 - Three layers, strict dependency direction: `core` → `infra` → `recipes`. `infra` and `core` never import from `recipes`. Recipes may import from each other to reuse a sibling recipe's transformer/encoder/decoder.
-- A recipe = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `Decoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the recipe-specific subclasses of these and a `build_*(...)` config builder.
+- A recipe = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the recipe-specific subclasses of these and a `build_*(...)` config builder.
 - Per-rollout state lives in nested `*Cache` dataclasses that mirror the same containment tree.
 - Lifecycle: `pipeline.initialize_cache(...)` once, then a loop of `pipeline.generate(ar_idx, ...)` + `pipeline.finalize(ar_idx, ...)`.
 - Two shape regimes, separated by `transformer.patchify_and_maybe_split_cp`: pre-patchify `[B, C, T, H, W]` outside, post-patchify `[B, L/cp, C]` inside.
@@ -29,7 +29,7 @@ flashdreams/
 | Layer    | Owns                                                                                                                                                                                                                                | Imports from |
 |----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------|
 | `core/`  | `attention/` (`NativeAttention`, `RingAttention`, `BlockKVCache`, `RotaryPositionEmbedding3D`, `apply_rope_freqs`), `checkpoint/load.py`, `distributed/` (`split_inputs_cp`, `cat_outputs_cp`, `*_object_list`), `io/`             | nothing in flashdreams |
-| `infra/` | `config` (`InstantiateConfig`, `derive_config`), `pipeline` (`StreamInferencePipeline*`), `diffusion.{model, scheduler, transformer}` (ABCs + base impls), `encoder` / `decoder` (ABCs + `NullEncoder`), `compile`, `cuda_graph`, `profiler` | `core`       |
+| `infra/` | `config` (`InstantiateConfig`, `derive_config`), `pipeline` (`StreamInferencePipeline*`), `diffusion.{model, scheduler, transformer}` (ABCs + base impls), `encoder` (`Encoder` + `StreamingEncoder` + `StreamingVideoEncoder` + `NullEncoder`), `decoder` (`StreamingDecoder` + `StreamingVideoDecoder`), `compile`, `cuda_graph`, `profiler` | `core`       |
 | `recipes/<name>/` | concrete model: `transformer/`, optional `encoder.py` / `decoder.py` / `pipeline.py`, `config.py` builders                                                                                                                  | `core`, `infra` |
 
 ### Where does this code go?
@@ -77,29 +77,31 @@ flowchart TB
 **Containment, top-down:**
 
 - `StreamInferencePipeline` (use as-is in most cases)
-  - `encoder` (optional; per-AR-step control like HDMap, camera, first-frame VAE)
+  - `encoder: StreamingEncoder | None` (optional; per-AR-step control like HDMap, camera, first-frame VAE)
   - `diffusion_model: DiffusionModel`
     - `transformer: YourTransformer` ← you write this
       - `network: YourDiT` ← you write this
-      - `context_encoder` (one-shot encoder slot — text / CLIP-image / `NullEncoder`)
+      - `context_encoder: Encoder` (one-shot encoder slot — text / CLIP-image / `NullEncoder`)
       - `rope_adapter: RotaryPositionEmbedding3D` (built per rollout, lives on the cache)
     - `scheduler: FlowMatchScheduler | UniPCScheduler` (pick from `infra.diffusion.scheduler`)
-  - `decoder` (optional; latent → pixels)
+  - `decoder: StreamingDecoder | None` (optional; latent → pixels). Use `StreamingVideoDecoder` when the decoder is a pixel-video VAE.
 
 **The per-rollout cache mirrors that tree** (`StreamInferencePipelineCache` → `transformer_cache` → `network_cache`). Each level forwards `before_update` / `after_update` to the level below.
 
 ### One-shot context vs per-AR-step control input
 
-There are **two encoder slots**. Confusing them is the most common pitfall.
+There are **two encoder slots**, and they take different base classes. Confusing them is the most common pitfall.
 
-| Slot                                          | Runs                                | Input                              | Disable             |
-|-----------------------------------------------|-------------------------------------|------------------------------------|---------------------|
-| `transformer.context_encoder` (one-shot)      | once, in `initialize_autoregressive_cache` | text prompts, reference image      | `NullEncoderConfig()` |
-| `pipeline.encoder` (per-AR-step)              | every AR step, in `pipeline.generate` | per-step control (HDMap, camera, hand-crafted control latent) | `encoder=None`      |
+| Slot                                          | Runs                                | Base class                  | Input                              | Disable             |
+|-----------------------------------------------|-------------------------------------|-----------------------------|------------------------------------|---------------------|
+| `transformer.context_encoder` (one-shot)      | once, in `initialize_autoregressive_cache` | `Encoder` (stateless)       | text prompts, reference image      | `NullEncoderConfig()` |
+| `pipeline.encoder` (per-AR-step)              | every AR step, in `pipeline.generate` | `StreamingEncoder` (stateful, has cache) | per-step control (HDMap, camera, hand-crafted control latent) | `encoder=None`      |
 
-Text encoders go on `context_encoder`. Putting one on the per-AR-step slot reruns it every step.
+Text encoders (subclass `Encoder`) go on `context_encoder`. Per-AR-step controls (subclass `StreamingEncoder`) go on `pipeline.encoder`. Putting a text encoder on the per-AR-step slot reruns it every step; putting a streaming encoder on the one-shot slot drops its cache.
 
-**Where the per-AR-step control tensor flows.** This is the path a new control input (HDMap, camera trajectory, ...) takes through the framework. Defining a new control = author one `Encoder` subclass under `recipes/<name>/encoder.py` and consume the `control` arg inside your network's forward.
+The decoder slot (`pipeline.decoder`) takes a `StreamingDecoder` (stateful, `forward(input, ar_idx, cache)`). Use `StreamingVideoDecoder` for pixel-video VAEs (WAN VAE, TAEHV) — it adds the spatial / temporal compression contracts the pipeline needs to size pixel I/O. Stateless decoders just return an empty `StreamingDecoderCache` from `initialize_autoregressive_cache` and ignore `autoregressive_index` / `cache` in `forward` (see `template/decoder.py`).
+
+**Where the per-AR-step control tensor flows.** This is the path a new control input (HDMap, camera trajectory, ...) takes through the framework. Defining a new control = author one `StreamingEncoder` subclass under `recipes/<name>/encoder.py` and consume the `control` arg inside your network's forward.
 
 ```
 user passes raw control as `pipeline.generate(ar_idx, cache, input=hdmap)`
@@ -164,7 +166,12 @@ The contracts are all under `flashdreams.infra`. Subclass and override.
 
 - **`YourTransformerConfig(InstantiateConfig[YourTransformer])`** — exposes the standard knobs (see §5).
 
-- **`Encoder` / `Decoder`** (only if you ship them) — `forward(input, autoregressive_index, cache)` and `initialize_autoregressive_cache(**encoder_context)`. Always return a fresh cache, even when stateless.
+- **`Encoder` / `StreamingEncoder` / `StreamingDecoder`** (only if you ship them — pick the right base class for the slot):
+  - **`Encoder`** (stateless, slim `forward(self, input)`) — `transformer.context_encoder` only. Text encoders (UMT5, Cosmos-Reason1), CLIP image encoders, identity (`NullEncoder`).
+  - **`StreamingEncoder[YourCache]`** (`forward(self, input, autoregressive_index, cache)` + `initialize_autoregressive_cache(**encoder_context)`) — `pipeline.encoder` only. Per-AR-step controls (HDMap, camera, I2V first-frame VAE).
+  - **`StreamingVideoEncoder[YourCache]`** (subclass of `StreamingEncoder`) — pixel-video encoders. Adds the `spatial_compression_ratio` / `temporal_compression_ratio` properties plus the AR-step-aware `get_output_temporal_size(ar_idx, input_T)` / `get_input_temporal_size(ar_idx, output_T)` mappers. Subclass this whenever the pipeline needs to size pixel I/O without knowing the encoder's causal-padding topology — e.g. WAN VAE encoder, PixelShuffle pseudo-VAE, the I2V wrappers around them.
+  - **`StreamingDecoder[YourCache]`** (`forward(self, input, autoregressive_index, cache)` + `initialize_autoregressive_cache(**decoder_context)`) — `pipeline.decoder`. Stateful decoders (e.g. WAN VAE) thread a per-rollout cache across AR steps; stateless decoders (e.g. `template/decoder.py`'s 1×1 Conv3d) just return an empty `StreamingDecoderCache` and ignore the cache argument.
+  - **`StreamingVideoDecoder[YourCache]`** (subclass of `StreamingDecoder`) — pixel-video decoders. Adds the `spatial_compression_ratio` / `temporal_compression_ratio` properties plus the AR-step-aware `get_output_temporal_size(ar_idx, input_T)` / `get_input_temporal_size(ar_idx, output_T)` mappers. Subclass this (instead of plain `StreamingDecoder`) whenever the pipeline needs to size pixel I/O without knowing the decoder's causal-padding / sliding-window topology — e.g. WAN VAE, TAEHV.
 
 - **Pipeline subclass** — almost never. Use `StreamInferencePipelineConfig` directly and plug encoders into the slots above.
 
@@ -318,7 +325,10 @@ Adding a new recipe `foo`:
 
 1. `recipes/foo/transformer/network.py` — `FooDiT` + `FooDiTCache` + `FooDiTConfig`. Use `RingAttention` for CP-aware self-attention. Apply RoPE to q/k *before* `kv_cache.update`. Network config carries `in_dim`, `additional_concat_ch`, `patch_temporal`, `patch_spatial` — never `height`/`width`.
 2. `recipes/foo/transformer/__init__.py` — `FooTransformerConfig` (standard knobs above, **no `height`/`width`/`device`/`__post_init__`**), `FooTransformerCache` (carries `rope_adapter` + `rope_freqs`; `start()` hoists `shift_t` and KV `before_update`), `FooTransformer` (single-arg `__init__(config)`; auto-detects CP size; sets `_cuda_graph_capture_ar_idx` and `_output_height = _output_width = None` in `__init__`; `initialize_autoregressive_cache(*, height, width, ...)` stashes the spatial layout and builds the rope adapter and any wrappers).
-3. (Optional) `recipes/foo/encoder.py`, `recipes/foo/decoder.py`.
+3. (Optional) `recipes/foo/encoder.py`, `recipes/foo/decoder.py`. Pick the right base class for the slot:
+   - Encoder for `transformer.context_encoder` → `Encoder` (slim `forward(self, input)`, no cache).
+   - Encoder for `pipeline.encoder` (per-AR-step control) → `StreamingEncoder[YourCache]` (full `forward(self, input, ar_idx, cache)` + `initialize_autoregressive_cache`), or `StreamingVideoEncoder[YourCache]` if it's a pixel-video encoder (adds `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`).
+   - Decoder for `pipeline.decoder` → `StreamingDecoder[YourCache]` (stateless decoders just return `StreamingDecoderCache()`), or `StreamingVideoDecoder[YourCache]` for pixel-video decoders that need to publish `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`.
 4. (Rare) `recipes/foo/pipeline.py` only if the base pipeline's `initialize_cache` signature doesn't fit — most commonly to derive `(height, width)` from an input image (I2V) or accept them as explicit kwargs (T2V).
 5. `recipes/foo/config.py` — at least one `build_foo_<variant>(...)`; a second variant via `derive_config`; `FOO_CONFIG_BUILDERS` dict; `with_compile_and_cuda_graph(base)` helper if you want the fast path. Export `DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION` as public module-level constants. Builders fully resolve `network.in_dim` / `network.additional_concat_ch` / etc. so the config has no `__post_init__`.
 6. `flashdreams/tests/test_foo.py` — bidirectional smoke + streaming smoke + CFG on/off + no-control branch + compile/CUDA-graph equivalence + CP equivalence. **Always set `compile_network=False` explicitly** in tests that introspect `transformer.network`.
@@ -330,7 +340,9 @@ Layer / structure:
 - **Recipe-specific imports in `infra/` or `core/`.** Breaks the dependency direction. Add a config slot or override hook instead.
 - **Bare instance as a `@dataclass` default.** Mutations leak between rollouts. Use `field(default_factory=...)`.
 - **Hard-coded `cp_size` on the recipe config.** Auto-detect from `torch.distributed.get_world_size()`.
-- **Plugging a text encoder into `pipeline.encoder`.** That slot runs every AR step; one-shot encoders go on `transformer.context_encoder`.
+- **Plugging a text encoder into `pipeline.encoder`.** That slot runs every AR step and expects a `StreamingEncoder`. Stateless one-shot encoders (text / CLIP / `NullEncoder`) subclass `Encoder` and go on `transformer.context_encoder`.
+- **Subclassing `Encoder` for a per-AR-step control input.** The pipeline calls per-AR-step encoders with `(input, ar_idx, cache)` — `Encoder` is the slim stateless base. Use `StreamingEncoder[YourCache]` instead.
+- **Forgetting `StreamingVideoDecoder` / `StreamingVideoEncoder` for pixel-video VAEs.** A plain `StreamingDecoder` works, but the pipeline can no longer query `get_{input,output}_temporal_size` to size pixel I/O — you'll end up duplicating that arithmetic in every recipe pipeline.
 - **`device` kwarg on `Transformer.__init__`.** Use `model.to(device)` (or `pipeline.setup().to(device)`) at the call site instead. Keeping `__init__` device-free lets configs round-trip without carrying a `torch.device`.
 
 Configs:

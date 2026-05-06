@@ -26,8 +26,8 @@ from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import (
-    Encoder,
-    EncoderAutoregressiveCache,
+    StreamingEncoderCache,
+    StreamingVideoEncoder,
 )
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderCache,
@@ -102,7 +102,7 @@ class I2VCamCtrlEncoderConfig(InstantiateConfig["I2VCamCtrlEncoder"]):
 
 
 @dataclass(kw_only=True)
-class I2VCamCtrlEncoderCache(EncoderAutoregressiveCache):
+class I2VCamCtrlEncoderCache(StreamingEncoderCache):
     """Per-AR-step cache for the composite I2V + camera-control encoder."""
 
     i2v: I2VCtrlEncoderCache
@@ -116,7 +116,7 @@ class I2VCamCtrlEncoderCache(EncoderAutoregressiveCache):
     deterministic across AR steps; ``None`` at AR step 0."""
 
 
-class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
+class I2VCamCtrlEncoder(StreamingVideoEncoder[I2VCamCtrlEncoderCache]):
     """Pairs a Wan-VAE I2V encoder with a PixelShuffle Plücker encoder."""
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
@@ -182,6 +182,20 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.i2v_encoder.spatial_compression_ratio
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        return self.i2v_encoder.get_output_temporal_size(
+            autoregressive_index, input_temporal_size
+        )
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        return self.i2v_encoder.get_input_temporal_size(
+            autoregressive_index, output_temporal_size
+        )
 
     @torch.no_grad()
     def _render_plucker(

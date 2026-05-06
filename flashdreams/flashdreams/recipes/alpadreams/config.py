@@ -26,7 +26,7 @@ from flashdreams.infra.diffusion.scheduler.fm import (
 from flashdreams.infra.diffusion.scheduler.fm_unipc import (
     FlowMatchUniPCSchedulerConfig,
 )
-from flashdreams.infra.encoder.text.cosmos_qwen import (
+from flashdreams.infra.encoder.text.cosmos_reason1 import (
     CosmosReason1TextEncoderConfig,
 )
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (

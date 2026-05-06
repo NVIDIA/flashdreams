@@ -25,7 +25,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.encoder import StreamingEncoder, StreamingEncoderCache
 
 
 @dataclass(kw_only=True)
@@ -51,7 +51,7 @@ class TemplateControlEncoderConfig(InstantiateConfig["TemplateControlEncoder"]):
     """Parameter and activation dtype for the projection."""
 
 
-class TemplateControlEncoder(Encoder[EncoderAutoregressiveCache]):
+class TemplateControlEncoder(StreamingEncoder[StreamingEncoderCache]):
     """Stateless per-token control encoder.
 
     ``[B, C_ctrl, T, H, W] → [B, C_latent, T, H, W]`` — the
@@ -67,18 +67,16 @@ class TemplateControlEncoder(Encoder[EncoderAutoregressiveCache]):
         ).to(dtype=config.dtype)
         self.proj.eval()
 
-    def initialize_autoregressive_cache(
-        self, **_context: Any
-    ) -> EncoderAutoregressiveCache:
+    def initialize_autoregressive_cache(self, **_context: Any) -> StreamingEncoderCache:
         """Return an empty cache (stateless encoder)."""
-        return EncoderAutoregressiveCache()
+        return StreamingEncoderCache()
 
     @torch.no_grad()
     def forward(
         self,
         input: Tensor,
         autoregressive_index: int = 0,
-        cache: EncoderAutoregressiveCache | None = None,
+        cache: StreamingEncoderCache | None = None,
     ) -> Tensor:
         """Project ``[B, C_ctrl, T, H, W]`` control to ``[B, C_latent, T, H, W]``."""
         assert input.ndim == 5, (

@@ -27,8 +27,8 @@ from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.decoder import (
-    DecCacheT,
-    Decoder,
+    StreamingDecoder,
+    StreamingDecoderCacheT,
 )
 from flashdreams.infra.diffusion.model import (
     DiffusionModel,
@@ -38,8 +38,8 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerCacheT,
 )
 from flashdreams.infra.encoder import (
-    EncCacheT,
-    Encoder,
+    StreamingEncoder,
+    StreamingEncoderCacheT,
 )
 from flashdreams.infra.profiler import EventProfiler
 
@@ -61,10 +61,14 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
     """Transformer + scheduler config."""
 
     decoder: InstantiateConfig[Any] | None = None
-    """Optional output decoder."""
+    """Optional output :class:`StreamingDecoder` with a per-rollout cache,
+    called as ``decoder(input, autoregressive_index, cache)``. Use
+    ``None`` to return the clean latent unchanged."""
 
     encoder: InstantiateConfig[Any] | None = None
-    """Optional per-AR-step input encoder."""
+    """Optional per-AR-step input encoder. Must be a
+    :class:`StreamingEncoder`; one-shot encoders go on
+    ``transformer.context_encoder`` instead."""
 
     enable_sync_and_profile: bool = False
     """Record per-stage CUDA events and log timing per AR step. Calls
@@ -72,16 +76,18 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
 
 
 @dataclass(kw_only=True)
-class StreamInferencePipelineCache(Generic[EncCacheT, TransformerCacheT, DecCacheT]):
+class StreamInferencePipelineCache(
+    Generic[StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT]
+):
     """Per-rollout cache held by the pipeline."""
 
     transformer_cache: TransformerCacheT
     """Long-lived transformer AR cache (always present)."""
 
-    encoder_cache: EncCacheT | None = None
+    encoder_cache: StreamingEncoderCacheT | None = None
     """Encoder AR cache; ``None`` iff the pipeline has no encoder."""
 
-    decoder_cache: DecCacheT | None = None
+    decoder_cache: StreamingDecoderCacheT | None = None
     """Decoder AR cache; ``None`` iff the pipeline has no decoder."""
 
     final_state: "DiffusionModel.FinalState[TransformerCacheT] | None" = None
@@ -98,9 +104,9 @@ class StreamInferencePipelineCache(Generic[EncCacheT, TransformerCacheT, DecCach
 class StreamInferencePipeline(
     nn.Module,
     Generic[
-        EncCacheT,
+        StreamingEncoderCacheT,
         TransformerCacheT,
-        DecCacheT,
+        StreamingDecoderCacheT,
     ],
 ):
     """End-to-end streaming inference pipeline.
@@ -119,8 +125,8 @@ class StreamInferencePipeline(
         pipeline.finalize(1, cache)  # optional for the last rollout
     """
 
-    encoder: Encoder[EncCacheT] | None
-    decoder: Decoder[DecCacheT] | None
+    encoder: StreamingEncoder[StreamingEncoderCacheT] | None
+    decoder: StreamingDecoder[StreamingDecoderCacheT] | None
     diffusion_model: DiffusionModel[TransformerCacheT]
 
     def __init__(self, config: StreamInferencePipelineConfig) -> None:
@@ -142,7 +148,9 @@ class StreamInferencePipeline(
         transformer_context: dict[str, Any] | None = None,
         encoder_context: dict[str, Any] | None = None,
         decoder_context: dict[str, Any] | None = None,
-    ) -> StreamInferencePipelineCache[EncCacheT, TransformerCacheT, DecCacheT]:
+    ) -> StreamInferencePipelineCache[
+        StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+    ]:
         """Build a fresh per-rollout cache.
 
         Each ``*_context`` dict is forwarded as keyword arguments to the
@@ -182,7 +190,9 @@ class StreamInferencePipeline(
     def generate(
         self,
         autoregressive_index: int,
-        cache: StreamInferencePipelineCache[EncCacheT, TransformerCacheT, DecCacheT],
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
         input: Any = None,
     ) -> Tensor:
         """Generate one chunk for this AR step.
@@ -258,7 +268,9 @@ class StreamInferencePipeline(
     def finalize(
         self,
         autoregressive_index: int,
-        cache: StreamInferencePipelineCache[EncCacheT, TransformerCacheT, DecCacheT],
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
     ) -> dict[str, float] | None:
         """Advance the diffusion AR cache for the next AR step.
 

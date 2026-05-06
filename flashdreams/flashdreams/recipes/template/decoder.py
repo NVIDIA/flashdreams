@@ -25,7 +25,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.decoder import Decoder, DecoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoder, StreamingDecoderCache
 
 
 @dataclass(kw_only=True)
@@ -48,11 +48,11 @@ class TemplateDecoderConfig(InstantiateConfig["TemplateDecoder"]):
     """Parameter and activation dtype for the projection."""
 
 
-class TemplateDecoder(Decoder[DecoderAutoregressiveCache]):
+class TemplateDecoder(StreamingDecoder[StreamingDecoderCache]):
     """Stateless per-token latent-to-pixel decoder.
 
     ``[B, C_latent, T, H, W] → [B, C_out, T, H, W]``. Stateless; the
-    cache exists only to satisfy the :class:`Decoder` contract.
+    cache exists only to satisfy the :class:`StreamingDecoder` contract.
     """
 
     def __init__(self, config: TemplateDecoderConfig) -> None:
@@ -63,18 +63,16 @@ class TemplateDecoder(Decoder[DecoderAutoregressiveCache]):
         ).to(dtype=config.dtype)
         self.proj.eval()
 
-    def initialize_autoregressive_cache(
-        self, **_context: Any
-    ) -> DecoderAutoregressiveCache:
+    def initialize_autoregressive_cache(self, **_context: Any) -> StreamingDecoderCache:
         """Return an empty cache (stateless decoder)."""
-        return DecoderAutoregressiveCache()
+        return StreamingDecoderCache()
 
     @torch.no_grad()
     def forward(
         self,
         input: Tensor,
         autoregressive_index: int = 0,
-        cache: DecoderAutoregressiveCache | None = None,
+        cache: StreamingDecoderCache | None = None,
     ) -> Tensor:
         """Project ``[B, C_latent, T, H, W]`` latent to ``[B, C_out, T, H, W]``."""
         assert input.ndim == 5, (
