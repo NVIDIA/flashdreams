@@ -26,8 +26,225 @@
  */
 
 #include "CudaRaster.hpp"
+#include "CudaSurface.hpp"
+#include "cuda/PixelPipe.hpp"
+#include "gui/Image.hpp"
+#include "gpu/Buffer.hpp"
+#include "gpu/CudaKernel.hpp"
+#include "gpu/CudaModule.hpp"
 
+using namespace CR;
 using namespace FW;
+
+//------------------------------------------------------------------------
+
+CudaRaster::CudaRaster(void)
+:   m_colorBuffer   (NULL),
+    m_depthBuffer   (NULL),
+    m_colorBufferRaw(NULL),
+    m_depthBufferRaw(NULL),
+    m_peelBufferRaw (NULL),
+    m_width         (0),
+    m_height        (0),
+    m_numImages     (0),
+    m_viewportWidth (0),
+    m_viewportHeight(0),
+    m_viewportOffsetX(0),
+    m_viewportOffsetY(0),
+    m_renderModeFlags(0),
+    m_deterministicTiebreaker(false),
+    m_tiebreakerColors(NULL),
+    m_ranges        (NULL),
+    m_peelEnabled   (false),
+    m_vertexTexObj  (0),
+    m_triHeaderTexObj(0),
+    m_triDataTexObj (0),
+    m_colorSurfaceObj(0),
+    m_depthSurfaceObj(0),
+    m_deferredClear (false),
+    m_clearColor    (0),
+    m_clearDepth    (0),
+    m_vertexBuffer  (NULL),
+    m_vertexOfs     (0),
+    m_indexBuffer   (NULL),
+    m_indexOfs      (0),
+    m_numTris       (0),
+    m_vertexBufferRaw(NULL),
+    m_indexBufferRaw(NULL),
+    m_numVertices   (0),
+    m_module        (NULL),
+    m_numSMs        (1),
+    m_numFineWarps  (1),
+    m_binBatchSize  (1),
+    m_maxSubtris    (1),
+    m_maxBinSegs    (1),
+    m_maxTileSegs   (1)
+{
+    m_setupKernel = std::make_unique<CudaKernel>();
+    m_binKernel = std::make_unique<CudaKernel>();
+    m_coarseKernel = std::make_unique<CudaKernel>();
+    m_fineKernel = std::make_unique<CudaKernel>();
+    m_triSubtris = std::make_unique<Buffer>();
+    m_triHeader = std::make_unique<Buffer>();
+    m_triData = std::make_unique<Buffer>();
+    m_binFirstSeg = std::make_unique<Buffer>();
+    m_binTotal = std::make_unique<Buffer>();
+    m_binSegData = std::make_unique<Buffer>();
+    m_binSegNext = std::make_unique<Buffer>();
+    m_binSegCount = std::make_unique<Buffer>();
+    m_activeTiles = std::make_unique<Buffer>();
+    m_tileFirstSeg = std::make_unique<Buffer>();
+    m_tileSegData = std::make_unique<Buffer>();
+    m_tileSegNext = std::make_unique<Buffer>();
+    m_tileSegCount = std::make_unique<Buffer>();
+    m_profData = std::make_unique<Buffer>();
+    m_pipeSpec = std::make_unique<PixelPipeSpec>();
+}
+
+//------------------------------------------------------------------------
+
+CudaRaster::~CudaRaster(void)
+{
+    if (m_colorBufferRaw)
+        cudaFree(m_colorBufferRaw);
+    if (m_depthBufferRaw)
+        cudaFree(m_depthBufferRaw);
+    if (m_peelBufferRaw)
+        cudaFree(m_peelBufferRaw);
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setBufferSize(int width, int height, int numImages)
+{
+    m_width = max(width, 0);
+    m_height = max(height, 0);
+    m_numImages = max(numImages, 0);
+
+    if (m_colorBufferRaw) { cudaFree(m_colorBufferRaw); m_colorBufferRaw = NULL; }
+    if (m_depthBufferRaw) { cudaFree(m_depthBufferRaw); m_depthBufferRaw = NULL; }
+    if (m_peelBufferRaw) { cudaFree(m_peelBufferRaw); m_peelBufferRaw = NULL; }
+
+    size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
+    if (count == 0)
+        return;
+
+    size_t bytes = count * sizeof(uint32_t);
+    cudaMalloc(&m_colorBufferRaw, bytes);
+    cudaMalloc(&m_depthBufferRaw, bytes);
+    cudaMalloc(&m_peelBufferRaw, bytes);
+    cudaMemset(m_colorBufferRaw, 0, bytes);
+    cudaMemset(m_depthBufferRaw, 0, bytes);
+    cudaMemset(m_peelBufferRaw, 0, bytes);
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setViewport(int width, int height, int offsetX, int offsetY)
+{
+    m_viewportWidth = width;
+    m_viewportHeight = height;
+    m_viewportOffsetX = offsetX;
+    m_viewportOffsetY = offsetY;
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setRenderModeFlags(unsigned int flags)
+{
+    m_renderModeFlags = flags;
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::deferredClear(unsigned int clearColor)
+{
+    m_clearColor = clearColor;
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setVertexBuffer(const float* vertices, int numVertices)
+{
+    m_vertexBufferRaw = vertices;
+    m_numVertices = max(numVertices, 0);
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setIndexBuffer(const int32_t* indices, int numTriangles)
+{
+    m_indexBufferRaw = indices;
+    m_numTris = max(numTriangles, 0);
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setTiebreakerColorBuffer(const uint32_t* colors)
+{
+    m_tiebreakerColors = colors;
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::setDeterministicTiebreaker(bool enable)
+{
+    m_deterministicTiebreaker = enable;
+}
+
+//------------------------------------------------------------------------
+
+bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
+{
+    (void)stream;
+    m_ranges = ranges;
+    m_peelEnabled = peel;
+    return true;
+}
+
+//------------------------------------------------------------------------
+
+void CudaRaster::swapDepthAndPeel(void)
+{
+    uint32_t* tmp = m_depthBufferRaw;
+    m_depthBufferRaw = m_peelBufferRaw;
+    m_peelBufferRaw = tmp;
+}
+
+//------------------------------------------------------------------------
+
+const uint32_t* CudaRaster::getColorBuffer(void) const
+{
+    return m_colorBufferRaw;
+}
+
+//------------------------------------------------------------------------
+
+const uint32_t* CudaRaster::getDepthBuffer(void) const
+{
+    return m_depthBufferRaw;
+}
+
+//------------------------------------------------------------------------
+
+int CudaRaster::getBufferWidth(void) const
+{
+    return m_width;
+}
+
+//------------------------------------------------------------------------
+
+int CudaRaster::getBufferHeight(void) const
+{
+    return m_height;
+}
+
+//------------------------------------------------------------------------
+
+int CudaRaster::getNumImages(void) const
+{
+    return m_numImages;
+}
 
 //------------------------------------------------------------------------
 
@@ -53,69 +270,6 @@ static const struct
 CR_PROFILING_TIMERS(LAMBDA)
 #undef LAMBDA
 };
-
-//------------------------------------------------------------------------
-
-CudaRaster::CudaRaster(void)
-:   m_colorBuffer   (NULL),
-    m_depthBuffer   (NULL),
-
-    m_deferredClear (false),
-    m_clearColor    (0),
-    m_clearDepth    (0),
-
-    m_vertexBuffer  (NULL),
-    m_vertexOfs     (0),
-    m_indexBuffer   (NULL),
-    m_indexOfs      (0),
-    m_numTris       (0),
-
-    m_module        (NULL),
-    m_numSMs        (1),
-    m_numFineWarps  (1),
-
-    m_maxSubtris    (1),
-    m_maxBinSegs    (1),
-    m_maxTileSegs   (1)
-{
-    // Check CUDA version, compute capability, and NVCC availability.
-
-    CudaModule::staticInit();
-    if (!CudaModule::isAvailable())
-        fail("CudaRaster: No CUDA-capable devices found!");
-    if (CudaModule::getDriverVersion() < 40)
-        fail("CudaRaster: CUDA 4.0 or later is required!");
-    if (CudaModule::getComputeCapability() < 20)
-        fail("CudaRaster: Compute capability 2.0 or better is required!");
-
-    // Create CUDA events.
-
-    CudaModule::checkError("cuEventCreate", cuEventCreate(&m_evSetupBegin, 0));
-    CudaModule::checkError("cuEventCreate", cuEventCreate(&m_evBinBegin, 0));
-    CudaModule::checkError("cuEventCreate", cuEventCreate(&m_evCoarseBegin, 0));
-    CudaModule::checkError("cuEventCreate", cuEventCreate(&m_evFineBegin, 0));
-    CudaModule::checkError("cuEventCreate", cuEventCreate(&m_evFineEnd, 0));
-
-    // Allocate fixed-size buffers.
-
-    m_binFirstSeg.resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-    m_binTotal.resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-    m_activeTiles.resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-    m_tileFirstSeg.resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-}
-
-//------------------------------------------------------------------------
-
-CudaRaster::~CudaRaster(void)
-{
-    CudaModule::checkError("cuEventDestroy", cuEventDestroy(m_evSetupBegin));
-    CudaModule::checkError("cuEventDestroy", cuEventDestroy(m_evBinBegin));
-    CudaModule::checkError("cuEventDestroy", cuEventDestroy(m_evCoarseBegin));
-    CudaModule::checkError("cuEventDestroy", cuEventDestroy(m_evFineBegin));
-    CudaModule::checkError("cuEventDestroy", cuEventDestroy(m_evFineEnd));
-}
-
-//------------------------------------------------------------------------
 
 void CudaRaster::setSurfaces(CudaSurface* color, CudaSurface* depth)
 {
@@ -183,19 +337,19 @@ void CudaRaster::setPixelPipe(CudaModule* module, const String& name)
         fail("CudaRaster: Invalid pixel pipe!");
     }
 
-    m_setupKernel   = m_module->getKernel(name + "_triangleSetup");
-    m_binKernel     = m_module->getKernel(name + "_binRaster");
-    m_coarseKernel  = m_module->getKernel(name + "_coarseRaster");
-    m_fineKernel    = m_module->getKernel(name + "_fineRaster");
+    *m_setupKernel  = m_module->getKernel(name + "_triangleSetup");
+    *m_binKernel    = m_module->getKernel(name + "_binRaster");
+    *m_coarseKernel = m_module->getKernel(name + "_coarseRaster");
+    *m_fineKernel   = m_module->getKernel(name + "_fineRaster");
 
     // Query spec.
 
-    m_pipeSpec = *(const PixelPipeSpec*)m_module->getGlobal(name + "_spec").getPtr();
+    *m_pipeSpec = *(const PixelPipeSpec*)m_module->getGlobal(name + "_spec").getPtr();
 
     // Query launch bounds.
 
     CudaModule::checkError("cuDeviceGetAttribute", cuDeviceGetAttribute(&m_numSMs, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, CudaModule::getDeviceHandle()));
-    CudaModule::checkError("cuFuncGetAttribute", cuFuncGetAttribute(&m_numFineWarps, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, m_fineKernel.getHandle()));
+    CudaModule::checkError("cuFuncGetAttribute", cuFuncGetAttribute(&m_numFineWarps, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, m_fineKernel->getHandle()));
     m_numFineWarps = min(m_numFineWarps / 32, CR_FINE_MAX_WARPS);
 }
 
@@ -238,7 +392,7 @@ void CudaRaster::drawTriangles(void)
     if (!m_indexBuffer)
         fail("CudaRaster: Index buffer not set!");
 
-    if (m_pipeSpec.samplesLog2 != m_colorBuffer->getSamplesLog2())
+    if (m_pipeSpec->samplesLog2 != m_colorBuffer->getSamplesLog2())
         fail("CudaRaster: Mismatch in multisampling between pixel pipe and surface!");
 
     // Select batch size for BinRaster and estimate buffer sizes.
@@ -262,21 +416,21 @@ void CudaRaster::drawTriangles(void)
         if (m_maxSubtris > CR_MAXSUBTRIS_SIZE)
             fail("CudaRaster: CR_MAXSUBTRIS_SIZE exceeded!");
 
-        m_triSubtris.resizeDiscard(m_maxSubtris * sizeof(U8));
-        m_triHeader.resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
-        m_triData.resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
+        m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
+        m_triHeader->resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
+        m_triData->resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
 
-        m_binSegData.resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
-        m_binSegNext.resizeDiscard(m_maxBinSegs * sizeof(S32));
-        m_binSegCount.resizeDiscard(m_maxBinSegs * sizeof(S32));
+        m_binSegData->resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
+        m_binSegNext->resizeDiscard(m_maxBinSegs * sizeof(S32));
+        m_binSegCount->resizeDiscard(m_maxBinSegs * sizeof(S32));
 
-        m_tileSegData.resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
-        m_tileSegNext.resizeDiscard(m_maxTileSegs * sizeof(S32));
-        m_tileSegCount.resizeDiscard(m_maxTileSegs * sizeof(S32));
+        m_tileSegData->resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
+        m_tileSegNext->resizeDiscard(m_maxTileSegs * sizeof(S32));
+        m_tileSegCount->resizeDiscard(m_maxTileSegs * sizeof(S32));
 
         // No profiling => launch stages.
 
-        if (m_pipeSpec.profilingMode == ProfilingMode_Default)
+        if (m_pipeSpec->profilingMode == ProfilingMode_Default)
             launchStages();
 
         // Otherwise => setup data buffer, and launch multiple times.
@@ -288,11 +442,11 @@ void CudaRaster::drawTriangles(void)
             int totalWarps      = m_numSMs * max(CR_BIN_WARPS, CR_COARSE_WARPS, m_numFineWarps);
             int bytesPerWarp    = max(numCounters * 64 * (int)sizeof(S64), numTimers * 32 * (int)sizeof(U32));
 
-            m_profData.resizeDiscard(totalWarps * bytesPerWarp);
-            m_profData.clear(0);
-            *(CUdeviceptr*)m_module->getGlobal("c_profData").getMutablePtrDiscard() = m_profData.getMutableCudaPtr();
+            m_profData->resizeDiscard(totalWarps * bytesPerWarp);
+            m_profData->clear(0);
+            *(CUdeviceptr*)m_module->getGlobal("c_profData").getMutablePtrDiscard() = m_profData->getMutableCudaPtr();
 
-            int numLaunches = (m_pipeSpec.profilingMode == ProfilingMode_Timers) ? numTimers : 1;
+            int numLaunches = (m_pipeSpec->profilingMode == ProfilingMode_Timers) ? numTimers : 1;
             for (int i = 0; i < numLaunches; i++)
             {
                 *(S32*)m_module->getGlobal("c_profLaunchIdx").getMutablePtrDiscard() = i;
@@ -350,7 +504,7 @@ String CudaRaster::getProfilingInfo(void)
 
     // ProfilingMode_Default.
 
-    if (m_pipeSpec.profilingMode == ProfilingMode_Default)
+    if (m_pipeSpec->profilingMode == ProfilingMode_Default)
     {
         Stats               stats           = getStats();
         const CRAtomics&    atomics         = *(const CRAtomics*)m_module->getGlobal("g_crAtomics").getPtr();
@@ -374,11 +528,11 @@ String CudaRaster::getProfilingInfo(void)
 
     // ProfilingMode_Counters.
 
-    else if (m_pipeSpec.profilingMode == ProfilingMode_Counters)
+    else if (m_pipeSpec->profilingMode == ProfilingMode_Counters)
     {
-        const S64*  counterPtr  = (const S64*)m_profData.getPtr();
+        const S64*  counterPtr  = (const S64*)m_profData->getPtr();
         int         numCounters = FW_ARRAY_SIZE(g_profCounters);
-        int         numWarps    = (int)m_profData.getSize() / (numCounters * 64 * (int)sizeof(S64));
+        int         numWarps    = (int)m_profData->getSize() / (numCounters * 64 * (int)sizeof(S64));
 
         s += "ProfilingMode_Counters\n";
         s += "----------------------\n";
@@ -401,11 +555,11 @@ String CudaRaster::getProfilingInfo(void)
 
     // ProfilingMode_Timers.
 
-    else if (m_pipeSpec.profilingMode == ProfilingMode_Timers)
+    else if (m_pipeSpec->profilingMode == ProfilingMode_Timers)
     {
-        const U32*  timerPtr    = (const U32*)m_profData.getPtr();
+        const U32*  timerPtr    = (const U32*)m_profData->getPtr();
         int         numTimers   = FW_ARRAY_SIZE(g_profTimers);
-        int         numWarps    = (int)m_profData.getSize() / (numTimers * 32 * (int)sizeof(U32));
+        int         numWarps    = (int)m_profData->getSize() / (numTimers * 32 * (int)sizeof(U32));
 
         Array<F64> timers;
         for (int i = 0; i < numTimers; i++)
@@ -477,23 +631,23 @@ void CudaRaster::launchStages(void)
         p.clearDepth        = m_clearDepth;
 
         p.maxSubtris        = m_maxSubtris;
-        p.triSubtris        = m_triSubtris.getMutableCudaPtrDiscard();
-        p.triHeader         = m_triHeader.getMutableCudaPtrDiscard();
-        p.triData           = m_triData.getMutableCudaPtrDiscard();
+        p.triSubtris        = m_triSubtris->getMutableCudaPtrDiscard();
+        p.triHeader         = m_triHeader->getMutableCudaPtrDiscard();
+        p.triData           = m_triData->getMutableCudaPtrDiscard();
 
         p.maxBinSegs        = m_maxBinSegs;
-        p.binFirstSeg       = m_binFirstSeg.getMutableCudaPtrDiscard();
-        p.binTotal          = m_binTotal.getMutableCudaPtrDiscard();
-        p.binSegData        = m_binSegData.getMutableCudaPtrDiscard();
-        p.binSegNext        = m_binSegNext.getMutableCudaPtrDiscard();
-        p.binSegCount		= m_binSegCount.getMutableCudaPtrDiscard();
+        p.binFirstSeg       = m_binFirstSeg->getMutableCudaPtrDiscard();
+        p.binTotal          = m_binTotal->getMutableCudaPtrDiscard();
+        p.binSegData        = m_binSegData->getMutableCudaPtrDiscard();
+        p.binSegNext        = m_binSegNext->getMutableCudaPtrDiscard();
+        p.binSegCount		= m_binSegCount->getMutableCudaPtrDiscard();
 
         p.maxTileSegs       = m_maxTileSegs;
-        p.activeTiles       = m_activeTiles.getMutableCudaPtrDiscard();
-        p.tileFirstSeg      = m_tileFirstSeg.getMutableCudaPtrDiscard();
-        p.tileSegData       = m_tileSegData.getMutableCudaPtrDiscard();
-        p.tileSegNext       = m_tileSegNext.getMutableCudaPtrDiscard();
-        p.tileSegCount      = m_tileSegCount.getMutableCudaPtrDiscard();
+        p.activeTiles       = m_activeTiles->getMutableCudaPtrDiscard();
+        p.tileFirstSeg      = m_tileFirstSeg->getMutableCudaPtrDiscard();
+        p.tileSegData       = m_tileSegData->getMutableCudaPtrDiscard();
+        p.tileSegNext       = m_tileSegNext->getMutableCudaPtrDiscard();
+        p.tileSegCount      = m_tileSegCount->getMutableCudaPtrDiscard();
     }
 
     // Initialize atomics.
@@ -526,14 +680,14 @@ void CudaRaster::launchStages(void)
 
     if (!m_debug.emulateTriangleSetup)
     {
-        m_setupKernel.preferShared().launch(m_numTris, Vec2i(32, CR_SETUP_WARPS));
+        m_setupKernel->preferShared().launch(m_numTris, Vec2i(32, CR_SETUP_WARPS));
     }
     else
     {
         emulateTriangleSetup();
-        m_triSubtris.getCudaPtr();
-        m_triHeader.getCudaPtr();
-        m_triData.getCudaPtr();
+        m_triSubtris->getCudaPtr();
+        m_triHeader->getCudaPtr();
+        m_triData->getCudaPtr();
     }
 
     // Launch binRaster().
@@ -543,16 +697,16 @@ void CudaRaster::launchStages(void)
     if (!m_debug.emulateBinRaster)
     {
         Vec2i block(32, CR_BIN_WARPS);
-        m_binKernel.preferShared().launch(Vec2i(CR_BIN_STREAMS_SIZE, 1) * block, block);
+        m_binKernel->preferShared().launch(Vec2i(CR_BIN_STREAMS_SIZE, 1) * block, block);
     }
     else
     {
         emulateBinRaster();
-        m_binFirstSeg.getCudaPtr();
-        m_binTotal.getCudaPtr();
-        m_binSegData.getCudaPtr();
-        m_binSegNext.getCudaPtr();
-	    m_binSegCount.getCudaPtr();
+        m_binFirstSeg->getCudaPtr();
+        m_binTotal->getCudaPtr();
+        m_binSegData->getCudaPtr();
+        m_binSegNext->getCudaPtr();
+	    m_binSegCount->getCudaPtr();
     }
 
     // Launch coarseRaster().
@@ -562,16 +716,16 @@ void CudaRaster::launchStages(void)
     if (!m_debug.emulateCoarseRaster)
     {
         Vec2i block(32, CR_COARSE_WARPS);
-        m_coarseKernel.preferShared().launch(Vec2i(m_numSMs, 1) * block, block);
+        m_coarseKernel->preferShared().launch(Vec2i(m_numSMs, 1) * block, block);
     }
     else
     {
         emulateCoarseRaster();
-        m_activeTiles.getCudaPtr();
-        m_tileFirstSeg.getCudaPtr();
-        m_tileSegData.getCudaPtr();
-        m_tileSegNext.getCudaPtr();
-        m_tileSegCount.getCudaPtr();
+        m_activeTiles->getCudaPtr();
+        m_tileFirstSeg->getCudaPtr();
+        m_tileSegData->getCudaPtr();
+        m_tileSegNext->getCudaPtr();
+        m_tileSegCount->getCudaPtr();
     }
 
     // Launch fineRaster().
@@ -581,7 +735,7 @@ void CudaRaster::launchStages(void)
     if (!m_debug.emulateFineRaster)
     {
         Vec2i block(32, m_numFineWarps);
-        m_fineKernel.preferShared().launch(Vec2i(m_numSMs, 1) * block, block);
+        m_fineKernel->preferShared().launch(Vec2i(m_numSMs, 1) * block, block);
     }
     else
     {
@@ -698,7 +852,7 @@ bool CudaRaster::setupTriangle(
 
     // Write CRTriangleData.
 
-    CRTriangleData& td = ((CRTriangleData*)m_triData.getMutablePtr())[triIdx];
+    CRTriangleData& td = ((CRTriangleData*)m_triData->getMutablePtr())[triIdx];
     td.zx = zpleq.x, td.zy = zpleq.y, td.zb = zpleq.z; td.zslope = zslope;
     td.wx = wpleq.x, td.wy = wpleq.y, td.wb = wpleq.z;
     td.ux = upleq.x, td.uy = upleq.y, td.ub = upleq.z;
@@ -707,7 +861,7 @@ bool CudaRaster::setupTriangle(
 
     // Write CRTriangleHeader.
 
-    CRTriangleHeader& th = ((CRTriangleHeader*)m_triHeader.getMutablePtr())[triIdx];
+    CRTriangleHeader& th = ((CRTriangleHeader*)m_triHeader->getMutablePtr())[triIdx];
     th.v0x = (S16)p0.x, th.v0y = (S16)p0.y;
     th.v1x = (S16)p1.x, th.v1y = (S16)p1.y;
     th.v2x = (S16)p2.x, th.v2y = (S16)p2.y;
@@ -726,9 +880,9 @@ void CudaRaster::emulateTriangleSetup(void)
     const Vec3i*            indexBuffer     = (const Vec3i*)m_indexBuffer->getPtr(m_indexOfs);
 
     CRAtomics&              atomics         = *(CRAtomics*)m_module->getGlobal("g_crAtomics").getMutablePtr();
-    U8*                     triSubtris      = (U8*)m_triSubtris.getMutablePtr();
-    CRTriangleHeader*       triHeader       = (CRTriangleHeader*)m_triHeader.getMutablePtr();
-    CRTriangleData*         triData         = (CRTriangleData*)m_triData.getMutablePtr();
+    U8*                     triSubtris      = (U8*)m_triSubtris->getMutablePtr();
+    CRTriangleHeader*       triHeader       = (CRTriangleHeader*)m_triHeader->getMutablePtr();
+    CRTriangleData*         triData         = (CRTriangleData*)m_triData->getMutablePtr();
 
     for (int triIdx = 0; triIdx < m_numTris; triIdx++)
     {
@@ -740,7 +894,7 @@ void CudaRaster::emulateTriangleSetup(void)
 
         Vec4f v[9];
         for (int i = 0; i < 3; i++)
-            v[i] = *(const Vec4f*)(vertexBuffer + vidx[i] * m_pipeSpec.vertexStructSize);
+            v[i] = *(const Vec4f*)(vertexBuffer + vidx[i] * m_pipeSpec->vertexStructSize);
 
         // Outside view frustum => cull.
 
@@ -831,15 +985,15 @@ void CudaRaster::emulateBinRaster(void)
 {
     // Initialize.
 
-    const U8*               triSubtris      = (const U8*)m_triSubtris.getPtr();
-    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader.getPtr();
+    const U8*               triSubtris      = (const U8*)m_triSubtris->getPtr();
+    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader->getPtr();
 
     CRAtomics&              atomics         = *(CRAtomics*)m_module->getGlobal("g_crAtomics").getMutablePtr();
-    S32*                    binFirstSeg     = (S32*)m_binFirstSeg.getMutablePtr();
-    S32*                    binTotal        = (S32*)m_binTotal.getMutablePtr();
-    S32*                    binSegData      = (S32*)m_binSegData.getMutablePtr();
-    S32*                    binSegNext      = (S32*)m_binSegNext.getMutablePtr();
-    S32*                    binSegCount		= (S32*)m_binSegCount.getMutablePtr();
+    S32*                    binFirstSeg     = (S32*)m_binFirstSeg->getMutablePtr();
+    S32*                    binTotal        = (S32*)m_binTotal->getMutablePtr();
+    S32*                    binSegData      = (S32*)m_binSegData->getMutablePtr();
+    S32*                    binSegNext      = (S32*)m_binSegNext->getMutablePtr();
+    S32*                    binSegCount		= (S32*)m_binSegCount->getMutablePtr();
 
     if (atomics.numSubtris > m_maxSubtris)
         return;
@@ -957,19 +1111,19 @@ void CudaRaster::emulateCoarseRaster(void)
 {
     // Initialize.
 
-    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader.getPtr();
+    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader->getPtr();
 
-    const S32*              binFirstSeg     = (const S32*)m_binFirstSeg.getPtr();
-    const S32*              binSegData      = (const S32*)m_binSegData.getPtr();
-    const S32*              binSegNext      = (const S32*)m_binSegNext.getPtr();
-    const S32*              binSegCount     = (const S32*)m_binSegCount.getPtr();
+    const S32*              binFirstSeg     = (const S32*)m_binFirstSeg->getPtr();
+    const S32*              binSegData      = (const S32*)m_binSegData->getPtr();
+    const S32*              binSegNext      = (const S32*)m_binSegNext->getPtr();
+    const S32*              binSegCount     = (const S32*)m_binSegCount->getPtr();
 
     CRAtomics&              atomics         = *(CRAtomics*)m_module->getGlobal("g_crAtomics").getMutablePtr();
-    S32*                    activeTiles     = (S32*)m_activeTiles.getMutablePtr();
-    S32*                    tileFirstSeg    = (S32*)m_tileFirstSeg.getMutablePtr();
-    S32*                    tileSegData     = (S32*)m_tileSegData.getMutablePtr();
-    S32*                    tileSegNext     = (S32*)m_tileSegNext.getMutablePtr();
-    S32*                    tileSegCount    = (S32*)m_tileSegCount.getMutablePtr();
+    S32*                    activeTiles     = (S32*)m_activeTiles->getMutablePtr();
+    S32*                    tileFirstSeg    = (S32*)m_tileFirstSeg->getMutablePtr();
+    S32*                    tileSegData     = (S32*)m_tileSegData->getMutablePtr();
+    S32*                    tileSegNext     = (S32*)m_tileSegNext->getMutablePtr();
+    S32*                    tileSegCount    = (S32*)m_tileSegCount->getMutablePtr();
 
     Array<S32> mergedTris;
     Array<S32> currSeg(NULL, m_numTiles);
@@ -1109,17 +1263,17 @@ void CudaRaster::emulateFineRaster(void)
     // Initialize.
 
     const U8*               vertexBuffer    = (const U8*)m_vertexBuffer->getPtr(m_vertexOfs);
-    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader.getPtr();
-    const CRTriangleData*   triData         = (const CRTriangleData*)m_triData.getPtr();
+    const CRTriangleHeader* triHeader       = (const CRTriangleHeader*)m_triHeader->getPtr();
+    const CRTriangleData*   triData         = (const CRTriangleData*)m_triData->getPtr();
 
     CRAtomics&              atomics         = *(CRAtomics*)m_module->getGlobal("g_crAtomics").getMutablePtr();
-    const S32*              activeTiles     = (S32*)m_activeTiles.getPtr();
-    const S32*              tileFirstSeg    = (S32*)m_tileFirstSeg.getPtr();
-    const S32*              tileSegData     = (S32*)m_tileSegData.getPtr();
-    const S32*              tileSegNext     = (S32*)m_tileSegNext.getPtr();
-    const S32*              tileSegCount    = (S32*)m_tileSegCount.getPtr();
+    const S32*              activeTiles     = (S32*)m_activeTiles->getPtr();
+    const S32*              tileFirstSeg    = (S32*)m_tileFirstSeg->getPtr();
+    const S32*              tileSegData     = (S32*)m_tileSegData->getPtr();
+    const S32*              tileSegNext     = (S32*)m_tileSegNext->getPtr();
+    const S32*              tileSegCount    = (S32*)m_tileSegCount->getPtr();
 
-    bool                    enableBlend     = (String(m_pipeSpec.blendShaderName) == "BlendSrcOver");
+    bool                    enableBlend     = (String(m_pipeSpec->blendShaderName) == "BlendSrcOver");
 
     Array<S32> mergedTris;
     Array<U32> colorBuffer(NULL, m_sizePixels.y * m_sizePixels.x * m_numSamples);
@@ -1192,9 +1346,9 @@ void CudaRaster::emulateFineRaster(void)
 
 		    const CRTriangleHeader& th  = triHeader[dataIdx];
 		    const CRTriangleData&   td  = triData[dataIdx];
-            const GouraudVertex&    vd0 = *(const GouraudVertex*)(vertexBuffer + td.vi0 * m_pipeSpec.vertexStructSize);
-            const GouraudVertex&    vd1 = *(const GouraudVertex*)(vertexBuffer + td.vi1 * m_pipeSpec.vertexStructSize);
-            const GouraudVertex&    vd2 = *(const GouraudVertex*)(vertexBuffer + td.vi2 * m_pipeSpec.vertexStructSize);
+            const GouraudVertex&    vd0 = *(const GouraudVertex*)(vertexBuffer + td.vi0 * m_pipeSpec->vertexStructSize);
+            const GouraudVertex&    vd1 = *(const GouraudVertex*)(vertexBuffer + td.vi1 * m_pipeSpec->vertexStructSize);
+            const GouraudVertex&    vd2 = *(const GouraudVertex*)(vertexBuffer + td.vi2 * m_pipeSpec->vertexStructSize);
 
             Vec2i v0 = Vec2i(th.v0x, th.v0y) + m_viewportSize * (CR_SUBPIXEL_SIZE / 2);
             Vec2i v1 = Vec2i(th.v1x, th.v1y) + m_viewportSize * (CR_SUBPIXEL_SIZE / 2);
@@ -1208,9 +1362,9 @@ void CudaRaster::emulateFineRaster(void)
             S64 b0 = (S64)v0.x * d0.y - (S64)v0.y * d0.x;
             S64 b1 = (S64)v1.x * d1.y - (S64)v1.y * d1.x;
             S64 b2 = (S64)v2.x * d2.y - (S64)v2.y * d2.x;
-            S64 c0 = b0 + (abs(d0.x) + abs(d0.y)) * (CR_SUBPIXEL_SIZE / 2);
-            S64 c1 = b1 + (abs(d1.x) + abs(d1.y)) * (CR_SUBPIXEL_SIZE / 2);
-            S64 c2 = b2 + (abs(d2.x) + abs(d2.y)) * (CR_SUBPIXEL_SIZE / 2);
+            S64 c0 = b0 + (FW::abs(d0.x) + FW::abs(d0.y)) * (CR_SUBPIXEL_SIZE / 2);
+            S64 c1 = b1 + (FW::abs(d1.x) + FW::abs(d1.y)) * (CR_SUBPIXEL_SIZE / 2);
+            S64 c2 = b2 + (FW::abs(d2.x) + FW::abs(d2.y)) * (CR_SUBPIXEL_SIZE / 2);
             if (d0.y > 0 || (d0.y == 0 && d0.x <= 0)) b0--;
             if (d1.y > 0 || (d1.y == 0 && d1.x <= 0)) b1--;
             if (d2.y > 0 || (d2.y == 0 && d2.x <= 0)) b2--;
@@ -1248,7 +1402,7 @@ void CudaRaster::emulateFineRaster(void)
 
                     coverMask |= 1 << i;
 
-                    if ((m_pipeSpec.renderModeFlags & RenderModeFlag_EnableDepth) != 0)
+                    if ((m_pipeSpec->renderModeFlags & RenderModeFlag_EnableDepth) != 0)
                     {
                         U32 depth = td.zx * sampleX + td.zy * sampleY + td.zb;
                         if (depth >= depthBuffer[pixelOfs + i * CR_TILE_SIZE])
@@ -1266,7 +1420,7 @@ void CudaRaster::emulateFineRaster(void)
                 // Interpolate color.
 
                 Vec4f color;
-                if ((m_pipeSpec.renderModeFlags & RenderModeFlag_EnableLerp) == 0)
+                if ((m_pipeSpec->renderModeFlags & RenderModeFlag_EnableLerp) == 0)
                     color = vd2.color;
                 else
                 {

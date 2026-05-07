@@ -23,7 +23,6 @@ extern "C" __constant__ CUdeviceptr c_profData;
 
 #include "cuda/PixelPipe.inl"
 
-namespace FW {
 CR_DEFINE_PIXEL_PIPE(
     crDefaultPipe,
     GouraudVertex,
@@ -31,4 +30,3 @@ CR_DEFINE_PIXEL_PIPE(
     BlendReplace,
     0,
     RenderModeFlag_EnableDepth | RenderModeFlag_EnableLerp)
-} // namespace FW

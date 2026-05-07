@@ -26,7 +26,7 @@
  */
 
 #pragma once
-#include "base/DLLImports.hpp"
+#include "base/Defs.hpp"
 
 #include <cmath>
 
