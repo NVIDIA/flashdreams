@@ -35,6 +35,8 @@
 
 //------------------------------------------------------------------------
 
+#include <math.h>
+
 #if (FW_USE_CUDA)
 #   include <cuda.h>
 #   pragma warning(push,3)
@@ -42,7 +44,7 @@
 #   pragma warning(pop)
 #endif
 
-#if (!FW_CUDA)
+#if (!FW_CUDA) && defined(_WIN32)
 #   define _WIN32_WINNT 0x0600
 #   define WIN32_LEAN_AND_MEAN
 #   define _KERNEL32_

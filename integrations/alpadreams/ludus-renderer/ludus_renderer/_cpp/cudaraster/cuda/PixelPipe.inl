@@ -40,20 +40,13 @@ extern "C" __device__   CRAtomics   g_crAtomics;
 extern "C" __constant__ S32         c_profLaunchIdx;
 extern "C" __constant__ CUdeviceptr c_profData;
 
-extern "C" texture<float4, 1>   t_vertexBuffer;
-extern "C" texture<uint4, 1>    t_triHeader;
-extern "C" texture<uint4, 1>    t_triData;
-
-extern "C" surface<void, 2>     s_colorBuffer;
-extern "C" surface<void, 2>     s_depthBuffer;
-
 //------------------------------------------------------------------------
 // FragmentShaderBase.
 //------------------------------------------------------------------------
 
 __device__ __inline__ Vec4f FragmentShaderBase::getVaryingAtVertex(int varyingIdx, int vertIdx) const
 {
-    float4 t = tex1Dfetch(t_vertexBuffer, vertIdx * (m_vertexBytes / sizeof(Vec4f)) + varyingIdx + 1);
+    float4 t = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vertIdx * (m_vertexBytes / sizeof(Vec4f)) + varyingIdx + 1);
     return Vec4f(t.x, t.y, t.z, t.w);
 }
 

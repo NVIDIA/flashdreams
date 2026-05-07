@@ -27,6 +27,7 @@
 
 #pragma once
 #include "Util.hpp"
+#include <cuda_runtime_api.h>
 
 namespace FW
 {
@@ -83,6 +84,11 @@ struct CRParams
     S32         numTris;
     CUdeviceptr vertexBuffer;       // numVerts * ShadedVertexSubclass
     CUdeviceptr indexBuffer;        // numTris * int3
+    cudaTextureObject_t t_vertexBuffer;
+    cudaTextureObject_t t_triHeader;
+    cudaTextureObject_t t_triData;
+    cudaSurfaceObject_t s_colorBuffer;
+    cudaSurfaceObject_t s_depthBuffer;
 
     S32         viewportWidth;      // Viewport size. May be smaller than framebuffer.
     S32         viewportHeight;

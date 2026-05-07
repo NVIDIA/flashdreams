@@ -45,7 +45,7 @@ namespace FW
 #   define FW_DEBUG 0
 #endif
 
-#ifdef _M_X64
+#if defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__)
 #   define FW_64    1
 #else
 #   define FW_64    0
@@ -90,7 +90,7 @@ typedef float               F32;
 typedef double              F64;
 typedef void                (*FuncPtr)(void);
 
-#if FW_CUDA
+#if FW_CUDA || !defined(_MSC_VER)
 typedef unsigned long long  U64;
 typedef signed long long    S64;
 #else
@@ -102,8 +102,13 @@ typedef signed __int64      S64;
 typedef S64                 SPTR;
 typedef U64                 UPTR;
 #else
+#if defined(__w64)
 typedef __w64 S32           SPTR;
 typedef __w64 U32           UPTR;
+#else
+typedef S32                 SPTR;
+typedef U32                 UPTR;
+#endif
 #endif
 
 //------------------------------------------------------------------------

@@ -58,7 +58,7 @@ __device__ __inline__ void runFragmentShader(
 {
     // Initialize.
 
-    uint4 t3 = tex1Dfetch(t_triData, dataIdx * 4 + 3); // vb, vi0, vi1, vi2
+    uint4 t3 = tex1Dfetch<uint4>(c_crParams.t_triData, dataIdx * 4 + 3); // vb, vi0, vi1, vi2
 
     fs.m_triIdx         = triIdx;
     fs.m_vertIdx        = Vec3i(t3.y, t3.z, t3.w);
@@ -88,8 +88,8 @@ __device__ __inline__ void runFragmentShader(
     {
         // Fetch pleqs.
 
-        uint4 t1 = tex1Dfetch(t_triData, dataIdx * 4 + 1); // wx, wy, wb, ux
-        uint4 t2 = tex1Dfetch(t_triData, dataIdx * 4 + 2); // uy, ub, vx, vy
+        uint4 t1 = tex1Dfetch<uint4>(c_crParams.t_triData, dataIdx * 4 + 1); // wx, wy, wb, ux
+        uint4 t2 = tex1Dfetch<uint4>(c_crParams.t_triData, dataIdx * 4 + 2); // uy, ub, vx, vy
         Vec3i wpleq(t1.x, t1.y, t1.z);
         Vec3i upleq(t1.w, t2.x, t2.y);
         Vec3i vpleq(t2.z, t2.w, t3.x);
@@ -175,7 +175,7 @@ __device__ __inline__ void initTileZMax(U32& tileZMax, bool& tileZUpd, volatile 
 template <U32 RenderModeFlags>
 __device__ __inline__ void updateTileZMax(U32& tileZMax, bool& tileZUpd, volatile U32* tileDepth, volatile U32* temp)
 {
-    if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0 && __any(tileZUpd))
+    if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0 && __any_sync(0xFFFFFFFFu, tileZUpd))
     {
         U32 z = ::max(tileDepth[threadIdx.x], tileDepth[threadIdx.x + 32]);
         temp[threadIdx.x + 16] = z;
@@ -213,7 +213,7 @@ __device__ __inline__ void getTriangle(S32& triIdx, S32& dataIdx, uint4& triHead
         subtriIdx &= 7;
         if (subtriIdx != 7)
             dataIdx = triHeaderPtr[triIdx].misc + subtriIdx;
-        triHeader = tex1Dfetch(t_triHeader, dataIdx);
+        triHeader = tex1Dfetch<uint4>(c_crParams.t_triHeader, dataIdx);
     }
 
     // count triangles per tile using thread 0
@@ -495,7 +495,7 @@ __device__ __inline__ void executeROP_SingleSample(
 
     #if (CR_PROFILING_MODE == ProfilingMode_Counters)
         CR_COUNT(FineBlendRounds, 0, 1);
-        for (int i = 0; __any(i < rounds); i++)
+        for (int i = 0; __any_sync(0xFFFFFFFFu, i < rounds); i++)
             CR_COUNT(FineBlendRounds, 1, 0);
     #endif
 }
@@ -580,10 +580,10 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
         {
             int surfX = (tileX << (CR_TILE_LOG2 + 2)) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
             int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
-			tileColor[threadIdx.x] = surf2Dread<U32>(s_colorBuffer, surfX, surfY);
-            tileDepth[threadIdx.x] = surf2Dread<U32>(s_depthBuffer, surfX, surfY);
-            tileColor[threadIdx.x + 32] = surf2Dread<U32>(s_colorBuffer, surfX, surfY + 4);
-            tileDepth[threadIdx.x + 32] = surf2Dread<U32>(s_depthBuffer, surfX, surfY + 4);
+			tileColor[threadIdx.x] = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY);
+            tileDepth[threadIdx.x] = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, surfY);
+            tileColor[threadIdx.x + 32] = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY + 4);
+            tileDepth[threadIdx.x + 32] = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, surfY + 4);
         }
 
 		CR_TIMER_OUT_DEP(FineReadTile, tileDepth[threadIdx.x + 32]);
@@ -638,7 +638,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                     fragWrite += scan32_total(temp);
 
                     // queue non-empty triangles
-                    U32 goodMask = __ballot(pop != 0);
+                    U32 goodMask = __ballot_sync(0xFFFFFFFFu, pop != 0);
                     if (pop != 0)
                     {
                         int idx = (triWrite + __popc(goodMask & getLaneMaskLt())) & 63;
@@ -669,7 +669,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
             }
 
             int ropLaneIdx = __popc(ropLaneMask);
-            U32 boundaryMask = __ballot(temp[ropLaneIdx + 16]);
+            U32 boundaryMask = __ballot_sync(0xFFFFFFFFu, temp[ropLaneIdx + 16]);
 
             // distribute fragments
             CR_TIMER_OUT_DEP(FineFragmentDistr, boundaryMask);
@@ -696,7 +696,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                 if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
                 {
                     CR_TIMER_IN(FineReadZData);
-                    uint4 zdata = tex1Dfetch(t_triData, dataIdx * 4);
+                    uint4 zdata = tex1Dfetch<uint4>(c_crParams.t_triData, dataIdx * 4);
                     CR_TIMER_OUT_DEP(FineReadZData, zdata);
 					CR_TIMER_IN(FineZKill);
                     depth = zdata.x * pixelX + zdata.y * pixelY + zdata.z;
@@ -746,10 +746,10 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
         {
             int surfX = (tileX << (CR_TILE_LOG2 + 2)) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
             int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
-            surf2Dwrite<U32>(tileColor[threadIdx.x], s_colorBuffer, surfX, surfY);
-            surf2Dwrite<U32>(tileDepth[threadIdx.x], s_depthBuffer, surfX, surfY);
-            surf2Dwrite<U32>(tileColor[threadIdx.x + 32], s_colorBuffer, surfX, surfY + 4);
-            surf2Dwrite<U32>(tileDepth[threadIdx.x + 32], s_depthBuffer, surfX, surfY + 4);
+            surf2Dwrite<U32>(tileColor[threadIdx.x], c_crParams.s_colorBuffer, surfX, surfY);
+            surf2Dwrite<U32>(tileDepth[threadIdx.x], c_crParams.s_depthBuffer, surfX, surfY);
+            surf2Dwrite<U32>(tileColor[threadIdx.x + 32], c_crParams.s_colorBuffer, surfX, surfY + 4);
+            surf2Dwrite<U32>(tileDepth[threadIdx.x + 32], c_crParams.s_depthBuffer, surfX, surfY + 4);
         }
         CR_TIMER_OUT(FineWriteTile);
     }
@@ -775,7 +775,7 @@ __device__ __inline__ U32 executeROP_MultiSample(
     if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
     {
 		CR_TIMER_IN(FineROPRead);
-        U32 oldDepth = surf2Dread<U32>(s_depthBuffer, surfX, pixelY);
+        U32 oldDepth = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, pixelY);
         *temp = oldDepth;
 		CR_TIMER_OUT_DEP(FineROPRead, oldDepth);
 	    CR_TIMER_IN(FineROPConfResolve);
@@ -787,14 +787,14 @@ __device__ __inline__ U32 executeROP_MultiSample(
                 *temp = depth;
 			    CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
 				CR_TIMER_IN(FineROPRead);
-                U32 dst = surf2Dread<U32>(s_colorBuffer, surfX, pixelY);
+                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, pixelY);
 				CR_TIMER_OUT_DEP(FineROPRead, dst);
 				CR_TIMER_IN(FineROPBlend);
                 runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, sampleIdx, color, dst);
 				CR_TIMER_OUT(FineROPBlend);
 				CR_TIMER_IN(FineROPWrite);
                 if (bs.m_writeColor)
-                    surf2Dwrite<U32>(bs.m_color, s_colorBuffer, surfX, pixelY);
+                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
 				CR_TIMER_OUT(FineROPWrite);
 			    CR_TIMER_IN(FineROPConfResolve);
             }
@@ -805,7 +805,7 @@ __device__ __inline__ U32 executeROP_MultiSample(
 		CR_TIMER_IN(FineROPWrite);
         newDepth = *temp;
         if (newDepth != oldDepth)
-            surf2Dwrite<U32>(newDepth, s_depthBuffer, surfX, pixelY);
+            surf2Dwrite<U32>(newDepth, c_crParams.s_depthBuffer, surfX, pixelY);
 		CR_TIMER_OUT(FineROPWrite);
     }
     else if (covered)
@@ -818,7 +818,7 @@ __device__ __inline__ U32 executeROP_MultiSample(
 			CR_TIMER_OUT(FineROPBlend);
 			CR_TIMER_IN(FineROPWrite);
             if (bs.m_writeColor)
-                surf2Dwrite<U32>(bs.m_color, s_colorBuffer, surfX, pixelY);
+                surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
 			CR_TIMER_OUT(FineROPWrite);
         }
         else
@@ -830,14 +830,14 @@ __device__ __inline__ U32 executeROP_MultiSample(
                 *temp = threadIdx.x;
 				CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
 				CR_TIMER_IN(FineROPRead);
-                U32 dst = surf2Dread<U32>(s_colorBuffer, surfX, pixelY);
+                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, pixelY);
 				CR_TIMER_OUT_DEP(FineROPRead, dst);
 				CR_TIMER_IN(FineROPBlend);
                 runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, sampleIdx, color, dst);
 				CR_TIMER_OUT(FineROPBlend);
 			    CR_TIMER_IN(FineROPWrite);
                 if (bs.m_writeColor)
-                    surf2Dwrite<U32>(bs.m_color, s_colorBuffer, surfX, pixelY);
+                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
 			    CR_TIMER_OUT(FineROPWrite);
 				CR_TIMER_IN(FineROPConfResolve);
             }
@@ -847,10 +847,10 @@ __device__ __inline__ U32 executeROP_MultiSample(
     }
 
     #if (CR_PROFILING_MODE == ProfilingMode_Counters)
-        if (__any(rounds != 0))
+        if (__any_sync(0xFFFFFFFFu, rounds != 0))
         {
             CR_COUNT(FineBlendRounds, 1, 1);
-            for (int i = 1; __any(i < rounds); i++)
+            for (int i = 1; __any_sync(0xFFFFFFFFu, i < rounds); i++)
                 CR_COUNT(FineBlendRounds, 1, 0);
         }
     #endif
@@ -928,10 +928,10 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
             int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
             for (int i = 0; i < (1 << SamplesLog2); i++)
             {
-                surf2Dwrite<U32>(c_crParams.clearColor, s_colorBuffer, surfX, surfY);
-                surf2Dwrite<U32>(c_crParams.clearDepth, s_depthBuffer, surfX, surfY);
-                surf2Dwrite<U32>(c_crParams.clearColor, s_colorBuffer, surfX, surfY + 4);
-                surf2Dwrite<U32>(c_crParams.clearDepth, s_depthBuffer, surfX, surfY + 4);
+                surf2Dwrite<U32>(c_crParams.clearColor, c_crParams.s_colorBuffer, surfX, surfY);
+                surf2Dwrite<U32>(c_crParams.clearDepth, c_crParams.s_depthBuffer, surfX, surfY);
+                surf2Dwrite<U32>(c_crParams.clearColor, c_crParams.s_colorBuffer, surfX, surfY + 4);
+                surf2Dwrite<U32>(c_crParams.clearDepth, c_crParams.s_depthBuffer, surfX, surfY + 4);
                 surfX += CR_TILE_SIZE << 2;
             }
         }
@@ -987,7 +987,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
                     fragWrite += scan32_total(temp);
 
                     // queue non-empty triangles
-                    U32 goodMask = __ballot(pop != 0);
+                    U32 goodMask = __ballot_sync(0xFFFFFFFFu, pop != 0);
                     if (pop != 0)
                     {
                         int idx = (triWrite + __popc(goodMask & getLaneMaskLt())) & 63;
@@ -1018,7 +1018,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
             }
 
             int ropLaneIdx = __popc(ropLaneMask);
-            U32 boundaryMask = __ballot(temp[ropLaneIdx + 16]);
+            U32 boundaryMask = __ballot_sync(0xFFFFFFFFu, temp[ropLaneIdx + 16]);
 
             // distribute fragments
             CR_TIMER_OUT_DEP(FineFragmentDistr, boundaryMask);
@@ -1037,7 +1037,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
                 U32 pixelX = (tileX << CR_TILE_LOG2) + (pixelInTile & 7);
                 U32 pixelY = (tileY << CR_TILE_LOG2) + (pixelInTile >> 3);
 
-                CR_COUNT(SetupSamplesPerTri, __popc(triangleSampleCoverage<SamplesLog2>(tex1Dfetch(t_triHeader, dataIdx), pixelX, pixelY)), 0);
+                CR_COUNT(SetupSamplesPerTri, __popc(triangleSampleCoverage<SamplesLog2>(tex1Dfetch<uint4>(c_crParams.t_triHeader, dataIdx), pixelX, pixelY)), 0);
 
                 // conservative depth test
                 uint4   zdata   = make_uint4(0, 0, 0, 0);
@@ -1048,7 +1048,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
                 if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
                 {
                     CR_TIMER_IN(FineReadZData);
-                    zdata = tex1Dfetch(t_triData, dataIdx * 4);
+                    zdata = tex1Dfetch<uint4>(c_crParams.t_triData, dataIdx * 4);
                     CR_TIMER_OUT_DEP(FineReadZData, zdata);
                     CR_TIMER_IN(FineZKill);
                     oldZMax = tileDepth[pixelInTile];
@@ -1063,7 +1063,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
                 if ((RenderModeFlags & RenderModeFlag_EnableQuads) != 0 || !zkill)
                 {
                     CR_TIMER_IN(FineSampleCoverage);
-                    uint4 triHeader = tex1Dfetch(t_triHeader, dataIdx);
+                    uint4 triHeader = tex1Dfetch<uint4>(c_crParams.t_triHeader, dataIdx);
                     if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
                     {
                         U32 zmin = triHeader.w & 0xFFFFF000;

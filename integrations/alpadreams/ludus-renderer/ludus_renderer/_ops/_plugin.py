@@ -97,9 +97,7 @@ def _get_plugin(gl=False):
             "../_cpp/render/ludus_jpeg.cu",
             "../_cpp/render/ludus_cuda.cu",
             "../_cpp/cudaraster/CudaRaster.cpp",
-            "../_cpp/cudaraster/RasterImpl.cpp",
-            "../_cpp/cudaraster/Buffer.cpp",
-            "../_cpp/cudaraster/RasterImpl_kernel.cu",
+            "../_cpp/cudaraster/CudaRasterKernels.cu",
             "../_cpp/bindings/torch_bindings_gl.cpp",
             "../_cpp/bindings/torch_rasterize_gl.cpp",
             "../_cpp/bindings/torch_rasterize_cuda.cpp",
@@ -110,9 +108,7 @@ def _get_plugin(gl=False):
             "../_cpp/render/ludus_cuda.cu",
             "../_cpp/render/ludus_jpeg.cu",
             "../_cpp/cudaraster/CudaRaster.cpp",
-            "../_cpp/cudaraster/RasterImpl.cpp",
-            "../_cpp/cudaraster/Buffer.cpp",
-            "../_cpp/cudaraster/RasterImpl_kernel.cu",
+            "../_cpp/cudaraster/CudaRasterKernels.cu",
             "../_cpp/bindings/torch_bindings_cuda.cpp",
             "../_cpp/bindings/torch_rasterize_cuda.cpp",
         ]
@@ -155,9 +151,13 @@ def _get_plugin(gl=False):
 
     # Compile and cache
     source_paths = [os.path.join(os.path.dirname(__file__), fn) for fn in source_files]
+    extra_include_paths = [
+        os.path.join(os.path.dirname(__file__), "../_cpp/cudaraster/framework"),
+    ]
     _cached_plugin[gl] = torch.utils.cpp_extension.load(
         name=plugin_name,
         sources=source_paths,
+        extra_include_paths=extra_include_paths,
         extra_cflags=common_opts + cc_opts,
         extra_cuda_cflags=common_opts + ["-lineinfo"],
         extra_ldflags=ldflags,

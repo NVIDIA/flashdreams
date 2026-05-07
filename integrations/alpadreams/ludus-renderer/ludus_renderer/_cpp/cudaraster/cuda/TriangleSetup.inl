@@ -248,9 +248,9 @@ __device__ __inline__ void triangleSetupImpl(void)
 
     int3 vidx = indexBuffer[taskIdx];
     int stride = sizeof(VertexClass) / sizeof(Vec4f);
-    float4 v0 = tex1Dfetch(t_vertexBuffer, vidx.x * stride);
-    float4 v1 = tex1Dfetch(t_vertexBuffer, vidx.y * stride);
-    float4 v2 = tex1Dfetch(t_vertexBuffer, vidx.z * stride);
+    float4 v0 = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vidx.x * stride);
+    float4 v1 = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vidx.y * stride);
+    float4 v2 = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vidx.z * stride);
 
     CR_TIMER_OUT_DEP(SetupVertexRead, v0.x + v1.x + v2.x);
     CR_TIMER_IN(SetupCullSnap);
