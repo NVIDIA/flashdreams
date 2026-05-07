@@ -112,7 +112,9 @@ def _taehv_vae_decoder_config() -> TeahvVAEDecoderConfig:
     return TeahvVAEDecoderConfig()
 
 
-def _scheduler_config(num_inference_steps: int = 4, shift: float = 5.0) -> FlowMatchSchedulerConfig:
+def _scheduler_config(
+    num_inference_steps: int = 4, shift: float = 5.0
+) -> FlowMatchSchedulerConfig:
     """Self-Forcing flow-match scheduler defaults."""
     timesteps = _DEFAULT_DENOISING_TIMESTEPS[:num_inference_steps]
     return FlowMatchSchedulerConfig(
