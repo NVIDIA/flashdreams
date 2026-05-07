@@ -27,6 +27,7 @@
 
 #pragma once
 #include "io/Stream.hpp"
+#include "base/DLLImports.hpp"
 
 namespace FW
 {

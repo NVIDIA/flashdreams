@@ -15,18 +15,50 @@
 
 #include "cuda/PixelPipe.hpp"
 #include "cuda/PrivateDefs.hpp"
+#include <stdint.h>
 
-extern "C" __constant__ FW::CRParams c_crParams;
-extern "C" __device__ FW::CRAtomics g_crAtomics;
-extern "C" __constant__ FW::S32 c_profLaunchIdx;
-extern "C" __constant__ CUdeviceptr c_profData;
+// Definitions of the pipeline state variables declared (extern) in
+// cuda/PixelPipe.inl. Kept at global scope so nvcc's static host-side
+// stub registers them via __cudaRegisterVar with external linkage.
+
+__constant__ FW::CRParams    c_crParams;
+__device__   FW::CRAtomics   g_crAtomics;
+__constant__ FW::S32         c_profLaunchIdx;
+__constant__ CUdeviceptr     c_profData;
 
 #include "cuda/PixelPipe.inl"
 
+using FW::PixelPipeSpec;
+
 CR_DEFINE_PIXEL_PIPE(
     crDefaultPipe,
-    GouraudVertex,
-    GouraudShader,
-    BlendReplace,
+    FW::GouraudVertex,
+    FW::GouraudShader,
+    FW::BlendReplace,
     0,
-    RenderModeFlag_EnableDepth | RenderModeFlag_EnableLerp)
+    FW::RenderModeFlag_EnableDepth | FW::RenderModeFlag_EnableLerp)
+
+namespace
+{
+
+__global__ void crClearBuffersKernel(uint32_t* color, uint32_t* depth, size_t count, uint32_t clearColor, uint32_t clearDepth)
+{
+    size_t idx = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= count)
+        return;
+
+    color[idx] = clearColor;
+    depth[idx] = clearDepth;
+}
+
+}
+
+void crClearBuffers(uint32_t* color, uint32_t* depth, size_t count, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream)
+{
+    if (!count)
+        return;
+
+    const int blockSize = 256;
+    int gridSize = (int)((count + blockSize - 1) / blockSize);
+    crClearBuffersKernel<<<gridSize, blockSize, 0, stream>>>(color, depth, count, clearColor, clearDepth);
+}

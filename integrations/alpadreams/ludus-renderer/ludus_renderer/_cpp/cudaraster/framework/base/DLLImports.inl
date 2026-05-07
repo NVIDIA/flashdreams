@@ -432,7 +432,7 @@ FW_DLL_DECLARE_RETV(GLboolean,  APIENTRY,   glPointAlongPathNV,                 
 // WGL
 //------------------------------------------------------------------------
 
-#if FW_WIN32
+#if defined(_WIN32)
 
 #if !FW_USE_GLEW
 
@@ -468,6 +468,6 @@ FW_DLL_IMPORT_RETV( MMRESULT,   WINAPI,     waveOutReset,                       
 
 FW_DLL_IMPORT_RETV( BOOL,   STDAPICALLTYPE, PathRelativePathToA,                    (LPSTR pszPath, LPCSTR pszFrom, DWORD dwAttrFrom, LPCSTR pszTo, DWORD dwAttrTo), (pszPath, pszFrom, dwAttrFrom, pszTo, dwAttrTo))
 
-#endif // FW_WIN32
+#endif // defined(_WIN32)
 
 //------------------------------------------------------------------------

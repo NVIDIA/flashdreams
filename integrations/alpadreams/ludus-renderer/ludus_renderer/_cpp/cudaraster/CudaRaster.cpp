@@ -26,15 +26,17 @@
  */
 
 #include "CudaRaster.hpp"
-#include "CudaSurface.hpp"
 #include "cuda/PixelPipe.hpp"
 #include "gui/Image.hpp"
 #include "gpu/Buffer.hpp"
-#include "gpu/CudaKernel.hpp"
-#include "gpu/CudaModule.hpp"
+#include <cstddef>
 
 using namespace CR;
 using namespace FW;
+
+//------------------------------------------------------------------------
+
+void crClearBuffers(uint32_t* color, uint32_t* depth, size_t count, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
 
 //------------------------------------------------------------------------
 
@@ -80,10 +82,6 @@ CudaRaster::CudaRaster(void)
     m_maxBinSegs    (1),
     m_maxTileSegs   (1)
 {
-    m_setupKernel = std::make_unique<CudaKernel>();
-    m_binKernel = std::make_unique<CudaKernel>();
-    m_coarseKernel = std::make_unique<CudaKernel>();
-    m_fineKernel = std::make_unique<CudaKernel>();
     m_triSubtris = std::make_unique<Buffer>();
     m_triHeader = std::make_unique<Buffer>();
     m_triData = std::make_unique<Buffer>();
@@ -159,7 +157,9 @@ void CudaRaster::setRenderModeFlags(unsigned int flags)
 
 void CudaRaster::deferredClear(unsigned int clearColor)
 {
+    m_deferredClear = true;
     m_clearColor = clearColor;
+    m_clearDepth = CR_DEPTH_MAX;
 }
 
 //------------------------------------------------------------------------
@@ -196,9 +196,14 @@ void CudaRaster::setDeterministicTiebreaker(bool enable)
 
 bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
 {
-    (void)stream;
     m_ranges = ranges;
     m_peelEnabled = peel;
+    if (m_deferredClear && m_colorBufferRaw && m_depthBufferRaw)
+    {
+        size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
+        crClearBuffers(m_colorBufferRaw, m_depthBufferRaw, count, m_clearColor, m_clearDepth, stream);
+        m_deferredClear = false;
+    }
     return true;
 }
 
@@ -266,10 +271,14 @@ static const struct
     const char* format;
 } g_profTimers[] =
 {
-#define LAMBDA(ID, PARENT, FORMAT) { (int)&((CRProfTimerOrder*)NULL)->PARENT, FORMAT },
+#define LAMBDA(ID, PARENT, FORMAT) { (int)offsetof(CRProfTimerOrder, PARENT), FORMAT },
 CR_PROFILING_TIMERS(LAMBDA)
 #undef LAMBDA
 };
+
+#if 0
+// This host path depends on runtime CUDA modules and GL-backed surfaces.
+// The static nvcc build uses CudaRasterKernels.cu wrappers instead.
 
 void CudaRaster::setSurfaces(CudaSurface* color, CudaSurface* depth)
 {
@@ -668,8 +677,8 @@ void CudaRaster::launchStages(void)
     S64 vertexSize = m_vertexBuffer->getSize() - m_vertexOfs;
 
     m_module->setTexRef("t_vertexBuffer",   vertexPtr, vertexSize, CU_AD_FORMAT_FLOAT, 4);
-    m_module->setTexRef("t_triHeader",      m_triHeader, CU_AD_FORMAT_UNSIGNED_INT32, 4);
-    m_module->setTexRef("t_triData",        m_triData, CU_AD_FORMAT_UNSIGNED_INT32, 4);
+    m_module->setTexRef("t_triHeader",      *m_triHeader, CU_AD_FORMAT_UNSIGNED_INT32, 4);
+    m_module->setTexRef("t_triData",        *m_triData, CU_AD_FORMAT_UNSIGNED_INT32, 4);
 
     m_module->setSurfRef("s_colorBuffer",   m_colorBuffer->getCudaArray());
     m_module->setSurfRef("s_depthBuffer",   m_depthBuffer->getCudaArray());
@@ -759,9 +768,9 @@ Vec3i CudaRaster::setupPleq(const Vec3f& values, const Vec2i& v0, const Vec2i& d
     Vec2i vc = v0 - (center << (CR_SUBPIXEL_LOG2 - samplesLog2));
 
     Vec3i pleq;
-    pleq.x = (U32)(S64)floor(xc * exp2(CR_SUBPIXEL_LOG2 - samplesLog2) + 0.5);
-    pleq.y = (U32)(S64)floor(yc * exp2(CR_SUBPIXEL_LOG2 - samplesLog2) + 0.5);
-    pleq.z = (U32)(S64)floor(t0 - xc * (F64)vc.x - yc * (F64)vc.y + 0.5);
+    pleq.x = (U32)(S64)FW::floor(xc * exp2(CR_SUBPIXEL_LOG2 - samplesLog2) + 0.5);
+    pleq.y = (U32)(S64)FW::floor(yc * exp2(CR_SUBPIXEL_LOG2 - samplesLog2) + 0.5);
+    pleq.z = (U32)(S64)FW::floor(t0 - xc * (F64)vc.x - yc * (F64)vc.y + 0.5);
     pleq.z -= pleq.x * center.x + pleq.y * center.y;
     return pleq;
 }
@@ -778,9 +787,9 @@ bool CudaRaster::setupTriangle(
 
     Vec2f viewScale = Vec2f(m_viewportSize << (CR_SUBPIXEL_LOG2 - 1));
     Vec3f rcpW = 1.0f / Vec3f(v0.w, v1.w, v2.w);
-    Vec2i p0 = Vec2i((S32)floor(v0.x * rcpW.x * viewScale.x + 0.5f), (S32)floor(v0.y * rcpW.x * viewScale.y + 0.5f));
-    Vec2i p1 = Vec2i((S32)floor(v1.x * rcpW.y * viewScale.x + 0.5f), (S32)floor(v1.y * rcpW.y * viewScale.y + 0.5f));
-    Vec2i p2 = Vec2i((S32)floor(v2.x * rcpW.z * viewScale.x + 0.5f), (S32)floor(v2.y * rcpW.z * viewScale.y + 0.5f));
+    Vec2i p0 = Vec2i((S32)FW::floor(v0.x * rcpW.x * viewScale.x + 0.5f), (S32)FW::floor(v0.y * rcpW.x * viewScale.y + 0.5f));
+    Vec2i p1 = Vec2i((S32)FW::floor(v1.x * rcpW.y * viewScale.x + 0.5f), (S32)FW::floor(v1.y * rcpW.y * viewScale.y + 0.5f));
+    Vec2i p2 = Vec2i((S32)FW::floor(v2.x * rcpW.z * viewScale.x + 0.5f), (S32)FW::floor(v2.y * rcpW.z * viewScale.y + 0.5f));
     Vec2i d1 = p1 - p0;
     Vec2i d2 = p2 - p0;
 
@@ -847,8 +856,8 @@ bool CudaRaster::setupTriangle(
     Vec3i wpleq = setupPleq(wvert, wv0, d1, d2, area, m_samplesLog2 + 1);
     Vec3i upleq = setupPleq(uvert, wv0, d1, d2, area, m_samplesLog2 + 1);
     Vec3i vpleq = setupPleq(vvert, wv0, d1, d2, area, m_samplesLog2 + 1);
-    U32 zmin = (U32)max(floor(min(zvert) + 0.5f) - CR_LERP_ERROR(m_samplesLog2), 0.0f);
-    U32 zslope = (U32)min(((U64)abs(zpleq.x) + abs(zpleq.y)) * (m_numSamples / 2), (U64)FW_U32_MAX);
+    U32 zmin = (U32)max(FW::floor(min(zvert) + 0.5f) - CR_LERP_ERROR(m_samplesLog2), 0.0f);
+    U32 zslope = (U32)min(((U64)FW::abs(zpleq.x) + FW::abs(zpleq.y)) * (m_numSamples / 2), (U64)FW_U32_MAX);
 
     // Write CRTriangleData.
 
@@ -980,6 +989,9 @@ void CudaRaster::emulateTriangleSetup(void)
 }
 
 //------------------------------------------------------------------------
+#endif
+
+#if 0
 
 void CudaRaster::emulateBinRaster(void)
 {
@@ -1065,9 +1077,9 @@ void CudaRaster::emulateBinRaster(void)
                 Vec2i p0 = center - v0;
                 Vec2i p1 = p0 - d01;
                 Vec2i d12 = d02 - d01;
-                if ((S64)p0.x * d01.y - (S64)p0.y * d01.x >= (abs(d01.x) + abs(d01.y)) * half) continue;
-                if ((S64)p0.y * d02.x - (S64)p0.x * d02.y >= (abs(d02.x) + abs(d02.y)) * half) continue;
-                if ((S64)p1.x * d12.y - (S64)p1.y * d12.x >= (abs(d12.x) + abs(d12.y)) * half) continue;
+                if ((S64)p0.x * d01.y - (S64)p0.y * d01.x >= (FW::abs(d01.x) + FW::abs(d01.y)) * half) continue;
+                if ((S64)p0.y * d02.x - (S64)p0.x * d02.y >= (FW::abs(d02.x) + FW::abs(d02.y)) * half) continue;
+                if ((S64)p1.x * d12.y - (S64)p1.y * d12.x >= (FW::abs(d12.x) + FW::abs(d12.y)) * half) continue;
 
                 // Segment full => allocate a new one.
 
@@ -1106,6 +1118,9 @@ void CudaRaster::emulateBinRaster(void)
 }
 
 //------------------------------------------------------------------------
+#endif
+
+#if 0
 
 void CudaRaster::emulateCoarseRaster(void)
 {
@@ -1214,9 +1229,9 @@ void CudaRaster::emulateCoarseRaster(void)
                 Vec2i p0 = center - v0;
                 Vec2i p1 = p0 - d01;
                 Vec2i d12 = d02 - d01;
-                if ((S64)p0.x * d01.y - (S64)p0.y * d01.x >= (abs(d01.x) + abs(d01.y)) * half) continue;
-                if ((S64)p0.y * d02.x - (S64)p0.x * d02.y >= (abs(d02.x) + abs(d02.y)) * half) continue;
-                if ((S64)p1.x * d12.y - (S64)p1.y * d12.x >= (abs(d12.x) + abs(d12.y)) * half) continue;
+                if ((S64)p0.x * d01.y - (S64)p0.y * d01.x >= (FW::abs(d01.x) + FW::abs(d01.y)) * half) continue;
+                if ((S64)p0.y * d02.x - (S64)p0.x * d02.y >= (FW::abs(d02.x) + FW::abs(d02.y)) * half) continue;
+                if ((S64)p1.x * d12.y - (S64)p1.y * d12.x >= (FW::abs(d12.x) + FW::abs(d12.y)) * half) continue;
 
                 // Segment full => allocate a new one.
 
@@ -1257,6 +1272,9 @@ void CudaRaster::emulateCoarseRaster(void)
 }
 
 //------------------------------------------------------------------------
+#endif
+
+#if 0
 
 void CudaRaster::emulateFineRaster(void)
 {
@@ -1483,3 +1501,4 @@ void CudaRaster::emulateFineRaster(void)
 }
 
 //------------------------------------------------------------------------
+#endif

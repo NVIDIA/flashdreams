@@ -26,7 +26,10 @@
  */
 
 #pragma once
-#include "gpu/GLContext.hpp"
+#include "base/Math.hpp"
+#include "base/String.hpp"
+#include "base/Hash.hpp"
+#include "base/DLLImports.hpp"
 #include "gpu/CudaKernel.hpp"
 
 namespace FW

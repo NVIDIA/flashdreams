@@ -26,8 +26,9 @@
  */
 
 #pragma once
-#include "cuda/PrivateDefs.hpp"
+#include <cuda.h>
 #include <cuda_runtime.h>
+#include "cuda/PrivateDefs.hpp"
 #include <cstdint>
 #include <memory>
 
@@ -35,7 +36,6 @@ namespace FW
 {
 class CudaSurface;
 class CudaModule;
-class CudaKernel;
 class Buffer;
 struct PixelPipeSpec;
 class String;
@@ -191,10 +191,6 @@ private:
     // Pixel pipe.
 
     FW::CudaModule*         m_module;
-    std::unique_ptr<FW::CudaKernel> m_setupKernel;
-    std::unique_ptr<FW::CudaKernel> m_binKernel;
-    std::unique_ptr<FW::CudaKernel> m_coarseKernel;
-    std::unique_ptr<FW::CudaKernel> m_fineKernel;
     std::unique_ptr<FW::PixelPipeSpec> m_pipeSpec;
     FW::S32                 m_numSMs;
     FW::S32                 m_numFineWarps;

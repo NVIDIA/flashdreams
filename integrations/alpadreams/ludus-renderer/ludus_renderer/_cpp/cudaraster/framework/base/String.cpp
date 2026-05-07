@@ -82,12 +82,15 @@ String& String::setf(const char* fmt, ...)
 
 String& String::setfv(const char* fmt, va_list args)
 {
-    int len = _vscprintf(fmt, args);
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int len = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
     if (!len)
         return reset();
 
     m_chars.reset(len + 1);
-    vsprintf_s(m_chars.getPtr(), len + 1, fmt, args);
+    vsnprintf(m_chars.getPtr(), len + 1, fmt, args);
     return *this;
 }
 
@@ -218,9 +221,12 @@ String& String::appendf(const char* fmt, ...)
 String& String::appendfv(const char* fmt, va_list args)
 {
     int lenA = getLength();
-    int lenB = _vscprintf(fmt, args);
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int lenB = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
     m_chars.resize(lenA + lenB + 1);
-    vsprintf_s(m_chars.getPtr(lenA), lenB + 1, fmt, args);
+    vsnprintf(m_chars.getPtr(lenA), lenB + 1, fmt, args);
     return *this;
 }
 
@@ -322,20 +328,22 @@ int String::strcmp(const char* a, const char* b)
 
 String FW::getDateString(void)
 {
-    // Query and format.
-
     char buffer[256];
     time_t currTime;
     time(&currTime);
-    if (ctime_s(buffer, sizeof(buffer), &currTime) != 0)
-        fail("ctime_s() failed!");
 
-    // Strip linefeed.
+    struct tm tmBuf;
+#if defined(_WIN32)
+    if (localtime_s(&tmBuf, &currTime) != 0)
+        fail("localtime_s() failed!");
+#else
+    if (localtime_r(&currTime, &tmBuf) == NULL)
+        fail("localtime_r() failed!");
+#endif
 
-    char* ptr = buffer;
-    while (*ptr && *ptr != '\n' && *ptr != '\r')
-        ptr++;
-    *ptr = 0;
+    if (strftime(buffer, sizeof(buffer), "%a %b %e %H:%M:%S %Y", &tmBuf) == 0)
+        fail("strftime() failed!");
+
     return buffer;
 }
 

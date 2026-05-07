@@ -26,10 +26,13 @@
  */
 
 #pragma once
-#include "gpu/GLContext.hpp"
+#include "base/Math.hpp"
+#include "base/DLLImports.hpp"
 
 namespace FW
 {
+class GLContext;
+
 //------------------------------------------------------------------------
 // Render target for CudaRaster, visible in OpenGL as a 2D texture.
 //------------------------------------------------------------------------

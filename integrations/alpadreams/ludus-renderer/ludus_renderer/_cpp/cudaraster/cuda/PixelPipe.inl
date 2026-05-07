@@ -29,17 +29,16 @@
 #include "PrivateDefs.hpp"
 #include "Util.inl"
 
+// Pipeline state variables (c_crParams, g_crAtomics, c_profLaunchIdx,
+// c_profData) are defined at global scope in the kernel translation unit
+// (CudaRasterKernels.cu) before this file is included. Kernel sources below
+// reference them unqualified while inside namespace FW; C++ name lookup falls
+// through to global scope. Definitions at global scope let nvcc's static
+// host-side stub register them via __cudaRegisterVar with external linkage,
+// which is required when the extension is loaded as a shared object.
+
 namespace FW
 {
-//------------------------------------------------------------------------
-// Globals.
-//------------------------------------------------------------------------
-
-extern "C" __constant__ CRParams    c_crParams;
-extern "C" __device__   CRAtomics   g_crAtomics;
-extern "C" __constant__ S32         c_profLaunchIdx;
-extern "C" __constant__ CUdeviceptr c_profData;
-
 //------------------------------------------------------------------------
 // FragmentShaderBase.
 //------------------------------------------------------------------------
@@ -234,7 +233,7 @@ __device__ __inline__ void writeProfilingTimerLargeGrid(U32 timerTotal)
         else \
             FW::fineRasterImpl_MultiSample<VERTEX_STRUCT, FRAGMENT_SHADER, BLEND_SHADER, SAMPLES_LOG2, RENDER_MODE_FLAGS>(); \
     } \
-    extern "C" __constant__ PixelPipeSpec PIPE_NAME ## _spec = \
+    __constant__ PixelPipeSpec PIPE_NAME ## _spec = \
     { \
         /* samplesLog2 */       SAMPLES_LOG2, \
         /* vertexStructSize */  (int)sizeof(VERTEX_STRUCT), \

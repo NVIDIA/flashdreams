@@ -29,6 +29,7 @@
 #include "base/Defs.hpp"
 
 #include <cmath>
+#include <vector_types.h>
 
 namespace FW
 {
@@ -224,7 +225,7 @@ public:
     static FW_CUDA_FUNC Vector      fromPtr     (const T* ptr)              { Vector v; v.set(ptr); return v; }
 
     template <class V> FW_CUDA_FUNC Vector(const VectorBase<T, L, V>& v) { set(v); }
-    template <class V> FW_CUDA_FUNC Vector& operator=(const VectorBase<T, L, V>& v) { set(v); return *this; }
+    template <class V> FW_CUDA_FUNC Vector& operator=(const VectorBase<T, L, V>& v) { this->set(v); return *this; }
 
 private:
     T               m_values[L];

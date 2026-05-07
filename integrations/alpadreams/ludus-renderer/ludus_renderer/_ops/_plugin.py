@@ -75,7 +75,7 @@ def _get_plugin(gl=False):
             os.environ["PATH"] += ";" + cl_path
 
     # Compiler options.
-    common_opts = ["-DNVDR_TORCH"]
+    common_opts = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE"]
     cc_opts = []
     if os.name == "nt":
         cc_opts += ["/wd4067", "/wd4624"]
@@ -103,10 +103,16 @@ def _get_plugin(gl=False):
             "../_cpp/bindings/torch_rasterize_cuda.cpp",
         ]
     else:
+        if os.name == "posix":
+            ldflags = ["-lcuda"]
         source_files = [
             "../_cpp/common/common.cpp",
             "../_cpp/render/ludus_cuda.cu",
             "../_cpp/render/ludus_jpeg.cu",
+            "../_cpp/cudaraster/framework/base/String.cpp",
+            "../_cpp/cudaraster/framework/base/Math.cpp",
+            "../_cpp/cudaraster/framework/gpu/Buffer.cpp",
+            "../_cpp/cudaraster/cudaraster_fw_stub.cpp",
             "../_cpp/cudaraster/CudaRaster.cpp",
             "../_cpp/cudaraster/CudaRasterKernels.cu",
             "../_cpp/bindings/torch_bindings_cuda.cpp",
@@ -162,7 +168,7 @@ def _get_plugin(gl=False):
         extra_cuda_cflags=common_opts + ["-lineinfo"],
         extra_ldflags=ldflags,
         with_cuda=True,
-        verbose=False,
+        verbose=True,
     )
 
     return _cached_plugin[gl]

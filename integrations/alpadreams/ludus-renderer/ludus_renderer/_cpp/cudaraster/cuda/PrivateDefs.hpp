@@ -27,6 +27,7 @@
 
 #pragma once
 #include "Util.hpp"
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 
 namespace FW
