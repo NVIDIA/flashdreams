@@ -112,14 +112,14 @@ def _taehv_vae_decoder_config() -> TeahvVAEDecoderConfig:
     return TeahvVAEDecoderConfig()
 
 
-def _scheduler_config(num_inference_steps: int = 4) -> FlowMatchSchedulerConfig:
+def _scheduler_config(num_inference_steps: int = 4, shift: float = 5.0) -> FlowMatchSchedulerConfig:
     """Self-Forcing flow-match scheduler defaults."""
     timesteps = _DEFAULT_DENOISING_TIMESTEPS[:num_inference_steps]
     return FlowMatchSchedulerConfig(
         num_inference_steps=num_inference_steps,
         denoising_timesteps=timesteps,
         warp_denoising_step=True,
-        shift=5.0,
+        shift=shift,
         sigma_min=0.0,
         extra_one_step=True,
         num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
@@ -182,7 +182,7 @@ def build_self_forcing(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 compile_network=compile_network,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -205,7 +205,7 @@ def build_self_forcing_lighttae(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 compile_network=compile_network,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
