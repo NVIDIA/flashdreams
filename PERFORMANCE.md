@@ -31,6 +31,15 @@ On GB200
 > AR 5 encode 0.021 ms diffuse 202.850 ms decode 3.532 ms finalize 37.491 ms | total(w/o finalize) 206.403 ms total 243.894 ms | GPU mem alloc 19.197 GiB reserved 21.537 GiB peak 21.407 GiB
 > AR 6 encode 0.023 ms diffuse 213.910 ms decode 3.537 ms finalize 40.247 ms | total(w/o finalize) 217.470 ms total 257.717 ms | GPU mem alloc 19.197 GiB reserved 21.537 GiB peak 21.407 GiB
 
+On H100
+> AR 0 encode 0.020 ms diffuse 10691.640 ms decode 104422.930 ms finalize 67.661 ms | total(w/o finalize) 115114.590 ms total 115182.250 ms | GPU mem alloc 19.186 GiB reserved 21.756 GiB peak 21.352 GiB
+> AR 1 encode 0.022 ms diffuse 1575.072 ms decode 37327.184 ms finalize 41.953 ms | total(w/o finalize) 38902.278 ms total 38944.231 ms | GPU mem alloc 19.187 GiB reserved 21.756 GiB peak 21.352 GiB
+> AR 2 encode 0.022 ms diffuse 251.339 ms decode 6.750 ms finalize 50.078 ms | total(w/o finalize) 258.111 ms total 308.189 ms | GPU mem alloc 19.186 GiB reserved 21.756 GiB peak 21.352 GiB
+> AR 3 encode 0.015 ms diffuse 277.743 ms decode 33.834 ms finalize 55.888 ms | total(w/o finalize) 311.591 ms total 367.478 ms | GPU mem alloc 19.245 GiB reserved 21.887 GiB peak 21.352 GiB
+> AR 4 encode 0.015 ms diffuse 311.966 ms decode 6.676 ms finalize 65.200 ms | total(w/o finalize) 318.658 ms total 383.858 ms | GPU mem alloc 19.244 GiB reserved 21.891 GiB peak 21.352 GiB
+> AR 5 encode 0.016 ms diffuse 343.706 ms decode 6.646 ms finalize 74.226 ms | total(w/o finalize) 350.367 ms total 424.593 ms | GPU mem alloc 19.245 GiB reserved 21.891 GiB peak 21.352 GiB
+> AR 6 encode 0.020 ms diffuse 375.887 ms decode 6.678 ms finalize 80.734 ms | total(w/o finalize) 382.586 ms total 463.319 ms | GPU mem alloc 19.244 GiB reserved 21.891 GiB peak 21.352 GiB
+
 ### With self-forcing env:
 
 ```bash
