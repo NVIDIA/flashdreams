@@ -3,7 +3,7 @@
 Baselines: 
 - [Official Repo Profiling](https://github.com/liruilong940607/Self-Forcing/pull/1#issue-4396013709)
 
-On A100, with flashdreams env:
+### With flashdreams env:
 
 ```bash
 uv run --package flashdreams --extra examples \
@@ -13,6 +13,7 @@ uv run --package flashdreams --extra examples \
     --total_blocks 7
 ```
 
+On A100
 > AR 0 encode 0.021 ms diffuse 16255.894 ms decode 143063.156 ms finalize 98.825 ms | total(w/o finalize) 159319.070 ms total 159417.895 ms | GPU mem alloc 19.162 GiB reserved 21.787 GiB peak 21.319 GiB
 > AR 1 encode 0.021 ms diffuse 1683.165 ms decode 56416.598 ms finalize 124.611 ms | total(w/o finalize) 58099.784 ms total 58224.396 ms | GPU mem alloc 19.163 GiB reserved 21.787 GiB peak 21.319 GiB
 > AR 2 encode 0.021 ms diffuse 642.681 ms decode 13.634 ms finalize 150.875 ms | total(w/o finalize) 656.336 ms total 807.210 ms | GPU mem alloc 19.162 GiB reserved 21.787 GiB peak 21.319 GiB
@@ -21,7 +22,16 @@ uv run --package flashdreams --extra examples \
 > AR 5 encode 0.022 ms diffuse 954.896 ms decode 13.474 ms finalize 228.108 ms | total(w/o finalize) 968.392 ms total 1196.499 ms | GPU mem alloc 19.189 GiB reserved 21.922 GiB peak 21.319 GiB
 > AR 6 encode 0.021 ms diffuse 1057.509 ms decode 13.473 ms finalize 254.318 ms | total(w/o finalize) 1071.003 ms total 1325.321 ms | GPU mem alloc 19.189 GiB reserved 21.922 GiB peak 21.319 GiB
 
-On A100, with self-forcing env:
+On GB200
+> AR 0 encode 0.022 ms diffuse 47020.234 ms decode 48014.711 ms finalize 43.231 ms | total(w/o finalize) 95034.968 ms total 95078.198 ms | GPU mem alloc 19.162 GiB reserved 22.135 GiB peak 21.407 GiB
+> AR 1 encode 0.026 ms diffuse 1607.381 ms decode 43041.988 ms finalize 38.407 ms | total(w/o finalize) 44649.396 ms total 44687.803 ms | GPU mem alloc 19.163 GiB reserved 22.135 GiB peak 21.407 GiB
+> AR 2 encode 0.022 ms diffuse 214.317 ms decode 4.320 ms finalize 35.907 ms | total(w/o finalize) 218.660 ms total 254.566 ms | GPU mem alloc 19.162 GiB reserved 22.135 GiB peak 21.407 GiB
+> AR 3 encode 0.022 ms diffuse 198.750 ms decode 89.716 ms finalize 40.423 ms | total(w/o finalize) 288.487 ms total 328.911 ms | GPU mem alloc 19.197 GiB reserved 21.533 GiB peak 21.407 GiB
+> AR 4 encode 0.023 ms diffuse 209.456 ms decode 3.531 ms finalize 36.530 ms | total(w/o finalize) 213.011 ms total 249.541 ms | GPU mem alloc 19.197 GiB reserved 21.537 GiB peak 21.407 GiB
+> AR 5 encode 0.021 ms diffuse 202.850 ms decode 3.532 ms finalize 37.491 ms | total(w/o finalize) 206.403 ms total 243.894 ms | GPU mem alloc 19.197 GiB reserved 21.537 GiB peak 21.407 GiB
+> AR 6 encode 0.023 ms diffuse 213.910 ms decode 3.537 ms finalize 40.247 ms | total(w/o finalize) 217.470 ms total 257.717 ms | GPU mem alloc 19.197 GiB reserved 21.537 GiB peak 21.407 GiB
+
+### With self-forcing env:
 
 ```bash
 conda activate self_forcing
@@ -32,6 +42,7 @@ PYTHONPATH=./flashdreams python -m torch.distributed.run --standalone --nnodes=1
   --total_blocks 7
 ```
 
+On A100
 > AR 0 encode 0.021 ms diffuse 9719.179 ms decode 4394.018 ms finalize 97.804 ms | total(w/o finalize) 14113.218 ms total 14211.022 ms | GPU mem alloc 19.078 GiB reserved 21.289 GiB peak 20.197 GiB
 > AR 1 encode 0.023 ms diffuse 14469.375 ms decode 11246.406 ms finalize 122.569 ms | total(w/o finalize) 25715.805 ms total 25838.374 ms | GPU mem alloc 19.079 GiB reserved 21.289 GiB peak 20.224 GiB
 > AR 2 encode 0.023 ms diffuse 636.438 ms decode 14.221 ms finalize 148.522 ms | total(w/o finalize) 650.681 ms total 799.204 ms | GPU mem alloc 19.078 GiB reserved 21.289 GiB peak 20.224 GiB
