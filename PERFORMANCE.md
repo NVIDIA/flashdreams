@@ -1,6 +1,6 @@
 # Self-Forcing
 
-Baselines: 
+Baselines:
 - [Official Repo Profiling](https://github.com/liruilong940607/Self-Forcing/pull/1#issue-4396013709)
 
 ### With flashdreams env:
