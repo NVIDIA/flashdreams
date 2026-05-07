@@ -63,6 +63,10 @@ class DiffusionModelConfig(InstantiateConfig["DiffusionModel"]):
     """Timestep used by ``finalize`` for the AR cache-update forward.
     ``0`` skips ``add_noise``."""
 
+    _noise_in_unpatchified_shape: bool = False
+    """Debug only: Create the noise in the unpatchified shape (to align with the open-source codebases).
+    Note this will hurt performance so only use it for debugging."""
+
 
 class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     """Autoregressive diffusion model (scheduler + transformer).
@@ -162,26 +166,59 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input = self.transformer.patchify_and_maybe_split_cp(input)
         cache.start(autoregressive_index)
 
-        initial_noise = torch.randn(
-            self.latent_shape,
-            device=self.device,
-            dtype=self.dtype,
-            generator=self.rng,
-        )
+        if self.config._noise_in_unpatchified_shape:
+            # The `self.latent_shape` is for patchified latent. To align with the OSS codebases
+            # we here want to create the noise with the *unpatchified* shape, then patchify it back.
+            dummy_latent = torch.empty(
+                self.latent_shape, device=self.device, dtype=self.dtype
+            )
+            dummy_latent = self.transformer.unpatchify_and_maybe_gather_cp(dummy_latent)
+            initial_noise = torch.randn(
+                dummy_latent.shape,
+                device=self.device,
+                dtype=self.dtype,
+                generator=self.rng,
+            )  # shape of an unpatchified latent
+
+        else:
+            initial_noise = torch.randn(
+                self.latent_shape,
+                device=self.device,
+                dtype=self.dtype,
+                generator=self.rng,
+            )  # shape of a patchified latent
 
         def predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
-            return self.transformer.predict_flow(
+            if self.config._noise_in_unpatchified_shape:
+                # If the noise is in the unpatchified shape, we need to patchify it first
+                # because the transformer expects a patchified latent.
+                noisy_latent = self.transformer.patchify_and_maybe_split_cp(
+                    noisy_latent
+                )
+
+            output = self.transformer.predict_flow(
                 noisy_latent=noisy_latent,
                 timestep=timestep,
                 cache=cache,
                 input=input,
-            )
+            )  # patchified output
+
+            if self.config._noise_in_unpatchified_shape:
+                # The we need to unpatchify it again, to make sure scheduler operates
+                # on the unpatchified latent.
+                output = self.transformer.unpatchify_and_maybe_gather_cp(output)
+            return output
 
         clean_latent = self.scheduler.sample(
             initial_noise=initial_noise,
             predict_flow=predict_flow,
             rng=self.rng,
         )
+
+        if self.config._noise_in_unpatchified_shape:
+            # If this option is enabled, the scheduler operates on the unpatchified latent.
+            # So the clean latent it outputs is in the unpatchified shape. Here we patchify it.
+            clean_latent = self.transformer.patchify_and_maybe_split_cp(clean_latent)
 
         clean_latent = self.transformer.postprocess_clean_latent(
             clean_latent=clean_latent,
@@ -219,11 +256,23 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         context_noise = self.config.context_noise
         timestep = torch.tensor(context_noise, device=self.device, dtype=self.dtype)
         if context_noise > 0.0:
+            clean_latent = final_state.clean_latent
+            if self.config._noise_in_unpatchified_shape:
+                # If this option is enabled, we want the scheduler to operate on the unpatchified latent.
+                clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(
+                    final_state.clean_latent
+                )
             noisy_latent = self.scheduler.add_noise(
-                clean_input=final_state.clean_latent,
+                clean_input=clean_latent,
                 timestep=timestep,
                 rng=self.rng,
             )
+            if self.config._noise_in_unpatchified_shape:
+                # If this option is enabled, then the scheduler outputs an unpatchified latent so we
+                # need to patchify it.
+                noisy_latent = self.transformer.patchify_and_maybe_split_cp(
+                    noisy_latent
+                )
         else:
             noisy_latent = final_state.clean_latent
         self.transformer.finalize_kv_cache(
