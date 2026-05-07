@@ -27,16 +27,30 @@
 
 #include "CudaRaster.hpp"
 #include "cuda/PixelPipe.hpp"
+#include "cuda/PrivateDefs.hpp"
+#include "cuda/Constants.hpp"
 #include "gui/Image.hpp"
 #include "gpu/Buffer.hpp"
 #include <cstddef>
+#include <cstring>
 
 using namespace CR;
 using namespace FW;
 
 //------------------------------------------------------------------------
+// Host-callable wrappers defined in CudaRasterKernels.cu
+//------------------------------------------------------------------------
 
 void crClearBuffers(uint32_t* color, uint32_t* depth, size_t count, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
+void crClearSurfaces(cudaSurfaceObject_t colorSurf, cudaSurfaceObject_t depthSurf, int width, int height, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
+void crCopyFromArray(uint32_t* dst, cudaArray_t src, int width, int height, cudaStream_t stream);
+void crUploadParams(const CRParams& params, cudaStream_t stream);
+void crInitAtomics(int numTris, cudaStream_t stream);
+void crReadAtomics(CRAtomics* atomics, cudaStream_t stream);
+void crLaunchSetup(int numTris, cudaStream_t stream);
+void crLaunchBin(cudaStream_t stream);
+void crLaunchCoarse(int numSMs, cudaStream_t stream);
+void crLaunchFine(int numSMs, int numFineWarps, cudaStream_t stream);
 
 //------------------------------------------------------------------------
 
@@ -46,6 +60,9 @@ CudaRaster::CudaRaster(void)
     m_colorBufferRaw(NULL),
     m_depthBufferRaw(NULL),
     m_peelBufferRaw (NULL),
+    m_colorArray    (NULL),
+    m_depthArray    (NULL),
+    m_peelArray     (NULL),
     m_width         (0),
     m_height        (0),
     m_numImages     (0),
@@ -76,12 +93,18 @@ CudaRaster::CudaRaster(void)
     m_numVertices   (0),
     m_module        (NULL),
     m_numSMs        (1),
-    m_numFineWarps  (1),
+    m_numFineWarps  (CR_FINE_MAX_WARPS),
     m_binBatchSize  (1),
     m_maxSubtris    (1),
     m_maxBinSegs    (1),
     m_maxTileSegs   (1)
 {
+    // Query device properties for SM count
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp props;
+    cudaGetDeviceProperties(&props, device);
+    m_numSMs = props.multiProcessorCount;
     m_triSubtris = std::make_unique<Buffer>();
     m_triHeader = std::make_unique<Buffer>();
     m_triData = std::make_unique<Buffer>();
@@ -103,12 +126,14 @@ CudaRaster::CudaRaster(void)
 
 CudaRaster::~CudaRaster(void)
 {
-    if (m_colorBufferRaw)
-        cudaFree(m_colorBufferRaw);
-    if (m_depthBufferRaw)
-        cudaFree(m_depthBufferRaw);
-    if (m_peelBufferRaw)
-        cudaFree(m_peelBufferRaw);
+    if (m_colorSurfaceObj) cudaDestroySurfaceObject(m_colorSurfaceObj);
+    if (m_depthSurfaceObj) cudaDestroySurfaceObject(m_depthSurfaceObj);
+    if (m_colorArray) cudaFreeArray(m_colorArray);
+    if (m_depthArray) cudaFreeArray(m_depthArray);
+    if (m_peelArray) cudaFreeArray(m_peelArray);
+    if (m_colorBufferRaw) cudaFree(m_colorBufferRaw);
+    if (m_depthBufferRaw) cudaFree(m_depthBufferRaw);
+    if (m_peelBufferRaw) cudaFree(m_peelBufferRaw);
 }
 
 //------------------------------------------------------------------------
@@ -119,14 +144,21 @@ void CudaRaster::setBufferSize(int width, int height, int numImages)
     m_height = max(height, 0);
     m_numImages = max(numImages, 0);
 
+    // Free existing resources
+    if (m_colorSurfaceObj) { cudaDestroySurfaceObject(m_colorSurfaceObj); m_colorSurfaceObj = 0; }
+    if (m_depthSurfaceObj) { cudaDestroySurfaceObject(m_depthSurfaceObj); m_depthSurfaceObj = 0; }
+    if (m_colorArray) { cudaFreeArray(m_colorArray); m_colorArray = NULL; }
+    if (m_depthArray) { cudaFreeArray(m_depthArray); m_depthArray = NULL; }
+    if (m_peelArray) { cudaFreeArray(m_peelArray); m_peelArray = NULL; }
     if (m_colorBufferRaw) { cudaFree(m_colorBufferRaw); m_colorBufferRaw = NULL; }
     if (m_depthBufferRaw) { cudaFree(m_depthBufferRaw); m_depthBufferRaw = NULL; }
     if (m_peelBufferRaw) { cudaFree(m_peelBufferRaw); m_peelBufferRaw = NULL; }
 
-    size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
-    if (count == 0)
+    if (m_width == 0 || m_height == 0 || m_numImages == 0)
         return;
 
+    // Allocate linear readback buffers
+    size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
     size_t bytes = count * sizeof(uint32_t);
     cudaMalloc(&m_colorBufferRaw, bytes);
     cudaMalloc(&m_depthBufferRaw, bytes);
@@ -134,6 +166,23 @@ void CudaRaster::setBufferSize(int width, int height, int numImages)
     cudaMemset(m_colorBufferRaw, 0, bytes);
     cudaMemset(m_depthBufferRaw, 0, bytes);
     cudaMemset(m_peelBufferRaw, 0, bytes);
+
+    // Allocate 2D cudaArrays for surface access (required by surf2D in fine raster)
+    cudaChannelFormatDesc desc = cudaCreateChannelDesc<uint32_t>();
+    cudaMallocArray(&m_colorArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
+    cudaMallocArray(&m_depthArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
+    cudaMallocArray(&m_peelArray, &desc, m_width, m_height * m_numImages, cudaArraySurfaceLoadStore);
+
+    // Create surface objects
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.resType = cudaResourceTypeArray;
+
+    resDesc.res.array.array = m_colorArray;
+    cudaCreateSurfaceObject(&m_colorSurfaceObj, &resDesc);
+
+    resDesc.res.array.array = m_depthArray;
+    cudaCreateSurfaceObject(&m_depthSurfaceObj, &resDesc);
 }
 
 //------------------------------------------------------------------------
@@ -194,16 +243,199 @@ void CudaRaster::setDeterministicTiebreaker(bool enable)
 
 //------------------------------------------------------------------------
 
+static cudaTextureObject_t createLinearTexture(CUdeviceptr ptr, size_t bytes, cudaChannelFormatDesc desc)
+{
+    if (!ptr || bytes == 0)
+        return 0;
+
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.resType = cudaResourceTypeLinear;
+    resDesc.res.linear.devPtr = (void*)ptr;
+    resDesc.res.linear.desc = desc;
+    resDesc.res.linear.sizeInBytes = bytes;
+
+    cudaTextureDesc texDesc;
+    memset(&texDesc, 0, sizeof(texDesc));
+    texDesc.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t texObj = 0;
+    cudaCreateTextureObject(&texObj, &resDesc, &texDesc, nullptr);
+    return texObj;
+}
+
 bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
 {
     m_ranges = ranges;
     m_peelEnabled = peel;
-    if (m_deferredClear && m_colorBufferRaw && m_depthBufferRaw)
+
+    // Compute viewport-derived dimensions
+    int vpWidth = (m_viewportWidth > 0) ? m_viewportWidth : m_width;
+    int vpHeight = (m_viewportHeight > 0) ? m_viewportHeight : m_height;
+
+    m_viewportSize = Vec2i(vpWidth, vpHeight);
+    m_sizeTiles = Vec2i((vpWidth + CR_TILE_SIZE - 1) / CR_TILE_SIZE,
+                        (vpHeight + CR_TILE_SIZE - 1) / CR_TILE_SIZE);
+    m_numTiles = m_sizeTiles.x * m_sizeTiles.y;
+    m_sizePixels = m_sizeTiles * CR_TILE_SIZE;
+    m_sizeBins = Vec2i((vpWidth + CR_BIN_SIZE * CR_TILE_SIZE - 1) / (CR_BIN_SIZE * CR_TILE_SIZE),
+                       (vpHeight + CR_BIN_SIZE * CR_TILE_SIZE - 1) / (CR_BIN_SIZE * CR_TILE_SIZE));
+    m_numBins = m_sizeBins.x * m_sizeBins.y;
+    m_samplesLog2 = 0;
+    m_numSamples = 1;
+
+    // Clear the framebuffer surfaces if deferred clear is pending
+    if (m_deferredClear && m_colorSurfaceObj && m_depthSurfaceObj)
     {
-        size_t count = (size_t)m_width * (size_t)m_height * (size_t)m_numImages;
-        crClearBuffers(m_colorBufferRaw, m_depthBufferRaw, count, m_clearColor, m_clearDepth, stream);
+        crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
+                        m_width, m_height * m_numImages,
+                        m_clearColor, m_clearDepth, stream);
         m_deferredClear = false;
     }
+
+    // Launch pipeline if we have triangles
+    if (m_numTris > 0 && m_vertexBufferRaw && m_indexBufferRaw)
+    {
+        // Compute buffer sizes (with slack for overflows)
+        int maxSubtrisSlack = 4096;
+        int maxBinSegsSlack = 64;
+        int maxTileSegsSlack = 64;
+        int roundSize = CR_BIN_STREAMS_SIZE * 32;
+        int minBatches = 16;
+        int maxRounds = 32;
+
+        m_binBatchSize = FW::max(1, FW::min((m_numTris / (roundSize * minBatches)), maxRounds)) * roundSize;
+        m_maxSubtris = FW::max(m_maxSubtris, m_numTris + maxSubtrisSlack);
+        m_maxBinSegs = FW::max(m_maxBinSegs, FW::max(m_numBins * CR_BIN_STREAMS_SIZE, (m_numTris - 1) / CR_BIN_SEG_SIZE + 1) + maxBinSegsSlack);
+        m_maxTileSegs = FW::max(m_maxTileSegs, FW::max(m_numTiles, (m_numTris - 1) / CR_TILE_SEG_SIZE + 1) + maxTileSegsSlack);
+
+        // Allocate intermediate buffers
+        m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
+        m_triHeader->resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
+        m_triData->resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
+
+        m_binFirstSeg->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
+        m_binTotal->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
+        m_binSegData->resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
+        m_binSegNext->resizeDiscard(m_maxBinSegs * sizeof(S32));
+        m_binSegCount->resizeDiscard(m_maxBinSegs * sizeof(S32));
+
+        m_activeTiles->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
+        m_tileFirstSeg->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
+        m_tileSegData->resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
+        m_tileSegNext->resizeDiscard(m_maxTileSegs * sizeof(S32));
+        m_tileSegCount->resizeDiscard(m_maxTileSegs * sizeof(S32));
+
+        // Get buffer pointers (discard previous contents)
+        CUdeviceptr ptrTriSubtris = m_triSubtris->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTriHeader = m_triHeader->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTriData = m_triData->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrBinFirstSeg = m_binFirstSeg->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrBinTotal = m_binTotal->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrBinSegData = m_binSegData->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrBinSegNext = m_binSegNext->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrBinSegCount = m_binSegCount->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrActiveTiles = m_activeTiles->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTileFirstSeg = m_tileFirstSeg->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTileSegData = m_tileSegData->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTileSegNext = m_tileSegNext->getMutableCudaPtrDiscard();
+        CUdeviceptr ptrTileSegCount = m_tileSegCount->getMutableCudaPtrDiscard();
+
+        // Create texture objects for vertex buffer and intermediate buffers
+        // Note: using ShadedVertexBase (16 bytes = 1 float4) since the pixel pipe uses TriIdShader
+        // which doesn't need vertex colors, only clip positions
+        cudaTextureObject_t texVertex = createLinearTexture(
+            (CUdeviceptr)m_vertexBufferRaw,
+            m_numVertices * sizeof(ShadedVertexBase),
+            cudaCreateChannelDesc<float4>());
+
+        cudaTextureObject_t texTriHeader = createLinearTexture(
+            ptrTriHeader,
+            m_maxSubtris * sizeof(CRTriangleHeader),
+            cudaCreateChannelDesc<uint4>());
+
+        cudaTextureObject_t texTriData = createLinearTexture(
+            ptrTriData,
+            m_maxSubtris * sizeof(CRTriangleData),
+            cudaCreateChannelDesc<uint4>());
+
+        // Build CRParams
+        CRParams params;
+        memset(&params, 0, sizeof(params));
+
+        params.numTris = m_numTris;
+        params.vertexBuffer = (CUdeviceptr)m_vertexBufferRaw;
+        params.indexBuffer = (CUdeviceptr)m_indexBufferRaw;
+        params.t_vertexBuffer = texVertex;
+        params.t_triHeader = texTriHeader;
+        params.t_triData = texTriData;
+        params.s_colorBuffer = m_colorSurfaceObj;
+        params.s_depthBuffer = m_depthSurfaceObj;
+
+        params.viewportWidth = vpWidth;
+        params.viewportHeight = vpHeight;
+        params.widthPixels = m_sizePixels.x;
+        params.heightPixels = m_sizePixels.y;
+
+        params.widthBins = m_sizeBins.x;
+        params.heightBins = m_sizeBins.y;
+        params.numBins = m_numBins;
+
+        params.widthTiles = m_sizeTiles.x;
+        params.heightTiles = m_sizeTiles.y;
+        params.numTiles = m_numTiles;
+
+        params.binBatchSize = m_binBatchSize;
+
+        params.deferredClear = 0;
+        params.clearColor = m_clearColor;
+        params.clearDepth = m_clearDepth;
+
+        params.maxSubtris = m_maxSubtris;
+        params.triSubtris = ptrTriSubtris;
+        params.triHeader = ptrTriHeader;
+        params.triData = ptrTriData;
+
+        params.maxBinSegs = m_maxBinSegs;
+        params.binFirstSeg = ptrBinFirstSeg;
+        params.binTotal = ptrBinTotal;
+        params.binSegData = ptrBinSegData;
+        params.binSegNext = ptrBinSegNext;
+        params.binSegCount = ptrBinSegCount;
+
+        params.maxTileSegs = m_maxTileSegs;
+        params.activeTiles = ptrActiveTiles;
+        params.tileFirstSeg = ptrTileFirstSeg;
+        params.tileSegData = ptrTileSegData;
+        params.tileSegNext = ptrTileSegNext;
+        params.tileSegCount = ptrTileSegCount;
+
+        // Upload params and initialize atomics
+        crUploadParams(params, stream);
+        crInitAtomics(m_numTris, stream);
+
+        // Launch pipeline stages
+        crLaunchSetup(m_numTris, stream);
+        crLaunchBin(stream);
+        crLaunchCoarse(m_numSMs, stream);
+        crLaunchFine(m_numSMs, m_numFineWarps, stream);
+
+        // Cleanup texture objects
+        if (texVertex) cudaDestroyTextureObject(texVertex);
+        if (texTriHeader) cudaDestroyTextureObject(texTriHeader);
+        if (texTriData) cudaDestroyTextureObject(texTriData);
+    }
+
+    // Copy from surfaces to linear memory for readback
+    if (m_colorArray && m_colorBufferRaw)
+    {
+        crCopyFromArray(m_colorBufferRaw, m_colorArray, m_width, m_height * m_numImages, stream);
+    }
+    if (m_depthArray && m_depthBufferRaw)
+    {
+        crCopyFromArray(m_depthBufferRaw, m_depthArray, m_width, m_height * m_numImages, stream);
+    }
+
     return true;
 }
 
