@@ -430,7 +430,11 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="n">context_noise</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Timestep used by ``finalize`` for the AR cache-update forward.</span>
-<span class="sd">    ``0`` skips ``add_noise``.&quot;&quot;&quot;</span></div>
+<span class="sd">    ``0`` skips ``add_noise``.&quot;&quot;&quot;</span>
+
+    <span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Debug only: Create the noise in the unpatchified shape (to align with the open-source codebases).</span>
+<span class="sd">    Note this will hurt performance so only use it for debugging.&quot;&quot;&quot;</span></div>
 
 
 
@@ -539,26 +543,59 @@ SPDX-License-Identifier: Apache-2.0
             <span class="nb">input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
         <span class="n">cache</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
 
-        <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span>
-            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-            <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="c1"># The `self.latent_shape` is for patchified latent. To align with the OSS codebases</span>
+            <span class="c1"># we here want to create the noise with the *unpatchified* shape, then patchify it back.</span>
+            <span class="n">dummy_latent</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
+            <span class="p">)</span>
+            <span class="n">dummy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">dummy_latent</span><span class="p">)</span>
+            <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
+                <span class="n">dummy_latent</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+            <span class="p">)</span>  <span class="c1"># shape of an unpatchified latent</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+            <span class="p">)</span>  <span class="c1"># shape of a patchified latent</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">predict_flow</span><span class="p">(</span><span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">predict_flow</span><span class="p">(</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+                <span class="c1"># If the noise is in the unpatchified shape, we need to patchify it first</span>
+                <span class="c1"># because the transformer expects a patchified latent.</span>
+                <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
+                    <span class="n">noisy_latent</span>
+                <span class="p">)</span>
+
+            <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">predict_flow</span><span class="p">(</span>
                 <span class="n">noisy_latent</span><span class="o">=</span><span class="n">noisy_latent</span><span class="p">,</span>
                 <span class="n">timestep</span><span class="o">=</span><span class="n">timestep</span><span class="p">,</span>
                 <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
                 <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
-            <span class="p">)</span>
+            <span class="p">)</span>  <span class="c1"># patchified output</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+                <span class="c1"># The we need to unpatchify it again, to make sure scheduler operates</span>
+                <span class="c1"># on the unpatchified latent.</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">output</span>
 
         <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scheduler</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span>
             <span class="n">initial_noise</span><span class="o">=</span><span class="n">initial_noise</span><span class="p">,</span>
             <span class="n">predict_flow</span><span class="o">=</span><span class="n">predict_flow</span><span class="p">,</span>
             <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
         <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="c1"># If this option is enabled, the scheduler operates on the unpatchified latent.</span>
+            <span class="c1"># So the clean latent it outputs is in the unpatchified shape. Here we patchify it.</span>
+            <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="n">clean_latent</span><span class="p">)</span>
 
         <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">postprocess_clean_latent</span><span class="p">(</span>
             <span class="n">clean_latent</span><span class="o">=</span><span class="n">clean_latent</span><span class="p">,</span>
@@ -599,11 +636,23 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">context_noise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">context_noise</span>
         <span class="n">timestep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">context_noise</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">context_noise</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="n">clean_latent</span> <span class="o">=</span> <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+                <span class="c1"># If this option is enabled, we want the scheduler to operate on the unpatchified latent.</span>
+                <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span>
+                    <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
+                <span class="p">)</span>
             <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scheduler</span><span class="o">.</span><span class="n">add_noise</span><span class="p">(</span>
-                <span class="n">clean_input</span><span class="o">=</span><span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span><span class="p">,</span>
+                <span class="n">clean_input</span><span class="o">=</span><span class="n">clean_latent</span><span class="p">,</span>
                 <span class="n">timestep</span><span class="o">=</span><span class="n">timestep</span><span class="p">,</span>
                 <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
             <span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+                <span class="c1"># If this option is enabled, then the scheduler outputs an unpatchified latent so we</span>
+                <span class="c1"># need to patchify it.</span>
+                <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
+                    <span class="n">noisy_latent</span>
+                <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">noisy_latent</span> <span class="o">=</span> <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">finalize_kv_cache</span><span class="p">(</span>
