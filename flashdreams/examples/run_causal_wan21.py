@@ -65,7 +65,7 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder
+from flashdreams.infra.decoder.base import StreamingVideoDecoder
 from flashdreams.recipes.wan.config.causal_wan21 import (
     CAUSAL_WAN21_CONFIG_BUILDERS,
     DEFAULT_VIDEO_HEIGHT,
@@ -75,7 +75,7 @@ from flashdreams.recipes.wan.config.causal_wan21 import (
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_T2V_PROMPT = (
     "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
@@ -190,7 +190,7 @@ def main() -> None:
     # I2V the pipeline derives them from the resized first-frame pixels.
     transformer_cfg = pipeline.diffusion_model.transformer.config
     assert isinstance(transformer_cfg, Wan21TransformerConfig)
-    assert isinstance(pipeline.decoder, WanVAEDecoder)
+    assert isinstance(pipeline.decoder, StreamingVideoDecoder)
     latent_h = DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION
     latent_w = DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION
 

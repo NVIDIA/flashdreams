@@ -405,5 +405,5 @@ class FlowMatchUniPCScheduler(Scheduler):
         ts = self.timesteps
         idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)
         sigma = self._sigmas_full.index_select(0, idx).reshape(())
-        noise = torch.randn_like(clean_input, generator=rng)
+        noise = torch.empty_like(clean_input).normal_(generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)

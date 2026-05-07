@@ -16,10 +16,10 @@
 """Block KV cache for causal attention with a fixed-size local window."""
 
 from dataclasses import dataclass, field
-from typing import Self
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 
 @dataclass

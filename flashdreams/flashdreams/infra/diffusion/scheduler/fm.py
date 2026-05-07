@@ -212,7 +212,7 @@ class FlowMatchScheduler(Scheduler):
             timestep = timesteps[i].to(dtype=input_dtype)
             if i > 0:
                 assert clean is not None
-                noise = torch.randn_like(noisy, generator=rng)
+                noise = torch.empty_like(noisy).normal_(generator=rng)
                 noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
             flow = predict_flow(noisy, timestep)
             clean = noisy - sigma * flow
@@ -234,5 +234,5 @@ class FlowMatchScheduler(Scheduler):
         full_t = self._full_timesteps
         idx = torch.argmin((full_t - timestep.to(full_t.dtype)).abs()).reshape(1)
         sigma = self._full_sigmas.index_select(0, idx).reshape(())
-        noise = torch.randn_like(clean_input, generator=rng)
+        noise = torch.empty_like(clean_input).normal_(generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)
