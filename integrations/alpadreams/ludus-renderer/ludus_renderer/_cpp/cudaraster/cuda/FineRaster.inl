@@ -440,9 +440,14 @@ __device__ __inline__ int findFragment(U64 coverage, int fragIdx)
 // Single-sample implementation.
 //------------------------------------------------------------------------
 
+// Volta+ ITS fix: The original retry loop assumed warp-synchronous execution
+// where all lanes see each other's shared memory writes. Under Independent
+// Thread Scheduling, lanes can race and read stale depth values.
+// Fix: Use atomicMin for depth, then sync active lanes before checking winner.
+
 template <class BlendShaderClass, U32 RenderModeFlags>
 __device__ __inline__ void executeROP_SingleSample(
-    int triIdx, int pixelX, int pixelY,
+    int triIdx, int pixelX, int pixelY, int pixelInTile,
     U32 color, U32 depth, volatile U32* pColor, volatile U32* pDepth,
 	U32& timerTotal)
 {
@@ -452,21 +457,28 @@ __device__ __inline__ void executeROP_SingleSample(
     if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
     {
 		CR_TIMER_IN(FineROPConfResolve);
-        do
+
+        // Volta+ ITS-safe depth conflict resolution:
+        // All active lanes atomically update depth, sync to ensure visibility,
+        // then only the winner (lane with minimum depth) writes color.
+        U32 activeMask = __activemask();
+        atomicMin((U32*)pDepth, depth);
+        __syncwarp(activeMask);
+        if (depth == *pDepth)
         {
             rounds++;
-			CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
-			CR_TIMER_IN(FineROPBlend);
-            *pDepth = depth;
-			U32 sColor = *pColor;
-			runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, 0, color, sColor);
+            CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
+            CR_TIMER_IN(FineROPBlend);
+            U32 sColor = *pColor;
+            runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, 0, color, sColor);
             if (bs.m_writeColor)
                 *pColor = bs.m_color;
-			CR_TIMER_OUT(FineROPBlend);
-			CR_TIMER_IN(FineROPConfResolve);
+            CR_TIMER_OUT(FineROPBlend);
         }
-        while (depth < *pDepth);
-		CR_TIMER_OUT(FineROPConfResolve);
+        else
+        {
+            CR_TIMER_OUT(FineROPConfResolve);
+        }
     }
     else if (!bs.needsDst())
     {
@@ -651,7 +663,8 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                         triangleFrag[idx] = frag;
                         triangleCov [idx] = coverage;
                     }
-                    triWrite += __popc(goodMask);
+                    U32 goodCount = __popc(goodMask);
+                    triWrite += goodCount;
 					CR_TIMER_OUT_DEP(FineFragmentEnqueue, triWrite);
                 }
                 while (fragWrite - fragRead < 32 && segment >= 0);
@@ -664,6 +677,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
             CR_TIMER_IN(FineFragmentDistr);
 
             // tag triangle boundaries
+            int ropLaneIdx = __popc(ropLaneMask);
             temp[threadIdx.x + 16] = 0;
             if (triRead + threadIdx.x < triWrite)
             {
@@ -671,15 +685,13 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                 if (idx <= 32)
                     temp[idx + 16 - 1] = 1;
             }
-
-            int ropLaneIdx = __popc(ropLaneMask);
             U32 boundaryMask = __ballot_sync(__activemask(), temp[ropLaneIdx + 16]);
+            int triBufIdx = (triRead + __popc(boundaryMask & ropLaneMask)) & 63;
 
             // distribute fragments
             CR_TIMER_OUT_DEP(FineFragmentDistr, boundaryMask);
             if (ropLaneIdx < fragWrite - fragRead)
             {
-                int triBufIdx = (triRead + __popc(boundaryMask & ropLaneMask)) & 63;
                 int fragIdx = add_sub(fragRead, ropLaneIdx, triangleFrag[(triBufIdx - 1) & 63]);
                 CR_TIMER_IN(FineFindBit);
                 U64 coverage = triangleCov[triBufIdx];
@@ -729,7 +741,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                     if (((RenderModeFlags & RenderModeFlag_EnableQuads) == 0 || (covered && !zkill)) && !fragShader.m_discard)
                     {
 					    executeROP_SingleSample<BlendShaderClass, RenderModeFlags>(
-                            triIdx, pixelX, pixelY, fragShader.m_color, depth,
+                            triIdx, pixelX, pixelY, pixelInTile, fragShader.m_color, depth,
                             &tileColor[pixelInTile], &tileDepth[pixelInTile],
 							timerTotal);
                     }

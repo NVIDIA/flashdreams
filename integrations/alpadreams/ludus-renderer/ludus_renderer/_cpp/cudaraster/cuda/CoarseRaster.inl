@@ -408,7 +408,19 @@ __device__ __inline__ void coarseRasterImpl(void)
                                 for (int x = wlox; x <= hix; x++)
                                 {
                                     if (x < lox) continue;
-                                    *(U32*)currPtr = __ballot_sync(__activemask(), b01 >= 0 && b02 >= 0 && b12 >= 0);
+                                    U32 ballot = __ballot_sync(__activemask(), b01 >= 0 && b02 >= 0 && b12 >= 0);
+                                    // Volta+ ITS: per-lane loop bounds (hix/hiy) and per-lane skip
+                                    // predicates (x<lox / y<loy) cause the warp to fragment into
+                                    // divergent subgroups at the body. __activemask() then reflects
+                                    // only the co-issued subgroup, so each subgroup's __ballot_sync
+                                    // returns a partial mask. A non-atomic store would let two
+                                    // subgroups race on the same shared cell and last-writer-wins
+                                    // would silently drop coverage bits. atomicOr composes the
+                                    // partial ballots losslessly: every covering lane's bit is set
+                                    // in some subgroup's ballot, and OR-ing all subgroups' ballots
+                                    // into the cell yields the same union a fully converged warp
+                                    // would have produced. Cases A and C also use atomicOr.
+                                    atomicOr((U32*)currPtr, ballot);
                                     currPtr += 4, b01 -= d01y, b02 += d02y, b12 -= d12y;
                                 }
                                 currPtr += ptrYInc, b01 += d01x, b02 -= d02x, b12 += d12x;
