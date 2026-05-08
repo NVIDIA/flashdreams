@@ -70,7 +70,7 @@ from alpadreams.grpc.utils import (
     trajectory_to_camera_poses,
 )
 from loguru import logger
-from ludus_renderer import nvjpeg
+from torchvision.io import encode_jpeg
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.core.distributed.context_parallel import (
@@ -821,7 +821,12 @@ class WorldModelEngine:
 
     def _encode_images(self, images: torch.Tensor) -> list[video_model_pb2.Image]:
         """
-        Encode a batch of images using nvjpeg.
+        Encode a batch of images.
+
+        For JPEG, ``torchvision.io.encode_jpeg`` runs on the same CUDA device
+        as ``images`` and replaces the previous ``ludus_renderer.nvjpeg``
+        path. For PNG (and any other configured format) we fall back to the
+        CPU encoder.
 
         Args:
             images: Tensor of shape [B, 3, H, W] uint8.
@@ -831,14 +836,16 @@ class WorldModelEngine:
         """
         assert self.device.type == "cuda", "Images must be on GPU"
         if self.output_format == "jpeg":
-            jpeg_list = nvjpeg.encode(
-                images, quality=self.jpeg_quality, device_index=self.device.index
-            )  # Encode to JPEG with quality using ludus_renderer
+            frames = [images[i] for i in range(images.shape[0])]
+            encoded_tensors = encode_jpeg(frames, quality=self.jpeg_quality)
+            if isinstance(encoded_tensors, torch.Tensor):
+                encoded_tensors = [encoded_tensors]
             return [
                 video_model_pb2.Image(
-                    data=jpeg, format=video_model_pb2.ImageFormat.JPEG
+                    data=bytes(encoded.cpu().numpy()),
+                    format=video_model_pb2.ImageFormat.JPEG,
                 )
-                for jpeg in jpeg_list
+                for encoded in encoded_tensors
             ]
         else:
             frame_msgs = []

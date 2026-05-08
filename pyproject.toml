@@ -56,7 +56,7 @@ invalid-method-override = "ignore"
 
 [tool.ty.analysis]
 # These packages have no type stubs or are unavailable in CI; treat imports as Any
-replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**"]
+replace-imports-with-any = ["transformer_engine.**", "slangpy.**"]
 
 [dependency-groups]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]

@@ -13,78 +13,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ludus-based HD map renderer.
+"""SlangPy-based HD-map renderer.
 
-This module provides the LudusRenderer class, which wraps the ludus_renderer
-library to render HD map scenes for conditioning video generation.
+This module provides the :class:`LudusRenderer` class, which renders HD-map
+conditioning frames for the Alpadreams video model. The class name is
+preserved for backwards compatibility, but the implementation no longer
+depends on the closed-source ``ludus-renderer`` wheel: it now uses a SlangPy
+software rasterizer (see :mod:`alpadreams.conditioning.slang_renderer`) that
+runs custom Slang compute kernels under PyTorch's CUDA context.
+
+Public API surface (``__init__``, :meth:`render_all_frames_and_cameras`,
+:meth:`cleanup`, :func:`load_and_attach_ludus_scene`) is unchanged so callers
+in :mod:`alpadreams.grpc` work without modification.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-import ludus_renderer
 import torch
+from alpadreams.conditioning.slang_renderer import (
+    RasterConfig,
+    SceneBundle,
+    SlangConditionRasterizer,
+    mirror_augment_bundle,
+    scene_data_to_bundle,
+)
+from alpadreams.conditioning.slang_renderer.camera import FThetaCameraModel
+from alpadreams.conditioning.world_scenario.data_loaders import load_scene
 from alpadreams.conditioning.world_scenario.data_types import SceneData
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
 from alpadreams.conditioning.world_scenario.pinhole import PinholeCamera
-from ludus_renderer import (
-    load_clipgt_scene,
-    mirror_augment_scene,
-)
-from ludus_renderer.render_utils import (
-    SceneAdapter,
-)
-from ludus_renderer.torch import (
-    LudusCudaTimestampedContext,
-)
-from ludus_renderer.torch.ops import (
-    CAMERA_TYPE_REGULAR,
-)
+
+SCENE_BUNDLE_KEY = "ludus_scene"
 
 
 class LudusRenderer:
-    @staticmethod
-    def to_ludus_camera(
-        camera: PinholeCamera | FThetaCamera,
-    ) -> ludus_renderer.FThetaCamera:
-        """
-        Convert an Imaginaire camera to a Ludus camera.
-        """
+    """Render HD-map conditioning frames for one or more cameras.
 
-        if isinstance(camera, PinholeCamera):
-            raise NotImplementedError("Pinhole camera not supported yet")
-
-        elif isinstance(camera, FThetaCamera):
-            return ludus_renderer.FThetaCamera(
-                principal_point=camera._center_torch,
-                image_size=torch.tensor(
-                    [camera._width, camera._height], device=camera.device
-                ),
-                fw_poly=camera._fw_poly_torch,
-                max_ray_angle=float(camera._max_ray_angle_torch),
-                # linear_distortion=camera._A_torch,  # TODO: Is it _A_torch or _inv_A_torch?
-                depth_max=200.0,  # TODO: How to get it from camera data?
-            )
-
-        else:
-            raise ValueError(f"Unsupported camera type: {type(camera)}")
-
-    def to_ludus_camera_pose(self, camera_poses: torch.Tensor) -> torch.Tensor:
-        """
-        Convert an Imaginaire camera pose to a Ludus camera pose.
-        Args:
-            camera_poses: Camera poses [num_frames, 4, 4].
-        Returns:
-            Ludus camera poses [num_frames, 4, 4].
-        """
-        return torch.linalg.inv(camera_poses)
+    The class wraps :class:`SlangConditionRasterizer` with the multi-camera
+    batching contract that :class:`AlpadreamsConditioningWrapper` expects:
+    ``render_all_frames_and_cameras`` returns a ``[V, T, 3, H, W]`` uint8
+    tensor on GPU.
+    """
 
     def __init__(
         self,
         scene_data: SceneData,
-        camera_models: dict,
+        camera_models: dict[str, FThetaCamera | PinholeCamera],
         hdmap_color_version: str = "v3",
         bbox_color_version: str = "v3",
         traffic_light_color_version: str = "v2",
@@ -92,11 +69,22 @@ class LudusRenderer:
         device: torch.device = torch.device("cuda"),
         coordinate_system: Literal["FLU", "RDF"] = "FLU",
     ):
-        """Render a full sequence for one or more cameras.
+        """Construct a renderer for a fixed set of cameras.
 
         Args:
-            args: Command line arguments
-            all_cameras: If True, render all available cameras. Otherwise uses args.camera.
+            scene_data: World scenario data; must already have a SceneBundle
+                attached under ``metadata[SCENE_BUNDLE_KEY]`` (see
+                :func:`load_and_attach_ludus_scene`).
+            camera_models: ``{camera_name: FThetaCamera}`` dictionary. Pinhole
+                cameras are not supported.
+            hdmap_color_version: Must be ``"v3"`` (other palettes are not
+                ported from ludus).
+            bbox_color_version: Must be ``"v3"``.
+            traffic_light_color_version: Must be ``"v2"``.
+            windowless: Unused; kept for API parity.
+            device: CUDA device on which the rasterizer runs.
+            coordinate_system: Must be ``"FLU"``; the rasterizer converts to
+                RDF internally.
         """
         assert hdmap_color_version == "v3", (
             "Only v3 color version is supported for LudusRenderer"
@@ -107,38 +95,56 @@ class LudusRenderer:
         assert traffic_light_color_version == "v2", (
             "Only v2 color version is supported for LudusRenderer"
         )
-
-        assert len(camera_models) > 0, "Must provide at least one camera model"
-        self.scene_data = scene_data
-        self.camera_models = camera_models
-        self.device = device
         assert coordinate_system == "FLU", (
             "FLU coordinate system is expected for LudusRenderer"
         )
+        assert len(camera_models) > 0, "Must provide at least one camera model"
+        del windowless  # accepted for API compatibility, never used
 
-        # Create context
-        self.ctx = LudusCudaTimestampedContext(device=self.device)
-        self.ctx.set_depth_scaling(True)
-        self.ctx.set_msaa_samples(4)
-        self.ctx.set_max_tessellation_levels(cube=0)
+        self.scene_data = scene_data
+        self.camera_models = camera_models
+        self.device = device
 
-        # Create and upload cameras
-        all_camera_map = {}
-        all_cameras = []
+        bundle = scene_data.metadata.get(SCENE_BUNDLE_KEY)
+        if not isinstance(bundle, SceneBundle):
+            raise ValueError(
+                f"scene_data.metadata['{SCENE_BUNDLE_KEY}'] must be a SceneBundle. "
+                "Did you forget to call load_and_attach_ludus_scene()?"
+            )
+
+        widths: set[int] = set()
+        heights: set[int] = set()
         for camera_name, camera_model in camera_models.items():
-            cam = self.to_ludus_camera(camera_model)
-            all_cameras.append(cam)
-            all_camera_map[camera_name] = len(all_cameras) - 1
-        self.all_cameras = all_cameras
-        self.all_camera_map = all_camera_map
-        self.ctx.upload_cameras(all_cameras)
+            if isinstance(camera_model, PinholeCamera):
+                raise NotImplementedError(
+                    f"Pinhole camera not supported by SlangPy rasterizer (camera '{camera_name}')."
+                )
+            if not isinstance(camera_model, FThetaCamera):
+                raise TypeError(
+                    f"Unsupported camera type for '{camera_name}': {type(camera_model)}"
+                )
+            widths.add(int(camera_model.width))
+            heights.add(int(camera_model.height))
 
-        # Upload scene
-        assert "ludus_scene" in self.scene_data.metadata, (
-            "Ludus scene not found in scene data"
+        if len(widths) != 1 or len(heights) != 1:
+            raise ValueError(
+                f"All cameras must share resolution; got widths={widths}, heights={heights}"
+            )
+        width = widths.pop()
+        height = heights.pop()
+
+        raster_config = RasterConfig(width=width, height=height, compute_device="cuda")
+        slang_camera_models: dict[str, FThetaCameraModel] = {
+            name: FThetaCameraModel(model, output_width=width, output_height=height)
+            for name, model in camera_models.items()
+        }
+
+        self._rasterizer = SlangConditionRasterizer(
+            camera_models=slang_camera_models,
+            raster=raster_config,
+            device=self.device,
         )
-        scene = self.scene_data.metadata["ludus_scene"]
-        self.scene_id = self.ctx.upload_scene(scene.timestamped_scene)
+        self._rasterizer.load_scene(bundle)
 
     def render_all_frames_and_cameras(
         self,
@@ -147,98 +153,53 @@ class LudusRenderer:
         frame_timestamps_us: list[int],
         object_infos: list[dict | None] | None = None,
     ) -> torch.Tensor:
-        """Render a batch of frames and cameras.
+        """Render a batch of frames for the given cameras.
 
         Args:
-            camera_names: List of camera names to render.
-            camera_poses_per_camera: Dictionary of camera poses per camera.
-            frame_timestamps_us: List of frame timestamps in microseconds.
-            object_infos: List of object infos.
+            camera_names: Ordered list of camera names (defines the V axis).
+            camera_poses_per_camera: ``{camera_name: [T, 4, 4]}`` camera-to-world
+                poses in the same world frame as the loaded SceneBundle. The
+                CLIPGT loader converts everything to OpenCV RDF
+                (``scene_data.metadata["coordinate_frame"] == "opencv_rdf"``),
+                so ego poses can be passed straight through. On the renderer's
+                CUDA device.
+            frame_timestamps_us: Frame timestamps in microseconds (unused; the
+                Slang rasterizer treats the scene as static, but we accept the
+                argument for API parity with the previous ludus path).
+            object_infos: Per-frame dynamic-object info dicts (unused; bbox
+                tracks are not yet ported to the SlangPy backend).
+
+        Returns:
+            ``[V, T, 3, H, W]`` uint8 tensor on the renderer's CUDA device.
         """
+        del object_infos  # bbox tracks are not yet ported
 
         n_cameras = len(camera_names)
-        assert n_cameras > 0, "Number of cameras must be greater than 0"
-
+        if n_cameras == 0:
+            raise ValueError("camera_names must be non-empty")
         n_frames = len(frame_timestamps_us)
-        assert n_frames > 0, "Number of frames must be greater than 0"
+        if n_frames == 0:
+            raise ValueError("frame_timestamps_us must be non-empty")
 
-        # Create batch tensors
-        scene_id_batch = torch.full(
-            (n_frames * n_cameras,),
-            self.scene_id,
-            dtype=torch.int32,
-            device=self.device,
-        )
-        camera_type_id_batch = torch.full(
-            (n_frames * n_cameras,),
-            CAMERA_TYPE_REGULAR,
-            dtype=torch.int32,
-            device=self.device,
-        )
-        timestamps_batch = torch.tensor(
-            frame_timestamps_us, dtype=torch.int64, device=self.device
-        ).repeat(n_cameras)
-
-        H, W = None, None
-
-        camera_id_batch = []
-        camera_poses_batch = []
-
+        per_view: list[torch.Tensor] = []
         for camera_name in camera_names:
-            # Get camera ID, model and check resolution
-            c = self.all_camera_map[camera_name]
-            m = self.all_cameras[c]
-            if H is None or W is None:
-                H, W = m.image_size[1], m.image_size[0]
-            assert H == m.image_size[1] and W == m.image_size[0], (
-                "All cameras must have the same resolution"
-            )
-
-            # Append camera ID
-            camera_id_batch.append(c)
-
-            # Get camera poses and check shape
+            if camera_name not in self.camera_models:
+                raise KeyError(f"Unknown camera name: {camera_name}")
             poses = camera_poses_per_camera[camera_name]
-            assert len(poses) == n_frames, (
-                "Camera poses must have the same length as frame timestamps"
-            )
-            assert poses.ndim == 3, "Camera poses must be a 3D array"
-            assert poses.shape == (n_frames, 4, 4), (
-                "Camera poses must have the same length as frame timestamps"
-            )
-            camera_poses_batch.append(self.to_ludus_camera_pose(poses))
+            if poses.shape != (n_frames, 4, 4):
+                raise ValueError(
+                    f"camera_poses for '{camera_name}' must be [{n_frames}, 4, 4], got {tuple(poses.shape)}"
+                )
+            poses_cuda = poses.to(device=self.device, dtype=torch.float32)
+            frames = self._rasterizer.render_camera(camera_name, poses_cuda)
+            per_view.append(frames)
 
-        camera_id_batch = (
-            torch.tensor(camera_id_batch, dtype=torch.int32, device=self.device)
-            .unsqueeze(1)
-            .repeat(1, n_frames)
-            .flatten()
-        )
-        camera_poses_batch = torch.stack(camera_poses_batch, dim=0).reshape(-1, 4, 4)
-
-        images = self.ctx.render(
-            scene_id_batch,
-            camera_id_batch,
-            timestamps_batch,
-            camera_type_id_batch,
-            camera_poses_batch,
-            resolution=(H, W),
-        )
-
-        rgb = images[:, :, :, :3]
-        if self.ctx.needs_vflip:
-            rgb = rgb.flip(1)
-        return (
-            rgb.squeeze(0)
-            .permute(0, 3, 1, 2)
-            .contiguous()
-            .view(n_cameras, n_frames, 3, H, W)
-        )
+        return torch.stack(per_view, dim=0).contiguous()
 
     def cleanup(self) -> None:
-        """Cleanup the renderer."""
-        # LudusCudaTimestampedContext handles cleanup in its destructor
-        pass
+        """Release rasterizer resources (no-op for now)."""
+        # SlangPy device cleanup is handled by garbage collection.
+        return None
 
 
 def load_and_attach_ludus_scene(
@@ -252,19 +213,60 @@ def load_and_attach_ludus_scene(
     n_mirrors: int = 2,
     lookahead_m: float = 50.0,
 ) -> SceneData:
-    """Load HDMap scene from path and attach it to scene data."""
-    ludus_scene = load_clipgt_scene(
-        scene_data_path,
-        device=torch.device(device),
-        include_ego_trajectory=include_ego_trajectory,
-        include_ego_obstacle=include_ego_obstacle,
-        simplify_dual_lane_lines=simplify_dual_lane_lines,
-    )
+    """Build a SceneBundle from ``scene_data`` and attach it to its metadata.
+
+    The function name is preserved for backwards compatibility with
+    ``alpadreams.grpc.utils.load_static_world_from_zip_bytes``; the SceneBundle
+    is stored under ``scene_data.metadata[SCENE_BUNDLE_KEY]`` for the
+    LudusRenderer constructor to consume.
+
+    Args:
+        scene_data_path: Unused; kept for API parity (the previous
+            implementation reloaded the scene from disk via ludus, but
+            flashdreams' :class:`SceneData` already carries everything we need).
+        scene_data: World scenario data populated by :func:`load_scene`.
+        device: Unused; the SceneBundle is held on the host (numpy arrays) and
+            uploaded to GPU at render time.
+        include_ego_trajectory: Reserved for future ego-trajectory rendering;
+            currently a no-op (matches the default flashdreams config).
+        include_ego_obstacle: Reserved for future ego-obstacle rendering;
+            currently a no-op.
+        simplify_dual_lane_lines: Reserved; the new pattern engine already
+            applies the standard lane-line simplifications.
+        perform_mirror_augment: If True, mirror-stitches the scene
+            ``n_mirrors`` times.
+        n_mirrors: Number of mirror copies to add.
+        lookahead_m: Distance past the last ego pose to place the first mirror plane.
+
+    Returns:
+        ``scene_data`` with ``metadata[SCENE_BUNDLE_KEY]`` set to the new bundle.
+    """
+    del scene_data_path  # not needed: SceneData is already populated
+    del device
+    del include_ego_trajectory
+    del include_ego_obstacle
+    del simplify_dual_lane_lines
+
+    raster_config = RasterConfig()
+    bundle = scene_data_to_bundle(scene_data, raster_config)
     if perform_mirror_augment:
-        augmented_scene = mirror_augment_scene(
-            ludus_scene, n_mirrors=n_mirrors, lookahead_m=lookahead_m
+        bundle = mirror_augment_bundle(
+            bundle,
+            scene_data.ego_poses,
+            n_mirrors=n_mirrors,
+            lookahead_m=lookahead_m,
         )
-    else:
-        augmented_scene = ludus_scene
-    scene_data.metadata["ludus_scene"] = SceneAdapter(augmented_scene)
+    scene_data.metadata[SCENE_BUNDLE_KEY] = bundle
     return scene_data
+
+
+__all__ = [
+    "LudusRenderer",
+    "SCENE_BUNDLE_KEY",
+    "load_and_attach_ludus_scene",
+]
+
+
+# Re-exports kept here so existing code that references these names through
+# alpadreams.conditioning.renderer keeps working.
+_ = (Any, load_scene)
