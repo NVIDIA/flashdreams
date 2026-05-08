@@ -36,7 +36,7 @@ def remap_checkpoint_keys(
     Returns:
         New state dict with renamed keys; tensors are not copied.
 
-    Typical usage example:
+    Examples:
 
       >>> mapping = {r"^blocks\.(\d+)\.attn1\.to_q\.(.*)$": r"blocks.\1.to_q.\2"}
       >>> remapped = remap_checkpoint_keys(state_dict, mapping)

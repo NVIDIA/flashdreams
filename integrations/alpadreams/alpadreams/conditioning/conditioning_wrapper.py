@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Alpadreams conditioning wrapper used by the gRPC server.
 
 This module combines:
@@ -21,7 +36,7 @@ from torch import Tensor, nn
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.encoder.text.cosmos_qwen import CosmosReason1TextEncoderConfig
+from flashdreams.infra.encoder.text.cosmos_reason1 import CosmosReason1TextEncoderConfig
 from flashdreams.recipes.alpadreams.config import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
@@ -101,7 +116,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
         resolution_wh: tuple[int, int],
         local_attn_size: int,
         sink_size: int,
-        cp_size: int = 1,
         denoising_step_list: list[int],
         num_frames_per_block: int,
         compile_net: bool,
@@ -152,7 +166,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
             resolution_wh=resolution_wh,
             local_attn_size=local_attn_size,
             sink_size=sink_size,
-            cp_size=cp_size,
             denoising_step_list=denoising_step_list,
             len_t=len_t,
             compile_net=compile_net,
@@ -189,7 +202,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
         resolution_wh: tuple[int, int],
         local_attn_size: int,
         sink_size: int,
-        cp_size: int,
         denoising_step_list: list[int],
         len_t: int,
         compile_net: bool,
@@ -253,15 +265,18 @@ class AlpadreamsConditioningWrapper(nn.Module):
 
         _, height = resolution_wh
         extrapolation = 2.0 if height <= 480 else 3.0
+        # Per-rollout latent (height, width) is supplied later via
+        # :meth:`AlpadreamsPipeline.initialize_cache` (derived from the
+        # encoded first-frame's shape).
         transformer_config = CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(),
+            network=CosmosDiTNetworkConfig(
+                # HDMap conditioning channel count: 192 for pixel-shuffle,
+                # 16 for the Wan-VAE branch.
+                additional_concat_ch=192 if encode_with_pixel_shuffle else 16,
+                enable_cross_view_attn=n_cameras > 1,
+            ),
             batch_shape=(1,),
-            height=height // 8,
-            width=resolution_wh[0] // 8,
-            enable_hdmap_condition=True,
-            encode_with_pixel_shuffle=encode_with_pixel_shuffle,
             num_views=n_cameras,
-            cp_size=cp_size,
             h_extrapolation_ratio=extrapolation,
             w_extrapolation_ratio=extrapolation,
             window_size_t=local_attn_size,

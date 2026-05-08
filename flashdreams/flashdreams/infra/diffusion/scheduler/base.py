@@ -51,7 +51,7 @@ class Scheduler(nn.Module, ABC):
     declare their own ``num_inference_steps`` / ``shift`` fields (the base
     holds no shared dataclass fields).
 
-    Typical usage example:
+    Examples:
 
         scheduler = config.setup()
         clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)
@@ -95,7 +95,7 @@ class Scheduler(nn.Module, ABC):
         timestep: Tensor,
         rng: torch.Generator | None = None,
     ) -> Tensor:
-        """Forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.
+        """Apply the forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.
 
         Timestep value semantics are scheduler-specific: FlowMatch snaps to
         the nearest entry of its 1000-step training table; FlowUniPC

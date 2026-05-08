@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""3D rotary position embeddings with CP-aware shifting for the Wan DiT."""
+"""3D rotary position embeddings with CP-aware shifting.
+
+Used by DiTs (e.g. Wan, AlpaDreams) that patchify into a (T, H, W) sequence.
+"""
 
 from typing import TypeVar
 
@@ -154,6 +157,9 @@ class RotaryPositionEmbedding3D:
             t_extrapolation_ratio: NTK extrapolation ratio for time.
             interleaved: Whether to interleave the frequency components.
         """
+        self.len_h = len_h
+        self.len_w = len_w
+        self.len_t = len_t
         self.device = device
         self.interleaved = interleaved
 
@@ -226,16 +232,21 @@ class RotaryPositionEmbedding3D:
         """Return the context parallel world size, or 1 if CP is disabled."""
         return self.device_mesh.size() if self.device_mesh is not None else 1
 
-    def shift_t(self, offset: int) -> Tensor:
-        """Shift the time dimension by the given offset (e.g. for streaming or causal steps).
+    def shift_t(self, autoregressive_index: int) -> Tensor:
+        """Shift the time dimension by ``autoregressive_index`` chunks.
+
+        The internal offset is ``autoregressive_index * len_t`` so callers
+        only need to track the AR step, not the per-chunk temporal length.
 
         Args:
-            offset: Integer offset to add to the time position indices.
+            autoregressive_index: AR step index for the chunk being processed.
+                Step 0 returns the unshifted frequencies.
 
         Returns:
             Concatenated RoPE frequencies of shape ``[L, 1, 1, head_dim // 2]``,
             where L is the sequence length T * H * W. The memory layout is (T, H, W).
         """
+        offset = autoregressive_index * self.len_t
         if self.is_context_parallel_enabled():
             freqs_t = unpack_optional(self.freqs_t_cp) + offset * self.raw_freqs_t
             freqs_h = unpack_optional(self.freqs_h_cp)

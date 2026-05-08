@@ -24,7 +24,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder
+from flashdreams.infra.encoder import StreamingVideoEncoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAECache,
     WanVAEEncoder,
@@ -64,7 +64,7 @@ class I2VCtrlEncoderConfig(InstantiateConfig["I2VCtrlEncoder"]):
     the encoded latent matches the network's input distribution."""
 
 
-class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
+class I2VCtrlEncoder(StreamingVideoEncoder[I2VCtrlEncoderCache]):
     """Per-AR-step I2V control encoder.
 
     Forward takes the AR-step pixel chunk ``[B, T_pixel, 3, H, W]`` in
@@ -84,7 +84,12 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
         self.config: I2VCtrlEncoderConfig = config
         self.encoder = config.encoder.setup()
 
+        self._last_latent: Tensor | None = None
+
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
+        # New rollout: the previous rollout's first-frame latent must not
+        # leak into AR steps >= 5 of this one.
+        self._last_latent = None
         return self.encoder.initialize_autoregressive_cache()
 
     @torch.no_grad()
@@ -94,13 +99,27 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
         autoregressive_index: int = 0,
         cache: I2VCtrlEncoderCache | None = None,
     ) -> I2VCtrl:
-        # TODO: the Wan VAE encoder is identity after chunk 3, so for I2V we
-        # could cache and skip the VAE call past that point.
-        latent = self.encoder(
-            input,
-            autoregressive_index=autoregressive_index,
-            cache=cache,
-        )
+        # Defensive reset: covers callers that drive the encoder directly
+        # without going through ``initialize_autoregressive_cache``.
+        if autoregressive_index == 0:
+            self._last_latent = None
+        # TODO: the Wan VAE encoder is identity after chunk 5, so for I2V we
+        # could cache and skip the VAE call past that point. Hardcoded for now
+        # to be fixed later.
+        if autoregressive_index < 5:
+            self._last_latent = latent = self.encoder(
+                input,
+                autoregressive_index=autoregressive_index,
+                cache=cache,
+            )
+        else:
+            assert self._last_latent is not None, (
+                "I2VCtrlEncoder has no cached latent at "
+                f"autoregressive_index={autoregressive_index}; "
+                "the rollout must have started at autoregressive_index=0 "
+                "and run contiguously through index 4."
+            )
+            latent = self._last_latent
         # Mask shape matches latent so they patchify identically and the
         # downstream blend is a plain elementwise multiply.
         mask = torch.zeros_like(latent)
@@ -115,3 +134,17 @@ class I2VCtrlEncoder(Encoder[I2VCtrlEncoderCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.encoder.spatial_compression_ratio
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        return self.encoder.get_output_temporal_size(
+            autoregressive_index, input_temporal_size
+        )
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        return self.encoder.get_input_temporal_size(
+            autoregressive_index, output_temporal_size
+        )

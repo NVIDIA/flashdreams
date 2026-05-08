@@ -1,3 +1,18 @@
+.. SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+.. SPDX-License-Identifier: Apache-2.0
+..
+.. Licensed under the Apache License, Version 2.0 (the "License");
+.. you may not use this file except in compliance with the License.
+.. You may obtain a copy of the License at
+..
+.. http://www.apache.org/licenses/LICENSE-2.0
+..
+.. Unless required by applicable law or agreed to in writing, software
+.. distributed under the License is distributed on an "AS IS" BASIS,
+.. WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.. See the License for the specific language governing permissions and
+.. limitations under the License.
+
 AlpaDreams
 ===================================
 
@@ -39,6 +54,40 @@ Multi GPU, multi view
 
 Each rank owns one camera; ring attention shards the per-camera context
 across the world.
+
+Diffusion forcing, single view
+------------------------------
+
+.. code-block:: bash
+
+   uv run --package flashdreams --extra examples \
+     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+       flashdreams/examples/run_alpadreams.py \
+       --n_cameras 1 \
+       --total_blocks 12 \
+       --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --offload_text_encoder
+
+With the usual ``--total_blocks 12`` rollout, the chunk2 checkpoint decodes to
+93 frames.
+
+Bidirectional, single view
+--------------------------
+
+.. code-block:: bash
+
+   uv run --package flashdreams --extra examples \
+     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+       flashdreams/examples/run_alpadreams.py \
+       --n_cameras 1 \
+       --total_blocks 1 \
+       --num_chunks 24 \
+       --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --offload_text_encoder
+
+The bidirectional checkpoint generates one full block per run. Omit
+``--num_chunks`` for the trained 48-chunk length, or set ``--num_chunks 24`` for
+a shorter 93-frame run.
 
 Credentials
 -----------

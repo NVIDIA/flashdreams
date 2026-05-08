@@ -26,8 +26,8 @@ from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import (
-    Encoder,
-    EncoderAutoregressiveCache,
+    StreamingEncoderCache,
+    StreamingVideoEncoder,
 )
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderCache,
@@ -47,11 +47,16 @@ from .utils import (
 
 @dataclass(kw_only=True)
 class CamCtrlInput:
-    """Per-AR-step camera payload (intrinsics, poses, world scale)."""
+    """Per-AR-step camera payload."""
 
     intrinsics: Tensor
+    """Per-frame camera intrinsics of shape ``[..., T, 4]`` (fx, fy, cx, cy)."""
+
     poses: Tensor
+    """Per-frame camera-to-world poses of shape ``[..., T, 4, 4]``."""
+
     world_scale: float
+    """Scalar applied to translations when normalizing world coordinates."""
 
 
 @dataclass(kw_only=True)
@@ -59,7 +64,10 @@ class I2VCamCtrlInput:
     """Composite per-AR-step input: image chunk + camera payload."""
 
     i2v: Tensor | None = None
+    """Per-AR-step image chunk to encode through the I2V branch; ``None`` when omitted."""
+
     camctrl: CamCtrlInput
+    """Per-AR-step camera intrinsics, poses, and world scale."""
 
 
 @dataclass(kw_only=True)
@@ -67,9 +75,13 @@ class I2VCamCtrlEmbeddings:
     """Encoded I2V latent + Plücker volume the transformer cross-attends to."""
 
     i2v: I2VCtrl
+    """Output of the Wan-VAE I2V encoder branch."""
+
     plucker: Tensor
+    """Plücker pixel volume after the PixelShuffle encoder."""
 
     _is_patchified: bool = False
+    """``True`` once the consuming transformer has patchified this payload in place."""
 
 
 @dataclass(kw_only=True)
@@ -81,23 +93,30 @@ class I2VCamCtrlEncoderConfig(InstantiateConfig["I2VCamCtrlEncoder"]):
     )
 
     i2v: I2VCtrlEncoderConfig = field(default_factory=I2VCtrlEncoderConfig)
+    """Config for the Wan-VAE I2V encoder branch."""
+
     plucker: PixelShuffleVAEEncoderConfig = field(
         default_factory=PixelShuffleVAEEncoderConfig
     )
+    """Config for the PixelShuffle pseudo-VAE encoder applied to the Plücker volume."""
 
 
 @dataclass(kw_only=True)
-class I2VCamCtrlEncoderCache(EncoderAutoregressiveCache):
+class I2VCamCtrlEncoderCache(StreamingEncoderCache):
     """Per-AR-step cache for the composite I2V + camera-control encoder."""
 
     i2v: I2VCtrlEncoderCache
+    """Per-rollout cache for the I2V encoder branch."""
+
     plucker: PixelShuffleVAEEncoderCache
+    """Per-rollout cache for the Plücker PixelShuffle encoder branch."""
+
     camera_last_pose: Tensor | None = None
     """Last-pose anchor used to make ``compute_relative_poses_causal``
     deterministic across AR steps; ``None`` at AR step 0."""
 
 
-class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
+class I2VCamCtrlEncoder(StreamingVideoEncoder[I2VCamCtrlEncoderCache]):
     """Pairs a Wan-VAE I2V encoder with a PixelShuffle Plücker encoder."""
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
@@ -118,6 +137,19 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
         autoregressive_index: int = 0,
         cache: I2VCamCtrlEncoderCache | None = None,
     ) -> I2VCamCtrlEmbeddings:
+        """Encode the per-AR-step image chunk and Plücker camera volume.
+
+        Args:
+            input: Image chunk plus camera intrinsics/poses for this AR step.
+            autoregressive_index: AR step index forwarded to both branches.
+            cache: Per-rollout encoder cache. Typed ``Optional`` only to
+                match the :class:`Encoder` base signature (some encoders
+                are stateless); this encoder advances per-AR-step state
+                in ``cache`` and asserts when it is ``None``.
+
+        Returns:
+            Composite I2V latent + Plücker embedding for the transformer to cross-attend to.
+        """
         assert cache is not None, "I2VCamCtrlEncoder requires a per-rollout cache."
         assert input.i2v is not None, (
             "I2VCamCtrlEncoder.forward requires the per-AR-step image chunk."
@@ -150,6 +182,20 @@ class I2VCamCtrlEncoder(Encoder[I2VCamCtrlEncoderCache]):
     @property
     def spatial_compression_ratio(self) -> int:
         return self.i2v_encoder.spatial_compression_ratio
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        return self.i2v_encoder.get_output_temporal_size(
+            autoregressive_index, input_temporal_size
+        )
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        return self.i2v_encoder.get_input_temporal_size(
+            autoregressive_index, output_temporal_size
+        )
 
     @torch.no_grad()
     def _render_plucker(

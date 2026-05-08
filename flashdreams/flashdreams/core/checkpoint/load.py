@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified checkpoint loaders for local, S3, and Hugging Face sources."""
+"""Unified checkpoint loader that dispatches by source URL."""
 
 import io
 import json
@@ -324,7 +324,7 @@ def load_distributed_checkpoint(
     model: torch.nn.Module,
     checkpoint_path: str,
     check_success: bool = False,
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    local_cache_dir: str | None = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
     credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
 ) -> torch.nn.Module:
     """Load a DCP checkpoint into ``model`` in-place.
@@ -334,7 +334,11 @@ def load_distributed_checkpoint(
         checkpoint_path: Directory path to a DCP checkpoint (S3 or local).
         check_success: Compare the state dict before/after to verify the load
             actually changed weights. Recommended since DCP load does not
-            fail on missing keys.
+            fail on missing keys. Raises ``RuntimeError`` if any state-dict
+            entry remains unchanged.
+        local_cache_dir: Directory used to cache S3 DCP loads as a local
+            single-file checkpoint. Set to ``None`` to disable local cache
+            reads/writes.
     """
     is_s3_checkpoint = checkpoint_path.startswith("s3://")
 
@@ -377,12 +381,19 @@ def load_distributed_checkpoint(
 
     # Now check if the checkpoint is loaded successfully.
     if check_success:
+        unchanged_keys: list[str] = []
         for k, v in model.state_dict().items():
             prev_v = prev_state_dict[k]
-            if (prev_v == v).all():
-                logger.error(
-                    f"DCP load seems failed for key {k}. The values are not changed!"
-                )
+            if torch.equal(prev_v, v):
+                unchanged_keys.append(k)
+        if unchanged_keys:
+            raise RuntimeError(
+                "DCP load did not update all state_dict entries. "
+                "This usually means the checkpoint path or model config does not "
+                "match the target network. Unchanged keys: "
+                f"{', '.join(unchanged_keys[:20])}"
+                + (" ..." if len(unchanged_keys) > 20 else "")
+            )
 
     # Cache the state dict locally if needed..
     if local_cache_checkpoint_path is not None:
@@ -573,7 +584,7 @@ def load_checkpoint(
         ValueError: ``checkpoint_type='distributed'`` without a ``model``, or
             an invalid ``checkpoint_type``.
 
-    Typical usage example:
+    Examples:
 
       >>> state = load_checkpoint("s3://bucket/foo.safetensors")
       >>> model = load_checkpoint("s3://bucket/dcp_dir/", model=my_model)

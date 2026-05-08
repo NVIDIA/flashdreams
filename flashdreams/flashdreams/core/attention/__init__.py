@@ -13,10 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Attention primitives: native SDPA, ring attention, and block KV cache."""
+"""Attention primitives and KV cache for streaming inference."""
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.native import NativeAttention
 from flashdreams.core.attention.ring import RingAttention
+from flashdreams.core.attention.rope import (
+    RotaryPositionEmbedding3D,
+    apply_rope_freqs,
+)
 
-__all__ = ["NativeAttention", "RingAttention", "BlockKVCache"]
+__all__ = [
+    "BlockKVCache",
+    "NativeAttention",
+    "RingAttention",
+    "RotaryPositionEmbedding3D",
+    "apply_rope_freqs",
+]

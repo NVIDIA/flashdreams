@@ -81,52 +81,55 @@ def test_wan21_uses_world_cp_group_when_distributed(monkeypatch) -> None:
             network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
             batch_shape=(1,),
             len_t=2,
-            height=4,
-            width=4,
-            cp_size=2,
             window_size_t=2,
             sink_size_t=0,
+            compile_network=False,
         )
     )
 
-    assert transformer.cp_group is fake_group
-    assert transformer.cp_size == 2
+    assert transformer._cp_group is fake_group
+    assert transformer._cp_size == 2
     assert isinstance(transformer.network, _DummyNetwork)
     assert transformer.network.cp_group is fake_group
     assert transformer.network.parameters_updated
 
 
-def test_wan21_requires_cp_size_one_without_distributed(monkeypatch) -> None:
+def test_wan21_uses_no_cp_group_when_not_distributed(monkeypatch) -> None:
+    """Without ``torch.distributed.init``, the transformer auto-detects cp_size=1."""
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
-    with pytest.raises(
-        AssertionError, match="cp_size must be 1 in non-distributed mode"
-    ):
-        Wan21Transformer(
-            Wan21TransformerConfig(
-                network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
-                batch_shape=(1,),
-                len_t=2,
-                height=4,
-                width=4,
-                cp_size=2,
-            )
+    transformer = Wan21Transformer(
+        Wan21TransformerConfig(
+            network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
+            batch_shape=(1,),
+            len_t=2,
+            window_size_t=4,
+            sink_size_t=0,
+            compile_network=False,
         )
+    )
+
+    assert transformer._cp_size == 1
+    assert transformer._cp_group is None
 
 
 def test_wan21_requires_tokens_divisible_by_cp_size(monkeypatch) -> None:
+    """Per-rollout ``(height, width)`` is checked at cache-init time."""
     _mock_distributed(monkeypatch, world_size=2, rank=0)
+    transformer = Wan21Transformer(
+        Wan21TransformerConfig(
+            network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
+            batch_shape=(1,),
+            len_t=1,
+            window_size_t=1,
+            sink_size_t=0,
+            compile_network=False,
+        )
+    )
     with pytest.raises(AssertionError, match="must be divisible by cp_size=2"):
-        Wan21Transformer(
-            Wan21TransformerConfig(
-                network=cast(WanDiTNetworkConfig, _DummyNetworkConfig()),
-                batch_shape=(1,),
-                len_t=1,
-                height=2,
-                width=2,
-                cp_size=2,
-                window_size_t=1,
-                sink_size_t=0,
-            )
+        transformer.initialize_autoregressive_cache(
+            height=2,
+            width=2,
+            text_embeddings=torch.zeros(1, 1, 1),
         )
 
 
@@ -170,9 +173,6 @@ def test_lingbot_patchify_marks_i2v_and_plucker_as_patchified() -> None:
             ),
             batch_shape=(1, 1),
             len_t=2,
-            height=4,
-            width=4,
-            cp_size=1,
             window_size_t=2,
             sink_size_t=0,
             compile_network=False,

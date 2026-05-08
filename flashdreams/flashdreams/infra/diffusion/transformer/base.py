@@ -37,7 +37,7 @@ class TransformerAutoregressiveCache:
     (default ``start`` / ``finalize`` are no-ops). Subclass and add fields
     plus AR bookkeeping for real per-rollout state.
 
-    Typical usage example:
+    Examples:
 
         cache.start(autoregressive_index)
         # one or more denoising steps...
@@ -73,7 +73,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
     transformers also subclass ``TransformerAutoregressiveCache`` and
     override ``initialize_autoregressive_cache``.
 
-    Typical usage example:
+    Examples:
 
         class MyTransformer(Transformer[MyCache]):
             def predict_flow(self, noisy_latent, timestep, cache, input=None):

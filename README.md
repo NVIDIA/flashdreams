@@ -116,7 +116,80 @@ uv run --package flashdreams --extra examples \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
     flashdreams/examples/run_alpadreams.py \
     --n_cameras 4 --total_blocks 20
+
+# - diffusion forcing AR model on bundled single-view example data
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+    flashdreams/examples/run_alpadreams.py \
+    --n_cameras 1 \
+    --total_blocks 12 \
+    --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+    --offload_text_encoder
 ```
+
+## Instructions to run Alpadreams Bidirectional Model
+
+Use the same container, S3 credential, Hugging Face token, and
+`FLASHDREAMS_CACHE_DIR` setup as the Alpadreams inference section above. The
+bidirectional recipe runs the single-view full-block Cosmos2 2B / 720p / HDMap
+checkpoint; the checkpoint is configured in the recipe and downloaded from S3
+on first use.
+
+The runner uses the same bundled single-view Alpadreams example data as the
+autoregressive demo and resizes inputs to the pixel resolution required by the
+selected bidirectional config (`704x1280` for the default checkpoint).
+The bidirectional recipe defaults to the checkpoint-trained 48 latent chunks
+(189 decoded frames with the Wan decoder). If that is too large for your GPU
+setup, pass `--num_chunks` to choose a smaller single-block length; for example,
+`--num_chunks 24` yields 93 decoded frames.
+Unlike the autoregressive demo, this bidirectional recipe generates one
+full block per run, so keep `--total_blocks 1`.
+
+```bash
+uv run --package flashdreams --extra examples \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+    flashdreams/examples/run_alpadreams.py \
+    --total_blocks 1 \
+    --num_chunks 24 \
+    --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m
+```
+
+Useful options:
+
+- `--offload_text_encoder`: precomputes text and first-frame image embeddings,
+  frees the one-shot encoders, then runs diffusion and decode. Use this when
+  peak VRAM is tight.
+- `--save_embeddings_path`: runs only the one-shot encoders, saves positive
+  text, negative text, and first-frame image embeddings to a `.pt`, then exits.
+- `--embeddings_path`: loads a `.pt` produced by `--save_embeddings_path` and
+  skips loading the one-shot encoders during inference.
+- `--num_chunks`: overrides the bidirectional recipe's latent chunk count. Omit
+  it to use the checkpoint-trained default (`48`); lower it when runtime memory
+  is tight.
+
+The generated comparison video is written to
+`outputs/{output_prefix}_{world_size}gpus.mp4`, where `output_prefix` is based
+on the selected config name, with the HDMap condition stacked above the
+generated RGB output. Per-step stats are saved under
+`outputs/stats_{output_prefix}_{world_size}gpus.json` when profiling is
+enabled by the selected config.
+
+To convert an I4/SIL distributed checkpoint directory into the single-file
+`.pt` format consumed by the FlashDreams bidirectional config:
+
+```bash
+uv run --package flashdreams --extra examples \
+  python flashdreams/scripts/convert_i4_dcp2pt.py \
+    --checkpoint_path s3://<bucket>/<path-to-dcp-checkpoint>/model \
+    --credential_path credentials/s3_checkpoint.secret \
+    --output_path checkpoints/output.pt
+```
+
+The converted `.pt` is saved pre-fusion: it preserves the training-time
+padding-mask channel. Normal FlashDreams inference fuses the padding-mask
+channel and output shuffle after loading the checkpoint through
+`CosmosTransformer`. If you load the `.pt` directly into `CosmosDiTNetwork`,
+call `update_parameters_after_loading_checkpoint()` before running forward.
 
 ## Instructions to run Self-forcing T2V Inference
 

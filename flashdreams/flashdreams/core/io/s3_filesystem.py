@@ -35,7 +35,7 @@ class S3FileSystem(FileSystemBase):
     can read and write to S3 transparently. Credentials are loaded from a
     JSON file passed at construction.
 
-    Typical usage example:
+    Examples:
 
       >>> fs = S3FileSystem(credential_path="credentials/s3_checkpoint.secret")
       >>> with fs.create_stream("s3://bucket/key.bin", "rb") as f:

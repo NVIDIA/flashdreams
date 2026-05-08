@@ -16,10 +16,10 @@
 """Block KV cache for causal attention with a fixed-size local window."""
 
 from dataclasses import dataclass, field
-from typing import Self
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 
 @dataclass
@@ -34,7 +34,7 @@ class BlockKVCache:
     non-overlapping: each update adds one chunk of ``chunk_size`` tokens at the
     next logical position in the full sequence.
 
-    Note: Currently only support total_size (sink_size + window_size) divisible by chunk_size.
+    Note: Currently only supports ``total_size`` (``sink_size + window_size``) divisible by ``chunk_size``.
 
     Phases:
         - Filling: cache not yet full; tokens are written contiguously;
@@ -113,38 +113,34 @@ class BlockKVCache:
         return cache
 
     def __post_init__(self) -> None:
-        # k and v should have the same shape except for the last dimension
         assert self.k_shape[:-1] == self.v_shape[:-1], (
             "k and v must have the same shape except for the last dimension"
         )
 
-        # update seq_dim to be positive
         tensor_dim = len(self.k_shape)
         assert -tensor_dim <= self.seq_dim < tensor_dim, (
             f"seq_dim must be in [-{tensor_dim}, {tensor_dim}), got {self.seq_dim}"
         )
+        # Normalize seq_dim to a non-negative index so downstream
+        # indexing math doesn't have to special-case negatives.
         self.seq_dim = self.seq_dim if self.seq_dim >= 0 else self.seq_dim + tensor_dim
 
-        # check non-negative sink size
         assert self.sink_size >= 0, "sink_size must be non-negative"
 
-        # buffer length at seq_dim must equal sink_size + window_size
         expected_length = self.sink_size + self.window_size
         assert self.k_shape[self.seq_dim] == expected_length, (
             f"k_shape[seq_dim] ({self.k_shape[self.seq_dim]}) must equal sink_size + window_size ({expected_length})"
         )
 
-        # check window_size + sink_size should be divisible by chunk_size
         assert (self.window_size + self.sink_size) % self.chunk_size == 0, (
             f"window_size + sink_size ({self.window_size + self.sink_size}) must be divisible by chunk_size ({self.chunk_size})"
         )
 
-        # initialize k and v
         self._k = torch.empty(self.k_shape, device=self.device, dtype=self.dtype)
         self._v = torch.empty(self.v_shape, device=self.device, dtype=self.dtype)
 
     def _seq_slice(self, start: int | None, end: int | None) -> tuple[slice | int, ...]:
-        """Return an index tuple that slices the sequence dimension to [start:end]; other dims are :."""
+        """Return an index tuple selecting ``[start:end]`` on ``seq_dim`` and all elements elsewhere."""
         idx: list[slice | int] = [slice(None)] * len(self.k_shape)
         idx[self.seq_dim] = slice(start, end)
         return tuple(idx)
@@ -319,7 +315,6 @@ class BlockKVCache:
                 f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
             )
 
-        # reset the current chunk index as the last step.
         self._curr_chunk_idx = None
 
     def cached_k(self) -> Tensor:

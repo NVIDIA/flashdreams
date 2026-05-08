@@ -53,6 +53,9 @@ from einops import rearrange
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.recipes.wan.config.causal_wan22 import (
     CAUSAL_WAN22_CONFIG_BUILDERS,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_VIDEO_WIDTH,
+    WAN_VAE_SPATIAL_COMPRESSION,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -137,7 +140,6 @@ def main() -> None:
     builder = CAUSAL_WAN22_CONFIG_BUILDERS[args.config_name]
     pipeline = (
         builder(
-            cp_size=world_size,
             compile_network=not args.no_compile,
             seed=42 + rank,
             enable_sync_and_profile=True,
@@ -147,7 +149,12 @@ def main() -> None:
     )
 
     assert isinstance(pipeline, WanInferencePipeline)
-    cache = pipeline.initialize_cache(text=[prompt], image=None)
+    cache = pipeline.initialize_cache(
+        text=[prompt],
+        image=None,
+        height=DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION,
+        width=DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION,
+    )
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():

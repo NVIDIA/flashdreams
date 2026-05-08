@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Diffusion schedulers: base interface, flow-matching, and UniPC."""
+"""Diffusion schedulers for streaming inference."""
 
 from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,

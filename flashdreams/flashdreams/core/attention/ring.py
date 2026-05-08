@@ -90,9 +90,11 @@ class RingAttention(NativeAttention):
         """Configure ring attention format and backend.
 
         Args:
-            qkv_format: "bshd" (B, S, H, D) or "bhsd" (B, H, S, D). Default is "bhsd".
-            backend: "cudnn" or "flash" for the manual ring SDPA ops.
-            convert_to_fp32: Use float32 for LSE merge across ring steps.
+            qkv_format: Layout of the QKV tensors; ``"bhsd"`` is ``(B, H, S, D)``,
+                ``"bshd"`` is ``(B, S, H, D)``.
+            backend: Local SDPA backend used inside the ring step.
+            convert_to_fp32: Promote partial outputs to ``float32`` for the
+                cross-rank log-sum-exp merge.
         """
         super().__init__()
         assert qkv_format in ["bhsd", "bshd"], f"Invalid qkv format: {qkv_format}"

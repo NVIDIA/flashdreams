@@ -44,7 +44,7 @@ class BlockKVCache:
           local window and overwrites the rightmost positions;
           ``cached_k()`` / ``cached_v()`` return the full buffer.
 
-    Note: only supports continous chunks or overwriting the same cache positions.
+    Note: only supports continuous chunks or overwriting the same cache positions.
     The argument ``chunk_start`` and ``chunk_end`` are the start and end indices of
     the new chunk in the full sequence (not the indices into the cache). The new chunk
     should either be contiguous with the previous chunk (i.e. next chunk_start ==
@@ -96,52 +96,50 @@ class BlockKVCache:
     """Cached values. shape ``[..., total_size, ..., Dv]``, where the ``total_size`` is the length of the cache buffer at ``seq_dim`` dimension."""
 
     def __post_init__(self) -> None:
-        # k and v should have the same shape except for the last dimension
         assert self.k_shape[:-1] == self.v_shape[:-1], (
             "k and v must have the same shape except for the last dimension"
         )
 
-        # update seq_dim to be positive
         tensor_dim = len(self.k_shape)
         assert -tensor_dim <= self.seq_dim < tensor_dim, (
             f"seq_dim must be in [-{tensor_dim}, {tensor_dim}), got {self.seq_dim}"
         )
+        # Normalize seq_dim to a non-negative index so downstream
+        # indexing math doesn't have to special-case negatives.
         self.seq_dim = self.seq_dim if self.seq_dim >= 0 else self.seq_dim + tensor_dim
 
-        # check non-negative sink size
         assert self.sink_size >= 0, "sink_size must be non-negative"
 
-        # buffer length at seq_dim must equal sink_size + window_size
         expected_length = self.sink_size + self.window_size
         assert self.k_shape[self.seq_dim] == expected_length, (
             f"k_shape[seq_dim] ({self.k_shape[self.seq_dim]}) must equal sink_size + window_size ({expected_length})"
         )
 
-        # initialize k and v
         self._k = torch.empty(self.k_shape, device=self.device, dtype=self.dtype)
         self._v = torch.empty(self.v_shape, device=self.device, dtype=self.dtype)
 
     def _seq_slice(self, start: int | None, end: int | None) -> tuple[slice | int, ...]:
-        """Return an index tuple that slices the sequence dimension to [start:end]; other dims are :."""
+        """Return an index tuple selecting ``[start:end]`` on ``seq_dim`` and all elements elsewhere."""
         idx: list[slice | int] = [slice(None)] * len(self.k_shape)
         idx[self.seq_dim] = slice(start, end)
         return tuple(idx)
 
     def _roll_local_window_left(self, evict_size: int) -> None:
-        """Shift the local window left by evict_size tokens.
+        """Shift the local window left by ``evict_size`` tokens.
 
-        Before the roll:
-        | -- sink tokens -- | -- (evicted tokens) -- retained window tokens -- |
+        Before the roll::
 
-        After the roll:
-        | -- sink tokens -- | -- retained window tokens -- |
+            | -- sink tokens -- | -- (evicted tokens) -- retained window tokens -- |
 
-        This function will write the "retained window tokens" to the left, if there are any.
+        After the roll::
+
+            | -- sink tokens -- | -- retained window tokens -- |
+
+        Retained window tokens (if any) are copied left over the evicted slots.
 
         Args:
             evict_size: Number of tokens to evict from the left of the local window.
         """
-        print(f"rolling local window left with evict_size {evict_size}")
         if evict_size <= 0:
             # No tokens to evict.
             return
@@ -175,11 +173,13 @@ class BlockKVCache:
     def _append_to_end(self, k: Tensor, v: Tensor) -> None:
         """Append the new chunk to the end of the cache.
 
-        Before the write:
-        | -- sink tokens -- | -- local window tokens -- |
+        Before the write::
 
-        After the write:
-        | -- sink tokens -- | -- local window tokens -- | -- new chunk -- |
+            | -- sink tokens -- | -- local window tokens -- |
+
+        After the write::
+
+            | -- sink tokens -- | -- local window tokens -- | -- new chunk -- |
         """
         total_size = self._k.shape[self.seq_dim]
         chunk_size = k.shape[self.seq_dim]
@@ -198,13 +198,14 @@ class BlockKVCache:
     def _write_to_rightmost(self, k: Tensor, v: Tensor, chunk_start: int) -> None:
         """Write the new chunk to the rightmost positions of the valid tokens.
 
-        Before the write:
-        | -- sink tokens -- | -- local window tokens -- (old tokens) -- |
+        Before the write::
 
-        After the write:
-        | -- sink tokens -- | -- local window tokens -- (new tokens) -- |
+            | -- sink tokens -- | -- local window tokens -- (old tokens) -- |
+
+        After the write::
+
+            | -- sink tokens -- | -- local window tokens -- (new tokens) -- |
         """
-        print(f"writing to rightmost: {k.shape}")
         chunk_size = k.shape[self.seq_dim]
 
         sink_capacity = max(self.sink_size - self._n_cached, 0)
