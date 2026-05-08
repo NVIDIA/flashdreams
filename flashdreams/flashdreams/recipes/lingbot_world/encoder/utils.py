@@ -17,6 +17,8 @@
 
 import numpy as np
 import torch
+from scipy.interpolate import interp1d
+from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
 
 ## Lingbot World example-data preprocessing

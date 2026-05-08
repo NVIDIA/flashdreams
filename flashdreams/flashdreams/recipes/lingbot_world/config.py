@@ -26,8 +26,6 @@ with :mod:`flashdreams.configs.registry` at import time.
 
 from __future__ import annotations
 
-from typing import cast
-
 import torch
 
 from flashdreams.configs.registry import register_runner
@@ -51,7 +49,6 @@ from flashdreams.recipes.lingbot_world.transformer.impl.network import (
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
 from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
-    AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
@@ -92,7 +89,6 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     encoder=I2VCamCtrlEncoderConfig(
         i2v=WanI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(
-                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             ),
         ),
     ),
@@ -143,17 +139,14 @@ Wan VAE decoder, and the upstream Fast 4-step distilled flow-match
 schedule.
 """
 
-LINGBOT_WORLD_FAST_FLASH = cast(
-    LingbotWorldInferencePipelineConfig,
-    derive_config(
-        LINGBOT_WORLD_FAST,
-        recipe_name="lingbot-world-fast-flash",
-        decoder=TeahvVAEDecoderConfig(),
-        diffusion_model=dict(
-            transformer=dict(
-                window_size_t=15,
-                sink_size_t=3,
-            ),
+LINGBOT_WORLD_FAST_FLASH = derive_config(
+    LINGBOT_WORLD_FAST,
+    recipe_name="lingbot-world-fast-flash",
+    decoder=TeahvVAEDecoderConfig(),
+    diffusion_model=dict(
+        transformer=dict(
+            window_size_t=15,
+            sink_size_t=3,
         ),
     ),
 )
