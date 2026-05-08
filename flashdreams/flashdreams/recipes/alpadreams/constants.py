@@ -13,20 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Make ``impl_reference_*`` modules importable as siblings.
+"""Alpadreams recipe constants."""
 
-``pyproject.toml`` runs pytest with ``--import-mode=importlib``, which
-does not add a test file's directory to ``sys.path``, so neither
-``from .impl_reference_flow_match import ...`` nor a bare
-``from impl_reference_flow_match import ...`` works out of the box.
-Inject this folder into ``sys.path`` so the bare absolute form resolves.
-"""
-
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-_HERE = str(Path(__file__).resolve().parent)
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
+NEGATIVE_PROMPT = (
+    "The video captures a series of frames showing ugly scenes, static with no "
+    "motion, motion blur, over-saturation, shaky footage, low resolution, "
+    "grainy texture, pixelated images, poorly lit areas, underexposed and "
+    "overexposed scenes, poor color balance, washed out colors, choppy "
+    "sequences, jerky movements, low frame rate, artifacting, color banding, "
+    "unnatural transitions, outdated special effects, fake elements, "
+    "unconvincing visuals, poorly edited content, jump cuts, visual noise, and "
+    "flickering. Overall, the video is of poor quality."
+)

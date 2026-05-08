@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """gRPC server for bbox-conditioned video generation.
 
 This server implements the WorldModelService defined in video_model.proto.
@@ -202,7 +217,6 @@ def build_alpadreams_conditioning_wrapper(
     local_attn_size: int,
     sink_size: int,
     device: torch.device,
-    cp_size: int = 1,
     seed_for_every_rollout: int | None = None,
     resolution: str = "704p",
     encode_with_pixel_shuffle: bool = False,
@@ -227,7 +241,6 @@ def build_alpadreams_conditioning_wrapper(
         resolution_wh=RESOLUTION_MAP[resolution],
         local_attn_size=local_attn_size,
         sink_size=sink_size,
-        cp_size=cp_size,
         denoising_step_list=denoising_step_list,
         num_frames_per_block=num_frames_per_block,
         compile_net=compile_net,
@@ -240,7 +253,7 @@ def build_alpadreams_conditioning_wrapper(
         s3_credential_path=s3_credential_path,
         device=device,
     )
-    if cp_size > 1:
+    if dist.is_initialized() and dist.get_world_size() > 1:
         logger.info(
             "Context-parallel server orchestration enabled; view split/gather is handled inside flashdreams pipeline."
         )
@@ -308,7 +321,6 @@ class WorldModelEngine:
             local_attn_size=local_attn_size,
             sink_size=sink_size,
             device=self.device,
-            cp_size=context_parallel_size,
             seed_for_every_rollout=seed_for_every_rollout,
             resolution=resolution,
             encode_with_pixel_shuffle=encode_with_pixel_shuffle,

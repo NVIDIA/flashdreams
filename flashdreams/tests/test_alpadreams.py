@@ -13,12 +13,285 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
 import torch
 
+from flashdreams.infra.diffusion.scheduler.fm_unipc import (
+    FlowMatchUniPCSchedulerConfig,
+)
+from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.recipes.alpadreams import transformer as alpadreams_transformer_module
 from flashdreams.recipes.alpadreams.config import (
+    ALPADREAMS_CONFIG_BUILDERS,
     build_sv_2steps_chunk2_loc6_lightvae_lighttae,
 )
+from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
+from flashdreams.recipes.alpadreams.transformer import (
+    CosmosTransformer,
+    CosmosTransformerConfig,
+)
+from flashdreams.recipes.alpadreams.transformer.impl.context_parallel import (
+    HierarchicalCPGroups,
+)
+
+
+def _make_uninitialized_alpadreams_pipeline() -> AlpadreamsPipeline:
+    pipeline = AlpadreamsPipeline.__new__(AlpadreamsPipeline)
+    torch.nn.Module.__init__(pipeline)
+    pipeline.diffusion_model = SimpleNamespace(
+        device=torch.device("cpu"),
+        transformer=SimpleNamespace(config=CosmosTransformerConfig()),
+    )
+    pipeline.V_group = None
+    return pipeline
+
+
+def test_alpadreams_initialize_cache_from_embeddings_negative_text_optional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_contexts: list[dict[str, Any]] = []
+
+    def capture_initialize_cache(
+        self: StreamInferencePipeline,
+        *,
+        transformer_context: dict[str, Any] | None = None,
+        encoder_context: dict[str, Any] | None = None,
+        decoder_context: dict[str, Any] | None = None,
+    ) -> object:
+        del self, encoder_context, decoder_context
+        assert transformer_context is not None
+        captured_contexts.append(transformer_context)
+        return object()
+
+    monkeypatch.setattr(
+        StreamInferencePipeline,
+        "initialize_cache",
+        capture_initialize_cache,
+    )
+
+    pipeline = _make_uninitialized_alpadreams_pipeline()
+    text_embeddings = torch.randn(1, 1, 2, 3)
+    image_embeddings = torch.randn(1, 1, 1, 2, 2, 2)
+    negative_text_embeddings = torch.randn(1, 1, 2, 3)
+
+    pipeline.initialize_cache_from_embeddings(
+        text_embeddings=text_embeddings,
+        image_embeddings=image_embeddings,
+    )
+    assert "negative_text_embeddings" not in captured_contexts[-1]
+
+    pipeline.initialize_cache_from_embeddings(
+        text_embeddings=text_embeddings,
+        image_embeddings=image_embeddings,
+        negative_text_embeddings=negative_text_embeddings,
+    )
+    assert captured_contexts[-1]["negative_text_embeddings"] is negative_text_embeddings
+
+
+def test_alpadreams_initialize_cache_encodes_cfg_negative_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded_prompts: list[list[str]] = []
+    captured_embeddings: dict[str, Any] = {}
+
+    class FakeTextEncoder:
+        def __call__(self, prompts: list[str]) -> torch.Tensor:
+            encoded_prompts.append(prompts)
+            return torch.full((len(prompts), 2, 3), float(len(encoded_prompts)))
+
+    class FakeImageEncoder:
+        def __call__(self, image: torch.Tensor) -> torch.Tensor:
+            del image
+            return torch.ones(1, 1, 1, 2, 2, 2)
+
+    def capture_initialize_cache_from_embeddings(
+        self: AlpadreamsPipeline,
+        *,
+        text_embeddings: torch.Tensor,
+        image_embeddings: torch.Tensor,
+        negative_text_embeddings: torch.Tensor | None = None,
+        view_names: list[str] | None = None,
+    ) -> object:
+        del self, view_names
+        captured_embeddings["text_embeddings"] = text_embeddings
+        captured_embeddings["image_embeddings"] = image_embeddings
+        captured_embeddings["negative_text_embeddings"] = negative_text_embeddings
+        return object()
+
+    monkeypatch.setattr(
+        AlpadreamsPipeline,
+        "initialize_cache_from_embeddings",
+        capture_initialize_cache_from_embeddings,
+    )
+
+    pipeline = _make_uninitialized_alpadreams_pipeline()
+    pipeline.text_encoder = cast(Any, FakeTextEncoder())
+    pipeline.image_encoder = cast(Any, FakeImageEncoder())
+    pipeline.diffusion_model.transformer.config = CosmosTransformerConfig(
+        guidance_scale=3.0
+    )
+
+    pipeline.initialize_cache(
+        text=[["positive prompt"]],
+        image=torch.randn(1, 1, 1, 3, 4, 4),
+    )
+
+    assert encoded_prompts == [["positive prompt"], [NEGATIVE_PROMPT]]
+    assert captured_embeddings["negative_text_embeddings"] is not None
+
+
+def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``CosmosTransformer.initialize_autoregressive_cache`` must reject
+    missing ``negative_text_embeddings`` under CFG (``guidance_scale > 1``)
+    and, when provided, must thread them into the uncond ``network_cache``.
+
+    We exercise the real method end-to-end and only stub out the heavy
+    leaves (``RotaryPositionEmbedding3D``, the network's
+    ``initialize_cache``, and patchify) so the test stays CPU-only and
+    free of irrelevant config plumbing.
+    """
+
+    class FakeNetwork:
+        # ``cfg.network.{model_channels,num_heads,enable_cross_view_attn}``
+        # are read directly by ``initialize_autoregressive_cache``.
+        model_channels = 4
+        num_heads = 2
+        enable_cross_view_attn = False
+
+        def __init__(self) -> None:
+            self.cache_kwargs: list[dict[str, Any]] = []
+
+        def initialize_cache(self, **kwargs: Any) -> object:
+            self.cache_kwargs.append(kwargs)
+            return object()
+
+    class FakeRopeAdapter:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def set_context_parallel_group(self, cp_group: Any = None) -> None:
+            del cp_group
+
+    monkeypatch.setattr(
+        alpadreams_transformer_module,
+        "RotaryPositionEmbedding3D",
+        FakeRopeAdapter,
+    )
+
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    fake_network = FakeNetwork()
+    cfg = SimpleNamespace(
+        guidance_scale=3.0,
+        requires_negative_text_embeddings=True,
+        network=SimpleNamespace(
+            patch_temporal=1,
+            patch_spatial=1,
+            model_channels=fake_network.model_channels,
+            num_heads=fake_network.num_heads,
+            enable_cross_view_attn=fake_network.enable_cross_view_attn,
+        ),
+        len_t=1,
+        window_size_t=1,
+        sink_size_t=0,
+        h_extrapolation_ratio=1.0,
+        w_extrapolation_ratio=1.0,
+        dtype=torch.float32,
+        num_views=1,
+    )
+    transformer.config = cast(Any, cfg)
+    transformer.cp_groups = HierarchicalCPGroups(rank=0)
+    transformer.network = cast(Any, fake_network)
+    transformer._output_height = None
+    transformer._output_width = None
+    # ``Transformer.device`` is a property reading from ``self.parameters()``;
+    # register a placeholder so it resolves to CPU instead of asserting.
+    transformer.register_parameter(
+        "_test_device_anchor", torch.nn.Parameter(torch.empty(0, device="cpu"))
+    )
+    transformer._use_cuda_graph = False
+    monkeypatch.setattr(
+        transformer,
+        "patchify_and_maybe_split_cp",
+        lambda x: x,
+        raising=False,
+    )
+
+    text_embeddings = torch.randn(1, 1, 2, 3)
+    image_embeddings = torch.randn(1, 1, 1, 2, 2, 2)
+    negative_text_embeddings = torch.randn(1, 1, 2, 3)
+
+    with pytest.raises(AssertionError, match="requires negative_text_embeddings"):
+        transformer.initialize_autoregressive_cache(
+            height=2,
+            width=2,
+            text_embeddings=text_embeddings,
+            image_embeddings=image_embeddings,
+        )
+
+    cache = transformer.initialize_autoregressive_cache(
+        height=2,
+        width=2,
+        text_embeddings=text_embeddings,
+        image_embeddings=image_embeddings,
+        negative_text_embeddings=negative_text_embeddings,
+    )
+
+    assert cache.network_cache_uncond is not None
+    assert fake_network.cache_kwargs[-1]["context"] is negative_text_embeddings
+
+
+@pytest.mark.parametrize(
+    (
+        "config_name",
+        "expected_len_t",
+        "expected_window_size_t",
+        "expected_skip_finalize_kv_cache",
+    ),
+    [
+        (
+            "sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            2,
+            24,
+            False,
+        ),
+        (
+            "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            48,
+            48,
+            True,
+        ),
+    ],
+)
+def test_alpadreams_teacher_config_builders_wire_cfg_negative_text(
+    config_name: str,
+    expected_len_t: int,
+    expected_window_size_t: int,
+    expected_skip_finalize_kv_cache: bool,
+) -> None:
+    pipeline_config = ALPADREAMS_CONFIG_BUILDERS[config_name](
+        compile_network=False,
+        use_cuda_graph=False,
+    )
+    transformer_config = pipeline_config.diffusion_model.transformer
+
+    assert isinstance(transformer_config, CosmosTransformerConfig)
+    assert transformer_config.guidance_scale > 1.0
+    assert transformer_config.requires_negative_text_embeddings
+    assert transformer_config.len_t == expected_len_t
+    assert transformer_config.window_size_t == expected_window_size_t
+    assert transformer_config.skip_finalize_kv_cache is expected_skip_finalize_kv_cache
+
+    scheduler_config = pipeline_config.diffusion_model.scheduler
+    assert isinstance(scheduler_config, FlowMatchUniPCSchedulerConfig)
+    assert scheduler_config.num_inference_steps == 35
+    assert scheduler_config.shift == 5.0
 
 
 def test_alpadreams_streaming_inference():

@@ -36,8 +36,9 @@ class NativeAttention(torch.nn.Module):
         """Configure attention format and backend.
 
         Args:
-            qkv_format: "bshd" (B, S, H, D) or "bhsd" (B, H, S, D). Default is "bhsd".
-            backend: One of "math", "efficient", "cudnn", "flash" for ``sdpa_kernel``.
+            qkv_format: Layout of the QKV tensors; ``"bhsd"`` is ``(B, H, S, D)``,
+                ``"bshd"`` is ``(B, S, H, D)``.
+            backend: SDPA backend selected via ``sdpa_kernel``.
         """
         super().__init__()
         assert qkv_format in ["bhsd", "bshd"], f"Invalid qkv format: {qkv_format}"

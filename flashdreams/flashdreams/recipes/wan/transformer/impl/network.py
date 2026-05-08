@@ -45,6 +45,7 @@ class WanDiTNetworkCache:
     """Cache container for all transformer blocks."""
 
     block_caches: list[BlockCache]
+    """Per-transformer-block KV cache, indexed by block position."""
 
     def __getitem__(self, index: int) -> BlockCache:
         """Get cache for a specific block."""
@@ -209,14 +210,14 @@ class WanDiTNetwork(nn.Module):
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
     ) -> Tensor:
-        r"""
-        Patchify the input tensor and maybe split it along cp_dim if a process group is provided.
+        """Patchify and optionally CP-split the input video tensor.
 
-        The patchify pattern is:
-            "... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)",
+        The patchify pattern is
+        ``... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)``.
 
         Returns:
-            Tensor: The patched tensor with shape [..., L, D], where L = T * H * W / (kt * kh * kw)
+            Patched tensor with shape ``[..., L, D]`` where
+            ``L = T * H * W / (kt * kh * kw)``.
         """
         assert x.ndim >= 4, (
             f"x must have at least 4 trailing dims (T, C, H, W) "
@@ -252,14 +253,13 @@ class WanDiTNetwork(nn.Module):
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
     ) -> Tensor:
-        r"""
-        Unpatchify the input tensor and maybe gather it along cp_dim if a process group is provided.
+        """Unpatchify and optionally CP-gather the tensor back to video shape.
 
-        The unpatchify pattern is:
-            "... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)",
+        The unpatchify pattern is
+        ``... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)``.
 
         Returns:
-            Tensor: The unpatched tensor with shape [..., T, C, H, W]
+            Unpatched tensor with shape ``[..., T, C, H, W]``.
         """
         assert x.ndim >= 2, f"x must be a 2D or higher tensor, but got shape {x.shape}"
 
@@ -327,8 +327,7 @@ class WanDiTNetwork(nn.Module):
         return WanDiTNetworkCache(block_caches=block_caches)
 
     def update_parameters_after_loading_checkpoint(self) -> None:
-        # This function should be called after loading the checkpoint, to fuse some operations in the model
-        # weights to reduce computation during inference.
+        """Fuse load-time-known ops into weights; call once after loading the checkpoint."""
         if self._parameters_updated_after_loading_checkpoint:
             return
 
@@ -341,31 +340,27 @@ class WanDiTNetwork(nn.Module):
         self._parameters_updated_after_loading_checkpoint = True
 
     def _fuse_shuffle_op_into_last_layer(self) -> None:
-        """
-        In the WAN model, the patchify operation is
-        "b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)",
+        """Fuse the channel-shuffle that follows the last linear into its weights.
 
-        while the unpatchify operation is
-        "b (t h w) (kt kh kw c) -> b c (t kt) (h kh) (w kw)"
+        In the WAN model the patchify pattern is
+        ``b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)`` while the
+        unpatchify pattern is
+        ``b (t h w) (kt kh kw c) -> b c (t kt) (h kh) (w kw)``. This mismatch
+        (likely a bug in the official implementation) means the last dimension
+        must be shuffled after the network. Folding that shuffle into
+        ``head.head`` removes the explicit ``rearrange`` from the inference path.
 
-        This is likely a bug in the official implementation where the last dimension is shuffled
-        after the network.
+        Calling this once is equivalent to running the following after the last
+        layer::
 
-        To fix this, we could fuse this shuffle op into the last linear layer,
-        so that we do not have to do this shuffle op explicitly before returning the result.
-
-        Calling this function to modify the last layer in place, is equivalent to the following code
-        after the last layer:
-        ```python
-        x = rearrange(
-            x,
-            "... (kt kh kw c) -> ... (c kt kh kw)",
-            kt=self.patch_size[0],
-            kh=self.patch_size[1],
-            kw=self.patch_size[2],
-            c=self.out_dim,
-        )
-        ```
+            x = rearrange(
+                x,
+                "... (kt kh kw c) -> ... (c kt kh kw)",
+                kt=self.patch_size[0],
+                kh=self.patch_size[1],
+                kw=self.patch_size[2],
+                c=self.out_dim,
+            )
         """
         if self._is_shuffle_op_fused:
             return

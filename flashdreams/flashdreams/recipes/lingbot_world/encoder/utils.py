@@ -20,6 +20,7 @@ from torch import Tensor
 
 
 def SE3_inverse(T: Tensor) -> Tensor:
+    """Invert a batch of SE(3) transforms ``[..., 4, 4]`` analytically."""
     batch_shape = T.shape[:-2]
     Rot = T[..., :3, :3]
     trans = T[..., :3, 3:]
@@ -36,6 +37,19 @@ def compute_relative_poses(
     framewise: bool = False,
     normalize_trans: bool = True,
 ) -> tuple[Tensor, Tensor | float]:
+    """Compute relative camera poses against the first frame.
+
+    Args:
+        c2ws_mat: Camera-to-world poses of shape ``[T, 4, 4]``.
+        framewise: If ``True``, return frame-to-frame relative poses
+            instead of frame-to-first relative poses.
+        normalize_trans: If ``True``, scale all translations by the maximum
+            translation norm so the inputs sit roughly within unit norm.
+
+    Returns:
+        Tuple of relative poses ``[T, 4, 4]`` and the scalar normalizer
+        applied to translations (``1.0`` when ``normalize_trans`` is ``False``).
+    """
     ref_w2cs = SE3_inverse(c2ws_mat[0:1])
     relative_poses = torch.matmul(ref_w2cs, c2ws_mat)
     relative_poses[0] = torch.eye(4, device=c2ws_mat.device, dtype=c2ws_mat.dtype)
@@ -61,6 +75,19 @@ def compute_relative_poses_causal(
     trans_normalizer: Tensor | float = 1.0,
     ref_pose: Tensor | None = None,
 ) -> Tensor:
+    """Compute frame-to-frame relative poses anchored to ``ref_pose``.
+
+    Args:
+        c2ws_mat: Camera-to-world poses of shape ``[..., T, 4, 4]``.
+        trans_normalizer: Divisor applied to translations after the relative
+            transform; pre-computed by :func:`compute_relative_poses`.
+        ref_pose: Anchor pose of shape ``[..., 1, 4, 4]`` used to pad the
+            sequence on the left so the first relative pose is well-defined;
+            defaults to the first frame of ``c2ws_mat`` when ``None``.
+
+    Returns:
+        Relative poses of shape ``[..., T, 4, 4]``.
+    """
     if ref_pose is None:
         ref_pose = c2ws_mat[..., 0:1, :, :]
     assert ref_pose.shape[-3:] == (1, 4, 4)
@@ -80,6 +107,20 @@ def create_meshgrid(
     device: torch.device | str = "cuda",
     dtype: torch.dtype = torch.float32,
 ) -> Tensor:
+    """Build a flattened ``(x, y)`` pixel grid replicated across ``n_frames``.
+
+    Args:
+        n_frames: Number of frames to replicate the grid for.
+        height: Pixel-space height.
+        width: Pixel-space width.
+        bias: Sub-pixel offset added to integer pixel coordinates
+            (``0.5`` for pixel centers).
+        device: Output device.
+        dtype: Output dtype.
+
+    Returns:
+        Tensor of shape ``[n_frames, H * W, 2]`` with ``(x, y)`` per pixel.
+    """
     x_range = torch.arange(width, device=device, dtype=dtype)
     y_range = torch.arange(height, device=device, dtype=dtype)
     grid_y, grid_x = torch.meshgrid(y_range, x_range, indexing="ij")
@@ -95,6 +136,19 @@ def get_plucker_embeddings(
     width: int,
     only_rays_d: bool = False,
 ) -> Tensor:
+    """Compute per-pixel Plücker embeddings for a stack of camera frames.
+
+    Args:
+        c2ws_mat: Camera-to-world poses of shape ``[T, 4, 4]``.
+        Ks: Per-frame intrinsics ``[T, 4]`` (``fx, fy, cx, cy``).
+        height: Pixel-space height.
+        width: Pixel-space width.
+        only_rays_d: If ``True``, return ray directions only ``[T, H, W, 3]``;
+            otherwise stack ``[origins, directions]`` to ``[T, H, W, 6]``.
+
+    Returns:
+        Plücker tensor of shape ``[T, H, W, 3]`` or ``[T, H, W, 6]``.
+    """
     n_frames = c2ws_mat.shape[0]
     grid_xy = create_meshgrid(
         n_frames, height, width, device=c2ws_mat.device, dtype=c2ws_mat.dtype

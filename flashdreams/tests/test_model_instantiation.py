@@ -76,7 +76,7 @@ class TestTextEncoders:
     @pytest.mark.manual
     def test_cosmos_reason1_text_encoder_instantiation(self, device):
         """Test CosmosReason1TextEncoder can be instantiated and encode text."""
-        from flashdreams.infra.encoder.text.cosmos_qwen import (
+        from flashdreams.infra.encoder.text.cosmos_reason1 import (
             CosmosReason1TextEncoderConfig,
         )
 

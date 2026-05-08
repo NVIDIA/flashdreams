@@ -91,7 +91,7 @@ def sync_s3_dir_to_local(
             SHA256 of each downloaded file; one retry on mismatch.
         desc: Progress-bar label.
 
-    Typical usage example:
+    Examples:
 
       >>> sync_s3_dir_to_local(
       ...     s3_dir="s3://bucket/assets",

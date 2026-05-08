@@ -65,14 +65,17 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoder
+from flashdreams.infra.decoder.base import StreamingVideoDecoder
 from flashdreams.recipes.wan.config.causal_wan21 import (
     CAUSAL_WAN21_CONFIG_BUILDERS,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_VIDEO_WIDTH,
+    WAN_VAE_SPATIAL_COMPRESSION,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_T2V_PROMPT = (
     "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
@@ -178,7 +181,6 @@ def main() -> None:
     builder = CAUSAL_WAN21_CONFIG_BUILDERS[args.config_name]
     pipeline = (
         builder(
-            cp_size=world_size,
             compile_network=not args.no_compile,
             seed=args.seed + rank,
             i2v=is_i2v,
@@ -190,16 +192,19 @@ def main() -> None:
 
     assert isinstance(pipeline, WanInferencePipeline)
 
-    # Optional first-frame for I2V. Resize to the pixel resolution baked
-    # into the transformer config (latent_h/w * decoder spatial compression).
+    # Per-rollout latent (H, W). For T2V we pass these explicitly; for
+    # I2V the pipeline derives them from the resized first-frame pixels.
+    transformer_cfg = pipeline.diffusion_model.transformer.config
+    assert isinstance(transformer_cfg, Wan21TransformerConfig)
+    assert isinstance(pipeline.decoder, StreamingVideoDecoder)
+    latent_h = DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION
+    latent_w = DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION
+
     image: torch.Tensor | None = None
     if is_i2v:
-        transformer_cfg = pipeline.diffusion_model.transformer.config
-        assert isinstance(transformer_cfg, Wan21TransformerConfig)
-        assert isinstance(pipeline.decoder, WanVAEDecoder)
         decoder_sp = pipeline.decoder.spatial_compression_ratio
-        pixel_h = transformer_cfg.height * decoder_sp
-        pixel_w = transformer_cfg.width * decoder_sp
+        pixel_h = latent_h * decoder_sp
+        pixel_w = latent_w * decoder_sp
         first_frame = media.read_image(args.image_path)[..., :3]  # drop alpha
         first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))  # [H, W, 3]
         first_frame_t = (
@@ -209,7 +214,9 @@ def main() -> None:
         )  # [H, W, 3] in range [-1, 1]
         image = rearrange(first_frame_t, "h w c -> 1 1 c h w")  # [B=1, T=1, C=3, H, W]
 
-    cache = pipeline.initialize_cache(text=[prompt], image=image)
+    cache = pipeline.initialize_cache(
+        text=[prompt], image=image, height=latent_h, width=latent_w
+    )
 
     torch.cuda.synchronize()
     if torch.distributed.is_initialized():

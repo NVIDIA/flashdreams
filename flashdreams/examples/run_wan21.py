@@ -67,7 +67,7 @@ from flashdreams.recipes.wan.config.wan21 import (
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_T2V_PROMPT = (
     "Two anthropomorphic cats in comfy boxing gear and bright gloves "
@@ -139,13 +139,14 @@ def main() -> None:
     device = torch.device("cuda")
     dtype = torch.bfloat16
 
+    # The Wan VAE (and TAEHV) downsample 8x spatially.
+    WAN_VAE_SPATIAL_COMPRESSION = 8
+    latent_h = args.height // WAN_VAE_SPATIAL_COMPRESSION
+    latent_w = args.width // WAN_VAE_SPATIAL_COMPRESSION
+
     if is_i2v:
         pipeline = (
-            build_wan21_i2v_14b_480p(
-                video_height=args.height,
-                video_width=args.width,
-                enable_sync_and_profile=True,
-            )
+            build_wan21_i2v_14b_480p(enable_sync_and_profile=True)
             .setup()
             .to(device=device)
         )
@@ -157,20 +158,20 @@ def main() -> None:
         )  # [H, W, 3] in range [-1, 1]
         image = rearrange(first_frame, "h w c -> 1 c h w")  # [T, 3, H, W]
         assert isinstance(pipeline, WanInferencePipeline)
-        cache = pipeline.initialize_cache(text=[prompt], image=image)
+        cache = pipeline.initialize_cache(
+            text=[prompt], image=image, height=latent_h, width=latent_w
+        )
     else:
         pipeline = (
-            build_wan21_t2v_1pt3b_480p(
-                video_height=args.height,
-                video_width=args.width,
-                enable_sync_and_profile=True,
-            )
+            build_wan21_t2v_1pt3b_480p(enable_sync_and_profile=True)
             .setup()
             .to(device=device)
         )
 
         assert isinstance(pipeline, WanInferencePipeline)
-        cache = pipeline.initialize_cache(text=[prompt])
+        cache = pipeline.initialize_cache(
+            text=[prompt], height=latent_h, width=latent_w
+        )
 
     generated_video = pipeline.generate(autoregressive_index=0, cache=cache)
     # Single-AR-step rollouts don't need finalize; run it for API

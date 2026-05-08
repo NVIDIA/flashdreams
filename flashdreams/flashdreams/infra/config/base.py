@@ -57,7 +57,7 @@ def derive_config(
     dicts; leaf values overwrite directly. Raises ``KeyError`` on unknown
     paths.
 
-    Typical usage example:
+    Examples:
 
         new_config = derive_config(
             base_config,

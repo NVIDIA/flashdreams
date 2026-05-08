@@ -55,7 +55,7 @@ class CUDAGraphWrapper:
     (or an unwrapped call) before the wrapped path captures, otherwise
     capture fails with ``cudaErrorStreamCaptureUnsupported``.
 
-    Typical usage example:
+    Examples:
 
         wrapper = CUDAGraphWrapper(model.forward, warmup_iters=2)
 

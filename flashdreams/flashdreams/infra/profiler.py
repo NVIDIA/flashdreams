@@ -23,7 +23,7 @@ import torch
 class EventProfiler:
     """Times stages between a start event and one ``record(stage)`` per stage.
 
-    Typical usage example:
+    Examples:
 
         profiler = EventProfiler()
         run_encoder()

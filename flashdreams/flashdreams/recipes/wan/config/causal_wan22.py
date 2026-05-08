@@ -64,10 +64,12 @@ _DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
 _DEFAULT_BOUNDARY_RATIO = 0.875
 
 _DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1,)
-_DEFAULT_VIDEO_HEIGHT = 480
-_DEFAULT_VIDEO_WIDTH = 832
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 480
+DEFAULT_VIDEO_WIDTH = 832
 _DEFAULT_LEN_T_LATENT = 3
-_WAN_VAE_SPATIAL_COMPRESSION = 8
+WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _wan_vae_decoder_config() -> WanVAEDecoderConfig:
@@ -96,7 +98,6 @@ def _scheduler_config(
 def _transformer_config(
     *,
     checkpoint_path: dict[str, str],
-    cp_size: int,
     compile_network: bool,
 ) -> Wan22TransformerConfig:
     """Wan 2.2 dual-14B transformer defaults for causal/streaming T2V."""
@@ -109,10 +110,7 @@ def _transformer_config(
             checkpoint_path=ckpt,
             state_dict_transform=_remap_diffusers_state_dict,
             batch_shape=_DEFAULT_BATCH_SHAPE,
-            height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-            width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
             len_t=_DEFAULT_LEN_T_LATENT,
-            cp_size=cp_size,
             guidance_scale=1.0,
             window_size_t=21,
             sink_size_t=0,
@@ -132,7 +130,6 @@ def _transformer_config(
 
 def build_fastvideo(
     *,
-    cp_size: int = 1,
     compile_network: bool = True,
     seed: int = 42,
     enable_sync_and_profile: bool = False,
@@ -146,7 +143,6 @@ def build_fastvideo(
             seed=seed,
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS["fastvideo"],
-                cp_size=cp_size,
                 compile_network=compile_network,
             ),
             scheduler=_scheduler_config(),

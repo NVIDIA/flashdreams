@@ -121,13 +121,14 @@ venv.bak/
 compile_commands.json
 *.dump
 
-.cursor/
-
 outputs/
 data_local/
 credentials/*.secret
 
 CLAUDE.md
+AGENTS.md
 .cursor/
 
 .codex/
+.claude/
+.agents/

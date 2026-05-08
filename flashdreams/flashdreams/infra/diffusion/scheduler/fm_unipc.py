@@ -204,7 +204,7 @@ class FlowMatchUniPCScheduler(Scheduler):
     Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless
     of ``module.to(dtype)``.
 
-    Typical usage example:
+    Examples:
 
         scheduler = FlowMatchUniPCSchedulerConfig(
             num_inference_steps=50, shift=5.0,
@@ -328,7 +328,12 @@ class FlowMatchUniPCScheduler(Scheduler):
         last_sample: Tensor | None = None
 
         for i in range(N):
-            timestep = self.timesteps[i]
+            # Schedule buffers are pinned to fp32 (to preserve integer
+            # timestep values under a stray `module.to(bf16)`), but the
+            # network expects timesteps in the input dtype so that
+            # downstream modulation / Linear layers stay consistent.
+            timestep = self.timesteps[i].to(dtype=input_dtype)
+
             # Network forward (heavy compute -- everything else here is
             # ~free relative to this).
             flow = predict_flow(sample, timestep)
@@ -391,7 +396,7 @@ class FlowMatchUniPCScheduler(Scheduler):
         timestep: Tensor,
         rng: torch.Generator | None = None,
     ) -> Tensor:
-        """Forward corruption at an arbitrary timestep.
+        """Apply the forward corruption at an arbitrary timestep.
 
         Snaps ``timestep`` to the nearest entry of the inference schedule
         on-device (no Python sync) and uses the matching sigma in the lerp.
@@ -400,5 +405,5 @@ class FlowMatchUniPCScheduler(Scheduler):
         ts = self.timesteps
         idx = torch.argmin((ts - timestep.to(ts.dtype)).abs()).reshape(1)
         sigma = self._sigmas_full.index_select(0, idx).reshape(())
-        noise = torch.randn_like(clean_input, generator=rng)
+        noise = torch.empty_like(clean_input).normal_(generator=rng)
         return ((1.0 - sigma) * clean_input + sigma * noise).to(clean_input.dtype)
