@@ -30,7 +30,10 @@ import torch
 from flashdreams.infra.config import derive_config
 from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
-from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
+from flashdreams.recipes.lingbot_world.encoder.utils import (
+    get_Ks_transformed,
+    preprocess_example_poses,
+)
 from lingbot.webrtc.controls import CameraPoseIntegrator, KeyboardState
 from lingbot.webrtc.media import LingbotVideoTrack
 
@@ -48,7 +51,7 @@ class SessionBusyError(RuntimeError):
 
 @dataclass(slots=True)
 class LingbotRuntimeConfig:
-    config_name: str = "lingbot-world-fast"
+    config_name: str = "lingbot-world-fast-flash"
     compile_network: bool = True
     seed: int = 42
     device: str = "cuda:0"
@@ -188,10 +191,13 @@ class LingbotInferenceRuntime:
         if image_bgr is None:
             raise RuntimeError(f"Failed to read first frame from {first_frame_path}")
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        # Bicubic to match the upstream Lingbot World demo / generate_fast.py
+        # (which uses ``F.interpolate(mode='bicubic')`` over the ``[-1, 1]``
+        # tensor); bilinear here would give a different first-frame VAE latent.
         image_rgb = cv2.resize(
             image_rgb,
             (self.config.video_width, self.config.video_height),
-            interpolation=cv2.INTER_LINEAR,
+            interpolation=cv2.INTER_CUBIC,
         )
         first_frame_t = (
             torch.from_numpy(image_rgb).to(device=self._device, dtype=torch.bfloat16)
@@ -210,10 +216,22 @@ class LingbotInferenceRuntime:
             raise ValueError(
                 f"Expected base intrinsics shape (4,), got {base_intrinsics.shape}"
             )
-        self._base_intrinsics = torch.from_numpy(base_intrinsics).to(
-            device=self._device,
-            dtype=torch.float32,
+        # The provided intrinsics are stored at the original 480x832 image
+        # size; rescale them to the inference resolution so Plücker rays
+        # land on the right pixel centers.
+        base_intrinsics_t = torch.from_numpy(base_intrinsics).to(
+            device=self._device, dtype=torch.float32
         )
+        base_intrinsics_t = get_Ks_transformed(
+            base_intrinsics_t.view(1, 4),
+            height_org=480,
+            width_org=832,
+            height_resize=self.config.video_height,
+            width_resize=self.config.video_width,
+            height_final=self.config.video_height,
+            width_final=self.config.video_width,
+        ).view(4)
+        self._base_intrinsics = base_intrinsics_t
 
         with prompt_path.open("r", encoding="utf-8") as handle:
             prompt = handle.readline().strip()
@@ -223,15 +241,11 @@ class LingbotInferenceRuntime:
         if self.config.world_scale is not None:
             self._world_scale = float(self.config.world_scale)
         elif poses_path.exists():
-            poses = np.load(poses_path)
-            poses_t = torch.from_numpy(poses).to(
-                device=self._device, dtype=torch.float32
-            )
-            _, trans_normalizer = compute_relative_poses(poses_t, framewise=True)
-            if isinstance(trans_normalizer, torch.Tensor):
-                self._world_scale = float(trans_normalizer.item())
-            else:
-                self._world_scale = float(trans_normalizer)
+            # Match upstream: world-scale normalizer is computed on the
+            # encoded-length poses, not the raw stream. The returned
+            # ``poses`` array (per-pixel-frame cadence) is unused here —
+            # webrtc generates poses live via :class:`CameraPoseIntegrator`.
+            _, self._world_scale = preprocess_example_poses(np.load(poses_path))
             if self._world_scale <= 0:
                 self._world_scale = 1.0
 

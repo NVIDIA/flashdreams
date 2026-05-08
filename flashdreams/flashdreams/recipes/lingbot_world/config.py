@@ -28,14 +28,13 @@ from __future__ import annotations
 
 from typing import cast
 
+import torch
+
 from flashdreams.configs.registry import register_runner
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoderConfig,
-)
 from flashdreams.recipes.lingbot_world.encoder.camctrl import (
     I2VCamCtrlEncoderConfig,
 )
@@ -61,6 +60,21 @@ AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
     "LingBot-World-Fast": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
 }
 
+
+## Canonical Lingbot World streaming defaults
+
+_DEFAULT_DENOISING_TIMESTEPS = [1000, 1000 - 179, 1000 - 358, 1000 - 679]
+"""Upstream Fast 4-step distilled schedule (matches the LingBot-World-Fast checkpoint)."""
+
+_DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
+"""Length of the training sigma table the schedule warps against."""
+
+_DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1, 1)
+"""Single-view, single-batch streaming layout ``[B=1, V=1]``."""
+
+_DEFAULT_LEN_T_LATENT = 3
+"""Latent frames the transformer consumes per AR chunk."""
+
 DEFAULT_VIDEO_HEIGHT = 464
 """Canonical pixel-space height; callers pass the matching latent
 ``(height, width)`` into :meth:`WanInferencePipeline.initialize_cache`."""
@@ -81,9 +95,6 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             ),
         ),
-        plucker=PixelShuffleVAEEncoderConfig(
-            frame_selection_mode="last_frame",
-        ),
     ),
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
@@ -92,42 +103,44 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
             network=LingbotWorldDiTNetwork14BConfig(
                 patch_embedding_type="conv3d",
                 control_type="cam",
+                # 16 noise channels + 4-channel mask + 16-channel image latent
+                # (channel-concat I2V layout). Must match the
+                # ``concat_image_mask_to_latent=True`` setting below.
                 in_dim=16 + 4 + 16,
             ),
             checkpoint_path=AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS[
                 "LingBot-World-Fast"
             ],
-            batch_shape=(1, 1),
-            len_t=3,
+            batch_shape=_DEFAULT_BATCH_SHAPE,
+            len_t=_DEFAULT_LEN_T_LATENT,
+            # CFG off by default to match the upstream Lingbot checkpoint.
             guidance_scale=1.0,
-            window_size_t=60,
+            window_size_t=63,
             sink_size_t=0,
+            # I2V channel-concat (mask + first-frame latent), not stamping.
             stamp_image_latent=False,
             concat_image_mask_to_latent=True,
             compile_network=True,
         ),
         scheduler=FlowMatchSchedulerConfig(
-            num_inference_steps=4,
-            denoising_timesteps=[999, 978, 947, 825],
-            warp_denoising_step=False,
-            shift=8.0,
+            num_inference_steps=len(_DEFAULT_DENOISING_TIMESTEPS),
+            denoising_timesteps=_DEFAULT_DENOISING_TIMESTEPS,
+            warp_denoising_step=True,
+            shift=10.0,
+            sigma_max=0.999,
             sigma_min=0.0,
             extra_one_step=True,
-            num_train_timesteps=1000,
+            num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
+            timestep_dtype=torch.int64,
         ),
     ),
 )
 """LingBot-World-Fast: streaming camera-control I2V chassis.
 
-Wan 2.1 14B with the camera-control block (LingbotWorldDiTNetwork14B).
-Composite per-AR-step encoder = Wan VAE I2V + Plücker PixelShuffle.
-Wan VAE decoder, 4-step distilled flow-match schedule
-``[999, 978, 947, 825]``. ``window_size_t=60`` / ``sink_size_t=0``
-are the upstream Lingbot Fast defaults.
-
-``in_dim = 16 + 4 + 16``: 16 noise channels + 4-channel mask +
-16-channel image latent (channel-concat I2V layout). Must match
-``concat_image_mask_to_latent=True``.
+Wan 2.1 14B with the camera-control block (LingbotWorldDiTNetwork14B),
+Wan VAE I2V encoder (Plücker volume rendered inline by the encoder),
+Wan VAE decoder, and the upstream Fast 4-step distilled flow-match
+schedule.
 """
 
 LINGBOT_WORLD_FAST_FLASH = cast(
@@ -144,10 +157,10 @@ LINGBOT_WORLD_FAST_FLASH = cast(
         ),
     ),
 )
-"""LingBot-World-Fast-Flash: TAEHV decoder + tighter streaming window.
+"""LingBot-World-Fast-Flash: lowest-latency preset.
 
-``window_size_t=15`` / ``sink_size_t=3`` and the LightTAE (TAEHV)
-decoder for the lowest-latency streaming preset.
+Swaps in the LightTAE (TAEHV) decoder and tightens the streaming
+window for fast interactive playback.
 """
 
 

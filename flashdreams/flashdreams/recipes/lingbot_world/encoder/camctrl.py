@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""I2V control encoder with Plücker camera control for Lingbot World."""
+"""I2V + Plücker camera-control encoder for Lingbot World."""
 
 from __future__ import annotations
 
@@ -28,10 +28,6 @@ from flashdreams.infra.encoder import (
     EncoderConfig,
     StreamingEncoderCache,
     StreamingVideoEncoder,
-)
-from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoderCache,
-    PixelShuffleVAEEncoderConfig,
 )
 from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrl,
@@ -78,7 +74,8 @@ class I2VCamCtrlEmbeddings:
     """Output of the Wan-VAE I2V encoder branch."""
 
     plucker: Tensor
-    """Plücker pixel volume after the PixelShuffle encoder."""
+    """Plücker pixel volume of shape ``[..., T, 6 * 64, H/8, W/8]`` after the
+    inline 8x8 spatial unshuffle."""
 
     _is_patchified: bool = False
     """``True`` once the consuming transformer has patchified this payload in place."""
@@ -93,11 +90,6 @@ class I2VCamCtrlEncoderConfig(EncoderConfig):
     i2v: I2VCtrlEncoderConfig = field(default_factory=I2VCtrlEncoderConfig)
     """Config for the Wan-VAE I2V encoder branch."""
 
-    plucker: PixelShuffleVAEEncoderConfig = field(
-        default_factory=PixelShuffleVAEEncoderConfig
-    )
-    """Config for the PixelShuffle pseudo-VAE encoder applied to the Plücker volume."""
-
 
 @dataclass(kw_only=True)
 class I2VCamCtrlEncoderCache(StreamingEncoderCache):
@@ -106,26 +98,28 @@ class I2VCamCtrlEncoderCache(StreamingEncoderCache):
     i2v: I2VCtrlEncoderCache
     """Per-rollout cache for the I2V encoder branch."""
 
-    plucker: PixelShuffleVAEEncoderCache
-    """Per-rollout cache for the Plücker PixelShuffle encoder branch."""
-
     camera_last_pose: Tensor | None = None
     """Last-pose anchor used to make ``compute_relative_poses_causal``
     deterministic across AR steps; ``None`` at AR step 0."""
 
 
 class I2VCamCtrlEncoder(StreamingVideoEncoder[I2VCamCtrlEncoderCache]):
-    """Pairs a Wan-VAE I2V encoder with a PixelShuffle Plücker encoder."""
+    """Run the Wan-VAE I2V branch and render a per-AR-step Plücker volume.
+
+    The Plücker rendering selects the matching encoded frame inside each
+    ``temporal_compression_ratio``-sized window, computes framewise relative
+    poses anchored to the previous AR step, and unshuffles the result spatially
+    by 8x8 into channel dim — equivalent to the upstream Lingbot World pipeline
+    that runs Plücker through a PixelShuffle pseudo-VAE before the network.
+    """
 
     def __init__(self, config: I2VCamCtrlEncoderConfig) -> None:
         super().__init__(config)
         self.i2v_encoder = config.i2v.setup()
-        self.plucker_encoder = config.plucker.setup()
 
     def initialize_autoregressive_cache(self) -> I2VCamCtrlEncoderCache:
         return I2VCamCtrlEncoderCache(
             i2v=self.i2v_encoder.initialize_autoregressive_cache(),
-            plucker=self.plucker_encoder.initialize_autoregressive_cache(),
         )
 
     @torch.no_grad()
@@ -158,19 +152,31 @@ class I2VCamCtrlEncoder(StreamingVideoEncoder[I2VCamCtrlEncoderCache]):
             autoregressive_index=autoregressive_index,
             cache=cache.i2v,
         )
+
+        # keep the last frame of every 4 frames (the first frame is special)
+        # [0, 4, 8, 12, ...]
+        T = input.camctrl.poses.shape[-3]
+        chunk_size = self.temporal_compression_ratio
+        if autoregressive_index == 0:
+            indices = [0] + list(range(chunk_size, T, chunk_size))
+        else:
+            indices = list(range(chunk_size - 1, T, chunk_size))
+
+        intrinsics = input.camctrl.intrinsics[..., indices, :]
+        poses = input.camctrl.poses[..., indices, :, :]
+
         plucker = self._render_plucker(
             height=height,
             width=width,
-            intrinsics=input.camctrl.intrinsics,
-            poses=input.camctrl.poses,
+            intrinsics=intrinsics,
+            poses=poses,
             world_scale=input.camctrl.world_scale,
             cache=cache,
         )
-        plucker = self.plucker_encoder(
-            input=plucker,
-            autoregressive_index=autoregressive_index,
-            cache=cache.plucker,
+        plucker = rearrange(
+            plucker, "... t c (h h8) (w w8) -> ... t (c h8 w8) h w", h8=8, w8=8
         )
+
         return I2VCamCtrlEmbeddings(i2v=i2v, plucker=plucker)
 
     @property

@@ -59,13 +59,26 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     num_train_timesteps: int = 1000
     """Length of the training sigma table."""
 
+    sigma_max: float = 1.0
+    """Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream
+    Wan / Lingbot ships ``0.999``."""
+
     sigma_min: float = 0.0
-    """Floor of the warped sigma schedule. Only ``0.0`` is supported here;
-    asserted at construction."""
+    """Bottom of the linspace before warping. Reserved for upstream parity;
+    only ``0.0`` is exercised."""
 
     extra_one_step: bool = True
-    """Append the ``sigma=0`` step to the schedule. Only ``True`` is
-    supported here; asserted at construction."""
+    """If ``True``, build the schedule from
+    ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /
+    upstream Wan); ``False`` uses ``N`` points and is kept for non-Wan
+    recipes."""
+
+    timestep_dtype: torch.dtype = torch.float32
+    """Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.
+    ``torch.int64``) when the network's time embedding is sensitive to the
+    fractional part of the warped timestep — upstream Wan stores
+    ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to
+    ``float64`` internally."""
 
 
 class FlowMatchScheduler(Scheduler):
@@ -109,17 +122,19 @@ class FlowMatchScheduler(Scheduler):
             f"num_inference_steps ({config.num_inference_steps}) must equal "
             f"len(denoising_timesteps) ({len(config.denoising_timesteps)})"
         )
-        assert config.extra_one_step, "extra_one_step=False not exercised; not ported"
-        assert config.sigma_min == 0.0, "sigma_min != 0 not exercised; not ported"
-
         # Full warped schedule: identical to DiffSynth's
         #   sigmas = linspace(1, 0, N + 1)[:-1]
         #   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)
         # (matches reference exactly in fp32).
-        full_sigmas = _warp(
-            torch.linspace(1.0, 0.0, N + 1, dtype=torch.float32)[:-1],
-            config.shift,
-        )
+        if config.extra_one_step:
+            sigmas = torch.linspace(
+                config.sigma_max, config.sigma_min, N + 1, dtype=torch.float32
+            )[:-1]
+        else:
+            sigmas = torch.linspace(
+                config.sigma_max, config.sigma_min, N, dtype=torch.float32
+            )
+        full_sigmas = _warp(sigmas, config.shift)
         full_timesteps = full_sigmas * N
 
         # Pre-resolve per-step (sigma, timestep) so sample() does no
@@ -151,7 +166,7 @@ class FlowMatchScheduler(Scheduler):
         # the sigma table.
         self.register_buffer(
             "denoising_step_list",
-            torch.tensor(step_list, dtype=torch.float32),
+            torch.tensor(step_list, dtype=config.timestep_dtype),
             persistent=False,
         )
         self.register_buffer(

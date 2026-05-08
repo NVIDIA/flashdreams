@@ -15,8 +15,185 @@
 
 """Camera-pose math: SE(3) helpers, relative poses, and Plücker rays."""
 
+import numpy as np
 import torch
+from scipy.interpolate import interp1d
+from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
+
+## Lingbot World example-data preprocessing
+
+_TEMPORAL_COMPRESSION_RATIO = 4
+"""Lingbot World VAE temporal stride; one encoded frame per N video frames."""
+
+_TRANSFORMER_LEN_T = 3
+"""Latent frames the transformer consumes per AR chunk."""
+
+
+def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
+    """Preprocess the example poses carried over from the original Lingbot World repo.
+
+    Truncates the raw camera stream to the largest length compatible with
+    the AR-chunk grid, interpolates it down to the encoded length, computes
+    the world-scale normalizer on the encoded poses (matching upstream),
+    then re-expands the encoded poses back to per-pixel-frame cadence so
+    the encoder's stride-4 frame selection recovers the encoded sequence.
+
+    Args:
+        poses: Raw camera-to-world poses of shape ``[T, 4, 4]``.
+
+    Returns:
+        Tuple of ``(poses [T_clipped, 4, 4], world_scale)``.
+    """
+    assert poses.ndim == 3 and poses.shape[1:] == (4, 4), (
+        "Expected poses shape [T, 4, 4]"
+    )
+    T_raw = poses.shape[0]
+    T = (T_raw - 1) // _TEMPORAL_COMPRESSION_RATIO * _TEMPORAL_COMPRESSION_RATIO + 1
+    poses = poses[:T]
+
+    T_after_encoding = int((T - 1) // _TEMPORAL_COMPRESSION_RATIO) + 1
+    T_after_encoding = int(T_after_encoding - (T_after_encoding % _TRANSFORMER_LEN_T))
+
+    poses_after_encoding = interpolate_camera_poses(
+        src_indices=np.linspace(0, T - 1, T),
+        src_rot_mat=poses[:, :3, :3],
+        src_trans_vec=poses[:, :3, 3],
+        tgt_indices=np.linspace(0, T - 1, T_after_encoding),
+    )  # [T_after_encoding, 4, 4]
+
+    # Match upstream Lingbot World: world-scale normalizer is computed
+    # framewise on the *encoded-length* poses, not the raw stream.
+    _, trans_normalizer = compute_relative_poses(
+        torch.from_numpy(poses_after_encoding).float(),
+        framewise=True,
+        normalize_trans=True,
+    )
+
+    # Re-expand to per-pixel-frame cadence so the encoder's stride-4 frame
+    # selection ([0, 4, 8, ...] at AR step 0, [3, 7, 11, ...] later) recovers
+    # the encoded sequence exactly. The first encoded frame stays as the
+    # one-frame chunk; every subsequent encoded frame is repeated 4x.
+    poses = np.concatenate(
+        [
+            poses_after_encoding[:1],
+            np.repeat(poses_after_encoding[1:], _TEMPORAL_COMPRESSION_RATIO, axis=0),
+        ],
+        axis=0,
+    )  # [T, 4, 4]
+
+    # Sanity check that the encoder will recover the encoded poses.
+    indices = [0] + list(
+        range(_TEMPORAL_COMPRESSION_RATIO, poses.shape[0], _TEMPORAL_COMPRESSION_RATIO)
+    )
+    np.testing.assert_allclose(
+        poses[indices], poses_after_encoding, atol=1e-4, rtol=1e-4
+    )
+
+    return poses, trans_normalizer
+
+
+def get_Ks_transformed(
+    Ks: torch.Tensor,
+    height_org: int,
+    width_org: int,
+    height_resize: int,
+    width_resize: int,
+    height_final: int,
+    width_final: int,
+) -> torch.Tensor:
+    """Rescale + recenter intrinsics for a resize-then-center-crop pipeline.
+
+    Mirrors the OpenCV ``resize`` + center-crop the runner applies to the
+    image: scales ``fx, fy, cx, cy`` from the capture resolution to the
+    resized frame, then shifts the principal point to compensate for the
+    crop down to the final size.
+
+    Args:
+        Ks: Per-frame intrinsics ``[T, 4]`` (``fx, fy, cx, cy``).
+        height_org: Capture-resolution height ``Ks`` is expressed in.
+        width_org: Capture-resolution width ``Ks`` is expressed in.
+        height_resize: Height after the resize step.
+        width_resize: Width after the resize step.
+        height_final: Height after the center crop.
+        width_final: Width after the center crop.
+
+    Returns:
+        Transformed intrinsics ``[T, 4]`` in the same dtype as ``Ks``.
+    """
+    fx, fy, cx, cy = Ks.chunk(4, dim=-1)  # [f, 1]
+
+    scale_x = width_resize / width_org
+    scale_y = height_resize / height_org
+
+    fx_resize = fx * scale_x
+    fy_resize = fy * scale_y
+    cx_resize = cx * scale_x
+    cy_resize = cy * scale_y
+
+    crop_offset_x = (width_resize - width_final) / 2
+    crop_offset_y = (height_resize - height_final) / 2
+
+    cx_final = cx_resize - crop_offset_x
+    cy_final = cy_resize - crop_offset_y
+
+    Ks_transformed = torch.zeros_like(Ks)
+    Ks_transformed[:, 0:1] = fx_resize
+    Ks_transformed[:, 1:2] = fy_resize
+    Ks_transformed[:, 2:3] = cx_final
+    Ks_transformed[:, 3:4] = cy_final
+
+    return Ks_transformed
+
+
+def interpolate_camera_poses(
+    src_indices: np.ndarray,
+    src_rot_mat: np.ndarray,
+    src_trans_vec: np.ndarray,
+    tgt_indices: np.ndarray,
+) -> np.ndarray:
+    """Resample a camera trajectory onto a new index grid.
+
+    Linearly interpolates translations and SLERP-interpolates rotations
+    (after a sign-flip pass that keeps adjacent quaternions on the same
+    hemisphere so SLERP doesn't take the long way around).
+
+    Args:
+        src_indices: Sample positions of the source poses ``[N]``.
+        src_rot_mat: Source rotations ``[N, 3, 3]``.
+        src_trans_vec: Source translations ``[N, 3]``.
+        tgt_indices: Sample positions to resample at ``[M]``.
+
+    Returns:
+        Resampled SE(3) poses ``[M, 4, 4]``.
+    """
+    interp_func_trans = interp1d(
+        src_indices,
+        src_trans_vec,
+        axis=0,
+        kind="linear",
+        bounds_error=False,
+        fill_value="extrapolate",
+    )
+    interpolated_trans_vec = interp_func_trans(tgt_indices)
+
+    # SLERP needs successive quaternions on the same hemisphere, otherwise
+    # the great-circle path takes the long way around.
+    src_quat_vec = Rotation.from_matrix(src_rot_mat)
+    quats = src_quat_vec.as_quat().copy()  # [N, 4]
+    for i in range(1, len(quats)):
+        if np.dot(quats[i], quats[i - 1]) < 0:
+            quats[i] = -quats[i]
+    src_quat_vec = Rotation.from_quat(quats)
+    slerp_func_rot = Slerp(src_indices, src_quat_vec)
+    interpolated_rot_quat = slerp_func_rot(tgt_indices)
+    interpolated_rot_mat = interpolated_rot_quat.as_matrix()
+
+    poses = np.zeros((len(tgt_indices), 4, 4))
+    poses[:, :3, :3] = interpolated_rot_mat
+    poses[:, :3, 3] = interpolated_trans_vec
+    poses[:, 3, 3] = 1.0
+    return poses
 
 
 def SE3_inverse(T: Tensor) -> Tensor:
@@ -36,7 +213,7 @@ def compute_relative_poses(
     c2ws_mat: Tensor,
     framewise: bool = False,
     normalize_trans: bool = True,
-) -> tuple[Tensor, Tensor | float]:
+) -> tuple[Tensor, float]:
     """Compute relative camera poses against the first frame.
 
     Args:
@@ -62,7 +239,7 @@ def compute_relative_poses(
         # See camctrl2: scale coordinate inputs to roughly 1 standard
         # deviation to simplify model learning.
         translations = relative_poses[:, :3, 3]
-        max_norm = torch.norm(translations, dim=-1).max()
+        max_norm = torch.norm(translations, dim=-1).max().item()
         if max_norm > 0:
             relative_poses[:, :3, 3] = translations / max_norm
     else:

@@ -13,13 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot-World camera-control I2V runner classes.
-
-Pure implementation module. The per-slug ``*_RUNNER`` literals + the
-``LINGBOT_WORLD_RUNNERS`` aggregating dict live in
-:mod:`flashdreams.recipes.lingbot_world.config`, alongside the
-matching pipeline configs.
-"""
+"""Lingbot-World camera-control I2V runner classes."""
 
 from __future__ import annotations
 
@@ -35,10 +29,21 @@ from loguru import logger
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
-from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
+from flashdreams.recipes.lingbot_world.encoder.utils import (
+    get_Ks_transformed,
+    preprocess_example_poses,
+)
 from flashdreams.recipes.lingbot_world.pipeline import (
     LingbotWorldInferencePipeline,
 )
+
+_INTRINSICS_REFERENCE_HEIGHT = 480
+"""Capture-resolution height the bundled intrinsics ``.npy`` files are
+expressed in; rescaled by :func:`get_Ks_transformed` so Plücker rays
+land on the right pixel centers at the runner's actual frame size."""
+
+_INTRINSICS_REFERENCE_WIDTH = 832
+"""Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/lingbot_world"
@@ -95,7 +100,7 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     """Path to a ``.npy`` of camera intrinsics, shape ``[T, 4]``.
     Required at ``run()`` time."""
 
-    total_blocks: int = 60
+    total_blocks: int = 20
     """Upper bound on the number of AR chunks to generate. The loop
     exits early once the camera stream is consumed."""
 
@@ -175,17 +180,28 @@ class LingbotWorldRunner(
             pixel_width=cfg.pixel_width,
             device=device,
         )
-        # Lingbot's ``batch_shape`` is ``(1, 1)`` -> ``[B=1, V=1, 1, C, H, W]``
-        # for the first-frame and ``[B=1, V=1, T, ...]`` for the camera stream.
-        first_frames_t = first_frame.unsqueeze(0)
+        # Lingbot's ``batch_shape`` is ``(1, 1)``: prepend ``[B=1, V=1]`` so
+        # the first frame is ``[B=1, V=1, T=1, C, H, W]`` and the camera
+        # stream is ``[B=1, V=1, T, ...]``. ``_preprocess_i2v_input`` expects
+        # ``[*batch_shape, T, C, H, W]`` and pads along T from there.
+        first_frames_t = first_frame.unsqueeze(0).unsqueeze(0)
 
         Ks = np.load(cfg.intrinsic_path)
         Ks_t = torch.from_numpy(Ks).to(device=device, dtype=torch.float32)
+        # Rescale capture-resolution intrinsics to the runner's frame size.
+        Ks_t = get_Ks_transformed(
+            Ks_t,
+            height_org=_INTRINSICS_REFERENCE_HEIGHT,
+            width_org=_INTRINSICS_REFERENCE_WIDTH,
+            height_resize=cfg.pixel_height,
+            width_resize=cfg.pixel_width,
+            height_final=cfg.pixel_height,
+            width_final=cfg.pixel_width,
+        )
+
         c2ws = np.load(cfg.pose_path)
+        c2ws, trans_normalizer = preprocess_example_poses(c2ws)
         c2ws_t = torch.from_numpy(c2ws).to(device=device, dtype=torch.float32)
-        # Only the world-scale normalizer is consumed here; the actual
-        # Plücker volume is rendered per-AR-step inside the encoder.
-        _, trans_normalizer = compute_relative_poses(c2ws_t, framewise=True)
         camera_intrinsics_t = Ks_t.unsqueeze(0).unsqueeze(0)  # [B=1, V=1, T, 4]
         camera_poses_t = c2ws_t.unsqueeze(0).unsqueeze(0)  # [B=1, V=1, T, 4, 4]
         total_camera_frames = camera_poses_t.shape[2]
@@ -277,11 +293,14 @@ def _load_first_frame(
         ) from exc
 
     arr = media.read_image(str(path))[..., :3]
-    arr = cv2.resize(arr, (pixel_width, pixel_height))
+    # Bicubic to match the upstream Lingbot World demo / generate_fast.py
+    # (which uses ``F.interpolate(mode='bicubic')`` over the ``[-1, 1]``
+    # tensor); bilinear here would give a different first-frame VAE latent.
+    arr = cv2.resize(arr, (pixel_width, pixel_height), interpolation=cv2.INTER_CUBIC)
     tensor = (
         torch.from_numpy(arr).to(device=device, dtype=torch.bfloat16) / 127.5 - 1.0
     )  # [H, W, 3]
-    return rearrange(tensor, "h w c -> 1 c h w")  # [V=1, C, H, W]
+    return rearrange(tensor, "h w c -> 1 c h w")  # [T=1, C, H, W]
 
 
 def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
