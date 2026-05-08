@@ -117,7 +117,23 @@ void crCopyFromArray(uint32_t* dst, cudaArray_t src, int width, int height, cuda
 // Host-callable wrappers for pipeline stages.
 //------------------------------------------------------------------------
 
-// Debug helper - set CR_DEBUG_SYNC=1 env var to enable sync after each stage
+// Pipeline diagnostic gate.
+//
+// Set CR_DEBUG_SYNC=1 in the environment to:
+//   * Insert a cudaDeviceSynchronize() after every stage launch (setup, bin,
+//     coarse, fine), so kernel errors are reported against the correct stage
+//     instead of surfacing later as opaque API failures.
+//   * Read back g_crAtomics after each stage and print the per-stage counter
+//     deltas (numSubtris / binCounter / numBinSegs / coarseCounter /
+//     numTileSegs / numActiveTiles / fineCounter) to stderr. Useful for
+//     localizing which stage is dropping work when a draw produces
+//     unexpected output.
+//   * Print param uploads and atomics resets so the host-side pipeline
+//     wiring is visible.
+//
+// Off by default. The barrier and readback are not free; do not enable in
+// production or perf measurements. The check is a single env-var read cached
+// across the process lifetime, so the disabled path is effectively zero cost.
 static bool crDebugSync()
 {
     static int val = -1;
@@ -128,15 +144,26 @@ static bool crDebugSync()
     return val != 0;
 }
 
+// Diagnostic stage barrier. No-op unless CR_DEBUG_SYNC=1 (see crDebugSync).
 static void crCheckError(const char* stage)
 {
     if (!crDebugSync()) return;
     cudaError_t err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error after %s: %s\n", stage, cudaGetErrorString(err));
-    } else {
-        fprintf(stderr, "Stage %s completed OK\n", stage);
+        return;
     }
+    void* devPtr = nullptr;
+    FW::CRAtomics readback;
+    memset(&readback, 0, sizeof(readback));
+    cudaError_t symErr = cudaGetSymbolAddress(&devPtr, g_crAtomics);
+    if (symErr == cudaSuccess && devPtr)
+        cudaMemcpy(&readback, devPtr, sizeof(FW::CRAtomics), cudaMemcpyDeviceToHost);
+    fprintf(stderr,
+            "stage=%-7s numSubtris=%d binCounter=%d numBinSegs=%d coarseCounter=%d numTileSegs=%d numActiveTiles=%d fineCounter=%d\n",
+            stage, readback.numSubtris, readback.binCounter, readback.numBinSegs,
+            readback.coarseCounter, readback.numTileSegs, readback.numActiveTiles,
+            readback.fineCounter);
 }
 
 void crUploadParams(const FW::CRParams& params, cudaStream_t stream)
