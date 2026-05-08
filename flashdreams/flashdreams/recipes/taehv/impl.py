@@ -26,7 +26,7 @@ import torch.nn.functional as F
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.infra.decoder import StreamingDecoderCache
 
 
@@ -40,22 +40,6 @@ class TAEHVCache(StreamingDecoderCache):
     """
 
     dec_state: Dict[int, torch.Tensor] = field(default_factory=dict)
-
-
-def _set_or_copy(
-    state: Dict[int, torch.Tensor], key: int, new_value: torch.Tensor
-) -> None:
-    """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
-
-    In-place ``copy_`` once the slot exists at the matching shape, else
-    allocate a fresh clone. Pointer stability is required for CUDA-graph
-    capture, since captured kernels reference the slot's storage address.
-    """
-    cur = state.get(key)
-    if cur is not None and cur.shape == new_value.shape:
-        cur.copy_(new_value)
-    else:
-        state[key] = new_value.clone()
 
 
 def _conv(n_in: int, n_out: int, **kwargs) -> nn.Conv2d:
@@ -113,7 +97,7 @@ class MemBlock(nn.Module):
         else:
             past = torch.cat([prev, x5[:, :-1]], dim=1)
         out = self.forward(x, past.reshape(bt, c, h, w))
-        _set_or_copy(state, key, x5[:, -1:])
+        set_or_copy(state, key, x5[:, -1:])
         return out
 
 

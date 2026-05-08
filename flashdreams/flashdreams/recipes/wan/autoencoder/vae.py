@@ -29,7 +29,7 @@ from torch import Tensor
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.infra.decoder import (
     DecoderConfig,
     StreamingDecoderCache,
@@ -60,22 +60,6 @@ AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = (
 
 CACHE_T = 2
 TEMPORAL_WINDOW = 4
-
-
-def _set_or_copy(
-    state: Dict[int, torch.Tensor], key: int, new_value: torch.Tensor
-) -> None:
-    """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
-
-    In-place ``copy_`` once the slot exists at the matching shape, else
-    allocate a fresh clone. Pointer stability is required for CUDA-graph
-    capture, since captured kernels reference the slot's storage address.
-    """
-    cur = state.get(key)
-    if cur is not None and cur.shape == new_value.shape:
-        cur.copy_(new_value)
-    else:
-        state[key] = new_value.clone()
 
 
 _LATENT_MEAN = (
@@ -180,7 +164,7 @@ class CausalConv3d(nn.Conv3d):
         new_tail = x[:, :, -CACHE_T:]
         if new_tail.shape[2] < CACHE_T and prev is not None:
             new_tail = torch.cat([prev[:, :, -1:], new_tail], dim=2)
-        _set_or_copy(state, key, new_tail)
+        set_or_copy(state, key, new_tail)
         return out
 
 
@@ -269,7 +253,7 @@ class Resample(nn.Module):
         if prev is not None:
             # Steady-state body: in-place write to the existing slot.
             x_up = self._interleave_time(self.time_conv(x, prev), b, c, t, h, w)
-            _set_or_copy(state, key, x[:, :, -CACHE_T:])
+            set_or_copy(state, key, x[:, :, -CACHE_T:])
             return x_up
 
         # Eager first-chunk path (shape varies, never captured).
@@ -293,7 +277,7 @@ class Resample(nn.Module):
         new_tail = x[:, :, -1:]
         if prev is not None:
             x = self.time_conv(torch.cat([prev, x], dim=2))
-        _set_or_copy(state, key, new_tail)
+        set_or_copy(state, key, new_tail)
         return x
 
     @staticmethod
