@@ -158,11 +158,12 @@ class LudusRenderer:
         Args:
             camera_names: Ordered list of camera names (defines the V axis).
             camera_poses_per_camera: ``{camera_name: [T, 4, 4]}`` camera-to-world
-                poses in the same world frame as the loaded SceneBundle. The
-                CLIPGT loader converts everything to OpenCV RDF
-                (``scene_data.metadata["coordinate_frame"] == "opencv_rdf"``),
-                so ego poses can be passed straight through. On the renderer's
-                CUDA device.
+                poses in OpenCV RDF (matching ``scene_data.metadata["coordinate_frame"]``,
+                which is always ``opencv_rdf`` for CLIPGT-loaded scenes). The
+                gRPC server converts client-supplied FLU poses to RDF inside
+                :func:`alpadreams.grpc.utils.compute_camera_poses_from_rig`,
+                so callers there get this for free; if you build poses from
+                some other source make sure they're already in RDF.
             frame_timestamps_us: Frame timestamps in microseconds (unused; the
                 Slang rasterizer treats the scene as static, but we accept the
                 argument for API parity with the previous ludus path).

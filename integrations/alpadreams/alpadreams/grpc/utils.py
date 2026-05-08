@@ -40,7 +40,10 @@ import torch
 from alpadreams.conditioning.renderer import load_and_attach_ludus_scene
 from alpadreams.conditioning.world_scenario.data_loaders import load_scene
 from alpadreams.conditioning.world_scenario.data_types import SceneData
-from alpadreams.conditioning.world_scenario.data_utils import convert_pose_flu_to_rdf
+from alpadreams.conditioning.world_scenario.data_utils import (
+    FLU_TO_RDF_MATRIX,
+    convert_pose_flu_to_rdf,
+)
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
 from alpadreams.conditioning.world_scenario.settings import SETTINGS
 from google.protobuf.json_format import MessageToDict
@@ -435,18 +438,54 @@ def compute_camera_poses_from_rig(
 
         camera_to_world[t] = rig_to_world[t]  @  rig_to_camera
 
+    The gRPC client sends both ``rig_poses`` and ``rig_to_camera`` in the
+    FLU convention. flashdreams' :class:`ClipGTLoader` stores the entire
+    HD-map scene in OpenCV RDF (``scene_data.metadata['coordinate_frame']
+    == 'opencv_rdf'``), so the camera poses we hand to ``LudusRenderer``
+    must also be in RDF; otherwise the camera and the world disagree by
+    a 90 degrees rotation and the rendered HD map looks like the camera
+    is underground / driving sideways. Apply the FLU -> RDF basis change
+    here, after the matmul, so callers don't have to remember.
+
     Args:
-        rig_poses: Array of shape ``[N, 4, 4]`` — rig-to-world transforms per frame.
-        rig_to_camera: A single ``[4, 4]`` rig-to-camera transform.
+        rig_poses: Array of shape ``[N, 4, 4]`` — rig-to-world transforms per
+            frame, in the client's FLU convention.
+        rig_to_camera: A single ``[4, 4]`` rig-to-camera transform, also in FLU.
 
     Returns:
-        Array of shape ``[N, 4, 4]`` — camera-to-world transforms per frame.
+        Array of shape ``[N, 4, 4]`` — camera-to-world transforms per frame in
+        OpenCV RDF.
     """
-    # Vectorised matmul over the batch dimension
     if isinstance(rig_poses, torch.Tensor):
-        return torch.einsum("nij,jk->nik", rig_poses, rig_to_camera)
+        camera_to_world_flu = torch.einsum("nij,jk->nik", rig_poses, rig_to_camera)
+        flu_to_rdf = torch.tensor(
+            FLU_TO_RDF_MATRIX, dtype=camera_to_world_flu.dtype, device=camera_to_world_flu.device
+        )
+        rdf_to_flu = flu_to_rdf.transpose(-1, -2)
+        # Basis change: pose_rdf = M @ pose_flu @ M^T (with the homogeneous
+        # row left untouched). Translation rotates by M; rotation conjugates.
+        rotation_flu = camera_to_world_flu[:, :3, :3]
+        translation_flu = camera_to_world_flu[:, :3, 3]
+        rotation_rdf = torch.einsum("ij,njk,kl->nil", flu_to_rdf, rotation_flu, rdf_to_flu)
+        translation_rdf = torch.einsum("ij,nj->ni", flu_to_rdf, translation_flu)
+        camera_to_world_rdf = torch.zeros_like(camera_to_world_flu)
+        camera_to_world_rdf[:, :3, :3] = rotation_rdf
+        camera_to_world_rdf[:, :3, 3] = translation_rdf
+        camera_to_world_rdf[:, 3, 3] = 1.0
+        return camera_to_world_rdf
     else:
-        return np.einsum("nij,jk->nik", rig_poses, rig_to_camera).astype(np.float32)
+        camera_to_world_flu = np.einsum("nij,jk->nik", rig_poses, rig_to_camera).astype(np.float32)
+        rotation_flu = camera_to_world_flu[:, :3, :3]
+        translation_flu = camera_to_world_flu[:, :3, 3]
+        rotation_rdf = np.einsum(
+            "ij,njk,kl->nil", FLU_TO_RDF_MATRIX, rotation_flu, FLU_TO_RDF_MATRIX.T
+        )
+        translation_rdf = np.einsum("ij,nj->ni", FLU_TO_RDF_MATRIX, translation_flu)
+        camera_to_world_rdf = np.zeros_like(camera_to_world_flu)
+        camera_to_world_rdf[:, :3, :3] = rotation_rdf
+        camera_to_world_rdf[:, :3, 3] = translation_rdf
+        camera_to_world_rdf[:, 3, 3] = 1.0
+        return camera_to_world_rdf.astype(np.float32)
 
 
 # =============================================================================
