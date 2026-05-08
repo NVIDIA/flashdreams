@@ -16,6 +16,7 @@
 #include "cuda/PixelPipe.hpp"
 #include "cuda/PrivateDefs.hpp"
 #include <stdint.h>
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 
@@ -152,25 +153,54 @@ void crUploadParams(const FW::CRParams& params, cudaStream_t stream)
         fprintf(stderr, "CRParams: t_vertexBuffer=%llu, t_triHeader=%llu, t_triData=%llu\n",
                 (unsigned long long)params.t_vertexBuffer, (unsigned long long)params.t_triHeader, (unsigned long long)params.t_triData);
     }
-    cudaMemcpyToSymbolAsync(c_crParams, &params, sizeof(FW::CRParams), 0, cudaMemcpyHostToDevice, stream);
+
+    // Use cudaGetSymbolAddress for reliable symbol access in dynamically loaded .so
+    void* devPtr = nullptr;
+    cudaError_t err = cudaGetSymbolAddress(&devPtr, c_crParams);
+    assert(err == cudaSuccess && devPtr && "cudaGetSymbolAddress(c_crParams) failed");
+    cudaMemcpyAsync(devPtr, &params, sizeof(FW::CRParams), cudaMemcpyHostToDevice, stream);
+}
+
+__global__ void crResetAtomicsKernel(int numSubtris)
+{
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        g_crAtomics.numSubtris = numSubtris;
+        g_crAtomics.binCounter = 0;
+        g_crAtomics.numBinSegs = 0;
+        g_crAtomics.coarseCounter = 0;
+        g_crAtomics.numTileSegs = 0;
+        g_crAtomics.numActiveTiles = 0;
+        g_crAtomics.fineCounter = 0;
+        __threadfence();
+    }
 }
 
 void crInitAtomics(int numTris, cudaStream_t stream)
 {
-    FW::CRAtomics atomics;
-    atomics.numSubtris = numTris;
-    atomics.binCounter = 0;
-    atomics.numBinSegs = 0;
-    atomics.coarseCounter = 0;
-    atomics.numTileSegs = 0;
-    atomics.numActiveTiles = 0;
-    atomics.fineCounter = 0;
-    cudaMemcpyToSymbolAsync(g_crAtomics, &atomics, sizeof(FW::CRAtomics), 0, cudaMemcpyHostToDevice, stream);
+    if (crDebugSync())
+        fprintf(stderr, "crInitAtomics: launching kernel to reset atomics, numSubtris=%d\n", numTris);
+
+    // Use a kernel to reset atomics - this ensures we're writing to the same
+    // g_crAtomics symbol that the other kernels use
+    crResetAtomicsKernel<<<1, 1, 0, stream>>>(numTris);
+
+    if (crDebugSync()) {
+        cudaStreamSynchronize(stream);
+        void* devPtr = nullptr;
+        cudaError_t err = cudaGetSymbolAddress(&devPtr, g_crAtomics);
+        assert(err == cudaSuccess && devPtr);
+        FW::CRAtomics readback;
+        cudaMemcpy(&readback, devPtr, sizeof(FW::CRAtomics), cudaMemcpyDeviceToHost);
+        fprintf(stderr, "crInitAtomics verify (host): binCounter=%d\n", readback.binCounter);
+    }
 }
 
 void crReadAtomics(FW::CRAtomics* atomics, cudaStream_t stream)
 {
-    cudaMemcpyFromSymbolAsync(atomics, g_crAtomics, sizeof(FW::CRAtomics), 0, cudaMemcpyDeviceToHost, stream);
+    void* devPtr = nullptr;
+    cudaError_t err = cudaGetSymbolAddress(&devPtr, g_crAtomics);
+    assert(err == cudaSuccess && devPtr && "cudaGetSymbolAddress(g_crAtomics) failed");
+    cudaMemcpyAsync(atomics, devPtr, sizeof(FW::CRAtomics), cudaMemcpyDeviceToHost, stream);
 }
 
 void crDebugReadTriSubtris(uint8_t* dst, CUdeviceptr src, int numTris, cudaStream_t stream)
@@ -195,7 +225,16 @@ void crLaunchBin(cudaStream_t stream)
 {
     dim3 block(32, CR_BIN_WARPS);
     dim3 grid(CR_BIN_STREAMS_SIZE, 1);
-    if (crDebugSync()) fprintf(stderr, "Launching bin: grid=%d, block=(%d,%d)\n", CR_BIN_STREAMS_SIZE, block.x, block.y);
+    if (crDebugSync()) {
+        cudaStreamSynchronize(stream);
+        void* devPtr = nullptr;
+        cudaGetSymbolAddress(&devPtr, g_crAtomics);
+        FW::CRAtomics readback;
+        if (devPtr)
+            cudaMemcpy(&readback, devPtr, sizeof(FW::CRAtomics), cudaMemcpyDeviceToHost);
+        fprintf(stderr, "BEFORE bin launch: binCounter=%d (devPtr=%p)\n", readback.binCounter, devPtr);
+        fprintf(stderr, "Launching bin: grid=%d, block=(%d,%d)\n", CR_BIN_STREAMS_SIZE, block.x, block.y);
+    }
     crDefaultPipe_binRaster<<<grid, block, 0, stream>>>();
     crCheckError("bin");
 }

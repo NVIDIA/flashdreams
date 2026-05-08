@@ -305,7 +305,7 @@ __device__ __inline__ void coarseRasterImpl(void)
 
             CR_TIMER_IN(CoarseRasterize);
 
-            if (__any_sync(0xFFFFFFFFu, triIdx != -1))
+            if (__any_sync(__activemask(), triIdx != -1))
             {
                 S32 v0x = sub_s16lo_s16lo(triData.x, originX);
                 S32 v0y = sub_s16hi_s16lo(triData.x, originY);
@@ -336,7 +336,7 @@ __device__ __inline__ void coarseRasterImpl(void)
 
                 // Case A: All AABBs are small => record the full AABB using atomics.
 
-                if (__all_sync(0xFFFFFFFFu, sizex <= 2 && sizey <= 2))
+                if (__all_sync(__activemask(), sizex <= 2 && sizey <= 2))
                 {
                     CR_COUNT(CoarseCaseA, 100, 0);
                     CR_TIMER_OUT(CoarseRasterize);
@@ -397,7 +397,7 @@ __device__ __inline__ void coarseRasterImpl(void)
 
                     // Case B: Warp-AABB is not much larger than largest AABB => Check tiles in warp-AABB, record using ballots.
 
-                    if (__any_sync(0xFFFFFFFFu, warea * 4 <= area * 8))
+                    if (__any_sync(__activemask(), warea * 4 <= area * 8))
                     {
                         CR_COUNT(CoarseCaseB, 100, 0);
                         if (triIdx != -1)
@@ -408,7 +408,7 @@ __device__ __inline__ void coarseRasterImpl(void)
                                 for (int x = wlox; x <= hix; x++)
                                 {
                                     if (x < lox) continue;
-                                    *(U32*)currPtr = __ballot_sync(0xFFFFFFFFu, b01 >= 0 && b02 >= 0 && b12 >= 0);
+                                    *(U32*)currPtr = __ballot_sync(__activemask(), b01 >= 0 && b02 >= 0 && b12 >= 0);
                                     currPtr += 4, b01 -= d01y, b02 += d02y, b12 -= d12y;
                                 }
                                 currPtr += ptrYInc, b01 += d01x, b02 -= d02x, b12 += d12x;
@@ -481,10 +481,10 @@ __device__ __inline__ void coarseRasterImpl(void)
 
                 // All counters within the warp are small => compute prefix sum using ballot.
 
-                if (!__any_sync(0xFFFFFFFFu, tileEmits >= 2))
+                if (!__any_sync(__activemask(), tileEmits >= 2))
                 {
                     U32 m = getLaneMaskLe();
-                    *p = (__popc(__ballot_sync(0xFFFFFFFFu, tileEmits & 1) & m) << emitShift) | __popc(__ballot_sync(0xFFFFFFFFu, tileAllocs & 1) & m);
+                    *p = (__popc(__ballot_sync(__activemask(), tileEmits & 1) & m) << emitShift) | __popc(__ballot_sync(__activemask(), tileAllocs & 1) & m);
                 }
 
                 // Otherwise => scan-32 within the warp.
@@ -770,7 +770,7 @@ __device__ __inline__ void coarseRasterImpl(void)
             if (segCount != 0)
                 tileSegCount[segIdx] = segCount;
 
-            s_scanTemp[0][(tileInBin >> 5) + 16] = __popc(__ballot_sync(0xFFFFFFFFu, ofs >= 0 | force));
+            s_scanTemp[0][(tileInBin >> 5) + 16] = __popc(__ballot_sync(__activemask(), ofs >= 0 | force));
         }
 
         // First warp: Scan-8.
@@ -805,7 +805,7 @@ __device__ __inline__ void coarseRasterImpl(void)
 
             int activeIdx = s_firstActiveIdx;
             activeIdx += s_scanTemp[0][(tileInBin >> 5) + 15];
-            activeIdx += __popc(__ballot_sync(0xFFFFFFFFu, true) & getLaneMaskLt());
+            activeIdx += __popc(__ballot_sync(__activemask(), true) & getLaneMaskLt());
             activeTiles[activeIdx] = binTileIdx + globalTileIdx(tileInBin);
         }
 

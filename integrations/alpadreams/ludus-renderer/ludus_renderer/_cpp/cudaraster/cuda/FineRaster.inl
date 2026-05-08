@@ -175,7 +175,7 @@ __device__ __inline__ void initTileZMax(U32& tileZMax, bool& tileZUpd, volatile 
 template <U32 RenderModeFlags>
 __device__ __inline__ void updateTileZMax(U32& tileZMax, bool& tileZUpd, volatile U32* tileDepth, volatile U32* temp)
 {
-    if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0 && __any_sync(0xFFFFFFFFu, tileZUpd))
+    if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0 && __any_sync(__activemask(), tileZUpd))
     {
         U32 z = ::max(tileDepth[threadIdx.x], tileDepth[threadIdx.x + 32]);
         temp[threadIdx.x + 16] = z;
@@ -324,7 +324,7 @@ __device__ __inline__ volatile const U32& scan32_total(volatile U32* temp)
 //------------------------------------------------------------------------
 
 template <class BlendShaderClass, U32 RenderModeFlags>
-__device__ __inline__ U32 determineROPLaneMask(volatile U32& warpTemp) // mask of lanes that should process an earlier fragment than this lane
+__device__ __inline__ U32 determineROPLaneMask() // mask of lanes that should process an earlier fragment than this lane
 {
     bool reverseLanes = true;
     if ((RenderModeFlags & RenderModeFlag_EnableDepth) == 0)
@@ -334,13 +334,17 @@ __device__ __inline__ U32 determineROPLaneMask(volatile U32& warpTemp) // mask o
             reverseLanes = false;
     }
 
-    U32 mask = (reverseLanes) ? (1u << threadIdx.x) : ~0u;
-    do
-    {
-        warpTemp = threadIdx.x;
-        mask ^= 1u << warpTemp;
-    }
-    while (warpTemp != threadIdx.x);
+    // Volta+ replacement for upstream busy-wait on shared memory write arbitration.
+    // Empirical Volta+ trace of the original loop with reverseLanes=true returned
+    // bits 0..threadIdx-1 set, i.e. %lanemask_lt. By the same XOR-sequence algebra
+    // (initial mask ~0u, toggled by bits 0..threadIdx), reverseLanes=false produces
+    // bits threadIdx+1..31 set, i.e. %lanemask_gt. Both are valid permutations:
+    // __popc gives a unique rank in [0,31] across the warp, as required.
+    U32 mask;
+    if (reverseLanes)
+        asm("mov.u32 %0, %%lanemask_lt;" : "=r"(mask));
+    else
+        asm("mov.u32 %0, %%lanemask_gt;" : "=r"(mask));
     return mask;
 }
 
@@ -495,7 +499,7 @@ __device__ __inline__ void executeROP_SingleSample(
 
     #if (CR_PROFILING_MODE == ProfilingMode_Counters)
         CR_COUNT(FineBlendRounds, 0, 1);
-        for (int i = 0; __any_sync(0xFFFFFFFFu, i < rounds); i++)
+        for (int i = 0; __any_sync(__activemask(), i < rounds); i++)
             CR_COUNT(FineBlendRounds, 1, 0);
     #endif
 }
@@ -533,7 +537,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
     CR_TIMER_INIT();
 	CR_TIMER_IN(FineTotal);
 
-    U32 ropLaneMask = determineROPLaneMask<BlendShaderClass, RenderModeFlags>(temp[0]);
+    U32 ropLaneMask = determineROPLaneMask<BlendShaderClass, RenderModeFlags>();
     temp[threadIdx.x] = 0; // first 16 elements of temp are always zero
     cover8x8_setupLUT(s_cover8x8_lut);
     __syncthreads();
@@ -638,7 +642,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                     fragWrite += scan32_total(temp);
 
                     // queue non-empty triangles
-                    U32 goodMask = __ballot_sync(0xFFFFFFFFu, pop != 0);
+                    U32 goodMask = __ballot_sync(__activemask(), pop != 0);
                     if (pop != 0)
                     {
                         int idx = (triWrite + __popc(goodMask & getLaneMaskLt())) & 63;
@@ -669,7 +673,7 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
             }
 
             int ropLaneIdx = __popc(ropLaneMask);
-            U32 boundaryMask = __ballot_sync(0xFFFFFFFFu, temp[ropLaneIdx + 16]);
+            U32 boundaryMask = __ballot_sync(__activemask(), temp[ropLaneIdx + 16]);
 
             // distribute fragments
             CR_TIMER_OUT_DEP(FineFragmentDistr, boundaryMask);
@@ -847,10 +851,10 @@ __device__ __inline__ U32 executeROP_MultiSample(
     }
 
     #if (CR_PROFILING_MODE == ProfilingMode_Counters)
-        if (__any_sync(0xFFFFFFFFu, rounds != 0))
+        if (__any_sync(__activemask(), rounds != 0))
         {
             CR_COUNT(FineBlendRounds, 1, 1);
-            for (int i = 1; __any_sync(0xFFFFFFFFu, i < rounds); i++)
+            for (int i = 1; __any_sync(__activemask(), i < rounds); i++)
                 CR_COUNT(FineBlendRounds, 1, 0);
         }
     #endif
@@ -889,7 +893,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
     CR_TIMER_INIT();
     CR_TIMER_IN(FineTotal);
 
-    U32 ropLaneMask = determineROPLaneMask<BlendShaderClass, RenderModeFlags>(temp[0]);
+    U32 ropLaneMask = determineROPLaneMask<BlendShaderClass, RenderModeFlags>();
     temp[threadIdx.x] = 0; // first 16 elements of temp are always zero
     cover8x8_setupLUT(s_cover8x8_lut);
     setupCentroidLUT<SamplesLog2>(s_centroid_lut);
@@ -987,7 +991,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
                     fragWrite += scan32_total(temp);
 
                     // queue non-empty triangles
-                    U32 goodMask = __ballot_sync(0xFFFFFFFFu, pop != 0);
+                    U32 goodMask = __ballot_sync(__activemask(), pop != 0);
                     if (pop != 0)
                     {
                         int idx = (triWrite + __popc(goodMask & getLaneMaskLt())) & 63;
@@ -1018,7 +1022,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
             }
 
             int ropLaneIdx = __popc(ropLaneMask);
-            U32 boundaryMask = __ballot_sync(0xFFFFFFFFu, temp[ropLaneIdx + 16]);
+            U32 boundaryMask = __ballot_sync(__activemask(), temp[ropLaneIdx + 16]);
 
             // distribute fragments
             CR_TIMER_OUT_DEP(FineFragmentDistr, boundaryMask);

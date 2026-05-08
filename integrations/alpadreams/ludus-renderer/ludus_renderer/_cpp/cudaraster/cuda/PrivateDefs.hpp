@@ -105,6 +105,7 @@ struct CRParams
     S32         numTiles;           // widthTiles * heightTiles
 
     S32         binBatchSize;       // Number of triangles per batch.
+    S32         enableBackfaceCulling;
 
     S32         deferredClear;      // 1 = Clear framebuffer before rendering triangles.
     U32         clearColor;

@@ -46,6 +46,48 @@ __device__ __inline__ void snapTriangle(
 // 1 = Backfacing.
 // 2 = Between pixels.
 
+__device__ __inline__ bool isBackfacingTriangle(int2 p0, int2 p1, int2 p2)
+{
+    int2 d1 = make_int2(p1.x - p0.x, p1.y - p0.y);
+    int2 d2 = make_int2(p2.x - p0.x, p2.y - p0.y);
+    return (d1.x * d2.y - d1.y * d2.x) < 0;
+}
+
+__device__ __inline__ void swapInt2(int2& a, int2& b)
+{
+    int2 tmp = a;
+    a = b;
+    b = tmp;
+}
+
+__device__ __inline__ void swapFloat4(float4& a, float4& b)
+{
+    float4 tmp = a;
+    a = b;
+    b = tmp;
+}
+
+__device__ __inline__ void swapFloat2(float2& a, float2& b)
+{
+    float2 tmp = a;
+    a = b;
+    b = tmp;
+}
+
+__device__ __inline__ void swapInt3YZ(int3& v)
+{
+    int tmp = v.y;
+    v.y = v.z;
+    v.z = tmp;
+}
+
+__device__ __inline__ void swapFloat3YZ(float3& v)
+{
+    F32 tmp = v.y;
+    v.y = v.z;
+    v.z = tmp;
+}
+
 template <int SamplesLog2>
 __device__ __inline__ int prepareTriangle(
     int2 p0, int2 p1, int2 p2, int2 lo, int2 hi,
@@ -298,6 +340,14 @@ __device__ __inline__ void triangleSetupImpl(void)
 
         if (loxy >= -32768 && hixy <= 32767 && hixy - loxy <= aabbLimit)
         {
+            if (!c_crParams.enableBackfaceCulling && isBackfacingTriangle(p0, p1, p2))
+            {
+                swapInt2(p1, p2);
+                swapFloat4(v1, v2);
+                swapInt3YZ(vidx);
+                swapFloat3YZ(rcpW);
+            }
+
             int res = prepareTriangle<SamplesLog2>(p0, p1, p2, lo, hi, d1, d2, area);
             CR_TIMER_OUT_DEP(SetupCullSnap, res);
             CR_TIMER_IN(SetupNumSubWrite);
@@ -357,7 +407,11 @@ __device__ __inline__ void triangleSetupImpl(void)
         v2.w = ov0.w + od1.w * bary[i * 2 + 0] + od2.w * bary[i * 2 + 1];
 
         snapTriangle(v0, v1, v2, p0, p1, p2, rcpW, lo, hi);
-        if (prepareTriangle<SamplesLog2>(p0, p1, p2, lo, hi, d1, d2, area) == 0)
+        int2 pp1 = p1;
+        int2 pp2 = p2;
+        if (!c_crParams.enableBackfaceCulling && isBackfacingTriangle(p0, pp1, pp2))
+            swapInt2(pp1, pp2);
+        if (prepareTriangle<SamplesLog2>(p0, pp1, pp2, lo, hi, d1, d2, area) == 0)
             numSubtris++;
 
         v1 = v2;
@@ -393,17 +447,33 @@ __device__ __inline__ void triangleSetupImpl(void)
         v2.w = ov0.w + od1.w * bary[i * 2 + 0] + od2.w * bary[i * 2 + 1];
 
         snapTriangle(v0, v1, v2, p0, p1, p2, rcpW, lo, hi);
-        if (prepareTriangle<SamplesLog2>(p0, p1, p2, lo, hi, d1, d2, area) == 0)
+        int2 pp1 = p1;
+        int2 pp2 = p2;
+        float4 vv1 = v1;
+        float4 vv2 = v2;
+        float3 rrW = rcpW;
+        float2 bb1 = make_float2(bary[i * 2 - 2], bary[i * 2 - 1]);
+        float2 bb2 = make_float2(bary[i * 2 + 0], bary[i * 2 + 1]);
+        int3 vvIdx = vidx;
+        if (!c_crParams.enableBackfaceCulling && isBackfacingTriangle(p0, pp1, pp2))
+        {
+            swapInt2(pp1, pp2);
+            swapFloat4(vv1, vv2);
+            swapFloat3YZ(rrW);
+            swapFloat2(bb1, bb2);
+            swapInt3YZ(vvIdx);
+        }
+        if (prepareTriangle<SamplesLog2>(p0, pp1, pp2, lo, hi, d1, d2, area) == 0)
         {
             CR_TIMER_OUT(SetupCullSnap);
 
             setupTriangle<SamplesLog2, RenderModeFlags>(
-                &triHeader[subtriBase], &triData[subtriBase], vidx,
-                v0, v1, v2,
+                &triHeader[subtriBase], &triData[subtriBase], vvIdx,
+                v0, vv1, vv2,
                 make_float2(bary[0], bary[1]),
-                make_float2(bary[i * 2 - 2], bary[i * 2 - 1]),
-                make_float2(bary[i * 2 + 0], bary[i * 2 + 1]),
-                p0, p1, p2, rcpW,
+                bb1,
+                bb2,
+                p0, pp1, pp2, rrW,
                 d1, d2, area,
                 timerTotal);
 

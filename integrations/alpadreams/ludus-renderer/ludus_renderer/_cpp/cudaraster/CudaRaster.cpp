@@ -386,6 +386,7 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         params.numTiles = m_numTiles;
 
         params.binBatchSize = m_binBatchSize;
+        params.enableBackfaceCulling = (m_renderModeFlags & RenderModeFlag_EnableBackfaceCulling) ? 1 : 0;
 
         params.deferredClear = 0;
         params.clearColor = m_clearColor;
