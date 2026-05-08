@@ -1,0 +1,265 @@
+# Contributing to FlashDreams
+
+Thanks for your interest in contributing to **FlashDreams**. This project
+is developed openly on GitHub and released under the
+[Apache License 2.0](LICENSE). Outside contributions — bug reports,
+feature requests, performance improvements, new model recipes,
+documentation fixes — are genuinely welcome, and this guide explains how
+they fit in alongside the project's day-to-day work.
+
+We have intentionally kept the process light. If something below is
+unclear or feels heavier than it should be, that's a bug; please file an
+issue and we'll fix it.
+
+## Table of contents
+
+1. [Ways to contribute](#ways-to-contribute)
+2. [Project governance](#project-governance)
+3. [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
+4. [Submitting a pull request](#submitting-a-pull-request)
+5. [Code review and merge](#code-review-and-merge)
+6. [Coding conventions](#coding-conventions)
+7. [Licensing of contributions](#licensing-of-contributions)
+8. [Filing issues and security reports](#filing-issues-and-security-reports)
+9. [Code of Conduct](#code-of-conduct)
+
+## Ways to contribute
+
+There are several useful ways to help out, ordered roughly from "low
+overhead" to "high overhead":
+
+- **Try FlashDreams and tell us what broke.** A clear bug report — what
+  you ran, what you expected, what you saw — is one of the most valuable
+  contributions a project of this kind can receive.
+- **Improve documentation.** README clarifications, recipe walkthroughs,
+  performance notes, and FAQ entries all land easily and benefit every
+  future user.
+- **Fix bugs.** Issues labelled `good first issue` are a friendly
+  starting point. Larger fixes are welcome too — please leave a comment
+  on the relevant issue first so we can avoid duplicate work.
+- **Add or extend recipes.** New video-generation models, new schedulers,
+  new integrations. For non-trivial features, please open a design issue
+  before sending the PR (see [Submitting a pull request](#submitting-a-pull-request)).
+- **Performance work.** FlashDreams cares about latency and throughput
+  on NVIDIA GPUs. Numbers and reproducible benchmarks make these PRs
+  easy to evaluate.
+
+## Project governance
+
+FlashDreams was developed inside NVIDIA's Simulation & Imitation
+Learning group, and at the time of release NVIDIA holds the
+maintainer and admin roles on the
+[`NVIDIA/flashdreams`](https://github.com/NVIDIA/flashdreams) repository.
+That includes the `main` branch protections, release tags, the package
+publishing keys, and the right to merge.
+
+We treat that as a starting point, not an endpoint. Our intent — modelled
+on projects like [Slang](https://github.com/shader-slang/slang), which
+moved from a single-vendor home to community governance once it grew an
+external user base — is to open governance up as a contributor community
+develops. Concretely, that means:
+
+- **CODEOWNERS is the source of truth for review responsibility.** As
+  contributors take long-term ownership of a subsystem, they get added
+  there and become required reviewers for changes in that area, NVIDIA
+  employee or not.
+- **Decisions happen in public.** Significant design changes are
+  discussed in GitHub issues, pull requests, or
+  [Discussions](https://github.com/NVIDIA/flashdreams/discussions).
+  Internal NVIDIA roadmap planning that touches the public project will
+  surface as a public issue before it lands.
+- **Release notes credit external contributors** by name and PR.
+- **Open path to maintainer.** Contributors who consistently land
+  high-quality work in an area, participate in reviews, and engage with
+  the issue tracker can be invited to become maintainers. There is no
+  fixed time bar; sustained good judgment is what we look for.
+
+If you have feedback on governance — including things you'd like to see
+formalised faster — please open a Discussion. We'd rather hear it than
+not.
+
+## Developer Certificate of Origin (DCO)
+
+All contributions to FlashDreams are made under the
+[Developer Certificate of Origin](https://developercertificate.org/).
+This is a lightweight, well-understood mechanism (used by the Linux
+kernel, GitLab, NVIDIA TensorRT, and many other projects) that lets you
+attest that you have the right to submit your contribution under the
+project's license — without requiring a separate Contributor License
+Agreement.
+
+To sign off, add a `Signed-off-by` line to every commit:
+
+```
+git commit --signoff
+```
+
+which appends a trailer that looks like:
+
+```
+Signed-off-by: Your Name <your@email.address>
+```
+
+By signing off, you are stating that you agree to the
+[Developer Certificate of Origin](https://developercertificate.org/),
+reproduced below for convenience:
+
+> Developer Certificate of Origin
+> Version 1.1
+>
+> By making a contribution to this project, I certify that:
+>
+> (a) The contribution was created in whole or in part by me and I
+>     have the right to submit it under the open source license
+>     indicated in the file; or
+>
+> (b) The contribution is based upon previous work that, to the best
+>     of my knowledge, is covered under an appropriate open source
+>     license and I have the right under that license to submit that
+>     work with modifications, whether created in whole or in part
+>     by me, under the same open source license (unless I am
+>     permitted to submit under a different license), as indicated
+>     in the file; or
+>
+> (c) The contribution was provided directly to me by some other
+>     person who certified (a), (b) or (c) and I have not modified
+>     it.
+>
+> (d) I understand and agree that this project and the contribution
+>     are public and that a record of the contribution (including all
+>     personal information I submit with it, including my sign-off) is
+>     maintained indefinitely and may be redistributed consistent with
+>     this project or the open source license(s) involved.
+
+Pull requests without DCO sign-off will be asked to rebase before merge.
+This is a hard gate; please don't take a polite ping personally.
+
+NVIDIA contributors and external contributors follow the *same* DCO
+process. NVIDIA-internal IP review, where applicable, is handled by
+NVIDIA reviewers via the
+[IP Review Process](https://nvidia.atlassian.net/wiki/display/OSS/IP+Review+Process)
+on your behalf — you do not need to engage with it as an outside
+contributor.
+
+## Submitting a pull request
+
+The short version:
+
+1. Fork the repo on GitHub and create a feature branch from `main`.
+2. Make your changes. Keep PRs small and focused; a 200-line PR that
+   does one thing reviews much faster than a 2000-line PR that does ten.
+3. Add or update tests where it makes sense. CPU-only tests are
+   preferred for portability; GPU tests are welcome and gated with the
+   `manual` pytest marker.
+4. Run the project's checks locally:
+
+   ```bash
+   uv run pre-commit run -a       # format + lint + type-check
+   uv run pytest -m "not manual"  # CPU tests
+   ```
+
+5. Sign off your commits (`git commit --signoff`) and push to your fork.
+6. Open a pull request against `main`. Fill in the PR template, include
+   any context a reviewer would need that isn't obvious from the diff,
+   and link the issue your PR resolves if there is one.
+
+For larger features (a new recipe, a substantial refactor, a new
+integration), please open an issue first to discuss the design. This
+saves everyone time and gives you a chance to surface trade-offs before
+investing implementation effort.
+
+## Code review and merge
+
+- Every pull request requires CI to pass and at least one approving
+  review from a maintainer or designated CODEOWNER for the touched area.
+- For changes that span multiple subsystems, expect reviews from each
+  affected CODEOWNER.
+- We squash-merge to keep `main`'s history readable. The PR title and
+  description become the squash commit message — please make them
+  descriptive and reviewer-facing.
+- If a review comment is unclear, ask. We'd rather have a 30-second
+  clarifying exchange than a misunderstanding turning into rework.
+
+We aim for an initial review on every PR within two business days. If
+your PR has been quiet longer than that, please feel free to leave a
+short ping comment.
+
+## Coding conventions
+
+- Python 3.12+. Type-annotate new code; the project type-checks with
+  [`ty`](https://docs.astral.sh/ty/).
+- Formatting is enforced by `ruff` via pre-commit (`uv run pre-commit
+  run -a`). The CI will reject unformatted code; running pre-commit
+  locally is the easiest way to avoid surprises.
+- Prefer small, well-named functions over long functions with comments
+  explaining each block. Comments should explain *why*, not *what*.
+- Tests live in `flashdreams/tests/` and `integrations/*/tests/`. Use
+  `pytest` and prefer existing fixtures over hand-rolled setup.
+- Every source file added by a contribution must include the SPDX
+  header used elsewhere in the project:
+
+  ```python
+  # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  # SPDX-License-Identifier: Apache-2.0
+  #
+  # Licensed under the Apache License, Version 2.0 (the "License");
+  # you may not use this file except in compliance with the License.
+  # You may obtain a copy of the License at
+  #
+  # http://www.apache.org/licenses/LICENSE-2.0
+  #
+  # Unless required by applicable law or agreed to in writing, software
+  # distributed under the License is distributed on an "AS IS" BASIS,
+  # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  # See the License for the specific language governing permissions and
+  # limitations under the License.
+  ```
+
+  External contributors should add their own copyright line *above* the
+  NVIDIA line if they wish to be attributed; both attributions are
+  retained.
+
+## Licensing of contributions
+
+By submitting a pull request to this repository, you agree that your
+contribution is licensed under the
+[Apache License, Version 2.0](LICENSE), the same license under which
+FlashDreams is distributed. The DCO sign-off described above is your
+attestation that you have the right to make that grant.
+
+Third-party code (i.e. code you did not write yourself, but that you
+have the right to redistribute under a compatible license) may be
+contributed only if:
+
+1. its license is compatible with Apache-2.0;
+2. its origin and license are clearly recorded in
+   [`reuse.toml`](reuse.toml) and [`NOTICE`](NOTICE);
+3. its files retain whatever attribution headers the upstream license
+   requires.
+
+If you are not sure whether something is contributable, please ask in
+an issue before sending the code — it's much easier to sort out
+upfront.
+
+## Filing issues and security reports
+
+- **Bugs and feature requests:** use
+  [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues). Please
+  do not include confidential or customer information.
+- **Security vulnerabilities:** please do *not* file them as public
+  issues. Follow NVIDIA's coordinated disclosure process at
+  https://www.nvidia.com/en-us/security/.
+
+## Code of Conduct
+
+This project follows the
+[NVIDIA Open Source Code of Conduct](https://github.com/NVIDIA/.github/blob/main/CODE_OF_CONDUCT.md).
+By participating in this project — including issues, discussions, and
+pull requests — you agree to abide by it. Please report concerns to the
+maintainers via the address listed in the Code of Conduct.
+
+---
+
+Thanks again for contributing. The project is more useful, more correct,
+and more interesting because outside contributors take the time to send
+their work upstream. We appreciate it.
