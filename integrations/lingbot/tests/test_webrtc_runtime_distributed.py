@@ -68,7 +68,7 @@ class _FakePipeline:
         return {"rank_local_finalize": float(autoregressive_index)}
 
 
-def test_initialize_sync_passes_cp_size_and_rank_seed(
+def test_initialize_sync_passes_rank_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -103,7 +103,6 @@ def test_initialize_sync_passes_cp_size_and_rank_seed(
 
     assert builder_calls == [
         {
-            "cp_size": 4,
             "compile_network": False,
             "seed": 12,
             "enable_sync_and_profile": True,
@@ -143,7 +142,6 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
 
     runtime._initialize_sync()
 
-    assert builder_calls[0]["cp_size"] == 1
     assert builder_calls[0]["seed"] == 10
 
 
@@ -225,7 +223,6 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
                 assert summary is not None
                 summary_rank = int(summary["rank"])
                 calls = summary["builder_calls"]
-                assert calls[0]["cp_size"] == world_size
                 assert calls[0]["seed"] == 100 + summary_rank
                 events = [event[0] for event in summary["pipeline_events"]]
                 assert "generate" in events
