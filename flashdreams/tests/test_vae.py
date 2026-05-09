@@ -21,11 +21,14 @@ import torch
 
 from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
+    TeahvVAEDecoder,
     TeahvVAEDecoderConfig,
 )
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
+    WanVAEDecoder,
     WanVAEDecoderConfig,
+    WanVAEEncoder,
     WanVAEEncoderConfig,
 )
 
@@ -40,6 +43,7 @@ def test_tokenizer(
     dtype = torch.bfloat16
     device = torch.device("cuda")
 
+    tokenizer: WanVAEEncoder
     if tokenizer_choice == "lightvae":
         tokenizer = (
             WanVAEEncoderConfig(
@@ -61,8 +65,9 @@ def test_tokenizer(
             .to(device)
         )
     else:
-        raise ValueError(f"Invalid tokenizer: {tokenizer}")
+        raise ValueError(f"Invalid tokenizer: {tokenizer_choice}")
 
+    detokenizer: WanVAEDecoder | TeahvVAEDecoder
     if detokenizer_choice == "lighttae":
         detokenizer = (
             TeahvVAEDecoderConfig(
@@ -95,7 +100,7 @@ def test_tokenizer(
             .to(device)
         )
     else:
-        raise ValueError(f"Invalid detokenizer: {detokenizer}")
+        raise ValueError(f"Invalid detokenizer: {detokenizer_choice}")
 
     tokenizer_cache = tokenizer.initialize_autoregressive_cache()
     detokenizer_cache = detokenizer.initialize_autoregressive_cache()

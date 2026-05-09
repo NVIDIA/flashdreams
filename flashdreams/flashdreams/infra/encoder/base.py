@@ -61,10 +61,10 @@ class Encoder(ABC, nn.Module):
 
 
 @dataclass(kw_only=True)
-class EncoderConfig(InstantiateConfig[Encoder]):
+class EncoderConfig(InstantiateConfig):
     """Category base for every encoder config (stateless or streaming)."""
 
-    _target: type[Encoder] = field(default_factory=lambda: Encoder)
+    _target: type = field(default_factory=lambda: Encoder)
 
 
 @dataclass(kw_only=True)
@@ -183,7 +183,7 @@ class StreamingVideoEncoder(StreamingEncoder[StreamingEncoderCacheT]):
 class NullEncoderConfig(EncoderConfig):
     """Config for the identity encoder."""
 
-    _target: type["NullEncoder"] = field(default_factory=lambda: NullEncoder)
+    _target: type = field(default_factory=lambda: NullEncoder)
 
 
 class NullEncoder(Encoder):

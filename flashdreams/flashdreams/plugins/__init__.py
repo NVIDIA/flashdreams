@@ -13,9 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""External-runner plugin layer (``RunnerSpecification`` + discovery)."""
+"""External-runner plugin layer (``RunnerConfig`` discovery)."""
 
 from flashdreams.plugins.registry import discover_runners
-from flashdreams.plugins.types import RunnerSpecification
 
-__all__ = ["RunnerSpecification", "discover_runners"]
+__all__ = ["discover_runners"]

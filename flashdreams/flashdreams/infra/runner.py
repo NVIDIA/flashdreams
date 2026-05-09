@@ -21,9 +21,10 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 
 import torch
+import tyro
 
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.infra.config import InstantiateConfig
@@ -39,14 +40,20 @@ def _is_torchrun_env() -> bool:
 
 
 @dataclass(kw_only=True)
-class RunnerConfig(InstantiateConfig["Runner"]):
+class RunnerConfig(InstantiateConfig):
     """Base config every recipe runner extends with its own I/O fields."""
 
-    _target: type["Runner"] = field(default_factory=lambda: Runner)
+    _target: type = field(default_factory=lambda: Runner)
 
     runner_name: str
     """Registry key and ``flashdreams-run`` subcommand name. By convention
     mirrors the wrapped pipeline's ``recipe_name`` slug."""
+
+    description: Annotated[str, tyro.conf.Suppress] = ""
+    """One-line subcommand description shown next to the slug in
+    ``flashdreams-run --help``. ``tyro.conf.Suppress`` hides it from
+    per-runner ``--help`` (it's metadata, not a knob); a non-empty
+    value is enforced for in-tree runners by the registry test."""
 
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
@@ -61,7 +68,9 @@ class RunnerConfig(InstantiateConfig["Runner"]):
 
 
 RunnerConfigT = TypeVar("RunnerConfigT", bound=RunnerConfig)
-PipelineT = TypeVar("PipelineT", bound=StreamInferencePipeline)
+# Bound widened with ``Any`` cache args so recipe pipelines parameterized
+# with their own cache subclasses pass ty's invariant generic check.
+PipelineT = TypeVar("PipelineT", bound=StreamInferencePipeline[Any, Any, Any])
 
 
 class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
@@ -109,9 +118,7 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self.is_rank_zero = self.global_rank == 0
 
         pipeline = config.pipeline.setup()
-        # Cast back to the subclass's narrowed pipeline type; ``.to()``
-        # returns the same module by spec.
-        self.pipeline = pipeline.to(device=device).eval()  # type: ignore[assignment]
+        self.pipeline = pipeline.to(device=device).eval()
 
     @abstractmethod
     def run(self) -> None:

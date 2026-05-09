@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Generic, cast
+from typing import Any, Generic
 
 import torch
 import torch.nn as nn
@@ -47,7 +47,7 @@ from flashdreams.infra.profiler import EventProfiler
 
 
 @dataclass(kw_only=True)
-class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]):
+class StreamInferencePipelineConfig(InstantiateConfig):
     """Config for the streaming inference pipeline.
 
     Set ``encoder=None`` when the pipeline has no per-AR-step control input
@@ -55,9 +55,7 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
     (training, latent-space evaluation, or pipelines that own decoding).
     """
 
-    _target: type["StreamInferencePipeline"] = field(
-        default_factory=lambda: StreamInferencePipeline
-    )
+    _target: type = field(default_factory=lambda: StreamInferencePipeline)
 
     recipe_name: str
     """Stable slug for this pipeline variant; the primary key of
@@ -141,10 +139,7 @@ class StreamInferencePipeline(
         self.config = config
         self.encoder = config.encoder.setup() if config.encoder is not None else None
         self.decoder = config.decoder.setup() if config.decoder is not None else None
-        self.diffusion_model = cast(
-            "DiffusionModel[TransformerCacheT]",
-            config.diffusion_model.setup(),
-        )
+        self.diffusion_model = config.diffusion_model.setup()
 
     @property
     def device(self) -> torch.device:

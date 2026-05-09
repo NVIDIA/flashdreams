@@ -151,7 +151,7 @@ class StreamingVideoDecoder(StreamingDecoder[StreamingDecoderCacheT]):
 
 
 @dataclass(kw_only=True)
-class DecoderConfig(InstantiateConfig[StreamingDecoder]):
+class DecoderConfig(InstantiateConfig):
     """Category base for every decoder config."""
 
-    _target: type[StreamingDecoder] = field(default_factory=lambda: StreamingDecoder)
+    _target: type = field(default_factory=lambda: StreamingDecoder)

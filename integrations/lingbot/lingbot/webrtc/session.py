@@ -27,15 +27,10 @@ import cv2
 import numpy as np
 import torch
 
-from typing import cast
-
 from flashdreams.infra.config import derive_config
 from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
-from flashdreams.recipes.lingbot_world.pipeline import (
-    LingbotWorldInferencePipelineConfig,
-)
 from lingbot.webrtc.controls import CameraPoseIntegrator, KeyboardState
 from lingbot.webrtc.media import LingbotVideoTrack
 
@@ -241,15 +236,12 @@ class LingbotInferenceRuntime:
                 self._world_scale = 1.0
 
         base_pipeline_config = LINGBOT_WORLD_CONFIGS[self.config.config_name]
-        pipeline_config = cast(
-            LingbotWorldInferencePipelineConfig,
-            derive_config(
-                base_pipeline_config,
-                enable_sync_and_profile=True,
-                diffusion_model=dict(
-                    seed=self.config.seed,
-                    transformer=dict(compile_network=self.config.compile_network),
-                ),
+        pipeline_config = derive_config(
+            base_pipeline_config,
+            enable_sync_and_profile=True,
+            diffusion_model=dict(
+                seed=self.config.seed,
+                transformer=dict(compile_network=self.config.compile_network),
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)

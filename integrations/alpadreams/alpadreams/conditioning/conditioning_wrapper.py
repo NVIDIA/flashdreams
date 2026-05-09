@@ -303,6 +303,7 @@ class AlpadreamsConditioningWrapper(nn.Module):
         )
 
         return AlpadreamsPipelineConfig(
+            recipe_name=f"alpadreams-integration-{n_cameras}view",
             text_encoder=CosmosReason1TextEncoderConfig(),
             image_encoder=image_encoder_config,
             encoder=hdmap_encoder_config,
