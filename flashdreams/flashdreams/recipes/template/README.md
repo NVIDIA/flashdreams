@@ -22,9 +22,9 @@ Minimal end-to-end recipe exercising every contract in
 
 ## What's exercised
 
-- **Offline rollout** — `build_cfg_offline`, one AR step over the full
+- **Offline rollout** — `TEMPLATE_OFFLINE`, one AR step over the full
   temporal window.
-- **Autoregressive streaming** — `build_cfg_autoregressive`, multiple
+- **Autoregressive streaming** — `TEMPLATE_AUTOREGRESSIVE`, multiple
   AR steps over a sliding `BlockKVCache`.
 - **Classifier-free guidance** — opt-in by patching
   `guidance_scale > 1.0` via `derive_config`. The uncond branch gets an
@@ -44,10 +44,12 @@ Minimal end-to-end recipe exercising every contract in
 - **Output decoding** — `TemplateDecoder` (a `StreamingDecoder` that
   ignores its empty cache; swap for a `StreamingVideoDecoder` subclass
   when the recipe needs spatial / temporal compression contracts).
-- **Config derivation** — `build_cfg_autoregressive` is a
-  `derive_config` patch on top of `build_cfg_offline`.
+- **Config derivation** — `TEMPLATE_AUTOREGRESSIVE` is a
+  `derive_config` patch on top of `TEMPLATE_OFFLINE`, and
+  `TEMPLATE_AUTOREGRESSIVE_COMPILED` derives from that.
 - **`torch.compile` + `CUDAGraphWrapper`** — off by default; flip via
-  `with_compile_and_cuda_graph` (or `derive_config`). Covered by
+  `derive_config` patching `compile_network` / `use_cuda_graph` (or use
+  the prebuilt `TEMPLATE_AUTOREGRESSIVE_COMPILED`). Covered by
   `test_template_compile_and_cudagraph_equivalence`.
 - **Checkpoint loading** — `TemplateTransformerConfig.checkpoint_path`.
   `None` keeps the random init.
@@ -60,7 +62,7 @@ Minimal end-to-end recipe exercising every contract in
 | `transformer/__init__.py` | `Transformer` subclass, AR cache, config. |
 | `encoder.py` | Control encoder (control channels → latent channels). |
 | `decoder.py` | Decoder (latent channels → output channels). |
-| `config.py` | Pipeline builders + `with_compile_and_cuda_graph`. |
+| `config.py` | Module-level literal pipeline configs + `TEMPLATE_CONFIGS`. |
 
 ## Entry point
 

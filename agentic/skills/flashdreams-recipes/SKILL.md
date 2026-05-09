@@ -12,7 +12,8 @@ A map of how `flashdreams/` is organized and how a single rollout flows through 
 ## TL;DR
 
 - Three layers, strict dependency direction: `core` → `infra` → `recipes`. `infra` and `core` never import from `recipes`. Recipes may import from each other to reuse a sibling recipe's transformer/encoder/decoder.
-- A recipe = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the recipe-specific subclasses of these and a `build_*(...)` config builder.
+- A recipe = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the recipe-specific subclasses of these and ship one **module-level literal** `StreamInferencePipelineConfig` per variant in `config.py`. No `build_*(...)` factories — variants derive from a base via `derive_config(BASE, ...)`.
+- Every config sets `recipe_name: str` (a stable slug). The per-recipe `<NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]` dict is keyed by `recipe_name`. There is no central pipeline-config registry — pipelines are reachable via direct per-recipe imports. Recipes that ship a `Runner` (see §5) appear in the central `flashdreams.configs.runner_configs.BUILTIN_RUNNERS` dict, which is the only registry the `flashdreams-run` CLI dispatches over.
 - Per-rollout state lives in nested `*Cache` dataclasses that mirror the same containment tree.
 - Lifecycle: `pipeline.initialize_cache(...)` once, then a loop of `pipeline.generate(ar_idx, ...)` + `pipeline.finalize(ar_idx, ...)`.
 - Two shape regimes, separated by `transformer.patchify_and_maybe_split_cp`: pre-patchify `[B, C, T, H, W]` outside, post-patchify `[B, L/cp, C]` inside.
@@ -135,8 +136,8 @@ recipes/<name>/
 ├── transformer/
 │   ├── __init__.py          YourTransformerConfig + YourTransformerCache + YourTransformer
 │   └── network.py           YourDiTConfig + YourDiTCache + YourDiT
-└── config.py                build_<variant>(...) → StreamInferencePipelineConfig
-                             <NAME>_CONFIG_BUILDERS dict
+└── config.py                module-level literal StreamInferencePipelineConfig per variant
+                             <NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]
 ```
 
 Add files only when you actually need them:
@@ -226,18 +227,50 @@ There are exactly two shape regimes, separated by patchify:
 
 Compressed reference. The first time you touch one of these, also read the matching code in `recipes/template/`.
 
-### Configs and builders
+### Configs
 
 - Every config: `@dataclass(kw_only=True)` extending `InstantiateConfig[Target]`, with `_target = field(default_factory=lambda: Target)`. **Never** use a bare instance as a default — always `field(default_factory=...)`.
 - **Avoid `__post_init__`.** It's a smell:
-  - *Derived sub-config fields* (e.g. `network.in_dim = base + control_channels`) belong in the **builder** — set the final value when you construct the sub-config. Fold conditional channel math into the builder so `network.in_dim` is the actual integer the network sees.
+  - *Derived sub-config fields* (e.g. `network.in_dim = base + control_channels`) belong in the **literal** — set the final integer the network sees on the literal itself. Conditional channel math lives at the literal definition site, not on the config class.
   - *Cross-field constants* derived purely from config (e.g. `_cuda_graph_capture_ar_idx`) belong on the **transformer instance**, computed in `__init__`. The config should be pure data.
   - *Per-rollout shape checks* (divisibility, etc.) belong in `initialize_autoregressive_cache`, not on the config — `(height, width)` aren't config fields.
   - If you can't move it, the validation probably belongs at instantiation time anyway. Keeping configs `__post_init__`-free makes them trivially serializable and `derive_config`-friendly.
-- One `build_<variant>(...) -> StreamInferencePipelineConfig` per shipped variant in `config.py`. Keyword-only, sensible defaults.
-- Register them in `<NAME>_CONFIG_BUILDERS: dict[str, Callable[..., StreamInferencePipelineConfig]]`.
-- Derive variants with `derive_config(base, **changes)` instead of duplicating builder bodies. Publish reusable derive-patches as helpers (template ships `with_compile_and_cuda_graph(base)`).
+- **Literal style, no builders.** One `<VARIANT_SLUG>: StreamInferencePipelineConfig = StreamInferencePipelineConfig(recipe_name="...", ...)` per shipped variant in `config.py`. Mirrors nerfstudio's `configs/method_configs.py` exactly — every shipped config is a fully-populated module-level literal.
+- **Variants derive via `derive_config`.** Define the canonical chassis as one literal, then express each variant as `cast(YourPipelineConfig, derive_config(BASE, recipe_name="...", ...))`. Each variant must set its own `recipe_name`. Use `dict(...)` for nested patches and pass a fresh sub-config object when replacing a whole slot (e.g. `decoder=PixelShuffleVAEEncoderConfig()`).
+- **Register every variant** in `<NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]`. Build the dict from a tuple of literals using a `recipe_name`-keyed comprehension so a typo in either side is impossible:
+  ```python
+  <NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig] = {
+      cfg.recipe_name: cfg for cfg in (VARIANT_A, VARIANT_B, ...)
+  }
+  ```
+- **No central pipeline-config registry.** Pipeline configs are reachable via direct per-recipe import (`from flashdreams.recipes.<name>.config import <NAME>_CONFIGS`). The only central registry is `BUILTIN_RUNNERS` (see "Runner layer + `flashdreams-run` CLI" below) — recipes that haven't been wrapped into a runner just don't appear in `flashdreams-run`.
+- **`recipe_name` slug convention.** Lowercase, hyphen-separated, prefixed by the recipe family (`alpadreams-...`, `causal-wan21-...`, `lingbot-world-...`). It's a stable user-facing key — treat it like an HTTP route, not a Python identifier. The matching runner (if any) reuses the same slug as its `runner_name`.
+- **No `build_*(...)` helpers.** If you find yourself writing one, use `derive_config` from a shared base instead. Tiny private factories that just shorten a repeated nested literal (e.g. one for each branch of a Wan 2.2 MoE) are fine — they take no "knobs" and just inline a fixed sub-config.
 - Export builder-side spatial defaults (`DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION`) as **module-level constants without leading underscore** in `config.py`. Examples and integrations import these to compute latent dimensions; keeping them private forces every caller to hard-code the same numbers.
+
+### Runner layer + `flashdreams-run` CLI
+
+A `StreamInferencePipeline` is intentionally narrow: it owns the encode → diffuse → decode loop given *already-prepared* inputs (text embeddings, padded first-frame, control latents). A `Runner` is the layer above that turns user-facing CLI arguments (`--prompt`, `--image_path`, `--output_dir`) into those pipeline inputs, drives the AR loop, and persists outputs. Two responsibilities, two classes — same shape as nerfstudio's `Trainer` ⊃ `Pipeline` split.
+
+- **`Runner` ABC + `RunnerConfig` base** live in `flashdreams/infra/runner.py`. Per-variant subclasses live in `recipes/<name>/runner.py`. The base ``__init__`` eagerly does `pipeline = config.pipeline.setup().to(config.device).eval()`; the subclass's only job is `run()` — load runner-config inputs, build the cache, loop `generate` + `finalize`, persist outputs.
+- **Per-variant runners.** One `RunnerConfig` literal per shipped pipeline variant (mirrors the literal style of `<NAME>_CONFIGS`). When two variants share the same I/O (e.g. the three template configs), they can share one `_target` `Runner` class but each variant still gets its own `RunnerConfig` literal pinning the right `pipeline=`. When two variants need different I/O (e.g. Wan T2V vs I2V), each gets its own `Runner` subclass too. Reference templates: `recipes/template/runner.py` (one `Runner`, three configs) and `recipes/wan/runner.py` (two `Runner`s, two configs).
+- **`<NAME>_RUNNERS: dict[str, RunnerConfig]`** in `recipes/<name>/runner.py` keyed by `runner_name` (built from a tuple comprehension, same shape as `<NAME>_CONFIGS`).
+- **`runner_name` mirrors `pipeline.recipe_name` by convention.** A smoke test (`tests/test_recipe_configs.py::test_runner_name_mirrors_pipeline_recipe_name`) enforces it for every in-tree runner so `flashdreams-run <recipe_name>` "just works". Per-runner literals are free to opt out (a recipe with two runners over the same pipeline would have to), but the in-tree set holds the line.
+- **`BUILTIN_RUNNERS`** + **`BUILTIN_DESCRIPTIONS`** in `flashdreams/configs/runner_configs.py` is the only central registry. Every shipped slug needs a one-line entry in `BUILTIN_DESCRIPTIONS` (the test `tests/test_recipe_configs.py::test_builtin_descriptions_cover_runners` enforces parity).
+- **`all_runners()`** returns the sorted, layered view: built-ins first, then plugin discoveries on top with `overwrite=False` (a plugin can never silently shadow a shipped slug).
+- **External runners** ship a `RunnerSpecification(config=..., description=...)` from `flashdreams.plugins.types` and register it via the `flashdreams.runner_configs` entry-point group:
+
+  ```toml
+  [project.entry-points."flashdreams.runner_configs"]
+  my-recipe-fast = "my_pkg.runners:MY_RUNNER_SPEC"
+  ```
+
+  The entry-point name is informational — the registry keys the runner by `spec.config.runner_name`.
+- **Env-var backdoor** (matches `NERFSTUDIO_METHOD_CONFIGS`): `FLASHDREAMS_RUNNER_CONFIGS=slug=module:attr,slug2=other.module:factory_callable`. Useful for in-development specs that aren't installed yet; the attribute can be a `RunnerSpecification` or a zero-arg factory returning one. Built-ins always win; bad entries are logged-and-skipped, never crash the CLI.
+- **`flashdreams-run`** (`flashdreams/scripts/cli.py`) is the unified CLI — one hyphenated console script (nerfstudio's `ns-train` shape) fronting a tyro subcommand union over the runner registry. `flashdreams-run --help` lists every runner; `flashdreams-run <runner> --help` shows every overridable field (including everything inside the wrapped `pipeline`); `flashdreams-run wan21-i2v-14b-480p --prompt "..." --image_path frame.png` resolves the literal + the overrides, builds the pipeline + runner, and dispatches into `runner.run()`. Use `--no-instantiate` to skip GPU work and just dump the resolved config.
+- **Multi-GPU via context-parallelism.** Launch with `torchrun --nproc_per_node=N --no-python flashdreams-run <slug> ...` (`--no-python` tells torchrun to execvp the console script on PATH directly, instead of wrapping it in `python <script>`). The `Runner` ABC bridges the launcher to `torch.distributed` *before* `pipeline.setup()`, so the recipe transformer's auto-CP picks up `WORLD` at construction time and shards `T*H*W` tokens across ranks. `Runner.__init__` also pins `cuda:LOCAL_RANK` and exposes `self.local_rank` / `self.world_size` / `self.global_rank` / `self.is_rank_zero`. New runners must gate their persistence step (mp4, stats JSON, .pt dump, user-facing logs) on `self.is_rank_zero`; compute (`generate` / `finalize`) runs on every rank. There is no `cp_size` knob on any config — the launcher is the single source of truth.
+- **Soft contract.** A pipeline that hasn't been wrapped into a runner is *not* in `BUILTIN_RUNNERS` and is *not* a `flashdreams-run` subcommand — the pipeline config is still reachable via the per-recipe import. Migrate one recipe at a time.
+- **I/O lazy-imports + the `runners` extras.** Image decoding (`cv2`) and MP4 muxing (`mediapy`) are lazy-imported inside `Runner.run()` and gated by the `runners` extras (`pip install 'flashdreams[runners]'`). This keeps serving deployments that only need the bare pipeline (e.g. `integrations/lingbot`) free of ffmpeg / opencv. The error message points users at the right extras when missing.
 
 ### Standard transformer config knobs
 
@@ -283,7 +316,7 @@ The interaction here is subtle — only opt in once eager works.
   - `ar_idx >=` threshold → `wrapper.__call__` (warmup → capture → replay).
 - Keep the threshold off the *config*. Config is data; this is a derived runtime quantity. Computing it in `__init__` (not `__post_init__`) keeps the config trivially serializable and lets `derive_config` round-trip cleanly.
 - If you see `cudaErrorStreamCaptureUnsupported`, autotune is firing inside capture — re-check the threshold and that `.drain` is used throughout filling.
-- The template defaults `compile_network=False` and `use_cuda_graph=False` for ease of debugging. Production recipes (Wan, Lingbot, Alpadreams) flip `compile_network=True` as the default in `Wan21TransformerConfig`-style configs and rely on `with_compile_and_cuda_graph(base)` to additionally enable CUDA graphs. Mirror whichever default matches the recipe's intended deployment.
+- The template defaults `compile_network=False` and `use_cuda_graph=False` for ease of debugging. Production recipes (Wan, Lingbot, Alpadreams) flip `compile_network=True` directly in their literal configs, and ship a separate `*_COMPILED` literal (or, like Alpadreams, a `*_PERF` literal) that additionally turns on `use_cuda_graph` for the encoders / decoder. Mirror whichever default matches the recipe's intended deployment.
 
 ### 3D RoPE
 
@@ -330,8 +363,9 @@ Adding a new recipe `foo`:
    - Encoder for `pipeline.encoder` (per-AR-step control) → `StreamingEncoder[YourCache]` (full `forward(self, input, ar_idx, cache)` + `initialize_autoregressive_cache`), or `StreamingVideoEncoder[YourCache]` if it's a pixel-video encoder (adds `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`).
    - Decoder for `pipeline.decoder` → `StreamingDecoder[YourCache]` (stateless decoders just return `StreamingDecoderCache()`), or `StreamingVideoDecoder[YourCache]` for pixel-video decoders that need to publish `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`.
 4. (Rare) `recipes/foo/pipeline.py` only if the base pipeline's `initialize_cache` signature doesn't fit — most commonly to derive `(height, width)` from an input image (I2V) or accept them as explicit kwargs (T2V).
-5. `recipes/foo/config.py` — at least one `build_foo_<variant>(...)`; a second variant via `derive_config`; `FOO_CONFIG_BUILDERS` dict; `with_compile_and_cuda_graph(base)` helper if you want the fast path. Export `DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION` as public module-level constants. Builders fully resolve `network.in_dim` / `network.additional_concat_ch` / etc. so the config has no `__post_init__`.
-6. `flashdreams/tests/test_foo.py` — bidirectional smoke + streaming smoke + CFG on/off + no-control branch + compile/CUDA-graph equivalence + CP equivalence. **Always set `compile_network=False` explicitly** in tests that introspect `transformer.network`.
+5. `recipes/foo/config.py` — one **module-level literal** `StreamInferencePipelineConfig` per shipped variant (no `build_*(...)` factories). Each literal sets a unique `recipe_name` slug. Express variants as `derive_config(BASE, recipe_name="foo-variant", ...)`. Register every variant in `FOO_CONFIGS: dict[str, StreamInferencePipelineConfig]` via `{cfg.recipe_name: cfg for cfg in (...)}`. Ship a separate `*_COMPILED` literal if you want a torch.compile + CUDA-graph fast path. Export `DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION` as public module-level constants. Literals fully resolve `network.in_dim` / `network.additional_concat_ch` / etc. so the config has no `__post_init__`.
+6. (Optional, but enables `flashdreams-run`) `recipes/foo/runner.py` — one `RunnerConfig` literal per shipped variant (per-variant `Runner` subclass when the I/O signature differs; one shared `Runner` when it doesn't). Each literal pins `pipeline=` to one of the `<NAME>_CONFIGS` literals; convention is `runner_name == pipeline.recipe_name`. Build `FOO_RUNNERS: dict[str, RunnerConfig]` via the `{cfg.runner_name: cfg for cfg in (...)}` comprehension. Then add a one-line import of `FOO_RUNNERS` to `flashdreams/configs/runner_configs.py`'s `BUILTIN_RUNNERS`, **plus a one-line entry per slug in `BUILTIN_DESCRIPTIONS`** (the CLI shows it next to the subcommand). The smoke tests in `tests/test_recipe_configs.py` will fail if you skip either.
+7. `flashdreams/tests/test_foo.py` — bidirectional smoke + streaming smoke + CFG on/off + no-control branch + compile/CUDA-graph equivalence + CP equivalence. **Always set `compile_network=False` explicitly** in tests that introspect `transformer.network` (use `derive_config(FOO_BASE, diffusion_model=dict(transformer=dict(compile_network=False)))`).
 
 ## 8. Common pitfalls
 
@@ -347,7 +381,14 @@ Layer / structure:
 
 Configs:
 
-- **Putting derived sub-config fields in `__post_init__`.** Set `network.in_dim = base + control_channels` in the **builder**, where the conditional logic is colocated with the option that triggers it. The config should hold the final integer the network sees.
+- **Putting derived sub-config fields in `__post_init__`.** Set `network.in_dim = base + control_channels` directly on the **literal**, where the conditional logic is colocated with the option that triggers it. The config should hold the final integer the network sees.
+- **Reaching for a `build_*` helper instead of a literal + `derive_config`.** The 1:1 nerfstudio mapping bans builder factories — variants are `derive_config(BASE, ...)`. Tiny private factories that just shorten a fixed sub-config (no kwargs) are fine.
+- **Forgetting `recipe_name` on a new literal.** It's a required, kw-only field. The smoke test in `tests/test_recipe_configs.py` asserts every `BUILTIN_RUNNERS[k].pipeline.recipe_name == k` for runner-equipped recipes.
+- **Reusing a `recipe_name` across variants.** Aggregators in `runner_configs.py` raise on duplicates; pick a fresh slug.
+- **Adding a runner but forgetting `BUILTIN_DESCRIPTIONS`.** `flashdreams-run --help` shows an empty help line and the parity smoke test fails. Add a single sentence per slug.
+- **`runner_name != pipeline.recipe_name`.** The CLI contract is "`flashdreams-run <recipe_name>` runs that recipe"; a smoke test enforces parity on the in-tree set. Per-runner literals can opt out (e.g. two runners over one pipeline), but the default is to mirror.
+- **Plugging a deployment-specific variant straight into `BUILTIN_RUNNERS` from an integration package.** Out-of-tree code should ship a `RunnerSpecification` and register it via the `flashdreams.runner_configs` entry point; editing `BUILTIN_RUNNERS` from outside `flashdreams/` violates the dependency direction.
+- **Adding heavy I/O deps (`cv2`, `mediapy`, ...) at module load time.** Lazy-import them inside `Runner.run()` and gate on the `runners` extras with a clear `ImportError` so a serving deployment that only uses the bare pipeline doesn't pay the install cost.
 - **Storing per-rollout shape on the config (`config.height`, `config.width`).** They aren't config — they vary every rollout. Pass them through `initialize_autoregressive_cache(height=..., width=...)` and stash them on the transformer instance.
 - **`__post_init__` cross-config validation that depends on `(height, width)`.** Move it into `initialize_autoregressive_cache`; that's where the spatial layout actually exists.
 - **Underscore-prefixing module-level builder defaults (`_DEFAULT_VIDEO_HEIGHT`, `_WAN_VAE_SPATIAL_COMPRESSION`).** These are imported from `examples/run_*.py` and integrations to compute pixel ↔ latent dimensions; export them publicly.

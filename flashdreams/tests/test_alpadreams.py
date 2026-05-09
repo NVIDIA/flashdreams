@@ -25,8 +25,8 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.recipes.alpadreams import transformer as alpadreams_transformer_module
 from flashdreams.recipes.alpadreams.config import (
-    ALPADREAMS_CONFIG_BUILDERS,
-    build_sv_2steps_chunk2_loc6_lightvae_lighttae,
+    ALPADREAMS_CONFIGS,
+    SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
 )
 from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
@@ -256,29 +256,26 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     ),
     [
         (
-            "sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            "alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
             2,
             24,
             False,
         ),
         (
-            "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m",
+            "alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
             48,
             48,
             True,
         ),
     ],
 )
-def test_alpadreams_teacher_config_builders_wire_cfg_negative_text(
+def test_alpadreams_teacher_configs_wire_cfg_negative_text(
     config_name: str,
     expected_len_t: int,
     expected_window_size_t: int,
     expected_skip_finalize_kv_cache: bool,
 ) -> None:
-    pipeline_config = ALPADREAMS_CONFIG_BUILDERS[config_name](
-        compile_network=False,
-        use_cuda_graph=False,
-    )
+    pipeline_config = ALPADREAMS_CONFIGS[config_name]
     transformer_config = pipeline_config.diffusion_model.transformer
 
     assert isinstance(transformer_config, CosmosTransformerConfig)
@@ -306,7 +303,7 @@ def test_alpadreams_streaming_inference():
     image = torch.randn(1, num_views, 1, 3, height, width, device=device, dtype=dtype)
     text = [["Hello, world!"] * num_views]
 
-    config = build_sv_2steps_chunk2_loc6_lightvae_lighttae()
+    config = SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE
     pipeline = config.setup().to(device)
     assert isinstance(pipeline, AlpadreamsPipeline)
     cache = pipeline.initialize_cache(text=text, image=image)

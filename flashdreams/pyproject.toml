@@ -36,6 +36,11 @@ dependencies = [
     "tqdm>=4.60",
     "transformers==4.57.6",
     "torchvision",
+    # tyro powers the ``flashdreams-run`` console script (subcommand
+    # union over the recipe registry, per-field CLI overrides). It also
+    # wires the demo scripts under ``flashdreams/examples/``, so it has
+    # to ship as a runtime dependency, not a dev-only one.
+    "tyro>=0.8",
 
     "torch>=2.11",
     "torchvision>=0.22",
@@ -58,14 +63,27 @@ dependencies = [
     "triton-windows>=3.5.0; sys_platform == 'win32'",
 ]
 
+[project.scripts]
+# Unified CLI over every registered recipe (in-tree + plugin-discovered).
+# Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
+# binary, tyro union over runners as direct subcommands).
+flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "tyro>=0.8",
     "mediapy>=1.1",
     "pytest-manual-marker",
 ]
 examples = [
+    "mediapy>=1.1",
+    "opencv-python-headless",
+]
+# I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
+# (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
+# off the core install so a serving deployment that uses the bare
+# pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
+runners = [
     "mediapy>=1.1",
     "opencv-python-headless",
 ]

@@ -65,6 +65,56 @@ uv run pytest -m "not manual"
 uv run pytest flashdreams/tests/test_attention.py
 ```
 
+## Unified `flashdreams-run` CLI
+
+`flashdreams-run` is the cross-recipe console script. It dispatches over
+the `BUILTIN_RUNNERS` registry (in-tree + plugin-discovered) and exposes
+every overridable field as a CLI flag — the recipe-specific
+`flashdreams/examples/run_*.py` scripts below predate this and are kept
+for reference / specialised flows.
+
+```bash
+# List every registered runner.
+uv run flashdreams-run --help
+
+# Per-runner help: every overridable field is a flag.
+uv run flashdreams-run wan21-t2v-1.3b-480p --help
+
+# Single-GPU run.
+uv run flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
+
+# I2V variant (--image-path is a runner-level field).
+uv run flashdreams-run wan21-i2v-14b-480p \
+    --prompt "..." --image-path frame.png
+
+# Resolve the config without touching a GPU (good for debugging overrides).
+uv run flashdreams-run template-offline --no-instantiate
+```
+
+### Multi-GPU (context-parallelism)
+
+Recipe transformers auto-detect their CP size from `torch.distributed`'s
+`WORLD` group, so multi-GPU is just torchrun + the same command:
+
+```bash
+uv run torchrun --nproc_per_node=4 --no-python \
+    flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
+```
+
+Why `--no-python`: torchrun's default is `python <training_script> ...`,
+which would treat `flashdreams-run` as a relative path in cwd. With
+`--no-python` torchrun execvps the binary directly, so PATH lookup
+finds the venv shim. Once running, `Runner.__init__` initializes
+`torch.distributed`, pins `cuda:LOCAL_RANK` per rank, and exposes
+`self.local_rank` / `self.world_size` / `self.global_rank` /
+`self.is_rank_zero` to the recipe; runners gate their I/O (mp4, stats
+JSON, .pt dump, user-facing logs) on `is_rank_zero` so only one rank
+writes outputs. There is no `cp_size` knob — the launcher is the single
+source of truth.
+
+Tyro's `--help` and parse-error banners print exactly once on rank 0;
+non-zero ranks suppress them via tyro's distributed-mode hook.
+
 ## Instructions to run Alpadreams Inference
 
 ```bash

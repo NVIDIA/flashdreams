@@ -27,9 +27,15 @@ import cv2
 import numpy as np
 import torch
 
-from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIG_BUILDERS
+from typing import cast
+
+from flashdreams.infra.config import derive_config
+from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
+from flashdreams.recipes.lingbot_world.pipeline import (
+    LingbotWorldInferencePipelineConfig,
+)
 from lingbot.webrtc.controls import CameraPoseIntegrator, KeyboardState
 from lingbot.webrtc.media import LingbotVideoTrack
 
@@ -47,7 +53,7 @@ class SessionBusyError(RuntimeError):
 
 @dataclass(slots=True)
 class LingbotRuntimeConfig:
-    config_name: str = "LingBot-World-Fast"
+    config_name: str = "lingbot-world-fast"
     compile_network: bool = True
     seed: int = 42
     device: str = "cuda:0"
@@ -173,8 +179,8 @@ class LingbotInferenceRuntime:
                 "Missing Lingbot example assets: " + ", ".join(missing_paths)
             )
 
-        if self.config.config_name not in LINGBOT_WORLD_CONFIG_BUILDERS:
-            supported = ", ".join(sorted(LINGBOT_WORLD_CONFIG_BUILDERS))
+        if self.config.config_name not in LINGBOT_WORLD_CONFIGS:
+            supported = ", ".join(sorted(LINGBOT_WORLD_CONFIGS))
             raise ValueError(
                 f"Unknown config_name={self.config.config_name!r}. Supported: {supported}"
             )
@@ -234,16 +240,19 @@ class LingbotInferenceRuntime:
             if self._world_scale <= 0:
                 self._world_scale = 1.0
 
-        builder = LINGBOT_WORLD_CONFIG_BUILDERS[self.config.config_name]
-        self._pipeline = (
-            builder(
-                compile_network=self.config.compile_network,
-                seed=self.config.seed,
+        base_pipeline_config = LINGBOT_WORLD_CONFIGS[self.config.config_name]
+        pipeline_config = cast(
+            LingbotWorldInferencePipelineConfig,
+            derive_config(
+                base_pipeline_config,
                 enable_sync_and_profile=True,
-            )
-            .setup()
-            .to(device=self._device)
+                diffusion_model=dict(
+                    seed=self.config.seed,
+                    transformer=dict(compile_network=self.config.compile_network),
+                ),
+            ),
         )
+        self._pipeline = pipeline_config.setup().to(device=self._device)
         self._first_frames = first_frames_t
         self._prompt = prompt
         self._reset_rollout_sync()

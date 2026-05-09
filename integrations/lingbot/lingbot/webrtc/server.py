@@ -63,8 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default="LingBot-World-Fast",
-        help="Lingbot config preset from LINGBOT_WORLD_CONFIG_BUILDERS.",
+        default="lingbot-world-fast",
+        help="Lingbot config preset from LINGBOT_WORLD_CONFIGS.",
     )
     parser.add_argument(
         "--no_compile",

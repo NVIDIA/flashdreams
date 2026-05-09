@@ -633,6 +633,7 @@ dependencies = [
     { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
     { name = "transformers" },
     { name = "triton-windows", marker = "sys_platform == 'win32'" },
+    { name = "tyro" },
 ]
 
 [package.optional-dependencies]
@@ -640,9 +641,12 @@ dev = [
     { name = "mediapy" },
     { name = "pytest" },
     { name = "pytest-manual-marker" },
-    { name = "tyro" },
 ]
 examples = [
+    { name = "mediapy" },
+    { name = "opencv-python-headless" },
+]
+runners = [
     { name = "mediapy" },
     { name = "opencv-python-headless" },
 ]
@@ -657,9 +661,11 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "mediapy", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'examples'", specifier = ">=1.1" },
+    { name = "mediapy", marker = "extra == 'runners'", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "nvidia-ml-py", specifier = ">=12.0" },
     { name = "opencv-python-headless", marker = "extra == 'examples'" },
+    { name = "opencv-python-headless", marker = "extra == 'runners'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'" },
     { name = "safetensors", specifier = ">=0.4" },
@@ -673,9 +679,9 @@ requires-dist = [
     { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32'", specifier = ">=2.12" },
     { name = "transformers", specifier = "==4.57.6" },
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
-    { name = "tyro", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "tyro", specifier = ">=0.8" },
 ]
-provides-extras = ["dev", "examples"]
+provides-extras = ["dev", "examples", "runners"]
 
 [[package]]
 name = "fonttools"

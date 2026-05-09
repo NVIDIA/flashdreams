@@ -44,7 +44,7 @@ import torch
 
 from flashdreams.core.checkpoint.load import load_distributed_checkpoint
 from flashdreams.recipes.alpadreams.config import (
-    ALPADREAMS_CONFIG_BUILDERS as CONFIG_BUILDERS,
+    ALPADREAMS_CONFIGS as CONFIGS,
 )
 from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 from flashdreams.recipes.alpadreams.transformer.impl.network import CosmosDiTNetwork
@@ -86,8 +86,8 @@ def parse_args() -> argparse.Namespace:
         "--config_name",
         type=str,
         required=True,
-        choices=sorted(CONFIG_BUILDERS.keys()),
-        help=("FlashDreams config builder used to instantiate the matching network."),
+        choices=sorted(CONFIGS.keys()),
+        help=("FlashDreams pipeline config slug used to instantiate the matching network."),
     )
     return parser.parse_args()
 
@@ -96,7 +96,7 @@ def main() -> None:
     args = parse_args()
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pipeline_config = CONFIG_BUILDERS[args.config_name]()
+    pipeline_config = CONFIGS[args.config_name]
     transformer_config = pipeline_config.diffusion_model.transformer
     assert isinstance(transformer_config, CosmosTransformerConfig), (
         "convert_i4_dcp2pt requires an Alpadreams Cosmos transformer config; "

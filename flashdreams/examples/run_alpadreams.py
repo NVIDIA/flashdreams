@@ -17,13 +17,12 @@
 
 Distributed streaming inference entrypoint for the alpadreams
 driving-scene video generation recipe (Cosmos DiT + HDMap + I2V mask).
-Picks one of :data:`ALPADREAMS_CONFIG_BUILDERS` based on
-``--n_cameras``:
+Picks one of :data:`ALPADREAMS_CONFIGS` based on ``--n_cameras``:
 
 - ``--n_cameras 1`` — single front-facing camera, defaults to
-  ``sv_2steps_chunk2_loc6_lightvae_lighttae``.
+  ``alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae``.
 - ``--n_cameras 4`` — four surrounding cameras, defaults to
-  ``mv_2steps_chunk4_loc8_pshuffle_lighttae``.
+  ``alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae``.
 - ``--overwrite_config_name`` can select other registered configs, including
   the single-block bidirectional Alpadreams recipe. For configs that expose
   ``num_chunks``, ``--num_chunks`` forwards a user-chosen latent length.
@@ -77,6 +76,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import cv2
 import mediapy as media
@@ -86,8 +86,9 @@ from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
+from flashdreams.infra.config import derive_config
 from flashdreams.recipes.alpadreams.config import (
-    ALPADREAMS_CONFIG_BUILDERS,
+    ALPADREAMS_CONFIGS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
     WAN_VAE_SPATIAL_COMPRESSION,
@@ -117,18 +118,60 @@ def _needs_negative_text(pipeline_config: AlpadreamsPipelineConfig) -> bool:
 
 def _config_uses_num_chunks(config_name: str) -> bool:
     return config_name in [
-        "sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m"
+        "alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m"
     ]
 
 
-def _num_chunks_args(
+def _num_chunks_overrides(
     config_name: str, requested_num_chunks: int | None
-) -> dict[str, int]:
+) -> dict[str, dict[str, int]]:
+    """Build a ``derive_config`` patch for the bidirectional ``num_chunks`` knob.
+
+    The bidirectional chassis uses ``len_t == window_size_t == num_chunks``;
+    return an empty patch when no override is requested.
+    """
     if requested_num_chunks is None:
         return {}
     if not _config_uses_num_chunks(config_name):
         raise ValueError("--num_chunks is only supported by the bidirectional config.")
-    return {"num_chunks": requested_num_chunks}
+    assert requested_num_chunks >= 1, (
+        f"num_chunks must be positive, got {requested_num_chunks}."
+    )
+    return {
+        "diffusion_model": {
+            "transformer": {
+                "len_t": requested_num_chunks,
+                "window_size_t": requested_num_chunks,
+            }
+        }
+    }
+
+
+def _build_pipeline_config(
+    config_name: str,
+    *,
+    compile_network: bool,
+    seed: int,
+    num_chunks: int | None,
+) -> AlpadreamsPipelineConfig:
+    """Apply the demo's CLI knobs to the registered base config."""
+    base = ALPADREAMS_CONFIGS[config_name]
+    overrides = _num_chunks_overrides(config_name, num_chunks)
+    transformer_overrides = {"compile_network": compile_network}
+    diffusion_patch: dict[str, object] = {
+        "seed": seed,
+        "transformer": transformer_overrides,
+    }
+    if "diffusion_model" in overrides:
+        # Merge the bidirectional ``num_chunks`` patch into the same
+        # ``diffusion_model`` block so both seed / compile and the
+        # transformer shape edits land in one ``derive_config`` call.
+        existing_transformer = overrides["diffusion_model"].get("transformer", {})
+        transformer_overrides.update(existing_transformer)
+    return cast(
+        AlpadreamsPipelineConfig,
+        derive_config(base, diffusion_model=diffusion_patch),
+    )
 
 
 def _split_user_paths(
@@ -182,7 +225,7 @@ def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
             "realistic lighting, photorealistic quality. High resolution dashcam footage "
             "of city driving."
         )
-        config_name = "sv_2steps_chunk2_loc6_lightvae_lighttae"
+        config_name = "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
     elif n_cameras == 4:
         camera_names = [
             "camera_cross_left_120fov",
@@ -200,7 +243,7 @@ def _build_data(n_cameras: int) -> tuple[list[str], list[dict]]:
             "trees punctuate both sides. Clear blue sky with sparse soft clouds. Bright midday "
             "sunlight, natural colors, realistic materials, crisp shadows, clean asphalt texture."
         )
-        config_name = "mv_2steps_chunk4_loc8_pshuffle_lighttae"
+        config_name = "alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae"
     else:
         raise ValueError(f"Number of cameras must be 1 or 4, got {n_cameras}")
 
@@ -248,7 +291,7 @@ def parse_args() -> argparse.Namespace:
         "--overwrite_config_name",
         type=str,
         default=None,
-        choices=[None, *sorted(ALPADREAMS_CONFIG_BUILDERS.keys())],
+        choices=[None, *sorted(ALPADREAMS_CONFIGS.keys())],
         help="Optionally override the per-n_cameras default config name.",
     )
     parser.add_argument(
@@ -363,13 +406,11 @@ def _save_embeddings_and_exit(args: argparse.Namespace) -> None:
 
     assert os.getenv("HF_TOKEN") is not None, "HF_TOKEN is not set"
 
-    builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
-    # Build config metadata only; the DiT/decoder are not instantiated in this path.
-    num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
-    pipeline_config = builder(
+    pipeline_config = _build_pipeline_config(
+        config_name,
         compile_network=False,
         seed=0,
-        **num_chunks_args,
+        num_chunks=args.num_chunks,
     )
 
     assert (
@@ -522,17 +563,13 @@ def main() -> None:
     if rank == 0:
         print("HF_TOKEN detected; using env-var auth for huggingface_hub")
 
-    builder = ALPADREAMS_CONFIG_BUILDERS[config_name]
-    num_chunks_args = _num_chunks_args(config_name, args.num_chunks)
-    if num_chunks_args and rank == 0:
-        print(
-            "Using bidirectional num_chunks="
-            f"{num_chunks_args['num_chunks']} for this runtime."
-        )
-    pipeline_config = builder(
+    if args.num_chunks is not None and rank == 0:
+        print(f"Using bidirectional num_chunks={args.num_chunks} for this runtime.")
+    pipeline_config = _build_pipeline_config(
+        config_name,
         compile_network=not args.no_compile,
         seed=args.seed + rank,
-        **num_chunks_args,
+        num_chunks=args.num_chunks,
     )
     needs_negative_text = _needs_negative_text(pipeline_config)
 

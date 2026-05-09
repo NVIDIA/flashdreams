@@ -13,11 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pipeline-config builders for streaming Wan 2.2."""
+"""Pre-built pipeline configs for streaming Wan 2.2.
+
+One module-level literal per shipped variant. Wan 2.2 currently ships
+only the FastVideo distilled T2V preset; the dual 14B MoE backbone is
+expressed as two ``Wan21TransformerConfig`` branches inside
+:class:`Wan22TransformerConfig`.
+"""
 
 from __future__ import annotations
-
-from collections.abc import Callable
 
 import torch
 
@@ -45,8 +49,11 @@ AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS: dict[str, dict[str, str]] = {
     },
 }
 
-
-## Checkpoint remap
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 480
+DEFAULT_VIDEO_WIDTH = 832
+WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _remap_diffusers_state_dict(
@@ -56,100 +63,67 @@ def _remap_diffusers_state_dict(
     return remap_checkpoint_keys(state_dict, CHECKPOINT_KEY_MAPPING)
 
 
-## Canonical Wan 2.2 streaming defaults
+def _wan22_branch(checkpoint_path: str) -> Wan21TransformerConfig:
+    """Build one of the two Wan 2.2 MoE branches (high-noise / low-noise).
 
-# FastVideo 8-step distillation schedule.
-_DEFAULT_DENOISING_TIMESTEPS = [1000, 850, 700, 550, 350, 275, 200, 125]
-_DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
-_DEFAULT_BOUNDARY_RATIO = 0.875
-
-_DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1,)
-# Canonical pixel-space defaults; callers pass the matching latent
-# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
-DEFAULT_VIDEO_HEIGHT = 480
-DEFAULT_VIDEO_WIDTH = 832
-_DEFAULT_LEN_T_LATENT = 3
-WAN_VAE_SPATIAL_COMPRESSION = 8
-
-
-def _wan_vae_decoder_config() -> WanVAEDecoderConfig:
-    """Wan VAE decoder config."""
-    return WanVAEDecoderConfig(
-        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-    )
-
-
-def _scheduler_config(
-    num_inference_steps: int = len(_DEFAULT_DENOISING_TIMESTEPS),
-) -> FlowMatchSchedulerConfig:
-    """FastVideo Wan 2.2 flow-match scheduler defaults."""
-    timesteps = _DEFAULT_DENOISING_TIMESTEPS[:num_inference_steps]
-    return FlowMatchSchedulerConfig(
-        num_inference_steps=num_inference_steps,
-        denoising_timesteps=timesteps,
-        warp_denoising_step=True,
-        shift=5.0,
-        sigma_min=0.0,
-        extra_one_step=True,
-        num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
-    )
-
-
-def _transformer_config(
-    *,
-    checkpoint_path: dict[str, str],
-    compile_network: bool,
-) -> Wan22TransformerConfig:
-    """Wan 2.2 dual-14B transformer defaults for causal/streaming T2V."""
-
-    def _branch(ckpt: str) -> Wan21TransformerConfig:
-        return Wan21TransformerConfig(
-            network=WanDiTNetwork14BConfig(
-                patch_embedding_type="conv3d",
-            ),
-            checkpoint_path=ckpt,
-            state_dict_transform=_remap_diffusers_state_dict,
-            batch_shape=_DEFAULT_BATCH_SHAPE,
-            len_t=_DEFAULT_LEN_T_LATENT,
-            guidance_scale=1.0,
-            window_size_t=21,
-            sink_size_t=0,
-            compile_network=compile_network,
-        )
-
-    return Wan22TransformerConfig(
-        transformer_high_noise=_branch(checkpoint_path["high_noise"]),
-        transformer_low_noise=_branch(checkpoint_path["low_noise"]),
-        boundary_ratio=_DEFAULT_BOUNDARY_RATIO,
-        num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
-    )
-
-
-## Builders
-
-
-def build_fastvideo(
-    *,
-    compile_network: bool = True,
-    seed: int = 42,
-    enable_sync_and_profile: bool = False,
-) -> WanInferencePipelineConfig:
-    """FastVideo CausalWan2.2 distilled T2V config (Wan VAE decoder)."""
-    return WanInferencePipelineConfig(
-        enable_sync_and_profile=enable_sync_and_profile,
-        encoder=None,
-        decoder=_wan_vae_decoder_config(),
-        diffusion_model=DiffusionModelConfig(
-            seed=seed,
-            transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS["fastvideo"],
-                compile_network=compile_network,
-            ),
-            scheduler=_scheduler_config(),
+    Both branches share every Wan 2.1 14B knob; only the checkpoint
+    differs. Kept as a tiny helper so the literal below stays
+    readable -- inlining would duplicate ~12 lines per branch.
+    """
+    return Wan21TransformerConfig(
+        network=WanDiTNetwork14BConfig(
+            patch_embedding_type="conv3d",
         ),
+        checkpoint_path=checkpoint_path,
+        state_dict_transform=_remap_diffusers_state_dict,
+        batch_shape=(1,),
+        len_t=3,
+        guidance_scale=1.0,
+        window_size_t=21,
+        sink_size_t=0,
+        compile_network=True,
     )
 
 
-CAUSAL_WAN22_CONFIG_BUILDERS: dict[str, Callable[..., WanInferencePipelineConfig]] = {
-    "fastvideo": build_fastvideo,
+## FastVideo CausalWan2.2 distilled T2V (Wan VAE decoder).
+##
+## Two-branch MoE: ``high_noise`` runs above the boundary
+## (``timestep / num_train_timesteps >= boundary_ratio``), ``low_noise``
+## below. FastVideo 8-step distillation schedule
+## ``[1000, 850, 700, 550, 350, 275, 200, 125]``.
+FASTVIDEO_T2V = WanInferencePipelineConfig(
+    recipe_name="causal-wan22-fastvideo-t2v",
+    encoder=None,
+    decoder=WanVAEDecoderConfig(
+        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+    ),
+    diffusion_model=DiffusionModelConfig(
+        seed=42,
+        transformer=Wan22TransformerConfig(
+            transformer_high_noise=_wan22_branch(
+                AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS["fastvideo"]["high_noise"]
+            ),
+            transformer_low_noise=_wan22_branch(
+                AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS["fastvideo"]["low_noise"]
+            ),
+            boundary_ratio=0.875,
+            num_train_timesteps=1000,
+        ),
+        scheduler=FlowMatchSchedulerConfig(
+            num_inference_steps=8,
+            denoising_timesteps=[1000, 850, 700, 550, 350, 275, 200, 125],
+            warp_denoising_step=True,
+            shift=5.0,
+            sigma_min=0.0,
+            extra_one_step=True,
+            num_train_timesteps=1000,
+        ),
+    ),
+)
+
+
+CAUSAL_WAN22_CONFIGS: dict[str, WanInferencePipelineConfig] = {
+    cfg.recipe_name: cfg
+    for cfg in (FASTVIDEO_T2V,)
 }
+"""All shipped streaming Wan 2.2 variants, keyed by ``recipe_name``."""

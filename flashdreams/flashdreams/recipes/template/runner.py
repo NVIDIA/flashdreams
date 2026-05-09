@@ -1,0 +1,288 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""``flashdreams-run``-side runner for the template recipe.
+
+The template recipe ships toy ``Conv3d`` networks and a synthetic
+control input — there is no prompt, no first frame, and the decoder
+emits diagnostic tensors rather than pixels. The runner mirrors that
+shape: it builds deterministic random context + control inputs from a
+seeded :class:`torch.Generator`, runs ``num_ar_steps`` AR steps, and
+writes a per-step tensor stack to ``output_dir / "<runner_name>.pt"``.
+
+This file is the reference implementation for every other runner in the
+codebase; new runners should follow the same control flow:
+
+1. ``__init__`` is inherited (eagerly builds the pipeline on the
+   configured device).
+2. :meth:`TemplateRunner.run` resolves runner-config inputs, calls
+   ``self.pipeline.initialize_cache(...)``, loops
+   ``generate`` + ``finalize``, and persists outputs.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import cast
+
+import torch
+from loguru import logger
+
+from flashdreams.infra.config import derive_config
+from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.recipes.template.config import (
+    TEMPLATE_AUTOREGRESSIVE,
+    TEMPLATE_AUTOREGRESSIVE_COMPILED,
+    TEMPLATE_OFFLINE,
+)
+from flashdreams.recipes.template.encoder import TemplateControlEncoder
+from flashdreams.recipes.template.transformer import (
+    TemplateTransformer,
+    TemplateTransformerConfig,
+)
+
+
+@dataclass(kw_only=True)
+class TemplateRunnerConfig(RunnerConfig):
+    """Runner config for any template variant (offline / AR / AR-compiled).
+
+    The three template variants share the same I/O shape (random context
+    + control), so they share one ``_target`` :class:`TemplateRunner`
+    class and only differ on the wrapped ``pipeline`` literal.
+    """
+
+    _target: type["TemplateRunner"] = field(  # type: ignore[assignment]
+        default_factory=lambda: TemplateRunner
+    )
+
+    num_ar_steps: int = 1
+    """How many AR steps to roll. Pin per-variant: 1 for the offline /
+    bidirectional preset (one chunk covers ``window_size_t``), 2+ for
+    the streaming AR presets (so the KV cache exercises both the
+    filling and the steady-state code paths)."""
+
+    height: int = 6
+    """Pre-patchify latent height. Must be divisible by
+    ``transformer.patch_size[1]``. Defaults match the unit-test
+    fixture in ``tests/test_template.py`` so ``flashdreams-run template-offline``
+    matches the smoke-test rollout out of the box."""
+
+    width: int = 4
+    """Pre-patchify latent width. Same divisibility rule as
+    :attr:`height`."""
+
+    batch_size: int = 1
+    """Batch elements. The template DiT has no batch-shape constraint."""
+
+    n_context_tokens: int = 4
+    """Length of the synthetic context-token sequence fed to
+    ``context_encoder``."""
+
+    seed: int = 42
+    """Seeds a :class:`torch.Generator` so two runs with the same
+    config produce bit-identical context + control. The pipeline's
+    own ``diffusion_model.seed`` controls the noise sample."""
+
+
+class TemplateRunner(
+    Runner[TemplateRunnerConfig, StreamInferencePipeline]
+):
+    """End-to-end driver for any template-recipe variant.
+
+    Generates synthetic inputs, runs the AR loop, and writes the
+    per-step outputs as a stacked tensor. No image / no prompt — the
+    template recipe is a chassis, not a generative model.
+    """
+
+    def run(self) -> None:
+        """Roll one rollout and dump the output tensor."""
+        cfg = self.config
+        transformer = self.pipeline.diffusion_model.transformer
+        assert isinstance(transformer, TemplateTransformer), (
+            f"TemplateRunner expected TemplateTransformer; "
+            f"got {type(transformer).__name__}."
+        )
+        tcfg: TemplateTransformerConfig = transformer.config
+        device = torch.device(cfg.device)
+
+        # Read the encoder's input width off the live pipeline so
+        # ``derive_config(..., encoder=AnotherEncoderConfig(...))``
+        # overrides flow through correctly. ``None`` (encoder=None) is
+        # the no-control case; pick a benign 8 channels and let the
+        # ``control = None`` short-circuit drop the tensor.
+        if isinstance(self.pipeline.encoder, TemplateControlEncoder):
+            control_channels = self.pipeline.encoder.config.control_channels
+        else:
+            control_channels = 8
+
+        inputs = _make_synthetic_inputs(
+            tcfg=tcfg,
+            batch_size=cfg.batch_size,
+            height=cfg.height,
+            width=cfg.width,
+            n_context_tokens=cfg.n_context_tokens,
+            control_channels=control_channels,
+            device=device,
+            seed=cfg.seed,
+        )
+
+        transformer_context: dict[str, object] = {
+            "context": inputs["context"],
+            "height": cfg.height,
+            "width": cfg.width,
+        }
+        if tcfg.guidance_scale > 1.0:
+            transformer_context["negative_context"] = inputs["negative_context"]
+
+        cache = self.pipeline.initialize_cache(transformer_context=transformer_context)
+
+        outputs: list[torch.Tensor] = []
+        # Encoder presence and control input must agree -- mirror the
+        # pipeline's own assertion locally so a misconfigured runner
+        # config fails before the first AR step.
+        control = inputs["control"] if self.pipeline.encoder is not None else None
+        for ar_idx in range(cfg.num_ar_steps):
+            out = self.pipeline.generate(ar_idx, cache, input=control)
+            outputs.append(out)
+            # Skip ``finalize`` on the last step (canonical pattern;
+            # matches ``tests/test_template.py::_run_rollout``).
+            if ar_idx < cfg.num_ar_steps - 1:
+                self.pipeline.finalize(ar_idx, cache)
+
+        # Stack along a new "AR-step" axis so the dump captures the
+        # full rollout with one ``torch.load``. Force-CPU before save
+        # so the pickle is portable. Persist only on rank 0; other
+        # ranks have already done the same compute under CP.
+        if not self.is_rank_zero:
+            return
+        stacked = torch.stack(outputs, dim=0).cpu()
+        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = cfg.output_dir / f"{cfg.runner_name}.pt"
+        torch.save(stacked, out_path)
+
+        logger.info(
+            f"[{cfg.runner_name}] wrote {tuple(stacked.shape)} "
+            f"({stacked.dtype}) to {out_path.resolve()}"
+        )
+
+
+def _make_synthetic_inputs(
+    *,
+    tcfg: TemplateTransformerConfig,
+    batch_size: int,
+    height: int,
+    width: int,
+    n_context_tokens: int,
+    control_channels: int,
+    device: torch.device,
+    seed: int,
+) -> dict[str, torch.Tensor]:
+    """Build deterministic random context + control tensors.
+
+    Mirrors ``tests/test_template.py::_make_inputs`` — uses the same
+    seeded generator path so a ``flashdreams-run template-offline --seed 0``
+    invocation reproduces the smoke test's input distribution exactly.
+    """
+    gen = torch.Generator(device=device).manual_seed(seed)
+    dtype = tcfg.dtype
+    return dict(
+        context=torch.randn(
+            batch_size,
+            n_context_tokens,
+            tcfg.network.context_channels,
+            device=device,
+            generator=gen,
+            dtype=dtype,
+        ),
+        negative_context=torch.randn(
+            batch_size,
+            n_context_tokens,
+            tcfg.network.context_channels,
+            device=device,
+            generator=gen,
+            dtype=dtype,
+        ),
+        control=torch.randn(
+            batch_size,
+            control_channels,
+            tcfg.len_t,
+            height,
+            width,
+            device=device,
+            generator=gen,
+            dtype=dtype,
+        ),
+    )
+
+
+## Per-variant runner configs (pin one ``pipeline`` literal each).
+##
+## Convention: ``runner_name`` mirrors ``pipeline.recipe_name`` so
+## ``flashdreams-run template-offline`` "just works" for any variant that
+## has exactly one runner.
+
+TEMPLATE_OFFLINE_RUNNER = TemplateRunnerConfig(
+    runner_name="template-offline",
+    pipeline=TEMPLATE_OFFLINE,
+    num_ar_steps=1,
+)
+"""Single-AR-step bidirectional rollout. Matches ``TEMPLATE_OFFLINE``'s
+``window_size_t == len_t == 8`` (one chunk covers the full window)."""
+
+TEMPLATE_AUTOREGRESSIVE_RUNNER = TemplateRunnerConfig(
+    runner_name="template-autoregressive",
+    pipeline=TEMPLATE_AUTOREGRESSIVE,
+    # ``window_size_t == 2 * len_t`` -> two AR steps cover the filling
+    # phase plus the first steady-state step. Matches the unit test's
+    # default rollout depth.
+    num_ar_steps=2,
+)
+"""Streaming AR rollout. Two AR steps exercise both the KV-cache
+filling path and the first steady-state step (``window_size_t == 2 *
+len_t``)."""
+
+TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER = cast(
+    TemplateRunnerConfig,
+    derive_config(
+        TEMPLATE_AUTOREGRESSIVE_RUNNER,
+        runner_name="template-autoregressive-compiled",
+        pipeline=TEMPLATE_AUTOREGRESSIVE_COMPILED,
+    ),
+)
+"""Same I/O as ``TEMPLATE_AUTOREGRESSIVE_RUNNER`` but pinned to the
+compiled + CUDA-graph pipeline. ``derive_config`` keeps the I/O knob
+defaults in sync with the AR base."""
+
+
+TEMPLATE_RUNNERS: dict[str, TemplateRunnerConfig] = {
+    cfg.runner_name: cfg
+    for cfg in (
+        TEMPLATE_OFFLINE_RUNNER,
+        TEMPLATE_AUTOREGRESSIVE_RUNNER,
+        TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER,
+    )
+}
+"""All shipped template-recipe runners, keyed by ``runner_name``."""
+
+
+__all__ = [
+    "TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER",
+    "TEMPLATE_AUTOREGRESSIVE_RUNNER",
+    "TEMPLATE_OFFLINE_RUNNER",
+    "TEMPLATE_RUNNERS",
+    "TemplateRunner",
+    "TemplateRunnerConfig",
+]

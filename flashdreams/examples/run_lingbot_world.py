@@ -40,7 +40,7 @@ Run::
     torchrun --nproc_per_node=N \\
         flashdreams/examples/run_lingbot_world.py \\
         --total_blocks 60 \\
-        --config_name LingBot-World-Fast
+        --config_name lingbot-world-fast
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import cv2
 import mediapy as media
@@ -58,12 +59,16 @@ from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
+from flashdreams.infra.config import derive_config
 from flashdreams.recipes.lingbot_world.config import (
-    LINGBOT_WORLD_CONFIG_BUILDERS,
+    LINGBOT_WORLD_CONFIGS,
 )
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
-from flashdreams.recipes.lingbot_world.pipeline import LingbotWorldInferencePipeline
+from flashdreams.recipes.lingbot_world.pipeline import (
+    LingbotWorldInferencePipeline,
+    LingbotWorldInferencePipelineConfig,
+)
 from flashdreams.recipes.lingbot_world.transformer import (
     LingbotWorldTransformerConfig,
 )
@@ -85,8 +90,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default="LingBot-World-Fast-Flash",
-        choices=sorted(LINGBOT_WORLD_CONFIG_BUILDERS.keys()),
+        default="lingbot-world-fast-flash",
+        choices=sorted(LINGBOT_WORLD_CONFIGS.keys()),
         help="Streaming checkpoint preset to load.",
     )
     parser.add_argument(
@@ -230,25 +235,29 @@ def main() -> None:
     )
 
     # --------------------------------------------------------- pipeline init
-    builder = LINGBOT_WORLD_CONFIG_BUILDERS[args.config_name]
+    base_config = LINGBOT_WORLD_CONFIGS[args.config_name]
     # Only forward window/sink overrides when the user explicitly set them, so
-    # the per-preset defaults baked into each builder (e.g. 60/0 for Fast,
-    # 15/3 for Fast-Flash) survive when the CLI flags are omitted.
-    builder_overrides: dict[str, int] = {}
+    # the per-preset defaults baked into each literal config (e.g. 60/0 for
+    # Fast, 15/3 for Fast-Flash) survive when the CLI flags are omitted.
+    transformer_overrides: dict[str, int | bool] = {
+        "compile_network": not args.no_compile,
+    }
     if args.window_size_t is not None:
-        builder_overrides["window_size_t"] = args.window_size_t
+        transformer_overrides["window_size_t"] = args.window_size_t
     if args.sink_size_t is not None:
-        builder_overrides["sink_size_t"] = args.sink_size_t
-    pipeline = (
-        builder(
-            compile_network=not args.no_compile,
-            seed=42 + rank,
+        transformer_overrides["sink_size_t"] = args.sink_size_t
+    config = cast(
+        LingbotWorldInferencePipelineConfig,
+        derive_config(
+            base_config,
             enable_sync_and_profile=True,
-            **builder_overrides,
-        )
-        .setup()
-        .to(device=device)
+            diffusion_model=dict(
+                seed=42 + rank,
+                transformer=transformer_overrides,
+            ),
+        ),
     )
+    pipeline = config.setup().to(device=device)
     assert isinstance(pipeline, LingbotWorldInferencePipeline)
     cache = pipeline.initialize_cache(text=prompts, image=first_frames_t)
 

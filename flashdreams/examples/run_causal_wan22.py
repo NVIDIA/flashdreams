@@ -35,7 +35,7 @@ Run::
     torchrun --nproc_per_node=N \\
         examples/run_causal_wan22.py \\
         --total_blocks 60 \\
-        --config_name fastvideo
+        --config_name causal-wan22-fastvideo-t2v
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import mediapy as media
 import numpy as np
@@ -51,13 +52,17 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
+from flashdreams.infra.config import derive_config
 from flashdreams.recipes.wan.config.causal_wan22 import (
-    CAUSAL_WAN22_CONFIG_BUILDERS,
+    CAUSAL_WAN22_CONFIGS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
     WAN_VAE_SPATIAL_COMPRESSION,
 )
-from flashdreams.recipes.wan.pipeline import WanInferencePipeline
+from flashdreams.recipes.wan.pipeline import (
+    WanInferencePipeline,
+    WanInferencePipelineConfig,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -82,8 +87,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default="fastvideo",
-        choices=sorted(CAUSAL_WAN22_CONFIG_BUILDERS.keys()),
+        default="causal-wan22-fastvideo-t2v",
+        choices=sorted(CAUSAL_WAN22_CONFIGS.keys()),
         help="Streaming checkpoint preset to load.",
     )
     parser.add_argument(
@@ -137,16 +142,26 @@ def main() -> None:
     )
     print(f"Running causal Wan 2.2 inference with config: {args.config_name}")
 
-    builder = CAUSAL_WAN22_CONFIG_BUILDERS[args.config_name]
-    pipeline = (
-        builder(
-            compile_network=not args.no_compile,
-            seed=42 + rank,
+    base_config = CAUSAL_WAN22_CONFIGS[args.config_name]
+    config = cast(
+        WanInferencePipelineConfig,
+        derive_config(
+            base_config,
             enable_sync_and_profile=True,
-        )
-        .setup()
-        .to(device=device)
+            diffusion_model=dict(
+                seed=42 + rank,
+                transformer=dict(
+                    transformer_high_noise=dict(
+                        compile_network=not args.no_compile
+                    ),
+                    transformer_low_noise=dict(
+                        compile_network=not args.no_compile
+                    ),
+                ),
+            ),
+        ),
     )
+    pipeline = config.setup().to(device=device)
 
     assert isinstance(pipeline, WanInferencePipeline)
     cache = pipeline.initialize_cache(
@@ -179,8 +194,7 @@ def main() -> None:
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
         save_path = (
-            f"{REPO_ROOT}/outputs/causal_wan22_{args.config_name}"
-            f"_t2v_{world_size}gpus.mp4"
+            f"{REPO_ROOT}/outputs/{args.config_name}_{world_size}gpus.mp4"
         )
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
@@ -188,8 +202,8 @@ def main() -> None:
 
         if stats_history:
             stats_path = (
-                f"{REPO_ROOT}/outputs/stats_causal_wan22_{args.config_name}"
-                f"_t2v_{world_size}gpus.json"
+                f"{REPO_ROOT}/outputs/stats_{args.config_name}"
+                f"_{world_size}gpus.json"
             )
             with open(stats_path, "w") as f:
                 json.dump(stats_history, f, indent=2)

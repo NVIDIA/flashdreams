@@ -21,13 +21,13 @@ HDMap conditioning + I2V mask injection). Driver:
 ``flashdreams/examples/run_alpadreams.py``. Checkpoints and example
 data are auto-downloaded on first run.
 
-The launcher picks one of :data:`ALPADREAMS_CONFIG_BUILDERS` based on
+The launcher picks one of :data:`ALPADREAMS_CONFIGS` based on
 ``--n_cameras``:
 
 - ``--n_cameras 1`` — single front-facing camera, defaults to
-  ``sv_2steps_chunk2_loc6_lightvae_lighttae``.
+  ``alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae``.
 - ``--n_cameras 4`` — four surrounding cameras, defaults to
-  ``mv_2steps_chunk4_loc8_pshuffle_lighttae``.
+  ``alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae``.
 
 Single GPU, single view
 -----------------------
@@ -39,7 +39,7 @@ Single GPU, single view
        flashdreams/examples/run_alpadreams.py \
        --n_cameras 1 --total_blocks 20
 
-Add ``--overwrite_config_name sv_2steps_chunk2_loc6_lightvae_lighttae_perf``
+Add ``--overwrite_config_name alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
 for the perf-tuned variant (CUDA-graph captured forward + light VAE/TAE).
 
 Multi GPU, multi view
@@ -65,7 +65,7 @@ Diffusion forcing, single view
        flashdreams/examples/run_alpadreams.py \
        --n_cameras 1 \
        --total_blocks 12 \
-       --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --overwrite_config_name alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
        --offload_text_encoder
 
 With the usual ``--total_blocks 12`` rollout, the chunk2 checkpoint decodes to
@@ -82,7 +82,7 @@ Bidirectional, single view
        --n_cameras 1 \
        --total_blocks 1 \
        --num_chunks 24 \
-       --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
+       --overwrite_config_name alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
        --offload_text_encoder
 
 The bidirectional checkpoint generates one full block per run. Omit

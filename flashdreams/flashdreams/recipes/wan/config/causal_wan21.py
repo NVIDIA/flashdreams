@@ -13,16 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built pipeline-config builders for streaming Wan 2.1."""
+"""Pre-built pipeline configs for streaming Wan 2.1.
+
+One module-level literal per shipped variant. Variants share the
+same chassis (Wan 1.3B DiT, FlowMatch self-forcing scheduler) and
+diverge on (a) checkpoint, (b) decoder, (c) ``len_t`` (chunkwise vs
+framewise), (d) ``i2v`` (None vs I2VCtrl encoder).
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
@@ -55,8 +60,11 @@ AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS: _AvailableCausalWan21Paths = {
     },
 }
 
-
-## Checkpoint remap
+# Canonical pixel-space defaults; callers pass the matching latent
+# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
+DEFAULT_VIDEO_HEIGHT = 480
+DEFAULT_VIDEO_WIDTH = 832
+WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _remap_self_or_causal_forcing_state_dict(
@@ -87,188 +95,164 @@ def _remap_self_or_causal_forcing_state_dict(
     return out
 
 
-## Canonical Wan 2.1 streaming defaults
-
-# Self-Forcing-style 4-step distillation schedule.
-_DEFAULT_DENOISING_TIMESTEPS = [1000, 750, 500, 250]
-_DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
-
-_DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1,)
-# Canonical pixel-space defaults; callers pass the matching latent
-# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
-DEFAULT_VIDEO_HEIGHT = 480
-DEFAULT_VIDEO_WIDTH = 832
-_DEFAULT_LEN_T_LATENT = 3  # framewise variant overrides to 1.
-WAN_VAE_SPATIAL_COMPRESSION = 8
-
-
-def _wan_vae_decoder_config() -> WanVAEDecoderConfig:
-    """Wan VAE decoder config."""
-    return WanVAEDecoderConfig()
-
-
-def _taehv_vae_decoder_config() -> TeahvVAEDecoderConfig:
-    """LightTAE (TAEHV) decoder config."""
-    return TeahvVAEDecoderConfig()
-
-
-def _scheduler_config(
-    num_inference_steps: int = 4, shift: float = 5.0
-) -> FlowMatchSchedulerConfig:
-    """Self-Forcing flow-match scheduler defaults."""
-    timesteps = _DEFAULT_DENOISING_TIMESTEPS[:num_inference_steps]
-    return FlowMatchSchedulerConfig(
-        num_inference_steps=num_inference_steps,
-        denoising_timesteps=timesteps,
-        warp_denoising_step=True,
-        shift=shift,
-        sigma_min=0.0,
-        extra_one_step=True,
-        num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
-    )
-
-
-def _transformer_config(
-    *,
-    checkpoint_path: str,
-    compile_network: bool,
-    len_t_latent: int = _DEFAULT_LEN_T_LATENT,
-    stamp_image_latent: bool = False,
-) -> Wan21TransformerConfig:
-    """Wan 1.3B transformer defaults for causal/streaming inference."""
-    return Wan21TransformerConfig(
-        network=WanDiTNetwork1pt3BConfig(
-            patch_embedding_type="conv3d",
-        ),
-        checkpoint_path=checkpoint_path,
-        state_dict_transform=_remap_self_or_causal_forcing_state_dict,
-        batch_shape=_DEFAULT_BATCH_SHAPE,
-        len_t=len_t_latent,
-        guidance_scale=1.0,
-        window_size_t=21,
-        sink_size_t=0,
-        stamp_image_latent=stamp_image_latent,
-        compile_network=compile_network,
-    )
-
-
-def _pipeline_encoder_config(*, i2v: bool) -> InstantiateConfig[Any] | None:
-    """Per-AR-step encoder config: I2V control encoder, or ``None`` for T2V."""
-    if not i2v:
-        return None
-    return I2VCtrlEncoderConfig(
-        encoder=WanVAEEncoderConfig(
-            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        ),
-    )
-
-
-## Builders
-
-
-def build_self_forcing(
-    *,
-    compile_network: bool = True,
-    seed: int = 42,
-    i2v: bool = False,
-    enable_sync_and_profile: bool = False,
-) -> WanInferencePipelineConfig:
-    """Self-Forcing distilled checkpoint with the Wan VAE decoder."""
-    return WanInferencePipelineConfig(
-        enable_sync_and_profile=enable_sync_and_profile,
-        encoder=_pipeline_encoder_config(i2v=i2v),
-        decoder=_wan_vae_decoder_config(),
-        diffusion_model=DiffusionModelConfig(
-            seed=seed,
-            transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
-                compile_network=compile_network,
+## Self-Forcing distilled checkpoint with the Wan VAE decoder, T2V chassis.
+##
+## ``len_t = 3`` is the chunkwise default. ``window_size_t = 21`` matches
+## the upstream training crop. Self-Forcing 4-step distillation schedule
+## ``[1000, 750, 500, 250]`` with ``shift=8.0``.
+SELF_FORCING_T2V = WanInferencePipelineConfig(
+    recipe_name="causal-wan21-self-forcing-t2v",
+    encoder=None,
+    decoder=WanVAEDecoderConfig(),
+    diffusion_model=DiffusionModelConfig(
+        seed=42,
+        transformer=Wan21TransformerConfig(
+            network=WanDiTNetwork1pt3BConfig(
+                patch_embedding_type="conv3d",
             ),
-            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
+            checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
+            state_dict_transform=_remap_self_or_causal_forcing_state_dict,
+            batch_shape=(1,),
+            len_t=3,
+            guidance_scale=1.0,
+            window_size_t=21,
+            sink_size_t=0,
+            stamp_image_latent=False,
+            compile_network=True,
         ),
-    )
-
-
-def build_self_forcing_lighttae(
-    *,
-    compile_network: bool = True,
-    seed: int = 42,
-    i2v: bool = False,
-    enable_sync_and_profile: bool = False,
-) -> WanInferencePipelineConfig:
-    """Self-Forcing distilled checkpoint with the LightTAE (TAEHV) decoder."""
-    return WanInferencePipelineConfig(
-        enable_sync_and_profile=enable_sync_and_profile,
-        encoder=_pipeline_encoder_config(i2v=i2v),
-        decoder=_taehv_vae_decoder_config(),
-        diffusion_model=DiffusionModelConfig(
-            seed=seed,
-            transformer=_transformer_config(
-                checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
-                compile_network=compile_network,
-            ),
-            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
+        scheduler=FlowMatchSchedulerConfig(
+            num_inference_steps=4,
+            denoising_timesteps=[1000, 750, 500, 250],
+            warp_denoising_step=True,
+            shift=8.0,
+            sigma_min=0.0,
+            extra_one_step=True,
+            num_train_timesteps=1000,
         ),
-    )
+    ),
+)
 
+## Self-Forcing distilled checkpoint with the LightTAE (TAEHV) decoder,
+## T2V chassis. Faster decoder; identical DiT.
+SELF_FORCING_LIGHTTAE_T2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        SELF_FORCING_T2V,
+        recipe_name="causal-wan21-self-forcing-lighttae-t2v",
+        decoder=TeahvVAEDecoderConfig(),
+    ),
+)
 
-def build_causal_forcing_chunkwise(
-    *,
-    compile_network: bool = True,
-    seed: int = 42,
-    i2v: bool = False,
-    enable_sync_and_profile: bool = False,
-) -> WanInferencePipelineConfig:
-    """Causal-Forcing chunkwise checkpoint with the Wan VAE decoder."""
-    return WanInferencePipelineConfig(
-        enable_sync_and_profile=enable_sync_and_profile,
-        encoder=_pipeline_encoder_config(i2v=i2v),
-        decoder=_wan_vae_decoder_config(),
-        diffusion_model=DiffusionModelConfig(
-            seed=seed,
-            transformer=_transformer_config(
+## Causal-Forcing chunkwise checkpoint with the Wan VAE decoder, T2V
+## chassis. Same Wan 1.3B DiT, same scheduler shape; the schedule omits
+## the explicit ``shift`` override (default).
+CAUSAL_FORCING_CHUNKWISE_T2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        SELF_FORCING_T2V,
+        recipe_name="causal-wan21-causal-forcing-chunkwise-t2v",
+        diffusion_model=dict(
+            transformer=dict(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
                 ]["chunkwise"],
-                compile_network=compile_network,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=dict(shift=5.0),
         ),
-    )
+    ),
+)
 
-
-def build_causal_forcing_framewise(
-    *,
-    compile_network: bool = True,
-    seed: int = 42,
-    i2v: bool = False,
-    enable_sync_and_profile: bool = False,
-) -> WanInferencePipelineConfig:
-    """Causal-Forcing framewise checkpoint with the Wan VAE decoder."""
-    return WanInferencePipelineConfig(
-        enable_sync_and_profile=enable_sync_and_profile,
-        encoder=_pipeline_encoder_config(i2v=i2v),
-        decoder=_wan_vae_decoder_config(),
-        diffusion_model=DiffusionModelConfig(
-            seed=seed,
-            transformer=_transformer_config(
+## Causal-Forcing framewise checkpoint, T2V chassis. ``len_t = 1``: one
+## latent frame per chunk.
+CAUSAL_FORCING_FRAMEWISE_T2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        SELF_FORCING_T2V,
+        recipe_name="causal-wan21-causal-forcing-framewise-t2v",
+        diffusion_model=dict(
+            transformer=dict(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS[
                     "causal_forcing"
                 ]["framewise"],
-                compile_network=compile_network,
-                # framewise: one latent frame per chunk; I2V replaces it with
-                # the image latent at AR step 0.
-                len_t_latent=1,
-                stamp_image_latent=i2v,
+                len_t=1,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=dict(shift=5.0),
         ),
+    ),
+)
+
+
+## I2V variants: same chassis as the matching T2V variant, plus the I2V
+## control encoder on the ``encoder`` slot. Framewise additionally flips
+## ``stamp_image_latent`` so AR step 0 substitutes the image latent for
+## the first temporal frame.
+SELF_FORCING_I2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        SELF_FORCING_T2V,
+        recipe_name="causal-wan21-self-forcing-i2v",
+        encoder=I2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(
+                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+            ),
+        ),
+    ),
+)
+
+SELF_FORCING_LIGHTTAE_I2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        SELF_FORCING_LIGHTTAE_T2V,
+        recipe_name="causal-wan21-self-forcing-lighttae-i2v",
+        encoder=I2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(
+                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+            ),
+        ),
+    ),
+)
+
+CAUSAL_FORCING_CHUNKWISE_I2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        CAUSAL_FORCING_CHUNKWISE_T2V,
+        recipe_name="causal-wan21-causal-forcing-chunkwise-i2v",
+        encoder=I2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(
+                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+            ),
+        ),
+    ),
+)
+
+CAUSAL_FORCING_FRAMEWISE_I2V = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        CAUSAL_FORCING_FRAMEWISE_T2V,
+        recipe_name="causal-wan21-causal-forcing-framewise-i2v",
+        encoder=I2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(
+                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+            ),
+        ),
+        diffusion_model=dict(
+            transformer=dict(stamp_image_latent=True),
+        ),
+    ),
+)
+
+
+CAUSAL_WAN21_CONFIGS: dict[str, WanInferencePipelineConfig] = {
+    cfg.recipe_name: cfg
+    for cfg in (
+        SELF_FORCING_T2V,
+        SELF_FORCING_LIGHTTAE_T2V,
+        CAUSAL_FORCING_CHUNKWISE_T2V,
+        CAUSAL_FORCING_FRAMEWISE_T2V,
+        SELF_FORCING_I2V,
+        SELF_FORCING_LIGHTTAE_I2V,
+        CAUSAL_FORCING_CHUNKWISE_I2V,
+        CAUSAL_FORCING_FRAMEWISE_I2V,
     )
-
-
-CAUSAL_WAN21_CONFIG_BUILDERS: dict[str, Callable[..., WanInferencePipelineConfig]] = {
-    "self_forcing": build_self_forcing,
-    "self_forcing_lighttae": build_self_forcing_lighttae,
-    "causal_forcing_chunkwise": build_causal_forcing_chunkwise,
-    "causal_forcing_framewise": build_causal_forcing_framewise,
 }
+"""All shipped streaming Wan 2.1 variants, keyed by ``recipe_name``."""

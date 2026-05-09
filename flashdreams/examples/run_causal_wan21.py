@@ -17,20 +17,10 @@
 
 Distributed streaming inference entrypoint for the Self-Forcing /
 Causal-Forcing Wan 2.1 checkpoints. The mode is picked by the presence
-of ``--image_path``:
-
-- **T2V** — no ``--image_path``. Builds one of the
-  :data:`CAUSAL_WAN21_CONFIG_BUILDERS` presets with ``i2v=False``; the
-  infra :class:`StreamInferencePipeline` has no encoder slot and the
-  recipe pipeline only needs the long-lived :class:`UMT5TextEncoder`.
-- **I2V** — ``--image_path`` provided. Flips the builder's ``i2v``
-  flag, which wires a streaming :class:`I2VCtrlEncoder` on the infra
-  encoder slot. Per AR step the recipe pipeline pads the user's first
-  frame along T to one full latent chunk and hands the pixel chunk to
-  that encoder; the encoder VAE-encodes it and packages the result as
-  an :class:`I2VCtrl` (encoded latent + binary first-frame mask)
-  which the infra patchifies and forwards to the transformer as the
-  ``input`` argument.
+of ``--image_path``: T2V slugs end in ``-t2v``, I2V slugs end in
+``-i2v`` and add a streaming :class:`I2VCtrlEncoder` on the infra
+encoder slot. Pick one slug from :data:`CAUSAL_WAN21_CONFIGS` via
+``--config_name``.
 
 Rollouts are multi-AR-step by design (streaming); ``--total_blocks``
 controls how many AR chunks to generate.
@@ -41,13 +31,13 @@ Run::
     torchrun --nproc_per_node=N \\
         examples/run_causal_wan21.py \\
         --total_blocks 60 \\
-        --config_name self_forcing
+        --config_name causal-wan21-self-forcing-t2v
 
     # I2V
     torchrun --nproc_per_node=N \\
         examples/run_causal_wan21.py \\
         --total_blocks 60 \\
-        --config_name self_forcing \\
+        --config_name causal-wan21-self-forcing-i2v \\
         --image_path path/to/first_frame.png
 """
 
@@ -57,6 +47,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import cv2
 import mediapy as media
@@ -65,14 +56,18 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
+from flashdreams.infra.config import derive_config
 from flashdreams.infra.decoder.base import StreamingVideoDecoder
 from flashdreams.recipes.wan.config.causal_wan21 import (
-    CAUSAL_WAN21_CONFIG_BUILDERS,
+    CAUSAL_WAN21_CONFIGS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
     WAN_VAE_SPATIAL_COMPRESSION,
 )
-from flashdreams.recipes.wan.pipeline import WanInferencePipeline
+from flashdreams.recipes.wan.pipeline import (
+    WanInferencePipeline,
+    WanInferencePipelineConfig,
+)
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -102,8 +97,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_name",
         type=str,
-        default="self_forcing",
-        choices=sorted(CAUSAL_WAN21_CONFIG_BUILDERS.keys()),
+        default="causal-wan21-self-forcing-t2v",
+        choices=sorted(CAUSAL_WAN21_CONFIGS.keys()),
         help="Streaming checkpoint preset to load.",
     )
     parser.add_argument(
@@ -172,17 +167,27 @@ def main() -> None:
     )
     print(f"Running causal Wan 2.1 inference with config: {args.config_name}")
 
-    builder = CAUSAL_WAN21_CONFIG_BUILDERS[args.config_name]
-    pipeline = (
-        builder(
-            compile_network=not args.no_compile,
-            seed=42 + rank,
-            i2v=is_i2v,
-            enable_sync_and_profile=True,
-        )
-        .setup()
-        .to(device=device)
+    base_config = CAUSAL_WAN21_CONFIGS[args.config_name]
+    # Sanity-check the slug matches the requested mode so the I2V
+    # encoder slot is wired iff ``--image_path`` was passed.
+    assert is_i2v == base_config.recipe_name.endswith("-i2v"), (
+        f"--config_name {args.config_name!r} mode mismatch: "
+        f"is_i2v={is_i2v} but recipe_name slug suggests "
+        f"{'i2v' if base_config.recipe_name.endswith('-i2v') else 't2v'}. "
+        "Pick a slug that matches whether --image_path was provided."
     )
+    config = cast(
+        WanInferencePipelineConfig,
+        derive_config(
+            base_config,
+            enable_sync_and_profile=True,
+            diffusion_model=dict(
+                seed=42 + rank,
+                transformer=dict(compile_network=not args.no_compile),
+            ),
+        ),
+    )
+    pipeline = config.setup().to(device=device)
 
     assert isinstance(pipeline, WanInferencePipeline)
 
@@ -234,10 +239,8 @@ def main() -> None:
         canvas = rearrange(generated_video, "1 t c h w -> t h w c")
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
-        suffix = "i2v" if is_i2v else "t2v"
         save_path = (
-            f"{REPO_ROOT}/outputs/causal_wan21_{args.config_name}"
-            f"_{suffix}_{world_size}gpus.mp4"
+            f"{REPO_ROOT}/outputs/{args.config_name}_{world_size}gpus.mp4"
         )
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
@@ -245,8 +248,8 @@ def main() -> None:
 
         if stats_history:
             stats_path = (
-                f"{REPO_ROOT}/outputs/stats_causal_wan21_{args.config_name}"
-                f"_{suffix}_{world_size}gpus.json"
+                f"{REPO_ROOT}/outputs/stats_{args.config_name}"
+                f"_{world_size}gpus.json"
             )
             with open(stats_path, "w") as f:
                 json.dump(stats_history, f, indent=2)
