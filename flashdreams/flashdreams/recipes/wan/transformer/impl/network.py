@@ -63,10 +63,10 @@ class WanDiTNetworkCache:
 
 
 @dataclass
-class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
+class WanDiTNetworkConfig(InstantiateConfig):
     """Configuration for the Wan DiT network."""
 
-    _target: type["WanDiTNetwork"] = field(default_factory=lambda: WanDiTNetwork)
+    _target: type = field(default_factory=lambda: WanDiTNetwork)
 
     patch_size: tuple[int, int, int] = (1, 2, 2)
     """Patch size for the input tensor."""

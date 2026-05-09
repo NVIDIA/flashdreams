@@ -87,7 +87,9 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         choices=sorted(CONFIGS.keys()),
-        help=("FlashDreams pipeline config slug used to instantiate the matching network."),
+        help=(
+            "FlashDreams pipeline config slug used to instantiate the matching network."
+        ),
     )
     return parser.parse_args()
 

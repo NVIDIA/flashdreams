@@ -204,7 +204,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
 
 
 @dataclass(kw_only=True)
-class TransformerConfig(InstantiateConfig[Transformer]):
+class TransformerConfig(InstantiateConfig):
     """Category base for every flow-prediction transformer config."""
 
-    _target: type[Transformer] = field(default_factory=lambda: Transformer)
+    _target: type = field(default_factory=lambda: Transformer)

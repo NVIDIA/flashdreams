@@ -33,7 +33,6 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import cast
 
 import pytest
 import torch
@@ -79,31 +78,22 @@ invocations don't share ``/tmp``."""
 
 def _offline(*, seed: int = 42) -> StreamInferencePipelineConfig:
     """Return the offline template literal with ``seed`` patched in."""
-    return cast(
-        StreamInferencePipelineConfig,
-        derive_config(TEMPLATE_OFFLINE, diffusion_model=dict(seed=seed)),
-    )
+    return derive_config(TEMPLATE_OFFLINE, diffusion_model=dict(seed=seed))
 
 
 def _autoregressive(*, seed: int = 42) -> StreamInferencePipelineConfig:
     """Return the autoregressive template literal with ``seed`` patched in."""
-    return cast(
-        StreamInferencePipelineConfig,
-        derive_config(TEMPLATE_AUTOREGRESSIVE, diffusion_model=dict(seed=seed)),
-    )
+    return derive_config(TEMPLATE_AUTOREGRESSIVE, diffusion_model=dict(seed=seed))
 
 
 def _with_compile_and_cuda_graph(
     base: StreamInferencePipelineConfig,
 ) -> StreamInferencePipelineConfig:
     """Patch ``compile_network`` + ``use_cuda_graph`` onto ``base``."""
-    return cast(
-        StreamInferencePipelineConfig,
-        derive_config(
-            base,
-            diffusion_model=dict(
-                transformer=dict(compile_network=True, use_cuda_graph=True),
-            ),
+    return derive_config(
+        base,
+        diffusion_model=dict(
+            transformer=dict(compile_network=True, use_cuda_graph=True),
         ),
     )
 
@@ -263,7 +253,7 @@ def test_template_no_control() -> None:
     control-on rollout.
     """
     base = _offline(seed=0)
-    config = cast(StreamInferencePipelineConfig, derive_config(base, encoder=None))
+    config = derive_config(base, encoder=None)
     # Seed before each ``setup()`` so the no-control and with-control
     # pipelines initialise identical weights — the assertion below only
     # isolates the control branch when the underlying networks match
@@ -425,13 +415,10 @@ def _with_cfg(
     base: StreamInferencePipelineConfig, *, guidance_scale: float
 ) -> StreamInferencePipelineConfig:
     """Return ``base`` with ``guidance_scale`` patched onto the transformer."""
-    return cast(
-        StreamInferencePipelineConfig,
-        derive_config(
-            base,
-            diffusion_model=dict(
-                transformer=dict(guidance_scale=guidance_scale),
-            ),
+    return derive_config(
+        base,
+        diffusion_model=dict(
+            transformer=dict(guidance_scale=guidance_scale),
         ),
     )
 

@@ -48,9 +48,9 @@ class Scheduler(nn.Module, ABC):
     Owns the entire denoising loop. Callers see only ``noise → clean``;
     the loop shape (renoise / multistep / plain ODE) is private.
 
-    Concrete configs inherit ``InstantiateConfig[<SchedulerSubclass>]`` and
-    declare their own ``num_inference_steps`` / ``shift`` fields (the base
-    holds no shared dataclass fields).
+    Concrete configs inherit ``SchedulerConfig`` and declare their own
+    ``num_inference_steps`` / ``shift`` fields (the base holds no
+    shared dataclass fields).
 
     Examples:
 
@@ -105,7 +105,7 @@ class Scheduler(nn.Module, ABC):
 
 
 @dataclass(kw_only=True)
-class SchedulerConfig(InstantiateConfig[Scheduler]):
+class SchedulerConfig(InstantiateConfig):
     """Category base for every denoising-scheduler config."""
 
-    _target: type[Scheduler] = field(default_factory=lambda: Scheduler)
+    _target: type = field(default_factory=lambda: Scheduler)

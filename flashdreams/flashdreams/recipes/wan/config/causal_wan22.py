@@ -123,7 +123,6 @@ FASTVIDEO_T2V = WanInferencePipelineConfig(
 
 
 CAUSAL_WAN22_CONFIGS: dict[str, WanInferencePipelineConfig] = {
-    cfg.recipe_name: cfg
-    for cfg in (FASTVIDEO_T2V,)
+    cfg.recipe_name: cfg for cfg in (FASTVIDEO_T2V,)
 }
 """All shipped streaming Wan 2.2 variants, keyed by ``recipe_name``."""

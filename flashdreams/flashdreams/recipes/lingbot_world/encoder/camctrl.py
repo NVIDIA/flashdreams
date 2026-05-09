@@ -88,9 +88,7 @@ class I2VCamCtrlEmbeddings:
 class I2VCamCtrlEncoderConfig(EncoderConfig):
     """Config for the composite I2V + Plücker encoder."""
 
-    _target: type["I2VCamCtrlEncoder"] = field(
-        default_factory=lambda: I2VCamCtrlEncoder
-    )
+    _target: type = field(default_factory=lambda: I2VCamCtrlEncoder)
 
     i2v: I2VCtrlEncoderConfig = field(default_factory=I2VCtrlEncoderConfig)
     """Config for the Wan-VAE I2V encoder branch."""

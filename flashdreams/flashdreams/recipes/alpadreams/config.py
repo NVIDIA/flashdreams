@@ -220,49 +220,47 @@ MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
 ## ``state_t=24``: 12 chunk2 latent blocks, or 93 decoded frames with
 ## the Wan decoder. CFG on (``guidance_scale=3.0``); 35-step UniPC
 ## scheduler (``shift=5.0``).
-SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = (
-    AlpadreamsPipelineConfig(
-        recipe_name="alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
-        text_encoder=CosmosReason1TextEncoderConfig(),
-        image_encoder=WanVAEEncoderConfig(
-            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        ),
-        enable_sync_and_profile=True,
-        encoder=WanVAEEncoderConfig(
-            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        ),
-        decoder=WanVAEDecoderConfig(
-            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        ),
-        diffusion_model=DiffusionModelConfig(
-            seed=1,
-            context_noise=128,
-            transformer=CosmosTransformerConfig(
-                network=CosmosDiTNetworkConfig(
-                    additional_concat_ch=16,
-                    enable_cross_view_attn=False,
-                ),
-                checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-                    "1view-diffusion-forcing-chunk2"
-                ],
-                batch_shape=(1,),
-                num_views=1,
-                len_t=2,
-                h_extrapolation_ratio=3.0,
-                w_extrapolation_ratio=3.0,
-                window_size_t=24,
-                sink_size_t=0,
-                compile_network=True,
-                use_cuda_graph=True,
-                skip_finalize_kv_cache=False,
-                guidance_scale=3.0,
+SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = AlpadreamsPipelineConfig(
+    recipe_name="alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
+    text_encoder=CosmosReason1TextEncoderConfig(),
+    image_encoder=WanVAEEncoderConfig(
+        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+    ),
+    enable_sync_and_profile=True,
+    encoder=WanVAEEncoderConfig(
+        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+    ),
+    decoder=WanVAEDecoderConfig(
+        checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
+    ),
+    diffusion_model=DiffusionModelConfig(
+        seed=1,
+        context_noise=128,
+        transformer=CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(
+                additional_concat_ch=16,
+                enable_cross_view_attn=False,
             ),
-            scheduler=FlowMatchUniPCSchedulerConfig(
-                num_inference_steps=35,
-                shift=5.0,
-            ),
+            checkpoint_path=AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+                "1view-diffusion-forcing-chunk2"
+            ],
+            batch_shape=(1,),
+            num_views=1,
+            len_t=2,
+            h_extrapolation_ratio=3.0,
+            w_extrapolation_ratio=3.0,
+            window_size_t=24,
+            sink_size_t=0,
+            compile_network=True,
+            use_cuda_graph=True,
+            skip_finalize_kv_cache=False,
+            guidance_scale=3.0,
         ),
-    )
+        scheduler=FlowMatchUniPCSchedulerConfig(
+            num_inference_steps=35,
+            shift=5.0,
+        ),
+    ),
 )
 
 ## Teacher: alpadreams bidirectional (single-view / 2B / 720p / chunk48 UniPC).

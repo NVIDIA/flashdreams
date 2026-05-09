@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Config primitives: ``InstantiateConfig`` (``_target`` + ``setup``) and ``derive_config`` patching."""
+
 import copy
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 
 class PrintableConfig:
@@ -34,23 +36,21 @@ class PrintableConfig:
         return "\n    ".join(lines)
 
 
+@dataclass
+class InstantiateConfig(PrintableConfig):
+    """Config carrying a ``_target`` class plus its kwargs, instantiable via ``setup``."""
+
+    _target: type
+
+    def setup(self, **kwargs: Any) -> Any:
+        """Instantiate the configured object."""
+        return self._target(self, **kwargs)
+
+
 T = TypeVar("T")
 
 
-@dataclass
-class InstantiateConfig(Generic[T], PrintableConfig):
-    """Config carrying a ``_target`` class plus its kwargs, instantiable via ``setup``."""
-
-    _target: type[T]
-
-    def setup(self, **kwargs: Any) -> T:
-        """Instantiate the configured object."""
-        return self._target(self, **kwargs)  # type: ignore[call-arg]
-
-
-def derive_config(
-    base_config: InstantiateConfig[T], **changes: Any
-) -> InstantiateConfig[T]:
+def derive_config(base_config: T, **changes: Any) -> T:
     """Deep-copy a base config and apply nested keyword overrides.
 
     Nested ``dict`` values walk into both dataclass attributes and nested

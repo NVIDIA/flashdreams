@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-
 import pytest
 import tyro
 
@@ -39,7 +37,7 @@ from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoder
     ],
 )
 def test_video_vae_config_cli_defaults(
-    config_cls: type[InstantiateConfig[Any]], target_cls: type
+    config_cls: type[InstantiateConfig], target_cls: type
 ) -> None:
     config = tyro.cli(config_cls, args=[])
     assert isinstance(config, config_cls)
