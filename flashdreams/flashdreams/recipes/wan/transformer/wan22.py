@@ -23,10 +23,10 @@ from typing import Any, Literal
 import torch
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
+    TransformerConfig,
 )
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork14BConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
@@ -114,7 +114,7 @@ class Wan22TransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class Wan22TransformerConfig(InstantiateConfig["Wan22Transformer"]):
+class Wan22TransformerConfig(TransformerConfig):
     """Config for the Wan 2.2 dual-network transformer.
 
     Wan 2.2 dispatches to one of two Wan 2.1 networks based on whether the

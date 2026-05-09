@@ -24,12 +24,15 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.decoder import StreamingDecoder, StreamingDecoderCache
+from flashdreams.infra.decoder import (
+    DecoderConfig,
+    StreamingDecoder,
+    StreamingDecoderCache,
+)
 
 
 @dataclass(kw_only=True)
-class TemplateDecoderConfig(InstantiateConfig["TemplateDecoder"]):
+class TemplateDecoderConfig(DecoderConfig):
     """Config for the template decoder.
 
     Point-wise ``Conv3d`` mapping latent channels to output channels.

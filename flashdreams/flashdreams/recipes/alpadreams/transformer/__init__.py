@@ -31,11 +31,11 @@ from flashdreams.core.attention.rope import (
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
+    TransformerConfig,
 )
 
 from .impl.context_parallel import (
@@ -126,7 +126,7 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class CosmosTransformerConfig(InstantiateConfig["CosmosTransformer"]):
+class CosmosTransformerConfig(TransformerConfig):
     """Config for the Cosmos transformer.
 
     Bakes in the temporal layout (``len_t``, ``window_size_t``,

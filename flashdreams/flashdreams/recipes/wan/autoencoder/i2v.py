@@ -23,8 +23,7 @@ from typing import TypeAlias
 import torch
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import StreamingVideoEncoder
+from flashdreams.infra.encoder import EncoderConfig, StreamingVideoEncoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAECache,
     WanVAEEncoder,
@@ -54,7 +53,7 @@ class I2VCtrl:
 
 
 @dataclass(kw_only=True)
-class I2VCtrlEncoderConfig(InstantiateConfig["I2VCtrlEncoder"]):
+class I2VCtrlEncoderConfig(EncoderConfig):
     """Config for the I2V control encoder."""
 
     _target: type["I2VCtrlEncoder"] = field(default_factory=lambda: I2VCtrlEncoder)

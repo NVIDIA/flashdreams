@@ -16,6 +16,7 @@
 """Streaming decoder base interfaces."""
 
 from flashdreams.infra.decoder.base import (
+    DecoderConfig,
     StreamingDecoder,
     StreamingDecoderCache,
     StreamingDecoderCacheT,
@@ -23,6 +24,7 @@ from flashdreams.infra.decoder.base import (
 )
 
 __all__ = [
+    "DecoderConfig",
     "StreamingDecoder",
     "StreamingDecoderCache",
     "StreamingDecoderCacheT",

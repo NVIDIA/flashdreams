@@ -17,6 +17,7 @@
 
 from flashdreams.infra.encoder.base import (
     Encoder,
+    EncoderConfig,
     NullEncoder,
     NullEncoderConfig,
     StreamingEncoder,
@@ -27,6 +28,7 @@ from flashdreams.infra.encoder.base import (
 
 __all__ = [
     "Encoder",
+    "EncoderConfig",
     "NullEncoder",
     "NullEncoderConfig",
     "StreamingEncoder",

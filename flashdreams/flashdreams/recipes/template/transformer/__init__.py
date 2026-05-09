@@ -31,13 +31,13 @@ from flashdreams.core.distributed.context_parallel import (
     split_inputs_cp,
 )
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
+    TransformerConfig,
 )
-from flashdreams.infra.encoder import Encoder, NullEncoderConfig
+from flashdreams.infra.encoder import Encoder, EncoderConfig, NullEncoderConfig
 
 from .network import TemplateDiT, TemplateDiTCache, TemplateDiTConfig
 
@@ -94,7 +94,7 @@ class TemplateTransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class TemplateTransformerConfig(InstantiateConfig["TemplateTransformer"]):
+class TemplateTransformerConfig(TransformerConfig):
     """Config for the template transformer.
 
     Bakes in the temporal layout (``len_t``, ``window_size_t``,
@@ -120,7 +120,7 @@ class TemplateTransformerConfig(InstantiateConfig["TemplateTransformer"]):
     :attr:`TemplateDiTConfig`'s default ``in_channels=4``; builders
     that want patch packing must set both fields together."""
 
-    context_encoder: InstantiateConfig[Any] = field(default_factory=NullEncoderConfig)
+    context_encoder: EncoderConfig = field(default_factory=NullEncoderConfig)
     """One-shot encoder applied to raw ``context`` inside
     :meth:`TemplateTransformer.initialize_autoregressive_cache`. The
     default :class:`~flashdreams.infra.encoder.NullEncoder` is identity;

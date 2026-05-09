@@ -25,12 +25,11 @@ from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from flashdreams.core.io.hf import should_use_local_files_only
-from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder
+from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 
 @dataclass(kw_only=True)
-class CosmosReason1TextEncoderConfig(InstantiateConfig["CosmosReason1TextEncoder"]):
+class CosmosReason1TextEncoderConfig(EncoderConfig):
     """Config for the Cosmos-Reason1 text encoder."""
 
     _target: type["CosmosReason1TextEncoder"] = field(

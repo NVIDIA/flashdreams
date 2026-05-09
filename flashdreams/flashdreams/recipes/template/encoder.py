@@ -24,12 +24,15 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import StreamingEncoder, StreamingEncoderCache
+from flashdreams.infra.encoder import (
+    EncoderConfig,
+    StreamingEncoder,
+    StreamingEncoderCache,
+)
 
 
 @dataclass(kw_only=True)
-class TemplateControlEncoderConfig(InstantiateConfig["TemplateControlEncoder"]):
+class TemplateControlEncoderConfig(EncoderConfig):
     """Config for the template control encoder.
 
     Point-wise ``Conv3d`` projecting a dummy control channel stack to

@@ -23,10 +23,10 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
     Scheduler,
+    SchedulerConfig,
 )
 
 
@@ -172,7 +172,7 @@ def _build_per_step_coefs(sigmas: np.ndarray) -> dict[str, np.ndarray]:
 
 
 @dataclass(kw_only=True)
-class FlowMatchUniPCSchedulerConfig(InstantiateConfig["FlowMatchUniPCScheduler"]):
+class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
     """Config for the flow-matching UniPC scheduler.
 
     Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,

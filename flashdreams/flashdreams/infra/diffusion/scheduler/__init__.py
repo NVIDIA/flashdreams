@@ -18,6 +18,7 @@
 from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,
     Scheduler,
+    SchedulerConfig,
 )
 from flashdreams.infra.diffusion.scheduler.fm import (
     FlowMatchScheduler,
@@ -31,6 +32,7 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
 __all__ = [
     "FlowPredictor",
     "Scheduler",
+    "SchedulerConfig",
     "FlowMatchScheduler",
     "FlowMatchSchedulerConfig",
     "FlowMatchUniPCScheduler",

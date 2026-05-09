@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, cast
 
 import torch
@@ -83,7 +83,7 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
                 ...
     """
 
-    def __init__(self, config: InstantiateConfig[Any]) -> None:
+    def __init__(self, config: TransformerConfig) -> None:
         super().__init__()
         self.config = config
 
@@ -201,3 +201,10 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
     @abstractmethod
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
         """Inverse of ``patchify_and_maybe_split_cp`` for the network output."""
+
+
+@dataclass(kw_only=True)
+class TransformerConfig(InstantiateConfig[Transformer]):
+    """Category base for every flow-prediction transformer config."""
+
+    _target: type[Transformer] = field(default_factory=lambda: Transformer)

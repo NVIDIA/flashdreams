@@ -28,10 +28,17 @@ from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
-from flashdreams.infra.decoder import StreamingDecoderCache, StreamingVideoDecoder
-from flashdreams.infra.encoder import StreamingEncoderCache, StreamingVideoEncoder
+from flashdreams.infra.decoder import (
+    DecoderConfig,
+    StreamingDecoderCache,
+    StreamingVideoDecoder,
+)
+from flashdreams.infra.encoder import (
+    EncoderConfig,
+    StreamingEncoderCache,
+    StreamingVideoEncoder,
+)
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
@@ -701,7 +708,7 @@ class WanVAE(nn.Module):
 
 
 @dataclass(kw_only=True)
-class WanVAEEncoderConfig(InstantiateConfig["WanVAEEncoder"]):
+class WanVAEEncoderConfig(EncoderConfig):
     """Config for the Wan VAE encoder."""
 
     _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
@@ -798,7 +805,7 @@ class WanVAEEncoder(StreamingVideoEncoder[WanVAECache]):
 
 
 @dataclass(kw_only=True)
-class WanVAEDecoderConfig(InstantiateConfig["WanVAEDecoder"]):
+class WanVAEDecoderConfig(DecoderConfig):
     """Config for the Wan VAE decoder."""
 
     _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)

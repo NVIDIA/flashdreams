@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import torch
 import torch.nn as nn
@@ -26,11 +26,12 @@ from torch import Tensor
 from typing_extensions import TypeVar
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.diffusion.scheduler import Scheduler
+from flashdreams.infra.diffusion.scheduler import Scheduler, SchedulerConfig
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
     TransformerCacheT,
+    TransformerConfig,
 )
 
 # Distinct TypeVar for ``DiffusionModel.FinalState`` so the nested generic
@@ -49,10 +50,10 @@ class DiffusionModelConfig(InstantiateConfig["DiffusionModel"]):
 
     _target: type["DiffusionModel"] = field(default_factory=lambda: DiffusionModel)
 
-    transformer: InstantiateConfig[Any]
+    transformer: TransformerConfig
     """Flow-prediction network config."""
 
-    scheduler: InstantiateConfig[Any]
+    scheduler: SchedulerConfig
     """Denoising-loop config."""
 
     seed: int | None = None
@@ -110,7 +111,9 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
     def __init__(self, config: DiffusionModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.transformer = self.config.transformer.setup()
+        self.transformer = cast(
+            Transformer[TransformerCacheT], self.config.transformer.setup()
+        )
         self.scheduler = self.config.scheduler.setup()
         self._rng: torch.Generator | None = None
 

@@ -27,11 +27,11 @@ from torch import Tensor
 from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
+    TransformerConfig,
 )
 from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 from flashdreams.recipes.wan.transformer.impl.network import (
@@ -95,7 +95,7 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
 
 
 @dataclass(kw_only=True)
-class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
+class Wan21TransformerConfig(TransformerConfig):
     """Config for the Wan 2.1 transformer.
 
     Bakes in the temporal layout (``len_t``, ``window_size_t``,

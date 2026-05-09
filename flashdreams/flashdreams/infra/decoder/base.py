@@ -31,7 +31,7 @@ Two flavours:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic
 
 import torch.nn as nn
@@ -64,7 +64,7 @@ class StreamingDecoder(ABC, nn.Module, Generic[StreamingDecoderCacheT]):
     ``forward(self, input, autoregressive_index=0, cache=None)``.
     """
 
-    def __init__(self, config: InstantiateConfig[Any]) -> None:
+    def __init__(self, config: "DecoderConfig") -> None:
         super().__init__()
         self.config = config
 
@@ -148,3 +148,10 @@ class StreamingVideoDecoder(StreamingDecoder[StreamingDecoderCacheT]):
         Returns:
             Number of latent frames needed at this step.
         """
+
+
+@dataclass(kw_only=True)
+class DecoderConfig(InstantiateConfig[StreamingDecoder]):
+    """Category base for every decoder config."""
+
+    _target: type[StreamingDecoder] = field(default_factory=lambda: StreamingDecoder)

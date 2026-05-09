@@ -27,6 +27,7 @@ from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.decoder import (
+    DecoderConfig,
     StreamingDecoder,
     StreamingDecoderCacheT,
 )
@@ -38,6 +39,7 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerCacheT,
 )
 from flashdreams.infra.encoder import (
+    EncoderConfig,
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
@@ -57,15 +59,20 @@ class StreamInferencePipelineConfig(InstantiateConfig["StreamInferencePipeline"]
         default_factory=lambda: StreamInferencePipeline
     )
 
+    recipe_name: str
+    """Stable slug for this pipeline variant; the primary key of
+    ``<NAME>_CONFIGS``. Runners mirror it as ``runner_name`` so
+    ``flashdreams run <slug>`` resolves to this pipeline."""
+
     diffusion_model: DiffusionModelConfig
     """Transformer + scheduler config."""
 
-    decoder: InstantiateConfig[Any] | None = None
+    decoder: DecoderConfig | None = None
     """Optional output :class:`StreamingDecoder` with a per-rollout cache,
     called as ``decoder(input, autoregressive_index, cache)``. Use
     ``None`` to return the clean latent unchanged."""
 
-    encoder: InstantiateConfig[Any] | None = None
+    encoder: EncoderConfig | None = None
     """Optional per-AR-step input encoder. Must be a
     :class:`StreamingEncoder`; one-shot encoders go on
     ``transformer.context_encoder`` instead."""

@@ -55,9 +55,16 @@ class Encoder(ABC, nn.Module):
     from :class:`StreamingEncoder` instead.
     """
 
-    def __init__(self, config: InstantiateConfig[Any]) -> None:
+    def __init__(self, config: "EncoderConfig") -> None:
         super().__init__()
         self.config = config
+
+
+@dataclass(kw_only=True)
+class EncoderConfig(InstantiateConfig[Encoder]):
+    """Category base for every encoder config (stateless or streaming)."""
+
+    _target: type[Encoder] = field(default_factory=lambda: Encoder)
 
 
 @dataclass(kw_only=True)
@@ -84,7 +91,7 @@ class StreamingEncoder(ABC, nn.Module, Generic[StreamingEncoderCacheT]):
     ``forward(self, input, autoregressive_index=0, cache=None)``.
     """
 
-    def __init__(self, config: InstantiateConfig[Any]) -> None:
+    def __init__(self, config: "EncoderConfig") -> None:
         super().__init__()
         self.config = config
 
@@ -173,7 +180,7 @@ class StreamingVideoEncoder(StreamingEncoder[StreamingEncoderCacheT]):
 
 
 @dataclass(kw_only=True)
-class NullEncoderConfig(InstantiateConfig["NullEncoder"]):
+class NullEncoderConfig(EncoderConfig):
     """Config for the identity encoder."""
 
     _target: type["NullEncoder"] = field(default_factory=lambda: NullEncoder)

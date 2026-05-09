@@ -22,10 +22,10 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
     Scheduler,
+    SchedulerConfig,
 )
 
 
@@ -35,7 +35,7 @@ def _warp(sigmas: Tensor, shift: float) -> Tensor:
 
 
 @dataclass(kw_only=True)
-class FlowMatchSchedulerConfig(InstantiateConfig["FlowMatchScheduler"]):
+class FlowMatchSchedulerConfig(SchedulerConfig):
     """Config for the flow-matching scheduler."""
 
     _target: type["FlowMatchScheduler"] = field(
