@@ -202,6 +202,23 @@ class Causal_LQ4x_Proj(nn.Module):
             if use_compile
             else self.stream_forward_efficient
         )
+        # Parallel callable for the fused-encoder path. The CUDA-fused
+        # encoder (see ``flashdreams.recipes.flashvsr.encoder.__init__``)
+        # emits the post-pixel-shuffle tensor directly, so this entry point
+        # skips the leading pad / pixel_shuffle. Kept as a separate
+        # attribute (vs branching inside ``stream_forward_efficient``)
+        # because the input shape differs and the CUDA-graph wrapper
+        # captures shape-specifically.
+        self._stream_forward_from_shuffled: Callable[
+            [torch.Tensor, Causal_LQ4x_Proj_Cache], list[torch.Tensor]
+        ] = (
+            torch.compile(
+                self.stream_forward_from_shuffled,
+                mode="max-autotune-no-cudagraphs",
+            )
+            if use_compile
+            else self.stream_forward_from_shuffled
+        )
 
         self._use_cuda_graph = use_cuda_graph
         self._proj_wrapper: CUDAGraphWrapper | None = (
@@ -209,11 +226,24 @@ class Causal_LQ4x_Proj(nn.Module):
             if use_cuda_graph
             else None
         )
+        self._proj_wrapper_from_shuffled: CUDAGraphWrapper | None = (
+            CUDAGraphWrapper(
+                self._stream_forward_from_shuffled,
+                warmup_iters=warmup_iters,
+            )
+            if use_cuda_graph
+            else None
+        )
         # Tracks the Python ``id()`` of the bound cache's two slot tensors. Any
         # change (new cache, replaced dict, freshly cleared slots) forces a
         # ``wrapper.reset()`` because captured kernels reference the prior
-        # storage pointers. Sentinel value before the first call.
+        # storage pointers. Sentinel value before the first call. One slot
+        # tracker per wrapper; the two paths capture independently.
         self._wrapper_slot_id: tuple[int, int] = (id(None), id(None))
+        self._wrapper_slot_id_from_shuffled: tuple[int, int] = (
+            id(None),
+            id(None),
+        )
 
     def stream_forward_efficient(
         self,
@@ -229,6 +259,36 @@ class Causal_LQ4x_Proj(nn.Module):
         # Snapshot the conv1 streaming tail before running the conv. The view
         # into ``x`` stays valid until ``set_or_copy`` reads it; the
         # ``copy_`` keeps the slot's storage pointer fixed for graph replay.
+        new_tail1 = x[:, :, -CACHE_T:, :, :]
+        x = self.conv1(x, cache.cache["conv1"])
+        set_or_copy(cache.cache, "conv1", new_tail1)
+        x = self.norm1(x)
+        x = self.act1(x)
+        new_tail2 = x[:, :, -CACHE_T:, :, :]
+        x = self.conv2(x, cache.cache["conv2"])
+        set_or_copy(cache.cache, "conv2", new_tail2)
+        x = self.norm2(x)
+        x = self.act2(x)
+
+        out_x = rearrange(x, "b c f h w -> b (f h w) c")
+        return [layer(out_x) for layer in self.linear_layers]
+
+    def stream_forward_from_shuffled(
+        self,
+        x: torch.Tensor,
+        cache: Causal_LQ4x_Proj_Cache,
+    ):
+        """Streaming forward starting from a pre-pixel-shuffled tensor.
+
+        The fused CUDA encoder produces ``x`` directly in the
+        ``[B, in_dim * ff * hh * ww, T_padded, target_H/hh, target_W/ww]``
+        layout that ``conv1`` consumes, so we skip ``self.pixel_shuffle``
+        and the leading ``T % 4`` replicate-pad. The latter is dead code
+        on the fused path: ``FlashVSREncoder`` always pads ``T`` to one of
+        ``{8, 16}`` (both divisible by 4) before invoking the kernel, so
+        the dead branch from :meth:`stream_forward_efficient` is omitted
+        here.
+        """
         new_tail1 = x[:, :, -CACHE_T:, :, :]
         x = self.conv1(x, cache.cache["conv1"])
         set_or_copy(cache.cache, "conv1", new_tail1)
@@ -277,6 +337,35 @@ class Causal_LQ4x_Proj(nn.Module):
         # Re-read after the call so first-write allocations (drain phase) and
         # any future shape-driven reallocs are picked up on the next dispatch.
         self._wrapper_slot_id = (
+            id(cache.cache["conv1"]),
+            id(cache.cache["conv2"]),
+        )
+        return out
+
+    def forward_streaming_from_shuffled(
+        self, x: torch.Tensor, cache: Causal_LQ4x_Proj_Cache
+    ) -> list[torch.Tensor]:
+        """Dispatch the from-shuffled streaming forward.
+
+        Mirror of :meth:`forward_streaming` but routed through the
+        parallel ``_proj_wrapper_from_shuffled`` so the captured CUDA
+        graph stays stable for the post-pixel-shuffle input shape.
+        """
+        if self._proj_wrapper_from_shuffled is None:
+            return self._stream_forward_from_shuffled(x, cache)
+
+        slot_id = (id(cache.cache.get("conv1")), id(cache.cache.get("conv2")))
+        if slot_id != self._wrapper_slot_id_from_shuffled:
+            self._proj_wrapper_from_shuffled.reset()
+
+        is_filling = cache.cache["conv1"] is None or cache.cache["conv2"] is None
+        call = (
+            self._proj_wrapper_from_shuffled.drain
+            if is_filling
+            else self._proj_wrapper_from_shuffled
+        )
+        out = call(x, cache)
+        self._wrapper_slot_id_from_shuffled = (
             id(cache.cache["conv1"]),
             id(cache.cache["conv2"]),
         )

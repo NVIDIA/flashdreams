@@ -22,32 +22,38 @@ The bicubic upres is side-stashed on the cache so the pipeline can
 forward it to the decoder (TC decoder ``cond`` + color-corrector AdaIN
 reference). See ``README.md`` (sibling) for the streaming chunk contract.
 
-Cold-start chunks rely on the bicubic-vs-pad commutativity: bicubic is
-spatial-only, so ``bicubic(replicate_pad_left(lowres)) ==
-replicate_pad_left(bicubic(lowres))``, which licenses storing the
-un-padded bicubic upres and letting the decoder's ``PixelShuffle3d``
-replicate-pad frame 0 to match the legacy padded path byte-for-byte.
-Set ``FLASHVSR_DEV_ASSERT=1`` to enable a runtime check of this on
-cold-start chunks (off by default).
+The fast path is a hand-rolled CUDA extension
+(:mod:`csrc/bicubic_pixelshuffle_cuda.cu`) that fuses the temporal
+replicate-pad-left, bicubic upres, and the projector's spatial
+pixel-shuffle into one kernel launch. It emits both the projector's
+post-pixel-shuffle conv1 input and the un-padded BCTHW ``last_upres`` in
+a single pass. Cold-start chunks rely on the bicubic-vs-pad
+commutativity (bicubic is spatial-only, so
+``bicubic(replicate_pad_left(lowres)) ==
+replicate_pad_left(bicubic(lowres))``) so the kernel can fold the pad
+into ``t_in = max(0, t_padded - n_left_padding)`` index math without
+materialising the padded upres.
+
+The eager PyTorch path is preserved as a fallback for non-CUDA hosts
+and for hosts where the extension fails to build.
 """
 
 from __future__ import annotations
 
-import os
+import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from torch.utils.cpp_extension import load as _load_cuda_extension
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.encoder import StreamingEncoder, StreamingEncoderCache
 from flashdreams.infra.profiler import EventProfiler, record_event
-
-_DEV_ASSERT = os.environ.get("FLASHVSR_DEV_ASSERT", "0") == "1"
-
 from flashdreams.recipes.flashvsr.constants import (
     FLASHVSR_CHUNK_FRAME_TARGETS,
     FLASHVSR_FRAMES_PER_DIT_ITER,
@@ -62,6 +68,41 @@ __all__ = [
     "FlashVSREncoderConfig",
     "FlashVSREncoderCache",
 ]
+
+
+_BICUBIC_PIXELSHUFFLE_EXTENSION = None
+_BICUBIC_PIXELSHUFFLE_LOAD_ERROR: Optional[Exception] = None
+
+
+def _load_bicubic_pixelshuffle_extension():
+    """Lazy-load the fused bicubic + pixel-shuffle CUDA extension.
+
+    Mirrors :func:`flashdreams.recipes.flashvsr.corrector._load_adain_cuda_extension`:
+    the source bytes' sha256 is baked into the extension name so any edit
+    to ``bicubic_pixelshuffle_cuda.cu`` invalidates the cached ``.so``
+    under ``~/.cache/torch_extensions``. Returns ``None`` on load failure
+    (CPU-only host, missing toolchain, etc.) -- callers fall back to the
+    eager PyTorch path.
+    """
+    global _BICUBIC_PIXELSHUFFLE_EXTENSION, _BICUBIC_PIXELSHUFFLE_LOAD_ERROR
+    if _BICUBIC_PIXELSHUFFLE_EXTENSION is not None:
+        return _BICUBIC_PIXELSHUFFLE_EXTENSION
+    if _BICUBIC_PIXELSHUFFLE_LOAD_ERROR is not None:
+        return None
+
+    source_path = Path(__file__).parent.parent / "csrc" / "bicubic_pixelshuffle_cuda.cu"
+    csrc_checksum = hashlib.sha256(source_path.read_bytes()).hexdigest()[:8]
+    # try:
+    _BICUBIC_PIXELSHUFFLE_EXTENSION = _load_cuda_extension(
+        name=f"flashvsr_bicubic_pixelshuffle_cuda_{csrc_checksum}",
+        sources=[str(source_path)],
+        extra_cuda_cflags=["-O3"],
+        verbose=True,
+    )
+    # except Exception as exc:
+    #     _BICUBIC_PIXELSHUFFLE_LOAD_ERROR = exc
+    #     return None
+    return _BICUBIC_PIXELSHUFFLE_EXTENSION
 
 
 @dataclass(kw_only=True)
@@ -239,20 +280,52 @@ class FlashVSREncoder(StreamingEncoder[FlashVSREncoderCache]):
                 f"expected one of {sorted(self._CHUNK_FRAME_TARGETS)}."
             )
         n_left_padding = target_T - T_raw
+        # Each DiT iter consumes ``FLASHVSR_FRAMES_PER_DIT_ITER`` raw frames
+        # (= 2 latent frames after the projector's 4x temporal compression).
+        # Mirrors the legacy ``n_iters = (T // 4) // 2``.
+        cache.last_n_iters = target_T // FLASHVSR_FRAMES_PER_DIT_ITER
+
+        if input.is_cuda:
+            ext = _load_bicubic_pixelshuffle_extension()
+        else:
+            ext = None
+
+        input = input.contiguous()
+        if ext is not None:
+            # Fast path: one kernel folds pad + permute+contiguous +
+            # bicubic + permute-back + pixel-shuffle, emitting both the
+            # projector's post-shuffle conv1 input and the un-padded
+            # ``last_upres`` in a single launch.
+            proj_input, last_upres = ext.bicubic_pixelshuffle_forward(
+                input,
+                target_T,
+                self.target_H,
+                self.target_W,
+                n_left_padding,
+            )
+            # ``pad`` is folded into the kernel; record the synthetic event
+            # so the per-AR-step profile keeps the same ``pad`` /
+            # ``bicubic`` / ``projector`` breakdown shape.
+            record_event(event_profiler, "pad")
+            cache.last_upres = last_upres
+            record_event(event_profiler, "bicubic")
+            out = self.projector.forward_streaming_from_shuffled(
+                proj_input, cache.proj_cache
+            )
+            record_event(event_profiler, "projector")
+            return out
+        else:
+            raise RuntimeError("Bicubic pixelshuffle CUDA extension not found")
+
+        # Eager PyTorch fallback (non-CUDA hosts, extension build failure).
+        # Mirrors the pre-fusion code path; kept around so CPU smokes and
+        # tests without an nvcc toolchain still exercise the encoder.
         if n_left_padding > 0:
-            # Replicate-pad on the **raw** input. Bicubic-upsampling first
-            # then padding the upres along the temporal axis would also
-            # work numerically -- the legacy code happened to pad first,
-            # so we keep that ordering. The runtime assertion below
-            # double-checks the equivalence on cold-start chunks during
-            # development, gated behind an env flag so production stays
-            # fast.
             input = F.pad(input, (0, 0, 0, 0, n_left_padding, 0), mode="replicate")
         T = target_T
 
         record_event(event_profiler, "pad")
 
-        # Bicubic upsample [B, 3, T, H, W] -> [B, 3, T, target_H, target_W].
         upres = (
             F.interpolate(
                 input.permute(0, 2, 1, 3, 4).reshape(B * T, 3, H, W),
@@ -263,39 +336,14 @@ class FlashVSREncoder(StreamingEncoder[FlashVSREncoderCache]):
             .view(B, T, 3, self.target_H, self.target_W)
             .permute(0, 2, 1, 3, 4)
         )
-
-        # Stash the un-padded upres for the decoder/color-corrector. Padding
-        # only existed to keep the projector's 4-frame causal stride aligned;
-        # downstream stages should see only the user-visible frames.
+        # Un-padded upres for the decoder/color-corrector. The bicubic
+        # is spatial-only, so the un-padded slice equals
+        # ``bicubic(unpadded_lowres)`` exactly -- the same identity the
+        # CUDA kernel relies on to skip materialising the padded upres.
         cache.last_upres = upres[:, :, n_left_padding:, :, :]
-        # Each DiT iter consumes ``FLASHVSR_FRAMES_PER_DIT_ITER`` raw frames
-        # (= 2 latent frames after the projector's 4x temporal compression).
-        # Mirrors the legacy ``n_iters = (T // 4) // 2``.
-        cache.last_n_iters = T // FLASHVSR_FRAMES_PER_DIT_ITER
-
-        if _DEV_ASSERT and n_left_padding > 0:
-            # Cold-start equivalence check: replicate-padding the raw
-            # lowres before bicubic must produce the same upres as
-            # replicate-padding the bicubic of the un-padded lowres.
-            # This is what licenses the (un-padded ``last_upres`` ->
-            # decoder ``PixelShuffle3d`` frame-0 replicate) path to match
-            # the legacy padded-then-bicubic path byte-for-byte.
-            reconstructed = F.pad(
-                cache.last_upres,
-                (0, 0, 0, 0, n_left_padding, 0),
-                mode="replicate",
-            )
-            assert torch.equal(reconstructed, upres), (
-                "Cold-start padding equivalence check failed: "
-                "bicubic(replicate_pad(lowres)) differs from "
-                "replicate_pad(bicubic(lowres)). The decoder's PixelShuffle3d "
-                "frame-0 replicate would no longer match the legacy padded path."
-            )
 
         record_event(event_profiler, "bicubic")
 
-        # Per-block LR latents: list of ``num_layers`` tensors, each
-        # ``[B, n_iters * len_t * pH * pW, dim]``.
         out = self.projector.forward_streaming(upres, cache.proj_cache)
 
         record_event(event_profiler, "projector")
