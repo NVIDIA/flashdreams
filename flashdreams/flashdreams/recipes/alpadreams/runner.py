@@ -97,17 +97,15 @@ def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
             "Either populate it (see README) or unset --example-data and "
             "pass --hdmap-video-paths / --first-frame-paths explicitly."
         )
-        sync_s3_dir_to_local(
-            s3_dir=EXAMPLE_DATA_DIR_S3,
-            s3_credential_path=str(S3_CREDENTIAL_PATH),
-            cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
-            max_workers=10,
-            show_progress=True,
-            verify_checksum=True,
-            desc="Syncing alpadreams example data from S3",
-        )
-    if torch.distributed.is_initialized():
-        torch.distributed.barrier()
+    sync_s3_dir_to_local(
+        s3_dir=EXAMPLE_DATA_DIR_S3,
+        s3_credential_path=str(S3_CREDENTIAL_PATH),
+        cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
+        max_workers=10,
+        show_progress=True,
+        verify_checksum=True,
+        desc="Syncing alpadreams example data from S3",
+    )
 
 
 @dataclass(kw_only=True)
@@ -294,9 +292,7 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
         assert embeddings_path.exists(), (
             f"--embeddings_path does not exist: {embeddings_path}"
         )
-        embeddings = torch.load(
-            embeddings_path, map_location="cpu", weights_only=True
-        )
+        embeddings = torch.load(embeddings_path, map_location="cpu", weights_only=True)
         if self.is_rank_zero:
             logger.info(
                 f"[{cfg.runner_name}] loaded embeddings from {embeddings_path} "
@@ -395,17 +391,22 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats "
-                f"-> {stats_path.resolve()}"
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
     ## ------------------------------------------------------------ helpers ##
 
     def _num_views(self) -> int:
-        """Read ``num_views`` off the wrapped Cosmos transformer config."""
+        """Recover the global ``num_views`` (per-rank ``num_views`` x ``V_size``).
+
+        ``AlpadreamsPipeline.__init__`` divides ``transformer.config.num_views``
+        by the CP ``V_size`` for the per-rank shard, so reading the field
+        directly after ``setup()`` returns ``1`` on a 4-GPU run with 4 cameras.
+        Multiply by ``self.pipeline.V_size`` to get the unsplit count.
+        """
         transformer_cfg = self.config.pipeline.diffusion_model.transformer
         assert isinstance(transformer_cfg, CosmosTransformerConfig)
-        return transformer_cfg.num_views
+        return transformer_cfg.num_views * self.pipeline.V_size
 
     def _load_first_frames(
         self,

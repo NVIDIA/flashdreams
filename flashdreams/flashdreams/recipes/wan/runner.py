@@ -40,25 +40,33 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_I2V_IMAGE_PATH = _REPO_ROOT / "assets/example_data/i2v/image.jpg"
 """Bundled first-frame image used when ``--image-path`` is not provided."""
 
+DEFAULT_I2V_PROMPT_PATH = _REPO_ROOT / "assets/example_data/i2v/prompt.txt"
+"""Bundled prompt that matches :data:`DEFAULT_I2V_IMAGE_PATH`. The I2V
+runner config defaults ``prompt_path`` here so the out-of-the-box demo
+narrates the bundled first frame instead of an unrelated T2V prompt."""
+
 
 @dataclass(kw_only=True)
 class _Wan21RunnerConfigBase(RunnerConfig):
     """Fields shared by both Wan 2.1 runner variants."""
 
     prompt: str = ""
-    """Text prompt. Falls back to :attr:`prompt_path` when empty; one
-    of the two must resolve to a non-empty string. Per-variant
-    literals override the empty default with a demo prompt."""
+    """Text prompt. A non-empty value wins; otherwise the runner reads
+    the first line of :attr:`prompt_path`. Per-variant literals override
+    the empty default with a demo prompt."""
 
     prompt_path: Path | None = None
-    """Optional path to a ``.txt`` whose first line is the prompt.
-    When set, takes precedence over :attr:`prompt`."""
+    """Fallback ``.txt`` whose first line is read when :attr:`prompt`
+    is empty. Per-variant literals may default this to a bundled demo
+    prompt (e.g. the I2V runner points at the asset that matches
+    :attr:`Wan21I2VRunnerConfig.image_path`)."""
 
-    pixel_height: int = 832
+    pixel_height: int = 480
     """Output video pixel height. Must divide
-    ``WAN_VAE_SPATIAL_COMPRESSION`` cleanly."""
+    ``WAN_VAE_SPATIAL_COMPRESSION`` cleanly. 480p landscape default
+    matches Wan 2.1's training resolution."""
 
-    pixel_width: int = 480
+    pixel_width: int = 832
     """Output video pixel width. Same divisibility rule as
     :attr:`pixel_height`."""
 
@@ -83,22 +91,27 @@ class Wan21I2VRunnerConfig(_Wan21RunnerConfigBase):
     """Path to the first-frame RGB image. Defaults to the bundled
     ``assets/example_data/i2v/image.jpg`` demo frame."""
 
+    prompt_path: Path | None = field(default_factory=lambda: DEFAULT_I2V_PROMPT_PATH)
+    """Defaults to the bundled prompt that matches the bundled
+    :attr:`image_path` so ``flashdreams-run wan21-i2v-14b-480p`` produces
+    a coherent video out of the box. ``--prompt "..."`` overrides it."""
+
 
 class _Wan21RunnerBase(Runner[_Wan21RunnerConfigBase, WanInferencePipeline]):
     """Shared single-AR-step rollout body for both Wan 2.1 variants."""
 
     def _resolve_prompt(self) -> str:
-        """Pick the prompt: ``--prompt_path`` wins, else ``--prompt``."""
+        """Pick the prompt: non-empty ``--prompt`` wins, else ``--prompt-path``."""
         cfg = self.config
-        if cfg.prompt_path is not None:
-            text = cfg.prompt_path.read_text().splitlines()
-            assert text, f"prompt file {cfg.prompt_path} is empty"
-            return text[0].strip()
-        assert cfg.prompt, (
-            "either --prompt or --prompt_path must be set "
+        if cfg.prompt:
+            return cfg.prompt
+        assert cfg.prompt_path is not None, (
+            "either --prompt or --prompt-path must be set "
             "(both empty resolved to no text input)."
         )
-        return cfg.prompt
+        text = cfg.prompt_path.read_text().splitlines()
+        assert text, f"prompt file {cfg.prompt_path} is empty"
+        return text[0].strip()
 
     def _initialize_cache(self) -> Any:
         raise NotImplementedError
@@ -191,13 +204,10 @@ WAN21_I2V_14B_480P_RUNNER = Wan21I2VRunnerConfig(
     runner_name="wan21-i2v-14b-480p",
     description="Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).",
     pipeline=WAN21_I2V_14B_480P,
-    prompt=(
-        "A stylish woman strolls down a bustling Tokyo street, the warm "
-        "glow of neon lights and animated city signs casting vibrant "
-        "reflections."
-    ),
 )
-"""Wan 2.1 14B I2V at 480p with a demo prompt + bundled first-frame baked in."""
+"""Wan 2.1 14B I2V at 480p. ``image_path`` and ``prompt_path`` default to
+the bundled reindeer demo asset; pass ``--prompt`` and/or ``--image-path``
+to override."""
 
 
 WAN21_RUNNERS: dict[str, _Wan21RunnerConfigBase] = {

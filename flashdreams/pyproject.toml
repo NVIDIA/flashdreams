@@ -74,6 +74,12 @@ dev = [
     "mediapy>=1.1",
     "pytest-manual-marker",
 ]
+# Legacy alias kept around so the lock file resolves identically to
+# main; the canonical extra is ``runners`` (same package set).
+examples = [
+    "mediapy>=1.1",
+    "opencv-python-headless",
+]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
 # off the core install so a serving deployment that uses the bare

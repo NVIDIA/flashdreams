@@ -76,6 +76,7 @@ WAN_VAE_SPATIAL_COMPRESSION = 8
 ## ``concat_image_mask_to_latent=True``.
 LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     recipe_name="lingbot-world-fast",
+    enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
         i2v=I2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(

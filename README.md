@@ -163,17 +163,17 @@ export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # default
 # - single view on single GPU (best-perf preset)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-    --example-data --total-blocks 20
+    --example-data True --total-blocks 20
 
 # - multi view on 4 GPUs
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
-    --example-data --total-blocks 20
+    --example-data True --total-blocks 20
 
 # - diffusion forcing AR model on bundled single-view example data
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
-    --example-data --total-blocks 12
+    --example-data True --total-blocks 12
 ```
 
 ## Instructions to run Alpadreams Bidirectional Model
@@ -192,7 +192,7 @@ generates one full block per run, so keep `--total-blocks 1`.
 ```bash
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
-    --example-data --total-blocks 1 \
+    --example-data True --total-blocks 1 \
     --pipeline.diffusion-model.transformer.len-t 24
 ```
 
@@ -305,7 +305,7 @@ export HF_HOME=~/.cache/huggingface # default
 #    --example-data lazy-syncs the bundled prompt + first-frame + camera arrays
 #    from S3 into assets/example_data/lingbot_world/ and fills the path defaults.
 uv run flashdreams-run \
-    lingbot-world-fast --example-data --total-blocks 21
+    lingbot-world-fast --example-data True --total-blocks 21
 ```
 
 

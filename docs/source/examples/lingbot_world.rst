@@ -36,7 +36,7 @@ Single GPU
 .. code-block:: bash
 
    uv run flashdreams-run \
-       lingbot-world-fast --example-data --total-blocks 21
+       lingbot-world-fast --example-data True --total-blocks 21
 
 Multi GPU
 ---------
@@ -47,4 +47,4 @@ Wan 2.1 context parallel assumes ``cp_size == world_size``; launch via
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
-       lingbot-world-fast --example-data --total-blocks 21
+       lingbot-world-fast --example-data True --total-blocks 21

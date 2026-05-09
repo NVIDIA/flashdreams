@@ -55,17 +55,15 @@ def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
             "Either populate it (see README) or unset --example-data and "
             "pass --image-path / --pose-path / --intrinsic-path explicitly."
         )
-        sync_s3_dir_to_local(
-            s3_dir=EXAMPLE_DATA_DIR_S3,
-            s3_credential_path=str(S3_CREDENTIAL_PATH),
-            cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
-            max_workers=10,
-            show_progress=True,
-            verify_checksum=True,
-            desc="Syncing lingbot_world example data from S3",
-        )
-    if torch.distributed.is_initialized():
-        torch.distributed.barrier()
+    sync_s3_dir_to_local(
+        s3_dir=EXAMPLE_DATA_DIR_S3,
+        s3_credential_path=str(S3_CREDENTIAL_PATH),
+        cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
+        max_workers=10,
+        show_progress=True,
+        verify_checksum=True,
+        desc="Syncing lingbot_world example data from S3",
+    )
 
 
 @dataclass(kw_only=True)
@@ -75,11 +73,12 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     _target: type = field(default_factory=lambda: LingbotWorldRunner)
 
     prompt: str = ""
-    """Text prompt. Falls back to :attr:`prompt_path` when empty."""
+    """Text prompt. A non-empty value wins; otherwise the runner reads
+    the first line of :attr:`prompt_path`."""
 
     prompt_path: Path | None = None
-    """Path to a ``.txt`` whose first line is the prompt; wins over
-    :attr:`prompt` when set."""
+    """Fallback ``.txt`` whose first line is read when :attr:`prompt` is
+    empty. ``--example-data True`` lazy-fills it from the bundled demo."""
 
     image_path: Path | None = None
     """Path to the first-frame RGB image. Required at ``run()`` time."""
@@ -121,16 +120,17 @@ class LingbotWorldRunner(
     config: LingbotWorldRunnerConfig
 
     def _resolve_prompt(self) -> str:
+        """Pick the prompt: non-empty ``--prompt`` wins, else ``--prompt-path``."""
         cfg = self.config
-        if cfg.prompt_path is not None:
-            text = cfg.prompt_path.read_text().splitlines()
-            assert text, f"prompt file {cfg.prompt_path} is empty"
-            return text[0].strip()
-        assert cfg.prompt, (
-            "either --prompt or --prompt_path must be set "
+        if cfg.prompt:
+            return cfg.prompt
+        assert cfg.prompt_path is not None, (
+            "either --prompt or --prompt-path must be set "
             "(both empty resolved to no text input)."
         )
-        return cfg.prompt
+        text = cfg.prompt_path.read_text().splitlines()
+        assert text, f"prompt file {cfg.prompt_path} is empty"
+        return text[0].strip()
 
     def _fill_example_data_defaults(self) -> None:
         """Lazy-sync bundled assets and fill empty path defaults in-place."""
@@ -193,9 +193,7 @@ class LingbotWorldRunner(
                 f"{tuple(camera_poses_t.shape)}"
             )
 
-        cache = self.pipeline.initialize_cache(
-            text=[prompt], image=first_frames_t
-        )
+        cache = self.pipeline.initialize_cache(text=[prompt], image=first_frames_t)
 
         torch.cuda.synchronize()
         if torch.distributed.is_initialized():
@@ -248,8 +246,7 @@ class LingbotWorldRunner(
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats "
-                f"-> {stats_path.resolve()}"
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
 

@@ -51,6 +51,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_I2V_IMAGE_PATH = _REPO_ROOT / "assets/example_data/i2v/image.jpg"
 """Bundled first-frame image used when ``--image-path`` is not provided."""
 
+DEFAULT_I2V_PROMPT_PATH = _REPO_ROOT / "assets/example_data/i2v/prompt.txt"
+"""Bundled prompt that matches :data:`DEFAULT_I2V_IMAGE_PATH`. The I2V
+runner config defaults ``prompt_path`` here so the bundled demo narrates
+the bundled first frame instead of the unrelated T2V default prompt."""
+
 DEFAULT_PROMPT = (
     "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
     "neon lights and animated city signs casting vibrant reflections. She "
@@ -72,12 +77,15 @@ class _CausalWan21RunnerConfigBase(RunnerConfig):
     """Fields shared by both causal Wan 2.1 runner variants."""
 
     prompt: str = DEFAULT_PROMPT
-    """Text prompt. Falls back to :attr:`prompt_path` when empty; one of
-    the two must resolve to a non-empty string."""
+    """Text prompt. A non-empty value wins; otherwise the runner reads
+    the first line of :attr:`prompt_path`. T2V variants keep the Tokyo
+    demo prompt; I2V variants null out :attr:`prompt` so the bundled
+    image-matching prompt-path is used by default."""
 
     prompt_path: Path | None = None
-    """Optional path to a ``.txt`` whose first line is the prompt; wins
-    over :attr:`prompt` when set."""
+    """Fallback ``.txt`` whose first line is read when :attr:`prompt` is
+    empty. I2V variants default this to the bundled prompt that matches
+    :attr:`CausalWan21I2VRunnerConfig.image_path`."""
 
     total_blocks: int = 60
     """Number of AR chunks to generate before terminating the rollout."""
@@ -107,6 +115,14 @@ class CausalWan21I2VRunnerConfig(_CausalWan21RunnerConfigBase):
 
     _target: type = field(default_factory=lambda: CausalWan21I2VRunner)
 
+    prompt: str = ""
+    """Empty by default so :attr:`prompt_path` (the bundled demo prompt)
+    drives generation; pass ``--prompt "..."`` to override."""
+
+    prompt_path: Path | None = field(default_factory=lambda: DEFAULT_I2V_PROMPT_PATH)
+    """Defaults to the bundled prompt that matches :attr:`image_path` so
+    the out-of-the-box demo narrates the bundled first frame."""
+
     image_path: Path = field(default_factory=lambda: DEFAULT_I2V_IMAGE_PATH)
     """Path to the first-frame RGB image. Defaults to the bundled
     ``assets/example_data/i2v/image.jpg`` demo frame."""
@@ -118,16 +134,17 @@ class _CausalWan21RunnerBase(
     """Shared streaming-rollout body for both causal Wan 2.1 variants."""
 
     def _resolve_prompt(self) -> str:
+        """Pick the prompt: non-empty ``--prompt`` wins, else ``--prompt-path``."""
         cfg = self.config
-        if cfg.prompt_path is not None:
-            text = cfg.prompt_path.read_text().splitlines()
-            assert text, f"prompt file {cfg.prompt_path} is empty"
-            return text[0].strip()
-        assert cfg.prompt, (
-            "either --prompt or --prompt_path must be set "
+        if cfg.prompt:
+            return cfg.prompt
+        assert cfg.prompt_path is not None, (
+            "either --prompt or --prompt-path must be set "
             "(both empty resolved to no text input)."
         )
-        return cfg.prompt
+        text = cfg.prompt_path.read_text().splitlines()
+        assert text, f"prompt file {cfg.prompt_path} is empty"
+        return text[0].strip()
 
     def _initialize_cache(self) -> Any:
         raise NotImplementedError
@@ -181,8 +198,7 @@ class _CausalWan21RunnerBase(
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats "
-                f"-> {stats_path.resolve()}"
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
 

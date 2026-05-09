@@ -40,7 +40,7 @@ Single GPU, single view (perf preset)
 
    uv run flashdreams-run \
        alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --example-data --total-blocks 20
+       --example-data True --total-blocks 20
 
 Multi GPU, multi view
 ---------------------
@@ -49,7 +49,7 @@ Multi GPU, multi view
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
        alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
-       --example-data --total-blocks 20
+       --example-data True --total-blocks 20
 
 Each rank owns one camera; ring attention shards the per-camera context
 across the world.
@@ -61,7 +61,7 @@ Diffusion forcing, single view
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
        alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
-       --example-data --total-blocks 12
+       --example-data True --total-blocks 12
 
 With the usual ``--total-blocks 12`` rollout, the chunk2 checkpoint decodes
 to 93 frames.
@@ -73,7 +73,7 @@ Bidirectional, single view
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
        alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
-       --example-data --total-blocks 1 \
+       --example-data True --total-blocks 1 \
        --pipeline.diffusion-model.transformer.len-t 24
 
 The bidirectional checkpoint generates one full block per run. Omit the
@@ -91,13 +91,13 @@ and reuse the embeddings on the AR pass:
    # Rank-0-only producer: dump text + first-frame embeddings.
    uv run flashdreams-run \
        alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --example-data \
+       --example-data True \
        --save-embeddings-path /tmp/alpa_emb.pt
 
    # Consumer: skip the one-shot encoders, hydrate the cache from .pt.
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
        alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --example-data \
+       --example-data True \
        --embeddings-path /tmp/alpa_emb.pt \
        --total-blocks 20
 

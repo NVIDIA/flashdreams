@@ -142,8 +142,7 @@ class CausalWan22Runner(Runner[CausalWan22RunnerConfig, WanInferencePipeline]):
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats "
-                f"-> {stats_path.resolve()}"
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
 

@@ -49,6 +49,7 @@ from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 ## 81-frame video is one chunk.
 WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
     recipe_name="wan21-t2v-1.3b-480p",
+    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
@@ -80,6 +81,7 @@ WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
 ## ``concat_image_mask_to_latent=True``.
 WAN21_I2V_14B_480P = WanInferencePipelineConfig(
     recipe_name="wan21-i2v-14b-480p",
+    enable_sync_and_profile=True,
     encoder=I2VCtrlEncoderConfig(
         encoder=WanVAEEncoderConfig(
             checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],

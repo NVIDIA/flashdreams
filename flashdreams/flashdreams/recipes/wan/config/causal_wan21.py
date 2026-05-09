@@ -102,6 +102,7 @@ def _remap_self_or_causal_forcing_state_dict(
 ## ``[1000, 750, 500, 250]`` with ``shift=8.0``.
 SELF_FORCING_T2V = WanInferencePipelineConfig(
     recipe_name="causal-wan21-self-forcing-t2v",
+    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
