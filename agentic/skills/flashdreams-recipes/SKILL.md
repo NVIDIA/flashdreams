@@ -1,6 +1,6 @@
 ---
 name: flashdreams-recipes
-description: Navigate the flashdreams package layout and recipe architecture — what belongs in core vs infra vs recipes, which abstract contracts a recipe must fulfil (Transformer, Encoder, StreamingDecoder, Pipeline, configs), how AR caches / CP / CFG / KV cache / CUDA-graph wrapping fit together, and where new tests live. Use when adding a new recipe under flashdreams/flashdreams/recipes/, when editing an existing recipe's configs or pipeline wiring, when porting a network into the flashdreams framework, or when the user asks where a piece of code should live. The `template` recipe is the source of truth for the reference design.
+description: Navigate the flashdreams package layout and recipe architecture — what belongs in core vs infra vs recipes, which abstract contracts a recipe must fulfil (Transformer, Encoder, StreamingDecoder, Pipeline, configs), how AR caches / CP / CFG / KV cache / CUDA-graph wrapping fit together, where tests live and how to gate them (CPU smoke / GPU parity / slow benchmark tiers; `skipif` not `@pytest.mark.manual` — that marker is unconditional xfail), and the followup-plan + test-plan-set deliverables that ship alongside any non-trivial multi-file refactor. Use when adding a new recipe under flashdreams/flashdreams/recipes/, when editing an existing recipe's configs or pipeline wiring, when porting a network into the flashdreams framework, when adding pytest cases or wiring a new test into CI, when a test mysteriously shows `MANUAL` instead of running, or when shipping / reviewing a multi-file reorg. The `template` recipe is the source of truth for the reference design.
 ---
 
 # flashdreams recipe architecture
@@ -311,13 +311,167 @@ if config.checkpoint_path is not None:
 
 ## 6. Testing
 
-- Tests live in `flashdreams/tests/test_<recipe>.py` — top-level `tests/`, not inside the recipe.
-- Plain `pytest` + `@pytest.mark.parametrize`. Default to `checkpoint_path=None`, `compile_network=False`, `use_cuda_graph=False`.
-- **Always set `compile_network=False` explicitly in unit tests**, even if you think it's the default. Production recipes flip the default to `True`; if a test introspects `transformer.network` (e.g. `isinstance(transformer.network, _DummyNetwork)`) it will silently break when the production default sneaks in via `OptimizedModule`-wrapping.
-- When testing per-rollout shape behaviour (divisibility errors, `latent_shape`-not-set asserts), the trigger is `initialize_autoregressive_cache(height=..., width=...)`, not config construction. Update fakes accordingly: `SimpleNamespace` mocks shouldn't carry `_pH`/`_pW`/`_pT`; set `network.patch_temporal` / `patch_spatial` and pass `height` / `width` through the cache-init call.
-- Smoke shape: `.setup().to("cuda").eval()`, run ≥ 2 AR steps (covers filling + the first steady step when `window_size_t == 2 * len_t`), assert output shape / device / finiteness.
-- CFG on/off, compile + CUDA-graph: `derive_config` patches on the base builder, not separate builders. Compare against the eager baseline in an equivalence test.
-- CP equivalence is a **two-invocation** test: a plain pytest run writes a reference to `<tmpdir>/<recipe>/cp_reference.pt`; a `torchrun --nproc_per_node=N` run reads it back and asserts equality. Run both in the same `srun` so they share `/tmp`.
+### 6.1 Where tests live
+
+```
+flashdreams/tests/
+├── test_<recipe>.py            CPU smoke + config-wiring (one per recipe)
+├── <recipe>/                   GPU parity / benchmark bundles
+│   ├── test_<thing>.py
+│   ├── _<frozen_ref>.py        legacy reference, intentionally not packaged
+│   └── conftest.py             only when sibling files need sys.path injection
+└── <topic>/                    cross-recipe topic tests (scheduler/, wanvae/, taehv/)
+    └── test_*.py
+```
+
+- **`tests/test_<recipe>.py`** — top-level smoke. Targets: import + config-wiring + (optional) `.setup()` on CPU. Models: `tests/test_template.py`, `tests/test_alpadreams.py`, `tests/test_flashvsr.py`. CI runs these.
+- **`tests/<recipe>/test_*.py`** — recipe sub-tests, typically GPU parity vs frozen references and per-stage benchmarks. Models: `tests/flashvsr/test_dit_replacement.py`, `tests/flashvsr/test_tcdecoder_replacement.py`, `tests/flashvsr/test_projector_cuda_graph.py`.
+- **Frozen reference snapshots** sit alongside as `_<thing>.py` (single underscore prefix). Examples: `tests/flashvsr/_wan_model_dit.py`, `_tcdecoder.py`. They ship as loose files loaded via `importlib.util.spec_from_file_location` so the live recipe can drift independently. Don't package them; don't refactor them.
+- **`conftest.py`** is **optional**. Add one only when collection needs sibling-on-`sys.path` injection (mirror `tests/scheduler/conftest.py`).
+- `pyproject.toml` sets `--import-mode=importlib`. Don't add empty `__init__.py` to test dirs; pytest discovers them as standalone modules.
+
+### 6.2 Resource gating — the `@pytest.mark.manual` footgun
+
+**`@pytest.mark.manual` does NOT mean "manual opt-in".** The `pytest-manual-marker` plugin (pinned in `[dev]`) installs a `pytest_runtest_setup` hook that **unconditionally calls `pytest.xfail("manual")`** for any test marked `manual`. The plugin only adds `--manual-only` (which deselects non-manual tests at COLLECTION time); manual-marked tests still xfail in setup and never run their bodies. Even `pytest -m manual` doesn't help — the xfail still fires. The visible outcome is `MANUAL (manual)` with the body skipped.
+
+So: `@pytest.mark.manual` is effectively `xfail("manual")`. Don't use it for "this needs a GPU" or "this needs weights" — the test will silently never run, even when the resource is present.
+
+The right pattern is stacked `skipif`s, used by `tests/flashvsr/test_*.py`:
+
+```python
+import pytest
+import torch
+
+_GPU_REASON = "<test name> requires CUDA"
+_WEIGHTS_REASON = (
+    f"FlashVSR-v1.1 weights not found under {_WEIGHTS_ROOT}; "
+    "stage with internal/upsampler/scripts/download_flashvsr_weights.sh."
+)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason=_GPU_REASON)
+@pytest.mark.skipif(not _WEIGHTS_PATH.exists(), reason=_WEIGHTS_REASON)
+@pytest.mark.parametrize(...)
+def test_dit_chunk_parity(...) -> None:
+    ...
+```
+
+Rules:
+
+- `@pytest.mark.skipif(not torch.cuda.is_available(), reason=...)` for GPU.
+- `@pytest.mark.skipif(not <weights_path>.exists(), reason=...)` for weight gates; resolve from `AVAILABLE_*_PATHS` so a single source moves the gate.
+- Stack one skipif per resource so the failure reason is precise.
+- Reuse a module-level `_GPU_REASON` / `_WEIGHTS_REASON` so the message stays consistent across cases in the file.
+- For third-party CUDA libraries (`block-sparse-attn`, cuDNN flash), gate with `@pytest.mark.skipif(not <import_ok>, reason=...)` next to the GPU gate.
+
+**Don't use `@pytest.mark.manual` at all in new code.** A handful of stale `@pytest.mark.manual` decorators exist in `tests/test_model_instantiation.py` and `tests/taehv/test_taehv_equivalence.py`; treat those as drift, not standard. Their docstrings say "opt in via `pytest -m manual ...`" — that advice is wrong given the plugin behaviour. Don't propagate it.
+
+If you genuinely want a "always-xfail until someone runs it by hand" test, write `pytest.xfail("reason")` explicitly inside the body — it's clearer than relying on the plugin.
+
+`pyproject.toml` registers two markers: `manual` (avoid in new code) and `slow` (use freely on tests that take more than a few seconds; downstream harnesses can dial them out with `-m "not slow"`).
+
+### 6.3 Three risk tiers
+
+Decide which tier a new test belongs to before writing it:
+
+| Tier | Where | Resource | When it runs |
+|---|---|---|---|
+| 1. CPU smoke | `tests/test_<recipe>.py` | none | every CI PR via `pytest -m "not manual"` |
+| 2. GPU parity / behaviour | `tests/<recipe>/test_*.py` | CUDA + weights | manually + GPU CI runners; the `skipif`s auto-skip on CPU |
+| 3. Slow benchmark | `tests/<recipe>/test_*_benchmark.py` | CUDA + weights | on demand or on perf gates; mark `@pytest.mark.slow` so fast-CI can dial them out with `-m "not slow"` |
+
+Tier 1 expectations:
+
+- No `.to("cuda")`, no real weight load, no network. `dtype=torch.float32` is fine.
+- Asserts shapes, types, derived-quantity formulas, validation errors. Examples: `test_build_<variant>_wires_default_resolution`, `test_build_<variant>_rejects_misaligned_resolution`, `test_<variant>_scales_topk_with_resolution`.
+- `pytest.raises(AssertionError, match=...)` for validation tests so the error message stays under test, not just the type.
+- Defaults: `checkpoint_path=None`, `compile_network=False`, `use_cuda_graph=False`. **Always set `compile_network=False` explicitly**, even if you think it's the default — production recipes flip the default to `True`, and tests that introspect `transformer.network` (e.g. `isinstance(transformer.network, _DummyNetwork)`) will silently break against an `OptimizedModule` wrapper.
+- Per-rollout shape behaviour (divisibility errors, `latent_shape`-not-set asserts): the trigger is `initialize_autoregressive_cache(height=..., width=...)`, not config construction. Update fakes accordingly: `SimpleNamespace` mocks shouldn't carry `_pH`/`_pW`/`_pT`; set `network.patch_temporal` / `patch_spatial` and pass `height` / `width` through the cache-init call.
+- Flip the fast-path knobs in a dedicated equivalence test against the eager baseline (tier 2).
+- CFG on/off is a `derive_config` patch on the base builder, not a separate builder.
+
+Tier 2 expectations:
+
+- Bit-for-bit parity vs the frozen reference (see §6.4) or the eager baseline.
+- `dtype=torch.bfloat16` is the production path; add a `dtype=torch.float32` row when you can afford the extra wall time and want a tighter tolerance.
+- Run `>= 2` AR steps so you cover both the filling and steady-state code paths of the KV cache (covers filling + the first steady step when `window_size_t == 2 * len_t`).
+- Smoke shape: construct the config, `.setup().to("cuda").eval()`, build inputs with `cfg.dtype`, assert output shape / device / finiteness.
+- Use `@pytest.mark.parametrize` for seed / variant / dtype sweeps.
+
+Tier 3 expectations:
+
+- `print()` per-iteration timings + a median-tail summary. Pytest swallows prints by default; document that the user must pass `-s`.
+- Use `torch.cuda.Event`-based timing with explicit `warmup` + `iters`; mirror `_time_cuda(...)` from `tests/flashvsr/test_color_corrector_benchmark.py`.
+- Skip first ~20–30% of iterations when reporting medians (warmup, autotune, capture).
+
+### 6.4 Frozen-reference parity pattern
+
+When a recipe replaces a legacy implementation in-place, freeze the legacy module as `_<name>.py` next to the test and assert the live module produces bit-equivalent output for the same inputs:
+
+```python
+import importlib.util
+from pathlib import Path
+
+REF_PATH = Path(__file__).parent / "_wan_model_dit.py"
+spec = importlib.util.spec_from_file_location("_wan_model_dit_ref", REF_PATH)
+ref_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ref_mod)
+WanModel = ref_mod.WanModel  # frozen reference class
+```
+
+Rules:
+
+- The frozen file lives **inside `tests/<recipe>/`**, not in the recipe under `flashdreams/<...>/recipes/<recipe>/`. It is a test artifact; the recipe should not depend on it.
+- Single-underscore prefix (`_wan_model_dit.py`, `_tcdecoder.py`) so pytest does not collect it.
+- Loaded by `spec_from_file_location` — **not** importable as `tests.flashvsr._wan_model_dit`. This keeps the freeze independent of test-package layout changes.
+- Load the **same** state dict into both the reference and the live candidate; assert `torch.equal(ref_out, live_out)` (or `max_abs <= tol` if upstream introduces FP non-determinism). Tolerances: fp32 `<= 1e-7`; bf16 `<= 5e-2` because of TF32 + non-deterministic reductions.
+- Parametrize over `chunks` so you exercise both the filling (`chunks=2`) and steady-state (`chunks=4+`) paths once the cache fills.
+- Keep the comparison drivers (`run_dit_*`, `run_tcdecoder_*`) as plain helper functions; wrap them in `def test_*` bodies. Don't make the helpers themselves test functions — the freeze is meant to be re-runnable from a Python REPL.
+
+### 6.5 CP equivalence — the two-invocation test
+
+CP correctness needs both a plain pytest run AND a `torchrun --nproc_per_node=N` invocation against the same deterministic inputs:
+
+1. Plain `pytest` (no distributed init) writes a reference tensor to `<tmpdir>/<recipe>/cp_reference.pt`.
+2. A `torchrun --nproc_per_node=N` launch re-runs the same inputs and asserts the gathered output matches.
+
+Run both in the same `srun` (or set a shared `*_CP_REF_PATH`) so they share `/tmp`.
+
+### 6.6 Canonical commands
+
+CI gate (also what `tests/run_tests_local.sh` runs):
+
+```bash
+uv run --no-sync pytest flashdreams/tests/ -m "not manual"
+```
+
+Focused module / benchmark with stdout (tier 3):
+
+```bash
+uv run --no-sync pytest flashdreams/tests/test_flashvsr.py -v
+uv run --no-sync pytest flashdreams/tests/flashvsr/ -v
+uv run --no-sync pytest flashdreams/tests/flashvsr/test_projector_benchmark.py -v -s
+```
+
+Lint (mirrors `.github/workflows/ci.yml`'s `lint` job):
+
+```bash
+bash data_local/lint.sh
+# == uv sync --extra dev --group lint
+#       --no-install-package transformer-engine-torch
+#       --no-install-package ludus-renderer
+#    && uv run --no-sync pre-commit run -a
+#    && uv run --no-sync ty check
+```
+
+`transformer-engine-torch` and `ludus-renderer` must be excluded from the lint sync — the former is source-only and needs CUDA to compile, the latter is unavailable in CI. Silence upstream-missing-types diagnostics with line-level `# ty: ignore[<rule>]` (see `tests/flashvsr/_wan_model_dit.py` for examples).
+
+`.github/workflows/ci.yml` has `lint`, `cpu`, and `gpu` jobs. When you ship a new tier-1 smoke test that should gate every PR, add a step under `cpu`:
+
+```yaml
+- name: Run CPU tests
+  run: uv run --no-sync pytest flashdreams/tests/ -m "not manual"
+```
 
 ## 7. Scaffolding checklist
 
@@ -372,9 +526,130 @@ Tests:
 
 - **Asserting `isinstance(transformer.network, MyDummy)` without setting `compile_network=False`.** Production recipe configs default `compile_network=True`; the assertion will fail against an `OptimizedModule` wrapper. Always pin the flag explicitly in tests that introspect the network.
 - **Triggering shape-divisibility errors via the config constructor.** With per-rollout `(height, width)`, those checks moved to `initialize_autoregressive_cache`. Wrap the *cache build* call in `pytest.raises`, not the config call.
+- **Marking a GPU/weight test `@pytest.mark.manual`.** The plugin xfails it in setup; the body never runs even on a GPU runner. Use stacked `@pytest.mark.skipif(...)` for resource gates instead (see §6.2).
+- **Adding `__init__.py` to `tests/<recipe>/`.** Breaks `--import-mode=importlib` discovery for sibling files. Only add a `conftest.py` if you need `sys.path` injection.
+- **Importing a frozen reference as a regular module (`tests.<recipe>._<name>`).** Frozen refs intentionally don't ship as a package — load via `importlib.util.spec_from_file_location`.
+- **Smoke-testing the full pipeline with `.to("cuda")` in tier 1.** CPU CI runners have no CUDA. Keep tier-1 smoke on CPU; reserve `.to("cuda")` for tier-2 tests gated by `skipif(not torch.cuda.is_available())`.
+- **Forgetting `-s` on a tier-3 benchmark.** Pytest captures stdout by default; without `-s` the per-chunk timings disappear and the test "passes" with no output to triage from.
 
 RoPE:
 
 - **Building `RotaryPositionEmbedding3D` in `__init__`.** Per-rollout `(height, width)` aren't known yet, and the buffers wouldn't get CP-split for that rollout.
 - **Calling `shift_t(ar_idx)` inside `network.forward`.** Re-runs cat / repeat for every cond/uncond pass and ties the index into the captured graph as a Python int. Hoist into `cache.start`.
 - **Applying RoPE *after* `kv_cache.update(k, v)`.** Cached K's lose positional info; steady-state attention reads unrotated K's against rotated Q's.
+
+## 9. Shipping a multi-file change: followup + test plan deliverables
+
+When a non-trivial multi-file refactor lands (adding a recipe, restructuring one, deleting a legacy module), pair it with two short markdown deliverables at the repo root. `reorg_followup.md` and `test_plan_{0,1,2,3,4}_*.md` from the FlashVSR reorg are the canonical examples — re-read them before authoring a new one.
+
+### 9.1 Two artifacts, two lifecycles
+
+| Artifact | Filename | Lifecycle | Primary reader |
+|---|---|---|---|
+| Followup plan | `<topic>_followup.md` | Authored after a review / merge; lives until every item ships, then deleted. | Future agent picking up an item; user prioritising the next PR. |
+| Test plans | `test_plan_<n>_<area>.md`, plan 0 = index | Authored alongside the slice that already landed; lives until the user has run them. | User running the verification on a GPU box; future agent triaging a regression. |
+
+Don't merge them. The followup is the **work** queue; the test plans are the **verification** queue. Both at repo root because they are short-lived and the user opens them by name.
+
+### 9.2 Followup plan structure
+
+Frontmatter mirrors the Cursor in-IDE plan format so the user can ingest it natively:
+
+```yaml
+---
+name: <Topic> Followups
+overview: One sentence summarising what the followup covers and how it was sourced (e.g. "Turn the Council's findings on commit `<sha>` into N self-contained iteration items, ordered functionality-blockers first, then docs/conventions/dedup/polish").
+todos:
+  - id: 1-<short-slug>
+    content: One-paragraph description, mentioning the files it touches and why it matters.
+    status: in_progress | pending
+isProject: false
+---
+```
+
+`id` is a numeric prefix + short slug — the prefix gives the in-IDE checklist a stable order. Body sections, in order:
+
+1. `# <Topic> Followup Plan` — title.
+2. `Source: …` — one line citing the review / commit / chat snippet.
+3. Phase A through Phase F — items grouped by phase. **Phase ordering is fixed:**
+   - **Phase A: Functionality blockers** — broken imports, missing tests, broken inference. Don't merge anything else first.
+   - **Phase B: Documentation accuracy** — doc-vs-code drift; wrong examples; stale paths.
+   - **Phase C: Convention alignment** — SPDX headers, sibling-recipe pattern alignment, builder-kwarg promotion, registry, `constants.py`, `__init__.py` cleanup.
+   - **Phase D: Behavior parity** — restore legacy behavior + add a runtime assertion that locks it in.
+   - **Phase E: Code dedup** — hoist shared code to `core/` / `infra/`, parametrise instead of duplicate, single-source magic numbers.
+   - **Phase F: Polish** — docstring tightening, cross-links.
+4. `## Items the Council recommended that the user explicitly rejected (do not action)` — one-line entries. Stops a future agent re-litigating settled questions.
+5. `## Items the Council itself rejected (already adjudicated, do not action)` — same shape, for items the review process itself debunked. Cite the contradicting evidence in one sentence.
+6. `## Suggested iteration cadence` — single sentence per phase ("A1 + A2 are natural twins"; "Phase B and C are small enough to bundle 2-3 per PR").
+
+Per-item format:
+
+```markdown
+### N. <Imperative title sentence>
+- [path/to/file.py](path/to/file.py) `:42-56` — what to change, in one sentence.
+- [path/to/other.py](path/to/other.py) `:128` — and so on.
+```
+
+Rules:
+
+- **Number items globally** (1..N across all phases) so every item has a stable ID.
+- **Each bullet is one file + one line range + one verb-led change**. Line ranges are informative ("at this site"), not authoritative — line numbers drift.
+- **Cite, don't paraphrase.** Quote the actual broken call when describing what to fix.
+- **One item is one shippable unit.** If a bullet starts saying "and also …", split it.
+- **Default for `internal/` and `integrations/` collateral is rewire, do not delete** — server scripts, microbenchmarks, gRPC stubs, and example launchers are real product surfaces, not migration scaffolding. Note negative cases ("X is NOT broken; leave alone") explicitly so the next agent doesn't "helpfully" rewrite them.
+
+### 9.3 Test plan set structure
+
+A test plan set is **N+1 markdown files** at repo root: `test_plan_0_index.md` plus one `test_plan_<n>_<area>.md` per area. Areas come from the surface that needs verification — typically end-to-end inference, pytest, server, lint. Each plan is **self-contained** so the user can stop after any one of them.
+
+Plan 0 carries: a table of contents linking the per-area plans, a `## Suggested order` with stop-conditions, a `## Risk table` mapping each followup item to the test that catches its regression (non-optional — build it by walking the followup item list), and a `## How to share results` block setting expectations.
+
+Per-area plans: framing paragraph + `## Prerequisites`, then **one section per test** with this exact shape:
+
+````markdown
+## Test <n.m> — <imperative test title>
+
+Goal: <one-sentence "what this proves and which followup item it catches">.
+
+```bash
+<copy-pasteable command, with concrete paths>
+```
+
+Expected:
+- <bullet per observable signal — log line, file existence, FPS range>
+- <a bullet calling out the failure mode you most expect>
+
+What to paste back:
+- <The minimal artifact that lets the author triage>
+- <Plus the failing test name + assertion message if anything failed>
+
+#### Run Outputs:
+```
+<paste of an actual run, captured during authoring or after the user
+ran it. Empty until somebody runs the test for the first time.>
+```
+````
+
+Per-test format rules:
+
+- **`Goal:` first**, in one sentence. Anything longer belongs in the framing paragraph at the top of the file.
+- **Commands are copy-pasteable** — concrete paths, no `<placeholder>`s.
+- **`Expected:` is observable**. Each bullet is something the user can check from terminal output or `ls`. Avoid "succeeds" or "no errors".
+- **`What to paste back:` filters the noise** — almost always a `tail -40`, the pytest summary line, or one named log line. Almost never the full log.
+- **`#### Run Outputs:`** — capture the **actual** output of a successful run inside the file. Empty until a real run lands. A test plan with empty Run Outputs is a draft, not a deliverable.
+- **Number tests `<plan>.<test>`** (`Test 3.1`, `Test 3.2`, …); the risk table in plan 0 references these IDs.
+- **Stop-conditions are explicit**. If passing test `<n.m>` is a precondition for `<n.m+1>`, say so ("Assumes you already ran Test 1.1 from plan 1, which produced `/tmp/example0_2x.mp4`").
+
+When a test exercises something with a known pre-existing failure on the branch, **call it out in the `Expected:` block** ("All non-manual tests pass except `<test_name>`, which is a pre-existing failure on the branch (commit `<sha>`); unrelated to this refactor"). This stops the user wasting time bisecting an unrelated regression.
+
+### 9.4 Authoring lifecycle
+
+When the user asks for a followup or test plan after a refactor:
+
+1. **Re-read the prior `*_followup.md` and `test_plan_*.md` files**, even if they're for unrelated topics — the format conventions are not optional.
+2. **Walk the diff in commit order.** For each change, ask: does it warrant a followup item (something still to do)? Does it warrant a test (something to verify)?
+3. **Author the followup first** — it forces you to enumerate every change. The test plan's risk table reads off the followup item list.
+4. **Author plan 0 (index) before any per-area plan.** Filling in the risk table makes you notice missing tests.
+5. **For each per-area plan, run the canonical command yourself once** (or the cheap tier-1 / tier-5 cases at minimum) and paste the output into `#### Run Outputs:`.
+6. **Cross-link.** The followup's items reference the test plan section ("verified by 2.3"); the risk table references the followup item number ("catches item 11 — `set_or_copy` hoist").
+7. **Delete completed followup items as PRs land.** Don't leave them as `status: completed` — the file is the live work queue, not a changelog.
