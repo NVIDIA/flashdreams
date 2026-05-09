@@ -56,24 +56,17 @@ AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
     "LingBot-World-Fast": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
 }
 
-# Canonical pixel-space defaults; callers pass the matching latent
-# (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
 DEFAULT_VIDEO_HEIGHT = 464
+"""Canonical pixel-space height; callers pass the matching latent
+``(height, width)`` into :meth:`WanInferencePipeline.initialize_cache`."""
+
 DEFAULT_VIDEO_WIDTH = 832
+"""Canonical pixel-space width."""
+
 WAN_VAE_SPATIAL_COMPRESSION = 8
+"""Pixel-side / latent-side ratio of the Wan VAE."""
 
 
-## LingBot-World-Fast: streaming camera-control I2V chassis.
-##
-## Wan 2.1 14B with the camera-control block (LingbotWorldDiTNetwork14B).
-## Composite per-AR-step encoder = Wan VAE I2V + Plücker PixelShuffle.
-## Wan VAE decoder, 4-step distilled flow-match schedule
-## ``[999, 978, 947, 825]``. ``window_size_t=60`` / ``sink_size_t=0``
-## are the upstream Lingbot Fast defaults.
-##
-## ``in_dim = 16 + 4 + 16``: 16 noise channels + 4-channel mask +
-## 16-channel image latent (channel-concat I2V layout). Must match
-## ``concat_image_mask_to_latent=True``.
 LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     recipe_name="lingbot-world-fast",
     enable_sync_and_profile=True,
@@ -119,11 +112,19 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
         ),
     ),
 )
+"""LingBot-World-Fast: streaming camera-control I2V chassis.
 
-## LingBot-World-Fast-Flash: TAEHV decoder + tighter streaming window.
-##
-## ``window_size_t=15`` / ``sink_size_t=3`` and the LightTAE (TAEHV)
-## decoder for the lowest-latency streaming preset.
+Wan 2.1 14B with the camera-control block (LingbotWorldDiTNetwork14B).
+Composite per-AR-step encoder = Wan VAE I2V + Plücker PixelShuffle.
+Wan VAE decoder, 4-step distilled flow-match schedule
+``[999, 978, 947, 825]``. ``window_size_t=60`` / ``sink_size_t=0``
+are the upstream Lingbot Fast defaults.
+
+``in_dim = 16 + 4 + 16``: 16 noise channels + 4-channel mask +
+16-channel image latent (channel-concat I2V layout). Must match
+``concat_image_mask_to_latent=True``.
+"""
+
 LINGBOT_WORLD_FAST_FLASH = cast(
     LingbotWorldInferencePipelineConfig,
     derive_config(
@@ -138,6 +139,11 @@ LINGBOT_WORLD_FAST_FLASH = cast(
         ),
     ),
 )
+"""LingBot-World-Fast-Flash: TAEHV decoder + tighter streaming window.
+
+``window_size_t=15`` / ``sink_size_t=3`` and the LightTAE (TAEHV)
+decoder for the lowest-latency streaming preset.
+"""
 
 
 LINGBOT_WORLD_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {

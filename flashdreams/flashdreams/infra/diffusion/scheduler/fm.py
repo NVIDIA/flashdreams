@@ -60,10 +60,12 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     """Length of the training sigma table."""
 
     sigma_min: float = 0.0
-    """Reserved for upstream parity; only ``0.0`` is supported."""
+    """Floor of the warped sigma schedule. Only ``0.0`` is supported here;
+    asserted at construction."""
 
     extra_one_step: bool = True
-    """Reserved for upstream parity; only ``True`` is supported."""
+    """Append the ``sigma=0`` step to the schedule. Only ``True`` is
+    supported here; asserted at construction."""
 
 
 class FlowMatchScheduler(Scheduler):

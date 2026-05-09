@@ -119,7 +119,7 @@ def create_meshgrid(
         dtype: Output dtype.
 
     Returns:
-        Tensor of shape ``[n_frames, H * W, 2]`` with ``(x, y)`` per pixel.
+        Per-pixel ``(x, y)`` coordinates, shape ``[n_frames, H * W, 2]``.
     """
     x_range = torch.arange(width, device=device, dtype=dtype)
     y_range = torch.arange(height, device=device, dtype=dtype)

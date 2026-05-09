@@ -30,16 +30,6 @@ from flashdreams.recipes.template.encoder import TemplateControlEncoderConfig
 from flashdreams.recipes.template.transformer import TemplateTransformerConfig
 from flashdreams.recipes.template.transformer.network import TemplateDiTConfig
 
-## Offline (bidirectional, one-shot) reference rollout.
-##
-## Single AR step over the full temporal window
-## (``window_size_t == len_t == 8``), CFG off, per-step control encoded
-## into the latent channel count, clean latent decoded to 3 channels.
-## ``head_dim = 128 // 2 = 64`` so cuDNN flash-attention picks a stable
-## kernel; smaller head_dims (16/8) silently NaN. The network's
-## ``in_channels`` is the post-patch width
-## ``4 * (2 * 2 * 2) = 32``; ``patch_size = (2, 2, 2)`` must match
-## :attr:`TemplateTransformerConfig.patch_size`.
 TEMPLATE_OFFLINE = StreamInferencePipelineConfig(
     recipe_name="template-offline",
     encoder=TemplateControlEncoderConfig(
@@ -78,11 +68,18 @@ TEMPLATE_OFFLINE = StreamInferencePipelineConfig(
         ),
     ),
 )
+"""Offline (bidirectional, one-shot) reference rollout.
 
-## Streaming AR variant: smaller per-chunk ``len_t`` (2) and a larger
-## ``window_size_t`` (4 = 2 * len_t) so the KV cache fills over multiple
-## AR steps before rolling. CFG still off; patch ``guidance_scale > 1.0``
-## via :func:`derive_config` to enable it.
+Single AR step over the full temporal window
+(``window_size_t == len_t == 8``), CFG off, per-step control encoded
+into the latent channel count, clean latent decoded to 3 channels.
+``head_dim = 128 // 2 = 64`` so cuDNN flash-attention picks a stable
+kernel; smaller head_dims (16/8) silently NaN. The network's
+``in_channels`` is the post-patch width ``4 * (2 * 2 * 2) = 32``;
+``patch_size = (2, 2, 2)`` must match
+:attr:`TemplateTransformerConfig.patch_size`.
+"""
+
 TEMPLATE_AUTOREGRESSIVE = cast(
     StreamInferencePipelineConfig,
     derive_config(
@@ -100,11 +97,11 @@ TEMPLATE_AUTOREGRESSIVE = cast(
         ),
     ),
 )
+"""Streaming AR variant: smaller per-chunk ``len_t`` (2) and a larger
+``window_size_t`` (4 = 2 * len_t) so the KV cache fills over multiple
+AR steps before rolling. CFG still off; patch ``guidance_scale > 1.0``
+via :func:`derive_config` to enable it."""
 
-## Streaming AR with ``torch.compile`` + ``CUDAGraphWrapper`` enabled on
-## the DiT network. The fast deployment path: keep ``TEMPLATE_AUTOREGRESSIVE``
-## as the easy-to-debug default and reach for this when measuring
-## inference latency.
 TEMPLATE_AUTOREGRESSIVE_COMPILED = cast(
     StreamInferencePipelineConfig,
     derive_config(
@@ -118,6 +115,10 @@ TEMPLATE_AUTOREGRESSIVE_COMPILED = cast(
         ),
     ),
 )
+"""Streaming AR with ``torch.compile`` + ``CUDAGraphWrapper`` enabled on
+the DiT network. The fast deployment path: keep
+``TEMPLATE_AUTOREGRESSIVE`` as the easy-to-debug default and reach for
+this when measuring inference latency."""
 
 TEMPLATE_CONFIGS: dict[str, StreamInferencePipelineConfig] = {
     cfg.recipe_name: cfg

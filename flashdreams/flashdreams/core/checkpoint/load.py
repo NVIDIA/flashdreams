@@ -63,7 +63,7 @@ def _get_checkpoint_extension(checkpoint_path: str) -> str:
 
 
 def _is_sharded_safetensors_index_checkpoint(path: str) -> bool:
-    """True if path points to a Hugging Face-style sharded safetensors index file."""
+    """Return whether ``path`` points to a Hugging Face-style sharded safetensors index file."""
     if path.startswith(("http://", "https://")):
         basename = os.path.basename(unquote(urlparse(path).path))
     else:
@@ -342,7 +342,8 @@ def load_distributed_checkpoint(
     """
     is_s3_checkpoint = checkpoint_path.startswith("s3://")
 
-    # Set the cache checkpoint path so that next time we can just load the .pt file locally.
+    # Cache the merged DCP shards as a single ``.pt`` next to the local
+    # cache root so subsequent loads skip the S3 round trip.
     local_cache_checkpoint_path = None
     if is_s3_checkpoint and local_cache_dir is not None:
         local_cache_checkpoint_path = os.path.join(
@@ -350,8 +351,8 @@ def load_distributed_checkpoint(
             checkpoint_path.split("s3://")[1].rstrip("/") + ".pt",
         )
 
-    # Check if the local cache checkpoint path exists. If so, we load from the local cache.
-    # In this case, we don't need to check for success.
+    # Local cache hit: trust it (the ``check_success`` path below only
+    # makes sense for a fresh DCP load that may silently miss keys).
     if local_cache_checkpoint_path is not None and os.path.exists(
         local_cache_checkpoint_path
     ):

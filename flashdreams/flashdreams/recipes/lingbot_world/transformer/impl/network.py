@@ -125,7 +125,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             eager_mode: If True, run cache before/after update hooks.
 
         Returns:
-            Tensor of shape ``[..., L, prod(patch_size) * out_dim]``.
+            Network output, shape ``[..., L, prod(patch_size) * out_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint"

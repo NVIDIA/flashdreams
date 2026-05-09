@@ -208,7 +208,7 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
         if not cfg.camera_names:
             cfg.camera_names = _example_camera_names(num_views)
 
-    ## ---------------------------------------------------------- run modes ##
+    ## Run modes
 
     def _run_default(self) -> None:
         """Encode prompts + first frames, build the cache, run the AR loop."""
@@ -307,7 +307,7 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
         )
         self._rollout_and_save(cache=cache, num_views=num_views)
 
-    ## ----------------------------------------- shared rollout / I/O body ##
+    ## Shared rollout / I/O body
 
     def _rollout_and_save(
         self, *, cache: AlpadreamsPipelineCache, num_views: int
@@ -394,7 +394,7 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
-    ## ------------------------------------------------------------ helpers ##
+    ## Helpers
 
     def _num_views(self) -> int:
         """Recover the global ``num_views`` (per-rank ``num_views`` x ``V_size``).

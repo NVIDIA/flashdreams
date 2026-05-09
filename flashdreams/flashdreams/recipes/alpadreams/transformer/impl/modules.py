@@ -295,12 +295,12 @@ class MultiHeadAttention(nn.Module):
         """Compute K/V from ``context`` and optionally merge into ``kv_cache``.
 
         Args:
-            context: Tensor of shape [..., L, n * d] used to compute K/V.
-            kv_cache: Existing cache to update, or None to allocate from this step.
-            rope_freqs: RoPE frequencies, shape [L, 1, 1, d // 2].
+            context: Source for K/V projections, shape ``[..., L, n * d]``.
+            kv_cache: Existing cache to update; ``None`` allocates a new one.
+            rope_freqs: RoPE frequencies, shape ``[L, 1, 1, d // 2]``.
 
         Returns:
-            KV cache containing the merged keys and values.
+            Cache containing the merged keys and values.
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)

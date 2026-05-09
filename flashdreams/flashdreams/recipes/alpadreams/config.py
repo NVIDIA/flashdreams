@@ -60,19 +60,17 @@ AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/alpadreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
 }
 
-# Canonical pixel-space defaults; callers pass the matching latent
-# (height, width) into :meth:`AlpadreamsPipeline.initialize_cache`.
 DEFAULT_VIDEO_HEIGHT = 704
+"""Canonical pixel-space height; callers pass the matching latent
+``(height, width)`` into :meth:`AlpadreamsPipeline.initialize_cache`."""
+
 DEFAULT_VIDEO_WIDTH = 1280
+"""Canonical pixel-space width."""
+
 WAN_VAE_SPATIAL_COMPRESSION = 8
+"""Pixel-side / latent-side ratio of the Wan VAE."""
 
 
-## Base: single-view, chunk2, light Wan VAE HDMap encoder + LightTAE decoder.
-##
-## The reference Self-Forcing distilled chassis: 2-step flow-match
-## scheduler, ``len_t=2``, ``window_size_t=6``, CFG off, no
-## ``skip_finalize_kv_cache``. Every chunk2 variant derives from this
-## one and flips a small set of fields.
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = AlpadreamsPipelineConfig(
     recipe_name="alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
     text_encoder=CosmosReason1TextEncoderConfig(),
@@ -119,9 +117,14 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = AlpadreamsPipelineConfig(
         ),
     ),
 )
+"""Base: single-view, chunk2, light Wan VAE HDMap encoder + LightTAE decoder.
 
-## Performance-tuned variant: enable ``use_compile`` / ``use_cuda_graph``
-## on the image encoder, the per-AR-step encoder, and the decoder.
+The reference Self-Forcing distilled chassis: 2-step flow-match
+scheduler, ``len_t=2``, ``window_size_t=6``, CFG off, no
+``skip_finalize_kv_cache``. Every chunk2 variant derives from this
+one and flips a small set of fields.
+"""
+
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -132,8 +135,9 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
         decoder=dict(use_compile=True, use_cuda_graph=True),
     ),
 )
+"""Performance-tuned variant: enable ``use_compile`` / ``use_cuda_graph``
+on the image encoder, the per-AR-step encoder, and the decoder."""
 
-## Single-view, chunk2, full Wan VAE for both HDMap encoding and decoding.
 SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -148,11 +152,8 @@ SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
         ),
     ),
 )
+"""Single-view, chunk2, full Wan VAE for both HDMap encoding and decoding."""
 
-## Single-view, chunk3, full Wan VAE for both HDMap encoding and decoding.
-##
-## Same chassis as ``SV_2STEPS_CHUNK2_LOC6_VAE_VAE`` but with ``len_t=3``
-## and the matching chunk3 checkpoint.
 SV_2STEPS_CHUNK3_LOC6_VAE_VAE = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -168,14 +169,12 @@ SV_2STEPS_CHUNK3_LOC6_VAE_VAE = cast(
         ),
     ),
 )
+"""Single-view, chunk3, full Wan VAE for both HDMap encoding and decoding.
 
-## Single-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder.
-##
-## Diverges from the chunk2 base on (a) ``additional_concat_ch=192`` for
-## the PixelShuffle branch, (b) ``len_t=4``, (c) ``window_size_t=8``,
-## (d) the chunk4 checkpoint, and (e) the per-AR-step encoder is the
-## :class:`PixelShuffleVAEEncoderConfig` instead of a Wan VAE encoder.
-## ``image_encoder`` reverts to the standard "vae" checkpoint.
+Same chassis as ``SV_2STEPS_CHUNK2_LOC6_VAE_VAE`` but with ``len_t=3``
+and the matching chunk3 checkpoint.
+"""
+
 SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -195,8 +194,15 @@ SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
         ),
     ),
 )
+"""Single-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder.
 
-## 4-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder.
+Diverges from the chunk2 base on (a) ``additional_concat_ch=192`` for
+the PixelShuffle branch, (b) ``len_t=4``, (c) ``window_size_t=8``,
+(d) the chunk4 checkpoint, and (e) the per-AR-step encoder is the
+:class:`PixelShuffleVAEEncoderConfig` instead of a Wan VAE encoder.
+``image_encoder`` reverts to the standard "vae" checkpoint.
+"""
+
 MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -213,13 +219,9 @@ MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
         ),
     ),
 )
+"""4-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder."""
 
 
-## Teacher: alpadreams diffusion-forcing causal AR (2B / 720p / chunk2 UniPC).
-##
-## ``state_t=24``: 12 chunk2 latent blocks, or 93 decoded frames with
-## the Wan decoder. CFG on (``guidance_scale=3.0``); 35-step UniPC
-## scheduler (``shift=5.0``).
 SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = AlpadreamsPipelineConfig(
     recipe_name="alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
     text_encoder=CosmosReason1TextEncoderConfig(),
@@ -262,13 +264,13 @@ SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = AlpadreamsPi
         ),
     ),
 )
+"""Teacher: alpadreams diffusion-forcing causal AR (2B / 720p / chunk2 UniPC).
 
-## Teacher: alpadreams bidirectional (single-view / 2B / 720p / chunk48 UniPC).
-##
-## ``len_t == window_size_t == 48`` -> single-AR-step rollout for the
-## whole 48-chunk video. ``skip_finalize_kv_cache=True`` because the
-## bidirectional teacher doesn't need to advance the KV cache after the
-## one rollout it ever does.
+``state_t=24``: 12 chunk2 latent blocks, or 93 decoded frames with
+the Wan decoder. CFG on (``guidance_scale=3.0``); 35-step UniPC
+scheduler (``shift=5.0``).
+"""
+
 SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
     AlpadreamsPipelineConfig,
     derive_config(
@@ -288,15 +290,23 @@ SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
         ),
     ),
 )
+"""Teacher: alpadreams bidirectional (single-view / 2B / 720p / chunk48 UniPC).
+
+``len_t == window_size_t == 48`` -> single-AR-step rollout for the
+whole 48-chunk video. ``skip_finalize_kv_cache=True`` because the
+bidirectional teacher doesn't need to advance the KV cache after the
+one rollout it ever does.
+"""
 
 
-## Experiments: ablations on top of the chunk2 perf chassis.
-##
-## ``experiment1_baseline`` re-publishes the perf config under a stable
-## experiment slug (same fields). The ``noise*`` variants vary the
-## terminal denoising timestep (``[1000, T2]``) to study the
-## skip-KV-cache-finalize ablation; the field name reflects the second
-## timestep (``noise350`` -> ``[1000, 350]``).
+## Experiments: ablations on top of the chunk2 perf chassis
+#
+# ``experiment1_baseline`` re-publishes the perf config under a stable
+# experiment slug (same fields). The ``noise*`` variants vary the
+# terminal denoising timestep (``[1000, T2]``) to study the
+# skip-KV-cache-finalize ablation; the field name reflects the second
+# timestep (``noise350`` -> ``[1000, 350]``).
+
 EXPERIMENT1_BASELINE = cast(
     AlpadreamsPipelineConfig,
     derive_config(

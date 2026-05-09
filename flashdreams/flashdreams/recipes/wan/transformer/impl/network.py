@@ -398,17 +398,18 @@ class WanDiTNetwork(nn.Module):
         """Run one denoising forward pass.
 
         Args:
-            x: Input tokens of shape [..., L, D_in] after patchify and CP.
-                The layout is assumed to be "... (t h w) (c kt kh kw)".
-            timesteps: Diffusion timesteps that is broadcast-able to shape [...].
+            x: Input tokens after patchify + CP, shape ``[..., L, D_in]``;
+                layout ``"... (t h w) (c kt kh kw)"``.
+            timesteps: Diffusion timesteps, broadcastable to shape ``[...]``.
             cache: Network KV caches.
-            rope_freqs: RoPE frequencies of shape [L, 1, 1, head_dim // 2] after CP.
+            rope_freqs: RoPE frequencies after CP, shape
+                ``[L, 1, 1, head_dim // 2]``.
             current_chunk_idx: Current chunk index for streaming cache update.
-            eager_mode: If True, run cache before/after update hooks.
-            block_extra_kwargs: Extra kwargs to pass to the block.
+            eager_mode: If ``True``, run cache before/after update hooks.
+            block_extra_kwargs: Extra kwargs forwarded to each block.
 
         Returns:
-            Tensor of shape [..., L, prod(patch_size) * out_dim].
+            Network output, shape ``[..., L, prod(patch_size) * out_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint"

@@ -34,9 +34,9 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerConfig,
 )
 
-# Distinct TypeVar for ``DiffusionModel.FinalState`` so the nested generic
-# owns its own parameter instead of shadowing the outer ``TransformerCacheT``
-# (which would make ty resolve ``FinalState`` calls to the TypeVar's default).
+# Distinct TypeVar for ``DiffusionModel.FinalState``: nested generics don't
+# inherit the enclosing class's TypeVar, and reusing the outer name only
+# shadows it (then ty resolves it to the TypeVar's default).
 _FinalStateCacheT = TypeVar(
     "_FinalStateCacheT",
     bound=TransformerAutoregressiveCache,
@@ -65,8 +65,9 @@ class DiffusionModelConfig(InstantiateConfig):
     ``0`` skips ``add_noise``."""
 
     _noise_in_unpatchified_shape: bool = False
-    """Debug only: Create the noise in the unpatchified shape (to align with the open-source codebases).
-    Note this will hurt performance so only use it for debugging."""
+    """Debug-only: draw the initial noise in the unpatchified shape, then
+    patchify. Slower than the default patchified path; useful when matching
+    another implementation's RNG sequence."""
 
 
 class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
@@ -85,13 +86,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
 
     @dataclass(kw_only=True)
     class FinalState(Generic[_FinalStateCacheT]):
-        """State passed from ``generate`` to ``finalize``.
-
-        Uses its own ``_FinalStateCacheT`` rather than the enclosing class's
-        ``TransformerCacheT`` because nested classes don't inherit outer-scope
-        type parameters; reusing the same TypeVar object would only shadow
-        it and confuse the type checker.
-        """
+        """State passed from ``generate`` to ``finalize``."""
 
         clean_latent: Tensor
         """Patchified clean latent at the end of denoising."""
@@ -170,8 +165,10 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         cache.start(autoregressive_index)
 
         if self.config._noise_in_unpatchified_shape:
-            # The `self.latent_shape` is for patchified latent. To align with the OSS codebases
-            # we here want to create the noise with the *unpatchified* shape, then patchify it back.
+            # Draw noise at the unpatchified shape so the RNG sequence matches
+            # implementations that sample before patchify; ``self.latent_shape``
+            # is patchified, so go through ``unpatchify_and_maybe_gather_cp``
+            # first to recover the pixel-side latent shape.
             dummy_latent = torch.empty(
                 self.latent_shape, device=self.device, dtype=self.dtype
             )
@@ -181,7 +178,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 device=self.device,
                 dtype=self.dtype,
                 generator=self.rng,
-            )  # shape of an unpatchified latent
+            )
 
         else:
             initial_noise = torch.randn(
@@ -189,12 +186,13 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 device=self.device,
                 dtype=self.dtype,
                 generator=self.rng,
-            )  # shape of a patchified latent
+            )
 
         def predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
+            # Round-trip patchify/unpatchify around the network when the
+            # scheduler is operating on unpatchified latents; the transformer
+            # itself always consumes/emits patchified shapes.
             if self.config._noise_in_unpatchified_shape:
-                # If the noise is in the unpatchified shape, we need to patchify it first
-                # because the transformer expects a patchified latent.
                 noisy_latent = self.transformer.patchify_and_maybe_split_cp(
                     noisy_latent
                 )
@@ -204,11 +202,9 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 timestep=timestep,
                 cache=cache,
                 input=input,
-            )  # patchified output
+            )
 
             if self.config._noise_in_unpatchified_shape:
-                # The we need to unpatchify it again, to make sure scheduler operates
-                # on the unpatchified latent.
                 output = self.transformer.unpatchify_and_maybe_gather_cp(output)
             return output
 
@@ -219,8 +215,8 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         )
 
         if self.config._noise_in_unpatchified_shape:
-            # If this option is enabled, the scheduler operates on the unpatchified latent.
-            # So the clean latent it outputs is in the unpatchified shape. Here we patchify it.
+            # Scheduler emitted an unpatchified latent; patchify before
+            # ``postprocess_clean_latent`` and the cache-update path.
             clean_latent = self.transformer.patchify_and_maybe_split_cp(clean_latent)
 
         clean_latent = self.transformer.postprocess_clean_latent(
@@ -260,8 +256,10 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         timestep = torch.tensor(context_noise, device=self.device, dtype=self.dtype)
         if context_noise > 0.0:
             clean_latent = final_state.clean_latent
+            # Round-trip patchify/unpatchify around ``add_noise`` so the
+            # scheduler sees the same shape as in ``generate``; the cache
+            # update below always consumes a patchified latent.
             if self.config._noise_in_unpatchified_shape:
-                # If this option is enabled, we want the scheduler to operate on the unpatchified latent.
                 clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(
                     final_state.clean_latent
                 )
@@ -271,8 +269,6 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 rng=self.rng,
             )
             if self.config._noise_in_unpatchified_shape:
-                # If this option is enabled, then the scheduler outputs an unpatchified latent so we
-                # need to patchify it.
                 noisy_latent = self.transformer.patchify_and_maybe_split_cp(
                     noisy_latent
                 )

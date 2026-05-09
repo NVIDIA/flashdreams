@@ -68,9 +68,10 @@ class RunnerConfig(InstantiateConfig):
 
 
 RunnerConfigT = TypeVar("RunnerConfigT", bound=RunnerConfig)
-# Bound widened with ``Any`` cache args so recipe pipelines parameterized
-# with their own cache subclasses pass ty's invariant generic check.
 PipelineT = TypeVar("PipelineT", bound=StreamInferencePipeline[Any, Any, Any])
+"""Pipeline type parameter for :class:`Runner`. The bound's three cache
+slots are ``Any`` so recipe pipelines parameterized with their own cache
+subclasses pass ty's invariant generic check."""
 
 
 class Runner(ABC, Generic[RunnerConfigT, PipelineT]):

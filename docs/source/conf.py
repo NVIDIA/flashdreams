@@ -113,3 +113,10 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = False
 napoleon_use_rtype = False
+napoleon_custom_sections = [
+    ("Phases", "params_style"),
+    ("Per-step usage", "params_style"),
+    ("Multi-GPU contract", "notes_style"),
+    ("Supports", "notes_style"),
+    ("Typical usage example", "example_style"),
+]

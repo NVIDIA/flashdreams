@@ -95,11 +95,6 @@ def _remap_self_or_causal_forcing_state_dict(
     return out
 
 
-## Self-Forcing distilled checkpoint with the Wan VAE decoder, T2V chassis.
-##
-## ``len_t = 3`` is the chunkwise default. ``window_size_t = 21`` matches
-## the upstream training crop. Self-Forcing 4-step distillation schedule
-## ``[1000, 750, 500, 250]`` with ``shift=8.0``.
 SELF_FORCING_T2V = WanInferencePipelineConfig(
     recipe_name="causal-wan21-self-forcing-t2v",
     enable_sync_and_profile=True,
@@ -132,9 +127,13 @@ SELF_FORCING_T2V = WanInferencePipelineConfig(
         ),
     ),
 )
+"""Self-Forcing distilled checkpoint with the Wan VAE decoder, T2V chassis.
 
-## Self-Forcing distilled checkpoint with the LightTAE (TAEHV) decoder,
-## T2V chassis. Faster decoder; identical DiT.
+``len_t = 3`` is the chunkwise default. ``window_size_t = 21`` matches
+the upstream training crop. Self-Forcing 4-step distillation schedule
+``[1000, 750, 500, 250]`` with ``shift=8.0``.
+"""
+
 SELF_FORCING_LIGHTTAE_T2V = cast(
     WanInferencePipelineConfig,
     derive_config(
@@ -143,10 +142,9 @@ SELF_FORCING_LIGHTTAE_T2V = cast(
         decoder=TeahvVAEDecoderConfig(),
     ),
 )
+"""Self-Forcing distilled checkpoint with the LightTAE (TAEHV) decoder,
+T2V chassis. Faster decoder; identical DiT."""
 
-## Causal-Forcing chunkwise checkpoint with the Wan VAE decoder, T2V
-## chassis. Same Wan 1.3B DiT, same scheduler shape; the schedule omits
-## the explicit ``shift`` override (default).
 CAUSAL_FORCING_CHUNKWISE_T2V = cast(
     WanInferencePipelineConfig,
     derive_config(
@@ -162,9 +160,10 @@ CAUSAL_FORCING_CHUNKWISE_T2V = cast(
         ),
     ),
 )
+"""Causal-Forcing chunkwise checkpoint with the Wan VAE decoder, T2V
+chassis. Same Wan 1.3B DiT, same scheduler shape; the schedule omits
+the explicit ``shift`` override (default)."""
 
-## Causal-Forcing framewise checkpoint, T2V chassis. ``len_t = 1``: one
-## latent frame per chunk.
 CAUSAL_FORCING_FRAMEWISE_T2V = cast(
     WanInferencePipelineConfig,
     derive_config(
@@ -181,12 +180,17 @@ CAUSAL_FORCING_FRAMEWISE_T2V = cast(
         ),
     ),
 )
+"""Causal-Forcing framewise checkpoint, T2V chassis. ``len_t = 1``: one
+latent frame per chunk."""
 
 
-## I2V variants: same chassis as the matching T2V variant, plus the I2V
-## control encoder on the ``encoder`` slot. Framewise additionally flips
-## ``stamp_image_latent`` so AR step 0 substitutes the image latent for
-## the first temporal frame.
+## I2V variants
+#
+# Same chassis as the matching T2V variant, plus the I2V control encoder
+# on the ``encoder`` slot. Framewise additionally flips
+# ``stamp_image_latent`` so AR step 0 substitutes the image latent for
+# the first temporal frame.
+
 SELF_FORCING_I2V = cast(
     WanInferencePipelineConfig,
     derive_config(

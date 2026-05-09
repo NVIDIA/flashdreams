@@ -35,10 +35,10 @@ def sinusoidal_embedding_1d(dim: int, position: Tensor) -> Tensor:
 
     Args:
         dim: Embedding dimension. Must be even.
-        position: Position tensor of shape [...].
+        position: Positions, shape ``[...]``.
 
     Returns:
-        Tensor of shape [..., dim] with concatenated cos/sin features.
+        Concatenated cos/sin features, shape ``[..., dim]``.
     """
     assert dim % 2 == 0, "dim must be even for sinusoidal embedding"
     half = dim // 2
@@ -98,11 +98,15 @@ class Head(nn.Module):
         self._parameters_updated_after_loading_checkpoint = False
 
     def update_parameters_after_loading_checkpoint(self) -> None:
-        # This function should be called after loading the checkpoint
+        """Squeeze the loaded ``[1, 2, D]`` modulation to ``[2, D]``.
+
+        Idempotent. Call once after ``load_state_dict`` so the broadcast
+        in ``forward`` works for any batch shape rather than just the
+        leading-1 layout the checkpoint was saved in.
+        """
         if self._parameters_updated_after_loading_checkpoint:
             return
 
-        # We squeeze the modulation tensor to [2, D] to support arbitrary batch sizes [...]
         self.modulation.data = self.modulation.data.squeeze(0)
         self._parameters_updated_after_loading_checkpoint = True
 
@@ -110,11 +114,11 @@ class Head(nn.Module):
         """Apply adaptive normalization and project to patch output.
 
         Args:
-            x: Hidden states of shape [..., L, dim].
-            e: Modulation tensor of shape [..., 1, dim].
+            x: Hidden states, shape ``[..., L, dim]``.
+            e: Modulation, shape ``[..., 1, dim]``.
 
         Returns:
-            Tensor of shape [..., L, prod(patch_size) * out_dim].
+            Patch-projected tensor, shape ``[..., L, prod(patch_size) * out_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() "
@@ -238,12 +242,13 @@ class MultiHeadAttention(nn.Module):
         """Run attention with queries from ``x`` against cached K/V.
 
         Args:
-            x: Query tensor of shape [..., L, query_dim].
+            x: Query tokens, shape ``[..., L, query_dim]``.
             kv_cache: KV cache used as attention context.
-            rope_freqs: Optional RoPE frequencies for Q, shape [L, 1, 1, d // 2].
+            rope_freqs: Optional RoPE frequencies for Q, shape
+                ``[L, 1, 1, d // 2]``.
 
         Returns:
-            Tensor of shape [..., L, query_dim] after output projection.
+            Output-projected attention, shape ``[..., L, query_dim]``.
         """
         batch_shape = x.shape[:-2]
         batch_size = math.prod(batch_shape)
@@ -357,10 +362,10 @@ class CrossAttention(MultiHeadAttention):
         """Compute K/V from image ``context``.
 
         Args:
-            context: Tensor of shape [..., L, context_dim].
+            context: Image context, shape ``[..., L, context_dim]``.
 
         Returns:
-            ``BlockKVCache`` containing projected image keys and values.
+            Cache with projected image keys and values.
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
@@ -531,11 +536,15 @@ class Block(nn.Module):
         self.self_attn.set_context_parallel_group(cp_group)
 
     def update_parameters_after_loading_checkpoint(self) -> None:
-        # This function should be called after loading the checkpoint
+        """Squeeze the loaded ``[1, 6, D]`` modulation to ``[6, D]``.
+
+        Idempotent. Call once after ``load_state_dict`` so the broadcast
+        in ``forward`` works for any batch shape rather than just the
+        leading-1 layout the checkpoint was saved in.
+        """
         if self._parameters_updated_after_loading_checkpoint:
             return
 
-        # We squeeze the modulation tensor to [6, D] to support arbitrary batch sizes [...]
         self.modulation.data = self.modulation.data.squeeze(0)
         self._parameters_updated_after_loading_checkpoint = True
 

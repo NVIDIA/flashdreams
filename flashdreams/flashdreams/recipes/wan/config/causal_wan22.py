@@ -85,12 +85,6 @@ def _wan22_branch(checkpoint_path: str) -> Wan21TransformerConfig:
     )
 
 
-## FastVideo CausalWan2.2 distilled T2V (Wan VAE decoder).
-##
-## Two-branch MoE: ``high_noise`` runs above the boundary
-## (``timestep / num_train_timesteps >= boundary_ratio``), ``low_noise``
-## below. FastVideo 8-step distillation schedule
-## ``[1000, 850, 700, 550, 350, 275, 200, 125]``.
 FASTVIDEO_T2V = WanInferencePipelineConfig(
     recipe_name="causal-wan22-fastvideo-t2v",
     enable_sync_and_profile=True,
@@ -121,6 +115,13 @@ FASTVIDEO_T2V = WanInferencePipelineConfig(
         ),
     ),
 )
+"""FastVideo CausalWan2.2 distilled T2V (Wan VAE decoder).
+
+Two-branch MoE: ``high_noise`` runs above the boundary
+(``timestep / num_train_timesteps >= boundary_ratio``), ``low_noise``
+below. FastVideo 8-step distillation schedule
+``[1000, 850, 700, 550, 350, 275, 200, 125]``.
+"""
 
 
 CAUSAL_WAN22_CONFIGS: dict[str, WanInferencePipelineConfig] = {

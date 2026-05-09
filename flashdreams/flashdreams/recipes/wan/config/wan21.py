@@ -43,10 +43,6 @@ from flashdreams.recipes.wan.transformer.impl.network import (
 )
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
-## Wan 2.1 1.3B T2V (official Wan-AI checkpoint, 480p).
-##
-## ``len_t == window_size_t == 21`` -> single-AR-step rollout: the whole
-## 81-frame video is one chunk.
 WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
     recipe_name="wan21-t2v-1.3b-480p",
     enable_sync_and_profile=True,
@@ -71,14 +67,12 @@ WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
         ),
     ),
 )
+"""Wan 2.1 1.3B T2V (official Wan-AI checkpoint, 480p).
 
-## Wan 2.1 14B I2V (official Wan-AI checkpoint, 480p).
-##
-## Per-rollout latent ``(height, width)`` is derived from the input
-## image's pixel size in :meth:`WanInferencePipeline.initialize_cache`.
-## ``in_dim = 16 + 4 + 16``: 16 noise channels + 4-channel mask +
-## 16-channel image latent (channel-concat I2V layout). Must match
-## ``concat_image_mask_to_latent=True``.
+``len_t == window_size_t == 21`` -> single-AR-step rollout: the whole
+81-frame video is one chunk.
+"""
+
 WAN21_I2V_14B_480P = WanInferencePipelineConfig(
     recipe_name="wan21-i2v-14b-480p",
     enable_sync_and_profile=True,
@@ -116,6 +110,14 @@ WAN21_I2V_14B_480P = WanInferencePipelineConfig(
         model_id_or_local_path="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
     ),
 )
+"""Wan 2.1 14B I2V (official Wan-AI checkpoint, 480p).
+
+Per-rollout latent ``(height, width)`` is derived from the input
+image's pixel size in :meth:`WanInferencePipeline.initialize_cache`.
+``in_dim = 16 + 4 + 16``: 16 noise channels + 4-channel mask +
+16-channel image latent (channel-concat I2V layout). Must match
+``concat_image_mask_to_latent=True``.
+"""
 
 WAN21_CONFIGS: dict[str, WanInferencePipelineConfig] = {
     cfg.recipe_name: cfg
