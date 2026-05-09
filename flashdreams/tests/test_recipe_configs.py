@@ -17,19 +17,20 @@
 
 Cheap import-time checks that catch the common mis-registrations:
 duplicate keys, dict key vs ``runner_name`` drift, recipes that
-forgot to add their runners to the aggregator, and runner_name vs
+forgot to add their runners to the aggregator, runner_name vs
 pipeline.recipe_name drift (which would surface as confusing
-``flashdreams-run <slug>`` failures).
+``flashdreams-run <slug>`` failures), and missing CLI descriptions.
 """
 
 from __future__ import annotations
 
-from flashdreams.configs.runner_configs import (
-    BUILTIN_DESCRIPTIONS,
-    BUILTIN_RUNNERS,
-)
+from flashdreams.configs.runner_configs import BUILTIN_RUNNERS
+from flashdreams.recipes.alpadreams.runner import ALPADREAMS_RUNNERS
+from flashdreams.recipes.lingbot_world.runner import LINGBOT_WORLD_RUNNERS
 from flashdreams.recipes.template.runner import TEMPLATE_RUNNERS
 from flashdreams.recipes.wan.runner import WAN21_RUNNERS
+from flashdreams.recipes.wan.runner_causal_wan21 import CAUSAL_WAN21_RUNNERS
+from flashdreams.recipes.wan.runner_causal_wan22 import CAUSAL_WAN22_RUNNERS
 
 
 def test_builtin_runners_keys_match_runner_name() -> None:
@@ -54,6 +55,10 @@ def test_builtin_runners_covers_every_runner_dict() -> None:
     expected = {
         **TEMPLATE_RUNNERS,
         **WAN21_RUNNERS,
+        **CAUSAL_WAN21_RUNNERS,
+        **CAUSAL_WAN22_RUNNERS,
+        **ALPADREAMS_RUNNERS,
+        **LINGBOT_WORLD_RUNNERS,
     }
     missing = set(expected) - set(BUILTIN_RUNNERS)
     assert not missing, f"BUILTIN_RUNNERS missing slugs: {sorted(missing)}"
@@ -70,9 +75,7 @@ def test_builtin_runners_unique_runner_names() -> None:
     for cfg in BUILTIN_RUNNERS.values():
         seen[cfg.runner_name] = seen.get(cfg.runner_name, 0) + 1
     duplicates = {name: count for name, count in seen.items() if count > 1}
-    assert not duplicates, (
-        f"duplicate runner_name in BUILTIN_RUNNERS: {duplicates}"
-    )
+    assert not duplicates, f"duplicate runner_name in BUILTIN_RUNNERS: {duplicates}"
 
 
 def test_runner_name_mirrors_pipeline_recipe_name() -> None:
@@ -88,26 +91,16 @@ def test_runner_name_mirrors_pipeline_recipe_name() -> None:
         for key, cfg in BUILTIN_RUNNERS.items()
         if cfg.runner_name != cfg.pipeline.recipe_name
     }
-    assert not drifted, (
-        f"runner_name != pipeline.recipe_name (CLI contract): {drifted}"
-    )
+    assert not drifted, f"runner_name != pipeline.recipe_name (CLI contract): {drifted}"
 
 
-def test_builtin_descriptions_cover_runners() -> None:
-    """Every shipped runner must have a one-line description, and vice versa.
+def test_builtin_runners_have_descriptions() -> None:
+    """Every shipped runner must carry a non-empty ``cfg.description``.
 
-    The CLI surfaces ``BUILTIN_DESCRIPTIONS`` next to every subcommand,
-    so a missing entry shows up as an empty help line. A stale entry
-    is a sign someone removed a runner and forgot to clean up the
-    description.
+    The CLI surfaces ``cfg.description`` next to every subcommand, so a
+    missing entry shows up as an empty help line.
     """
-    missing = set(BUILTIN_RUNNERS) - set(BUILTIN_DESCRIPTIONS)
-    assert not missing, (
-        f"BUILTIN_DESCRIPTIONS missing entries for: {sorted(missing)}"
+    empty = [k for k, cfg in BUILTIN_RUNNERS.items() if not cfg.description.strip()]
+    assert not empty, (
+        f"BUILTIN_RUNNERS entries missing a non-empty description: {empty}"
     )
-    extra = set(BUILTIN_DESCRIPTIONS) - set(BUILTIN_RUNNERS)
-    assert not extra, (
-        f"BUILTIN_DESCRIPTIONS has stale entries for: {sorted(extra)}"
-    )
-    empty = [k for k, v in BUILTIN_DESCRIPTIONS.items() if not v.strip()]
-    assert not empty, f"BUILTIN_DESCRIPTIONS has empty strings for: {empty}"

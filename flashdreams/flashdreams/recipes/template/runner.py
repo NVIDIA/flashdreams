@@ -13,29 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""``flashdreams-run``-side runner for the template recipe.
+"""Reference template recipe runner for ``flashdreams-run``.
 
 The template recipe ships toy ``Conv3d`` networks and a synthetic
-control input — there is no prompt, no first frame, and the decoder
-emits diagnostic tensors rather than pixels. The runner mirrors that
-shape: it builds deterministic random context + control inputs from a
-seeded :class:`torch.Generator`, runs ``num_ar_steps`` AR steps, and
-writes a per-step tensor stack to ``output_dir / "<runner_name>.pt"``.
+control input -- no prompt, no first frame; outputs are diagnostic
+tensors. New runners should mirror this control flow:
 
-This file is the reference implementation for every other runner in the
-codebase; new runners should follow the same control flow:
-
-1. ``__init__`` is inherited (eagerly builds the pipeline on the
-   configured device).
+1. ``Runner.__init__`` is inherited (eagerly builds the pipeline).
 2. :meth:`TemplateRunner.run` resolves runner-config inputs, calls
-   ``self.pipeline.initialize_cache(...)``, loops
-   ``generate`` + ``finalize``, and persists outputs.
+   ``self.pipeline.initialize_cache(...)``, loops ``generate`` +
+   ``finalize``, and persists outputs.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
 
 import torch
 from loguru import logger
@@ -57,16 +49,9 @@ from flashdreams.recipes.template.transformer import (
 
 @dataclass(kw_only=True)
 class TemplateRunnerConfig(RunnerConfig):
-    """Runner config for any template variant (offline / AR / AR-compiled).
+    """Runner config for any template variant (offline / AR / AR-compiled)."""
 
-    The three template variants share the same I/O shape (random context
-    + control), so they share one ``_target`` :class:`TemplateRunner`
-    class and only differ on the wrapped ``pipeline`` literal.
-    """
-
-    _target: type["TemplateRunner"] = field(  # type: ignore[assignment]
-        default_factory=lambda: TemplateRunner
-    )
+    _target: type = field(default_factory=lambda: TemplateRunner)
 
     num_ar_steps: int = 1
     """How many AR steps to roll. Pin per-variant: 1 for the offline /
@@ -76,9 +61,8 @@ class TemplateRunnerConfig(RunnerConfig):
 
     height: int = 6
     """Pre-patchify latent height. Must be divisible by
-    ``transformer.patch_size[1]``. Defaults match the unit-test
-    fixture in ``tests/test_template.py`` so ``flashdreams-run template-offline``
-    matches the smoke-test rollout out of the box."""
+    ``transformer.patch_size[1]``. Defaults match the smoke-test
+    fixture in ``tests/test_template.py``."""
 
     width: int = 4
     """Pre-patchify latent width. Same divisibility rule as
@@ -97,15 +81,8 @@ class TemplateRunnerConfig(RunnerConfig):
     own ``diffusion_model.seed`` controls the noise sample."""
 
 
-class TemplateRunner(
-    Runner[TemplateRunnerConfig, StreamInferencePipeline]
-):
-    """End-to-end driver for any template-recipe variant.
-
-    Generates synthetic inputs, runs the AR loop, and writes the
-    per-step outputs as a stacked tensor. No image / no prompt — the
-    template recipe is a chassis, not a generative model.
-    """
+class TemplateRunner(Runner[TemplateRunnerConfig, StreamInferencePipeline]):
+    """End-to-end driver for any template-recipe variant."""
 
     def run(self) -> None:
         """Roll one rollout and dump the output tensor."""
@@ -118,11 +95,10 @@ class TemplateRunner(
         tcfg: TemplateTransformerConfig = transformer.config
         device = torch.device(cfg.device)
 
-        # Read the encoder's input width off the live pipeline so
-        # ``derive_config(..., encoder=AnotherEncoderConfig(...))``
-        # overrides flow through correctly. ``None`` (encoder=None) is
-        # the no-control case; pick a benign 8 channels and let the
-        # ``control = None`` short-circuit drop the tensor.
+        # Read control_channels off the live encoder so encoder
+        # overrides via ``derive_config`` flow through. ``encoder=None``
+        # is the no-control case; the 8 here is just a placeholder that
+        # the ``control = None`` short-circuit below discards.
         if isinstance(self.pipeline.encoder, TemplateControlEncoder):
             control_channels = self.pipeline.encoder.config.control_channels
         else:
@@ -150,22 +126,18 @@ class TemplateRunner(
         cache = self.pipeline.initialize_cache(transformer_context=transformer_context)
 
         outputs: list[torch.Tensor] = []
-        # Encoder presence and control input must agree -- mirror the
-        # pipeline's own assertion locally so a misconfigured runner
-        # config fails before the first AR step.
+        # Pipeline asserts encoder presence ⇔ control input; mirror the
+        # branch here so the AR loop hands a coherent ``input`` per step.
         control = inputs["control"] if self.pipeline.encoder is not None else None
         for ar_idx in range(cfg.num_ar_steps):
             out = self.pipeline.generate(ar_idx, cache, input=control)
             outputs.append(out)
-            # Skip ``finalize`` on the last step (canonical pattern;
-            # matches ``tests/test_template.py::_run_rollout``).
+            # Skip ``finalize`` on the last step (canonical pattern).
             if ar_idx < cfg.num_ar_steps - 1:
                 self.pipeline.finalize(ar_idx, cache)
 
-        # Stack along a new "AR-step" axis so the dump captures the
-        # full rollout with one ``torch.load``. Force-CPU before save
-        # so the pickle is portable. Persist only on rank 0; other
-        # ranks have already done the same compute under CP.
+        # Persist only on rank 0; under CP every rank holds the same
+        # gathered output. Force CPU before save so the pickle is portable.
         if not self.is_rank_zero:
             return
         stacked = torch.stack(outputs, dim=0).cpu()
@@ -192,9 +164,9 @@ def _make_synthetic_inputs(
 ) -> dict[str, torch.Tensor]:
     """Build deterministic random context + control tensors.
 
-    Mirrors ``tests/test_template.py::_make_inputs`` — uses the same
-    seeded generator path so a ``flashdreams-run template-offline --seed 0``
-    invocation reproduces the smoke test's input distribution exactly.
+    Uses the same seeded generator path as
+    ``tests/test_template.py::_make_inputs`` so equal seeds reproduce
+    the smoke test's input distribution.
     """
     gen = torch.Generator(device=device).manual_seed(seed)
     dtype = tcfg.dtype
@@ -228,14 +200,13 @@ def _make_synthetic_inputs(
     )
 
 
-## Per-variant runner configs (pin one ``pipeline`` literal each).
-##
-## Convention: ``runner_name`` mirrors ``pipeline.recipe_name`` so
-## ``flashdreams-run template-offline`` "just works" for any variant that
-## has exactly one runner.
+## Per-variant runner configs (slug == ``pipeline.recipe_name``).
 
 TEMPLATE_OFFLINE_RUNNER = TemplateRunnerConfig(
     runner_name="template-offline",
+    description=(
+        "Reference template recipe: one-shot offline diffusion (synthetic inputs)."
+    ),
     pipeline=TEMPLATE_OFFLINE,
     num_ar_steps=1,
 )
@@ -244,27 +215,25 @@ TEMPLATE_OFFLINE_RUNNER = TemplateRunnerConfig(
 
 TEMPLATE_AUTOREGRESSIVE_RUNNER = TemplateRunnerConfig(
     runner_name="template-autoregressive",
+    description=(
+        "Reference template recipe: streaming AR diffusion with sliding-window cache."
+    ),
     pipeline=TEMPLATE_AUTOREGRESSIVE,
-    # ``window_size_t == 2 * len_t`` -> two AR steps cover the filling
-    # phase plus the first steady-state step. Matches the unit test's
-    # default rollout depth.
+    # Two AR steps exercise both the KV-cache filling phase and the
+    # first steady-state step (``window_size_t == 2 * len_t``).
     num_ar_steps=2,
 )
-"""Streaming AR rollout. Two AR steps exercise both the KV-cache
-filling path and the first steady-state step (``window_size_t == 2 *
-len_t``)."""
+"""Streaming AR rollout."""
 
-TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER = cast(
-    TemplateRunnerConfig,
-    derive_config(
-        TEMPLATE_AUTOREGRESSIVE_RUNNER,
-        runner_name="template-autoregressive-compiled",
-        pipeline=TEMPLATE_AUTOREGRESSIVE_COMPILED,
+TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER = derive_config(
+    TEMPLATE_AUTOREGRESSIVE_RUNNER,
+    runner_name="template-autoregressive-compiled",
+    description=(
+        "Reference template recipe: AR variant with torch.compile + CUDA graphs."
     ),
+    pipeline=TEMPLATE_AUTOREGRESSIVE_COMPILED,
 )
-"""Same I/O as ``TEMPLATE_AUTOREGRESSIVE_RUNNER`` but pinned to the
-compiled + CUDA-graph pipeline. ``derive_config`` keeps the I/O knob
-defaults in sync with the AR base."""
+"""Same I/O knobs as the AR base, pinned to the compiled + CUDA-graph pipeline."""
 
 
 TEMPLATE_RUNNERS: dict[str, TemplateRunnerConfig] = {

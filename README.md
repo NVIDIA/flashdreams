@@ -12,7 +12,7 @@ Then run commands with `uv run` (auto-activates the venv):
 
 ```bash
 uv run pytest flashdreams/tests
-uv run --package flashdreams --extra examples flashdreams/examples/run_alpadreams.py --help
+uv run flashdreams-run --help
 ```
 
 ## Development
@@ -67,11 +67,9 @@ uv run pytest flashdreams/tests/test_attention.py
 
 ## Unified `flashdreams-run` CLI
 
-`flashdreams-run` is the cross-recipe console script. It dispatches over
-the `BUILTIN_RUNNERS` registry (in-tree + plugin-discovered) and exposes
-every overridable field as a CLI flag — the recipe-specific
-`flashdreams/examples/run_*.py` scripts below predate this and are kept
-for reference / specialised flows.
+`flashdreams-run` is the single console script for every recipe. It
+dispatches over the runner registry (in-tree + plugin-discovered) and
+exposes every overridable field as a CLI flag.
 
 ```bash
 # List every registered runner.
@@ -83,12 +81,18 @@ uv run flashdreams-run wan21-t2v-1.3b-480p --help
 # Single-GPU run.
 uv run flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
 
-# I2V variant (--image-path is a runner-level field).
-uv run flashdreams-run wan21-i2v-14b-480p \
-    --prompt "..." --image-path frame.png
+# I2V variant (--image-path defaults to the bundled demo frame).
+uv run flashdreams-run wan21-i2v-14b-480p --prompt "..."
 
 # Resolve the config without touching a GPU (good for debugging overrides).
 uv run flashdreams-run template-offline --no-instantiate
+```
+
+I/O extras (mediapy + opencv) are needed by every runner; install with
+`--extra runners` whenever you want to actually generate videos:
+
+```bash
+uv sync --extra dev --extra runners --group lint
 ```
 
 ### Multi-GPU (context-parallelism)
@@ -153,28 +157,23 @@ export HF_HOME=~/.cache/huggingface # default
 # 3. (optional) setup where to cache flashdreams checkpoints
 export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # default
 
-# 4. Run inference script. Checkpoints and example data are auto-downloaded at first run.
-# - single view on single GPU
-# - add (--overwrite_config_name sv_2steps_chunk2_loc6_lightvae_lighttae_perf) for best perf.
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_alpadreams.py \
-    --n_cameras 1 --total_blocks 20
+# 4. Run inference. Checkpoints + S3 example data are auto-downloaded at first run.
+#    Pass --example-data to lazy-sync the bundled HDMap clips + first frames into
+#    assets/example_data/alpadreams/ and fill the per-camera path tuples.
+# - single view on single GPU (best-perf preset)
+uv run flashdreams-run \
+    alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+    --example-data --total-blocks 20
 
 # - multi view on 4 GPUs
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-    flashdreams/examples/run_alpadreams.py \
-    --n_cameras 4 --total_blocks 20
+uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+    alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
+    --example-data --total-blocks 20
 
 # - diffusion forcing AR model on bundled single-view example data
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-    flashdreams/examples/run_alpadreams.py \
-    --n_cameras 1 \
-    --total_blocks 12 \
-    --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
-    --offload_text_encoder
+uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+    alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+    --example-data --total-blocks 12
 ```
 
 ## Instructions to run Alpadreams Bidirectional Model
@@ -185,51 +184,42 @@ bidirectional recipe runs the single-view full-block Cosmos2 2B / 720p / HDMap
 checkpoint; the checkpoint is configured in the recipe and downloaded from S3
 on first use.
 
-The runner uses the same bundled single-view Alpadreams example data as the
-autoregressive demo and resizes inputs to the pixel resolution required by the
-selected bidirectional config (`704x1280` for the default checkpoint).
 The bidirectional recipe defaults to the checkpoint-trained 48 latent chunks
-(189 decoded frames with the Wan decoder). If that is too large for your GPU
-setup, pass `--num_chunks` to choose a smaller single-block length; for example,
-`--num_chunks 24` yields 93 decoded frames.
-Unlike the autoregressive demo, this bidirectional recipe generates one
-full block per run, so keep `--total_blocks 1`.
+(189 decoded frames with the Wan decoder). To shrink the chunk for tighter VRAM
+budgets, override the wrapped transformer's `len_t` directly. The recipe
+generates one full block per run, so keep `--total-blocks 1`.
 
 ```bash
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-    flashdreams/examples/run_alpadreams.py \
-    --total_blocks 1 \
-    --num_chunks 24 \
-    --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m
+uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+    alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+    --example-data --total-blocks 1 \
+    --pipeline.diffusion-model.transformer.len-t 24
 ```
 
 Useful options:
 
-- `--offload_text_encoder`: precomputes text and first-frame image embeddings,
-  frees the one-shot encoders, then runs diffusion and decode. Use this when
-  peak VRAM is tight.
-- `--save_embeddings_path`: runs only the one-shot encoders, saves positive
+- `--example-data`: lazy-syncs the bundled HDMap clips + first frames from S3
+  and fills the per-camera path tuples. Skip it and pass
+  `--hdmap-video-paths` / `--first-frame-paths` for production runs.
+- `--save-embeddings-path`: runs only the one-shot encoders, saves positive
   text, negative text, and first-frame image embeddings to a `.pt`, then exits.
-- `--embeddings_path`: loads a `.pt` produced by `--save_embeddings_path` and
-  skips loading the one-shot encoders during inference.
-- `--num_chunks`: overrides the bidirectional recipe's latent chunk count. Omit
-  it to use the checkpoint-trained default (`48`); lower it when runtime memory
-  is tight.
+- `--embeddings-path`: loads a `.pt` produced by `--save-embeddings-path` and
+  skips loading the one-shot encoders during inference (peak-VRAM win).
+- `--pipeline.diffusion-model.transformer.len-t N`: overrides the
+  bidirectional recipe's latent chunk count. Omit to use the
+  checkpoint-trained default (`48`); lower when runtime memory is tight.
 
 The generated comparison video is written to
-`outputs/{output_prefix}_{world_size}gpus.mp4`, where `output_prefix` is based
-on the selected config name, with the HDMap condition stacked above the
+`outputs/{runner_name}.mp4`, with the HDMap condition stacked above the
 generated RGB output. Per-step stats are saved under
-`outputs/stats_{output_prefix}_{world_size}gpus.json` when profiling is
-enabled by the selected config.
+`outputs/stats_{runner_name}.json` when profiling is enabled by the selected
+config.
 
 To convert an I4/SIL distributed checkpoint directory into the single-file
 `.pt` format consumed by the FlashDreams bidirectional config:
 
 ```bash
-uv run --package flashdreams --extra examples \
-  python flashdreams/scripts/convert_i4_dcp2pt.py \
+uv run python flashdreams/scripts/convert_i4_dcp2pt.py \
     --checkpoint_path s3://<bucket>/<path-to-dcp-checkpoint>/model \
     --credential_path credentials/s3_checkpoint.secret \
     --output_path checkpoints/output.pt
@@ -252,11 +242,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_causal_wan21.py \
-    --total_blocks 7
+# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
+uv run flashdreams-run causal-wan21-self-forcing-t2v --total-blocks 7
 ```
 
 ## Instructions to run Causal-forcing T2V and I2V Inference
@@ -270,22 +257,14 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
+# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 # - T2V
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_causal_wan21.py \
-    --total_blocks 21 \
-    --overwrite_config_name causal_forcing_framewise
+uv run flashdreams-run \
+    causal-wan21-causal-forcing-framewise-t2v --total-blocks 21
 
-# - I2V
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_causal_wan21.py \
-    --total_blocks 21 \
-    --overwrite_config_name causal_forcing_framewise \
-    --prompt_or_txt_path assets/example_data/i2v/prompt.txt  \
-    --image_path assets/example_data/i2v/image.jpg
+# - I2V (--image-path defaults to the bundled assets/example_data/i2v/image.jpg)
+uv run flashdreams-run \
+    causal-wan21-causal-forcing-framewise-i2v --total-blocks 21
 ```
 
 ## Instructions to run FastVideo Wan2.2 Causal T2V Inference
@@ -305,11 +284,8 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_causal_wan22.py \
-    --total_blocks 21
+# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
+uv run flashdreams-run causal-wan22-fastvideo-t2v --total-blocks 21
 ```
 
 ## Instructions to run Lingbot-World Camera Control I2V Inference
@@ -325,11 +301,11 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-uv run --package flashdreams --extra examples \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-    flashdreams/examples/run_lingbot_world.py \
-    --total_blocks 21
+# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
+#    --example-data lazy-syncs the bundled prompt + first-frame + camera arrays
+#    from S3 into assets/example_data/lingbot_world/ and fills the path defaults.
+uv run flashdreams-run \
+    lingbot-world-fast --example-data --total-blocks 21
 ```
 
 
@@ -346,24 +322,16 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference script. Checkpoint will be auto-downloaded at first run from huggingface.
-#    The single entry point picks T2V (1.3B) when --image_path is omitted
-#    and I2V (14B 480P) when --image_path is provided.
+# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 # - T2V (1.3B)
-uv run --package flashdreams --extra examples \
-  flashdreams/examples/run_wan21.py \
-    --height 480 --width 832
+uv run flashdreams-run wan21-t2v-1.3b-480p
 
-# - I2V (14B 480P) — pass --image_path to switch modes
-uv run --package flashdreams --extra examples \
-  flashdreams/examples/run_wan21.py \
-    --height 480 --width 832 \
-    --image_path assets/example_data/i2v/image.jpg \
-    --prompt_or_txt_path assets/example_data/i2v/prompt.txt
+# - I2V (14B 480P) -- --image-path defaults to the bundled
+#   assets/example_data/i2v/image.jpg, override for a custom first frame.
+uv run flashdreams-run wan21-i2v-14b-480p
 
-# - I2V (14B 480P) using the example data from Wan2.1 codebase.
-uv run --package flashdreams --extra examples \
-  flashdreams/examples/run_wan21.py \
-    --image_path ../Wan2.1/examples/i2v_input.JPG \
-    --prompt_or_txt_path "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
+# - I2V (14B 480P) using the example data from the Wan2.1 codebase.
+uv run flashdreams-run wan21-i2v-14b-480p \
+    --image-path ../Wan2.1/examples/i2v_input.JPG \
+    --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
 ```

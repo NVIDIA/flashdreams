@@ -27,8 +27,8 @@ consume.
    Recipe modules import the heavy GPU stack (transformer-engine, CUDA
    ops) at import time, so this page shows them by *automodule* with
    ``:no-undoc-members:`` to keep the rendered API focused on the names
-   that recipes actually expose. The launcher scripts in
-   ``flashdreams/examples`` show end-to-end usage.
+   that recipes actually expose. The unified ``flashdreams-run`` CLI
+   shows end-to-end usage; see :doc:`/examples/alpadreams` and friends.
 
 AlpaDreams
 ----------

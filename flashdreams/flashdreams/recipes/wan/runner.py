@@ -13,23 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""``flashdreams-run``-side runners for the non-streaming Wan 2.1 recipes.
-
-Two variants, two runners (per-variant runner classes):
-
-* :class:`Wan21T2VRunner` -- prompt-only, latent ``(height, width)`` is
-  derived from the runner config's ``pixel_height`` / ``pixel_width``.
-* :class:`Wan21I2VRunner` -- prompt + first-frame image. The image is
-  loaded, resized to ``(pixel_height, pixel_width)``, and normalised
-  to ``[-1, 1]``; latent ``(height, width)`` is then derived inside
-  :meth:`WanInferencePipeline.initialize_cache` from the image's pixel
-  size.
-
-Both runners write an ``.mp4`` under ``output_dir`` and a stats JSON
-when per-stage profiling is on. The body is the legacy
-``examples/run_wan21.py::main`` minus the T2V/I2V branch (the per-
-variant subclasses each own one half).
-"""
+"""Non-streaming Wan 2.1 runners (T2V and I2V) for ``flashdreams-run``."""
 
 from __future__ import annotations
 
@@ -50,26 +34,21 @@ from flashdreams.recipes.wan.config.wan21 import (
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 WAN_VAE_SPATIAL_COMPRESSION = 8
-"""Wan VAE downsamples 8× spatially. Pixel ↔ latent conversion is
-``latent_dim = pixel_dim // WAN_VAE_SPATIAL_COMPRESSION``; both runners
-require the pixel dims to divide exactly so the cross-check inside
-``initialize_cache`` doesn't reject the call."""
+"""Wan VAE spatial downsample factor; pixel dims must divide cleanly."""
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_I2V_IMAGE_PATH = _REPO_ROOT / "assets/example_data/i2v/image.jpg"
+"""Bundled first-frame image used when ``--image-path`` is not provided."""
 
 
 @dataclass(kw_only=True)
 class _Wan21RunnerConfigBase(RunnerConfig):
-    """Fields shared by both Wan 2.1 runner variants.
-
-    Lifted into a private base so the T2V and I2V configs stay in
-    sync on the I/O knobs that apply to either rollout (prompt + pixel
-    dims + fps).
-    """
+    """Fields shared by both Wan 2.1 runner variants."""
 
     prompt: str = ""
     """Text prompt. Falls back to :attr:`prompt_path` when empty; one
-    of the two must resolve to a non-empty string. The default ``""``
-    is overridden per-variant to a sensible demo prompt so
-    ``flashdreams-run wan21-t2v-1.3b-480p`` works out of the box."""
+    of the two must resolve to a non-empty string. Per-variant
+    literals override the empty default with a demo prompt."""
 
     prompt_path: Path | None = None
     """Optional path to a ``.txt`` whose first line is the prompt.
@@ -84,44 +63,29 @@ class _Wan21RunnerConfigBase(RunnerConfig):
     :attr:`pixel_height`."""
 
     fps: int = 16
-    """Output video frame rate. Wan 2.1's training fps; pinning it as
-    the default keeps the saved ``.mp4`` playing at the same speed
-    the model was trained on."""
+    """Output video frame rate. Wan 2.1's training fps."""
 
 
 @dataclass(kw_only=True)
 class Wan21T2VRunnerConfig(_Wan21RunnerConfigBase):
     """Runner config for ``wan21-t2v-1.3b-480p``."""
 
-    _target: type["Wan21T2VRunner"] = field(  # type: ignore[assignment]
-        default_factory=lambda: Wan21T2VRunner
-    )
+    _target: type = field(default_factory=lambda: Wan21T2VRunner)
 
 
 @dataclass(kw_only=True)
 class Wan21I2VRunnerConfig(_Wan21RunnerConfigBase):
     """Runner config for ``wan21-i2v-14b-480p``."""
 
-    _target: type["Wan21I2VRunner"] = field(  # type: ignore[assignment]
-        default_factory=lambda: Wan21I2VRunner
-    )
+    _target: type = field(default_factory=lambda: Wan21I2VRunner)
 
-    image_path: Path | None = None
-    """Path to the first-frame RGB image. Required at ``run()`` time
-    (kept ``Optional`` on the dataclass so the literal config doesn't
-    have to ship a placeholder ``Path``)."""
+    image_path: Path = field(default_factory=lambda: DEFAULT_I2V_IMAGE_PATH)
+    """Path to the first-frame RGB image. Defaults to the bundled
+    ``assets/example_data/i2v/image.jpg`` demo frame."""
 
 
-class _Wan21RunnerBase(
-    Runner[_Wan21RunnerConfigBase, WanInferencePipeline]
-):
-    """Shared rollout body for both Wan 2.1 variants.
-
-    Both variants run a single AR step (``window_size_t == len_t == 21``
-    in the literal configs), so the body is just ``initialize_cache``
-    + one ``generate`` + one ``finalize``. The two subclasses differ
-    only in how they build the ``initialize_cache`` kwargs.
-    """
+class _Wan21RunnerBase(Runner[_Wan21RunnerConfigBase, WanInferencePipeline]):
+    """Shared single-AR-step rollout body for both Wan 2.1 variants."""
 
     def _resolve_prompt(self) -> str:
         """Pick the prompt: ``--prompt_path`` wins, else ``--prompt``."""
@@ -147,18 +111,16 @@ class _Wan21RunnerBase(
             f"{WAN_VAE_SPATIAL_COMPRESSION}."
         )
         assert cfg.pixel_width % WAN_VAE_SPATIAL_COMPRESSION == 0, (
-            f"pixel_width={cfg.pixel_width} must divide "
-            f"{WAN_VAE_SPATIAL_COMPRESSION}."
+            f"pixel_width={cfg.pixel_width} must divide {WAN_VAE_SPATIAL_COMPRESSION}."
         )
 
         cache = self._initialize_cache()
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
-        # Single-AR-step rollouts don't strictly need ``finalize``; we
-        # call it anyway so the ``enable_sync_and_profile`` stats path
-        # actually fires (matches the legacy example).
+        # Call ``finalize`` even on a single-AR-step rollout so the
+        # ``enable_sync_and_profile`` stats path fires.
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        # Persist only on rank 0 -- under CP every rank holds the same
-        # gathered output, so a single writer is enough.
+        # Under CP every rank holds the same gathered output -- only
+        # rank 0 persists.
         if not self.is_rank_zero:
             return
         generated = generated.cpu()
@@ -202,9 +164,6 @@ class Wan21I2VRunner(_Wan21RunnerBase):
     def _initialize_cache(self) -> Any:
         cfg = self.config
         assert isinstance(cfg, Wan21I2VRunnerConfig)
-        assert cfg.image_path is not None, (
-            "Wan21I2VRunner requires --image_path (first-frame RGB image)."
-        )
         prompt = self._resolve_prompt()
         image = _load_first_frame(
             cfg.image_path,
@@ -215,23 +174,22 @@ class Wan21I2VRunner(_Wan21RunnerBase):
         return self.pipeline.initialize_cache(text=[prompt], image=image)
 
 
-## Per-variant runner config literals.
-##
-## ``runner_name`` mirrors the wrapped pipeline's ``recipe_name`` so
-## ``flashdreams-run <recipe_name>`` "just works" -- one runner per pipeline.
+## Per-variant runner-config literals (slug == ``recipe_name``).
 
 WAN21_T2V_1PT3B_480P_RUNNER = Wan21T2VRunnerConfig(
     runner_name="wan21-t2v-1.3b-480p",
+    description="Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).",
     pipeline=WAN21_T2V_1PT3B_480P,
     prompt=(
         "Two anthropomorphic cats in comfy boxing gear and bright gloves "
         "fight intensely on a spotlighted stage."
     ),
 )
-"""Wan 2.1 1.3B T2V at 480p with the legacy demo prompt baked in."""
+"""Wan 2.1 1.3B T2V at 480p with a demo prompt baked in."""
 
 WAN21_I2V_14B_480P_RUNNER = Wan21I2VRunnerConfig(
     runner_name="wan21-i2v-14b-480p",
+    description="Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).",
     pipeline=WAN21_I2V_14B_480P,
     prompt=(
         "A stylish woman strolls down a bustling Tokyo street, the warm "
@@ -239,8 +197,7 @@ WAN21_I2V_14B_480P_RUNNER = Wan21I2VRunnerConfig(
         "reflections."
     ),
 )
-"""Wan 2.1 14B I2V at 480p with the legacy demo prompt baked in.
-``--image_path`` must be provided at the CLI."""
+"""Wan 2.1 14B I2V at 480p with a demo prompt + bundled first-frame baked in."""
 
 
 WAN21_RUNNERS: dict[str, _Wan21RunnerConfigBase] = {
@@ -265,12 +222,7 @@ __all__ = [
 ]
 
 
-## I/O helpers.
-##
-## Lazy-imported because the underlying packages (cv2, mediapy) are
-## bundled under the ``runners`` install extras, not the core install
-## -- a serving deployment that only uses the bare pipeline does not
-## need them.
+## I/O helpers (``cv2`` / ``mediapy`` lazy-imported; live under the ``runners`` extras).
 
 
 def _load_first_frame(

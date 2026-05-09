@@ -37,9 +37,8 @@ dependencies = [
     "transformers==4.57.6",
     "torchvision",
     # tyro powers the ``flashdreams-run`` console script (subcommand
-    # union over the recipe registry, per-field CLI overrides). It also
-    # wires the demo scripts under ``flashdreams/examples/``, so it has
-    # to ship as a runtime dependency, not a dev-only one.
+    # union over the recipe registry, per-field CLI overrides), so it
+    # has to ship as a runtime dependency, not a dev-only one.
     "tyro>=0.8",
 
     "torch>=2.11",
@@ -74,10 +73,6 @@ dev = [
     "pytest>=8.0",
     "mediapy>=1.1",
     "pytest-manual-marker",
-]
-examples = [
-    "mediapy>=1.1",
-    "opencv-python-headless",
 ]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept

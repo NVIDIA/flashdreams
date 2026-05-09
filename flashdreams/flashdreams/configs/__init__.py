@@ -15,10 +15,6 @@
 
 """Aggregated, in-tree runner configs (``BUILTIN_RUNNERS``)."""
 
-from flashdreams.configs.runner_configs import (
-    BUILTIN_DESCRIPTIONS,
-    BUILTIN_RUNNERS,
-    all_runners,
-)
+from flashdreams.configs.runner_configs import BUILTIN_RUNNERS, all_runners
 
-__all__ = ["BUILTIN_DESCRIPTIONS", "BUILTIN_RUNNERS", "all_runners"]
+__all__ = ["BUILTIN_RUNNERS", "all_runners"]

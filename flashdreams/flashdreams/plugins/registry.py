@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Discover ``RunnerSpecification`` plugins (entry-point + env-var)."""
+"""Discover :class:`RunnerConfig` plugins (entry-point + env-var)."""
 
 from __future__ import annotations
 
@@ -26,76 +26,74 @@ from typing import cast
 from loguru import logger
 
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.plugins.types import RunnerSpecification
 
 if sys.version_info < (3, 10):
-    # The 3.12 floor in pyproject.toml means we always take the modern
-    # branch, but match nerfstudio's shape so a future Python downgrade
-    # is one import swap.
     from importlib_metadata import entry_points  # type: ignore[import-not-found]
 else:
     from importlib.metadata import entry_points
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
-"""Entry-point group external packages register ``RunnerSpecification``
+"""Entry-point group external packages register :class:`RunnerConfig`
 instances under (matches nerfstudio's ``nerfstudio.method_configs``
 naming)."""
 
 ENV_VAR = "FLASHDREAMS_RUNNER_CONFIGS"
-"""Env-var backdoor for in-development specs that aren't installed yet.
+"""Env-var backdoor for in-development runners that aren't installed yet.
 
 Format: ``slug=module.path:attribute,slug2=other.module:attr``. The
 attribute is loaded with ``getattr(import_module(module), attr)``; if
-it is callable it is invoked with no arguments to obtain the spec. The
-``slug=`` prefix is purely for log readability -- the registry key
-always comes from ``spec.config.runner_name``."""
+it is callable (and not already a :class:`RunnerConfig`) it is invoked
+with no arguments to obtain the config. The ``slug=`` prefix is purely
+for log readability -- the registry key always comes from
+``cfg.runner_name``."""
 
 
-def discover_runners() -> tuple[dict[str, RunnerConfig], dict[str, str]]:
-    """Discover externally-registered runners.
+def discover_runners() -> dict[str, RunnerConfig]:
+    """Discover externally-registered runner configs.
 
     Looks at every entry point under :data:`ENTRY_POINT_GROUP` and at
     the ``slug=module:attr`` pairs in :data:`ENV_VAR`. Bad entries are
     logged and skipped -- the CLI must keep working even when a third-
     party plugin is broken.
 
+    Each loaded value must be a :class:`RunnerConfig` (or a zero-arg
+    factory returning one); the subcommand description is read off
+    ``cfg.description``.
+
     Returns:
-        A pair ``(runners, descriptions)`` keyed by
-        ``spec.config.runner_name``.
+        A dict keyed by ``cfg.runner_name``.
     """
     runners: dict[str, RunnerConfig] = {}
-    descriptions: dict[str, str] = {}
 
     discovered = entry_points(group=ENTRY_POINT_GROUP)
     for ep in discovered:
         try:
-            spec = ep.load()
+            value = ep.load()
         except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
             logger.warning(
                 f"Failed to load flashdreams runner entry point "
                 f"{ep.name!r} from {ep.value!r}:\n{traceback.format_exc()}"
             )
             continue
-        if callable(spec) and not isinstance(spec, RunnerSpecification):
-            # Allow factories that return a spec (matches nerfstudio's
+        if callable(value) and not isinstance(value, RunnerConfig):
+            # Allow factories that return a config (matches nerfstudio's
             # env-var convention; equally useful at the entry point).
             try:
-                spec = spec()
+                value = value()
             except Exception:  # noqa: BLE001
                 logger.warning(
                     f"Calling runner entry point {ep.name!r} as a factory "
                     f"raised:\n{traceback.format_exc()}"
                 )
                 continue
-        if not isinstance(spec, RunnerSpecification):
+        if not isinstance(value, RunnerConfig):
             logger.warning(
                 f"Skipping runner entry point {ep.name!r}: expected a "
-                f"RunnerSpecification, got {type(spec).__name__}."
+                f"RunnerConfig, got {type(value).__name__}."
             )
             continue
-        spec = cast(RunnerSpecification, spec)
-        runners[spec.config.runner_name] = spec.config
-        descriptions[spec.config.runner_name] = spec.description
+        cfg = cast(RunnerConfig, value)
+        runners[cfg.runner_name] = cfg
 
     raw = os.environ.get(ENV_VAR)
     if raw:
@@ -107,25 +105,21 @@ def discover_runners() -> tuple[dict[str, RunnerConfig], dict[str, str]]:
                 slug, path = definition.split("=", 1)
                 module_name, attr = path.split(":", 1)
                 logger.info(
-                    f"Loading runner {slug!r} from {module_name}:{attr} "
-                    f"({ENV_VAR})"
+                    f"Loading runner {slug!r} from {module_name}:{attr} ({ENV_VAR})"
                 )
                 attr_value = getattr(importlib.import_module(module_name), attr)
-                if callable(attr_value) and not isinstance(
-                    attr_value, RunnerSpecification
-                ):
+                if callable(attr_value) and not isinstance(attr_value, RunnerConfig):
                     attr_value = attr_value()
-                if not isinstance(attr_value, RunnerSpecification):
+                if not isinstance(attr_value, RunnerConfig):
                     raise TypeError(
-                        f"{module_name}:{attr} is not a RunnerSpecification "
+                        f"{module_name}:{attr} is not a RunnerConfig "
                         f"(got {type(attr_value).__name__})."
                     )
-                runners[attr_value.config.runner_name] = attr_value.config
-                descriptions[attr_value.config.runner_name] = attr_value.description
+                runners[attr_value.runner_name] = attr_value
             except Exception:  # noqa: BLE001
                 logger.warning(
                     f"Failed to load runner entry {definition!r} from "
                     f"{ENV_VAR}:\n{traceback.format_exc()}"
                 )
 
-    return runners, descriptions
+    return runners

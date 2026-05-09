@@ -1,0 +1,657 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Alpadreams HDMap-conditioned I2V runner (single- + multi-view) for ``flashdreams-run``.
+
+:meth:`AlpadreamsRunner.run` dispatches across three modes:
+
+- Default: encode then AR rollout, write MP4 + per-step stats.
+- ``--save_embeddings_path``: run only the one-shot encoders,
+  ``torch.save`` the embeddings, exit before the AR loop.
+- ``--embeddings_path``: hydrate the cache from precomputed
+  embeddings and skip the one-shot encoder forward pass.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+import torch
+from einops import rearrange
+from loguru import logger
+
+from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
+from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.recipes.alpadreams.config import (
+    ALPADREAMS_CONFIGS,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_VIDEO_WIDTH,
+)
+from flashdreams.recipes.alpadreams.pipeline import (
+    AlpadreamsPipeline,
+    AlpadreamsPipelineCache,
+)
+from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
+
+IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
+"""S3 prefix the bundled HDMap clips + first frames are pulled from."""
+
+EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/alpadreams"
+"""Local cache the S3 sync writes into and the runner reads from."""
+
+S3_CREDENTIAL_PATH = _REPO_ROOT / "credentials/s3_checkpoint.secret"
+"""Default S3 credentials file for the bundled example data sync."""
+
+_CAMERA_NAMES_1V = ("camera_front_wide_120fov",)
+_CAMERA_NAMES_4V = (
+    "camera_cross_left_120fov",
+    "camera_cross_right_120fov",
+    "camera_front_tele_30fov",
+    "camera_front_wide_120fov",
+)
+
+
+def _example_camera_names(num_views: int) -> tuple[str, ...]:
+    """Return the canonical bundled camera-name tuple for ``num_views``."""
+    if num_views == 1:
+        return _CAMERA_NAMES_1V
+    if num_views == 4:
+        return _CAMERA_NAMES_4V
+    raise ValueError(
+        f"example data only ships single-view (1) and 4-camera multi-view (4); "
+        f"got num_views={num_views}."
+    )
+
+
+def _example_data_paths(num_views: int) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Build ``(hdmap_video_paths, first_frame_paths)`` for the bundled set."""
+    names = _example_camera_names(num_views)
+    hdmap = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.mp4" for n in names)
+    first = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.png" for n in names)
+    return hdmap, first
+
+
+def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
+    """Mirror the bundled S3 prefix locally on rank 0; barrier other ranks."""
+    if is_rank_zero:
+        assert S3_CREDENTIAL_PATH.exists(), (
+            f"S3 credential file not found at {S3_CREDENTIAL_PATH}. "
+            "Either populate it (see README) or unset --example-data and "
+            "pass --hdmap-video-paths / --first-frame-paths explicitly."
+        )
+        sync_s3_dir_to_local(
+            s3_dir=EXAMPLE_DATA_DIR_S3,
+            s3_credential_path=str(S3_CREDENTIAL_PATH),
+            cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
+            max_workers=10,
+            show_progress=True,
+            verify_checksum=True,
+            desc="Syncing alpadreams example data from S3",
+        )
+    if torch.distributed.is_initialized():
+        torch.distributed.barrier()
+
+
+@dataclass(kw_only=True)
+class AlpadreamsRunnerConfig(RunnerConfig):
+    """Runner config covering every shipped Alpadreams variant.
+
+    Single-view and 4-camera multi-view share this shape; the wrapped
+    pipeline's ``CosmosTransformerConfig.num_views`` decides the
+    layout. Per-camera asset tuples are in the canonical camera order.
+    """
+
+    _target: type = field(default_factory=lambda: AlpadreamsRunner)
+
+    prompt: str = ""
+    """Default text prompt applied to every camera. Override per-camera
+    via :attr:`prompts` when the cameras need different prompts."""
+
+    prompts: tuple[str, ...] = ()
+    """Optional per-camera prompts. When non-empty must have one entry
+    per camera (matches ``num_views`` on the wrapped pipeline) and
+    overrides :attr:`prompt`."""
+
+    hdmap_video_paths: tuple[Path, ...] = ()
+    """Per-camera HDMap video paths in the canonical camera order.
+    Required at ``run()`` time."""
+
+    first_frame_paths: tuple[Path, ...] = ()
+    """Per-camera first-frame image (or video) paths in the canonical
+    camera order. When a video is provided, frame 0 is used."""
+
+    camera_names: tuple[str, ...] = ()
+    """Optional per-camera labels. When non-empty must have one entry
+    per camera (used for cross-view bookkeeping); defaults to indexed
+    placeholders when omitted."""
+
+    total_blocks: int = 60
+    """Number of AR chunks to attempt. The loop stops early once the
+    HDMap video is consumed."""
+
+    pixel_height: int = DEFAULT_VIDEO_HEIGHT
+    """Resize target height for HDMap videos and first-frame images."""
+
+    pixel_width: int = DEFAULT_VIDEO_WIDTH
+    """Resize target width for HDMap videos and first-frame images."""
+
+    output_fps: int = 30
+    """Output video frame rate. Alpadreams was trained at 30fps."""
+
+    save_embeddings_path: Path | None = None
+    """When set, run only the one-shot encoders, ``torch.save`` text +
+    image embeddings to this path, and exit before the AR loop. The
+    precompute is rank-0 only (saved tensors are not CP-split)."""
+
+    embeddings_path: Path | None = None
+    """When set, hydrate the per-rollout cache from this file and skip
+    the one-shot encoder forward pass; the encoders are released right
+    after ``__init__``. Mutually exclusive with
+    ``--save_embeddings_path``."""
+
+    example_data: bool = False
+    """When ``True``, lazy-sync the bundled S3 example clips into
+    ``assets/example_data/alpadreams/`` and fill ``hdmap_video_paths``
+    / ``first_frame_paths`` / ``camera_names`` from the canonical
+    per-view defaults. Use for the README demo; pass explicit paths
+    instead for production runs."""
+
+
+class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
+    """Streaming HDMap-conditioned I2V driver."""
+
+    config: AlpadreamsRunnerConfig
+
+    def run(self) -> None:
+        """Drive the Alpadreams AR rollout to completion."""
+        cfg = self.config
+        assert not (cfg.save_embeddings_path and cfg.embeddings_path), (
+            "--save_embeddings_path and --embeddings_path are mutually "
+            "exclusive: the first writes embeddings, the second reads them."
+        )
+        if cfg.example_data:
+            self._fill_example_data_defaults()
+        if cfg.save_embeddings_path is not None:
+            self._run_save_embeddings(cfg.save_embeddings_path)
+            return
+        if cfg.embeddings_path is not None:
+            self._run_with_embeddings(cfg.embeddings_path)
+            return
+        self._run_default()
+
+    def _fill_example_data_defaults(self) -> None:
+        """Lazy-sync bundled assets and fill empty path tuples in-place."""
+        cfg = self.config
+        num_views = self._num_views()
+        _ensure_example_data_synced(is_rank_zero=self.is_rank_zero)
+        hdmap, first = _example_data_paths(num_views)
+        if not cfg.hdmap_video_paths:
+            cfg.hdmap_video_paths = hdmap
+        if not cfg.first_frame_paths:
+            cfg.first_frame_paths = first
+        if not cfg.camera_names:
+            cfg.camera_names = _example_camera_names(num_views)
+
+    ## ---------------------------------------------------------- run modes ##
+
+    def _run_default(self) -> None:
+        """Encode prompts + first frames, build the cache, run the AR loop."""
+        cfg = self.config
+        device = torch.device(f"cuda:{self.local_rank}")
+        dtype = torch.bfloat16
+
+        num_views = self._num_views()
+        prompts = self._resolve_prompts(num_views)
+        camera_names = self._resolve_camera_names(num_views)
+        first_frame_paths = self._resolve_paths(
+            cfg.first_frame_paths, num_views, name="first_frame_paths"
+        )
+
+        first_frames_t = self._load_first_frames(
+            first_frame_paths, device=device, dtype=dtype
+        )
+        cache = self.pipeline.initialize_cache(
+            text=[list(prompts)],
+            image=first_frames_t,
+            view_names=list(camera_names),
+        )
+        # Drop the one-shot encoders to free VRAM before the AR loop;
+        # long-lived servers that reuse encoders across sessions skip
+        # this and call ``release_oneshot_encoders`` on shutdown.
+        self.pipeline.release_oneshot_encoders()
+        self._rollout_and_save(cache=cache, num_views=num_views)
+
+    def _run_save_embeddings(self, output_path: Path) -> None:
+        """Run only the one-shot encoders and ``torch.save`` the embeddings."""
+        cfg = self.config
+        device = torch.device(f"cuda:{self.local_rank}")
+        dtype = torch.bfloat16
+
+        num_views = self._num_views()
+        prompts = self._resolve_prompts(num_views)
+        first_frame_paths = self._resolve_paths(
+            cfg.first_frame_paths, num_views, name="first_frame_paths"
+        )
+
+        if self.global_rank != 0:
+            # Saved tensors are not CP-split; non-zero ranks idle
+            # until rank 0 finishes and hits the barrier below.
+            if torch.distributed.is_initialized():
+                torch.distributed.barrier()
+            return
+
+        first_frames_t = self._load_first_frames(
+            first_frame_paths, device=device, dtype=dtype
+        )
+        embeddings = self.pipeline.precompute_embeddings(
+            text=[list(prompts)],
+            image=first_frames_t,
+        )
+        # ``negative_text_embeddings`` is opt-in (``Tensor | None``);
+        # text + image are always present.
+        text_emb = embeddings["text_embeddings"]
+        image_emb = embeddings["image_embeddings"]
+        assert text_emb is not None and image_emb is not None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(embeddings, output_path)
+        logger.info(
+            f"[{cfg.runner_name}] saved precomputed embeddings "
+            f"text={tuple(text_emb.shape)} "
+            f"image={tuple(image_emb.shape)} "
+            f"-> {output_path.resolve()}"
+        )
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
+    def _run_with_embeddings(self, embeddings_path: Path) -> None:
+        """Hydrate the cache from precomputed embeddings, run the AR loop."""
+        cfg = self.config
+        num_views = self._num_views()
+        camera_names = self._resolve_camera_names(num_views)
+
+        # Free encoder VRAM before any GPU-heavy work; the loaded
+        # embeddings hydrate the cache without an encoder forward pass.
+        self.pipeline.release_oneshot_encoders()
+
+        assert embeddings_path.exists(), (
+            f"--embeddings_path does not exist: {embeddings_path}"
+        )
+        embeddings = torch.load(
+            embeddings_path, map_location="cpu", weights_only=True
+        )
+        if self.is_rank_zero:
+            logger.info(
+                f"[{cfg.runner_name}] loaded embeddings from {embeddings_path} "
+                f"text={tuple(embeddings['text_embeddings'].shape)} "
+                f"image={tuple(embeddings['image_embeddings'].shape)}"
+            )
+        cache = self.pipeline.initialize_cache_from_embeddings(
+            text_embeddings=embeddings["text_embeddings"],
+            image_embeddings=embeddings["image_embeddings"],
+            negative_text_embeddings=embeddings.get("negative_text_embeddings"),
+            view_names=list(camera_names),
+        )
+        self._rollout_and_save(cache=cache, num_views=num_views)
+
+    ## ----------------------------------------- shared rollout / I/O body ##
+
+    def _rollout_and_save(
+        self, *, cache: AlpadreamsPipelineCache, num_views: int
+    ) -> None:
+        """Run the AR loop against ``cache`` and write video + stats."""
+        cfg = self.config
+        device = torch.device(f"cuda:{self.local_rank}")
+        dtype = torch.bfloat16
+
+        hdmap_paths = self._resolve_paths(
+            cfg.hdmap_video_paths, num_views, name="hdmap_video_paths"
+        )
+        hdmap_videos: list[torch.Tensor] = [
+            _load_video(
+                hdmap_paths[i],
+                pixel_height=cfg.pixel_height,
+                pixel_width=cfg.pixel_width,
+                device=device,
+                dtype=dtype,
+            )
+            for i in range(num_views)
+        ]
+        hdmap_videos_t = torch.stack(hdmap_videos, dim=0).unsqueeze(0)
+        # Shape: [B=1, V, T, C, H, W]
+        hdmap_num_frames = hdmap_videos_t.shape[2]
+        if self.is_rank_zero:
+            logger.info(
+                f"[{cfg.runner_name}] loaded hdmap_videos="
+                f"{tuple(hdmap_videos_t.shape)}, num_views={num_views}"
+            )
+
+        torch.cuda.synchronize()
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
+        chunks: list[torch.Tensor] = []
+        stats_history: list[dict[str, float]] = []
+        start = 0
+        for i in range(cfg.total_blocks):
+            num_frames = self.pipeline.get_num_frames(i)
+            end = start + num_frames
+            if end > hdmap_num_frames:
+                break
+            if self.is_rank_zero:
+                logger.info(
+                    f"[{cfg.runner_name}] AR step {i}/{cfg.total_blocks}, "
+                    f"num_frames={num_frames}, frames=[{start}, {end})"
+                )
+            video_chunk = self.pipeline.generate(
+                autoregressive_index=i,
+                cache=cache,
+                hdmap=hdmap_videos_t[:, :, start:end],
+            )
+            stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
+            if stats is not None:
+                stats_history.append({"autoregressive_index": i, **stats})
+            chunks.append(video_chunk.cpu())
+            start = end
+
+        video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
+        generated_num_frames = video.shape[2]
+        if not self.is_rank_zero:
+            return
+
+        # HDMap + generated stacked vertically per camera, cameras laid
+        # out horizontally: ``[T, 2*H, V*W, C]``.
+        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
+        canvas = rearrange(
+            torch.cat([condition, video], dim=-2),
+            "1 v t c h w -> t h (v w) c",
+        )
+        video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
+        _write_video(canvas, video_path, fps=cfg.output_fps)
+        logger.info(
+            f"[{cfg.runner_name}] wrote video {tuple(video.shape)} "
+            f"-> {video_path.resolve()}"
+        )
+
+        if stats_history:
+            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
+            stats_path.write_text(json.dumps(stats_history, indent=2))
+            logger.info(
+                f"[{cfg.runner_name}] wrote per-AR-step stats "
+                f"-> {stats_path.resolve()}"
+            )
+
+    ## ------------------------------------------------------------ helpers ##
+
+    def _num_views(self) -> int:
+        """Read ``num_views`` off the wrapped Cosmos transformer config."""
+        transformer_cfg = self.config.pipeline.diffusion_model.transformer
+        assert isinstance(transformer_cfg, CosmosTransformerConfig)
+        return transformer_cfg.num_views
+
+    def _load_first_frames(
+        self,
+        first_frame_paths: tuple[Path, ...],
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Load the per-camera first-frame seeds as ``[B=1, V, 1, C, H, W]``."""
+        cfg = self.config
+        first_frames = [
+            _load_first_frame(
+                p,
+                pixel_height=cfg.pixel_height,
+                pixel_width=cfg.pixel_width,
+                device=device,
+                dtype=dtype,
+            )
+            for p in first_frame_paths
+        ]
+        return torch.stack(first_frames, dim=0).unsqueeze(0)
+
+    def _resolve_prompts(self, num_views: int) -> tuple[str, ...]:
+        cfg = self.config
+        if cfg.prompts:
+            assert len(cfg.prompts) == num_views, (
+                f"--prompts has {len(cfg.prompts)} entries but pipeline "
+                f"expects {num_views}; pass one prompt per camera or use "
+                "--prompt for a shared default."
+            )
+            return cfg.prompts
+        assert cfg.prompt, (
+            "either --prompt or --prompts must be set "
+            "(both empty resolved to no text input)."
+        )
+        return (cfg.prompt,) * num_views
+
+    def _resolve_camera_names(self, num_views: int) -> tuple[str, ...]:
+        cfg = self.config
+        if cfg.camera_names:
+            assert len(cfg.camera_names) == num_views, (
+                f"--camera_names has {len(cfg.camera_names)} entries but "
+                f"pipeline expects {num_views}."
+            )
+            return cfg.camera_names
+        return tuple(f"view_{i}" for i in range(num_views))
+
+    @staticmethod
+    def _resolve_paths(
+        paths: tuple[Path, ...], num_views: int, *, name: str
+    ) -> tuple[Path, ...]:
+        assert paths, (
+            f"--{name} is required: pass {num_views} comma-separated "
+            "path(s) in the canonical camera order."
+        )
+        assert len(paths) == num_views, (
+            f"--{name} has {len(paths)} entries but pipeline expects "
+            f"{num_views}; pass one path per camera."
+        )
+        return paths
+
+
+## Per-variant runner-config literals (slug == ``recipe_name``).
+
+_DEFAULT_PROMPT_1V = (
+    "Driving scene from a front-facing car camera. Urban environment with roads, "
+    "vehicles, pedestrians, traffic signs, and buildings. Clear visibility, "
+    "realistic lighting, photorealistic quality. High resolution dashcam footage "
+    "of city driving."
+)
+_DEFAULT_PROMPT_4V = (
+    "Wide-angle urban street scene from a low, dashboard-level viewpoint. "
+    "A straight two-lane road with a faded center line and curbside parking on "
+    "both sides. Parked sedans and SUVs in neutral colors line the curbs. On the "
+    "right, a white stucco mid-rise building with blue fabric awnings, rectangular "
+    "windows, and small storefronts at street level. On the left, a low commercial "
+    "strip with dark trim, glass fronts, signage, and shaded sidewalks. Mature green "
+    "trees punctuate both sides. Clear blue sky with sparse soft clouds. Bright midday "
+    "sunlight, natural colors, realistic materials, crisp shadows, clean asphalt texture."
+)
+
+_ALPADREAMS_DESCRIPTIONS: dict[str, str] = {
+    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae": (
+        "Single-view 2-step distilled chunk2 (LightVAE + LightTAE)."
+    ),
+    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf": (
+        "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
+    ),
+    "alpadreams-sv-2steps-chunk2-loc6-vae-vae": (
+        "Single-view chunk2 with the full Wan VAE on encoder + decoder."
+    ),
+    "alpadreams-sv-2steps-chunk3-loc6-vae-vae": (
+        "Single-view chunk3 (len_t=3) with the full Wan VAE."
+    ),
+    "alpadreams-sv-2steps-chunk4-loc8-pshuffle-lighttae": (
+        "Single-view chunk4 with the PixelShuffle HDMap encoder + LightTAE."
+    ),
+    "alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae": (
+        "4-camera multi-view chunk4 (PixelShuffle HDMap + LightTAE)."
+    ),
+    "alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+        "Teacher: single-view 35-step UniPC chunk2 (Cosmos2 2B, 720p, CFG=3.0)."
+    ),
+    "alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+        "Teacher: single-view 35-step bidirectional chunk48 (one rollout, 720p)."
+    ),
+    "alpadreams-experiment1-baseline": (
+        "Experiment-1 baseline (re-publishes the chunk2 perf chassis)."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache": (
+        "Experiment-1: skip-finalize-kv-cache ablation."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise350": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 350]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise250": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 250]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise150": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 150]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise100": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 100]."
+    ),
+}
+"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
+
+
+def _build_alpadreams_runners() -> dict[str, RunnerConfig]:
+    """Project ``ALPADREAMS_CONFIGS`` into per-variant runner literals."""
+    runners: dict[str, RunnerConfig] = {}
+    for name, pipeline_cfg in ALPADREAMS_CONFIGS.items():
+        transformer_cfg = pipeline_cfg.diffusion_model.transformer
+        assert isinstance(transformer_cfg, CosmosTransformerConfig)
+        prompt = (
+            _DEFAULT_PROMPT_4V if transformer_cfg.num_views == 4 else _DEFAULT_PROMPT_1V
+        )
+        assert name in _ALPADREAMS_DESCRIPTIONS, (
+            f"missing CLI description for alpadreams slug {name!r}; "
+            "add an entry to ``_ALPADREAMS_DESCRIPTIONS``."
+        )
+        runners[name] = AlpadreamsRunnerConfig(
+            runner_name=name,
+            description=_ALPADREAMS_DESCRIPTIONS[name],
+            pipeline=pipeline_cfg,
+            prompt=prompt,
+        )
+    return runners
+
+
+ALPADREAMS_RUNNERS: dict[str, RunnerConfig] = _build_alpadreams_runners()
+"""All shipped Alpadreams runners (single- and multi-view variants),
+keyed by ``runner_name``."""
+
+
+__all__ = [
+    "ALPADREAMS_RUNNERS",
+    "AlpadreamsRunner",
+    "AlpadreamsRunnerConfig",
+]
+
+
+## I/O helpers (``cv2`` / ``mediapy`` lazy-imported; live under the ``runners`` extras).
+
+
+def _read_first_frame_np(path: Path) -> np.ndarray:
+    """Read a first-frame image (or frame 0 of a video) as ``[H, W, 3]``."""
+    try:
+        import mediapy as media  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "Loading the first-frame asset needs mediapy. "
+            "Install the runner extras: pip install 'flashdreams[runners]'."
+        ) from exc
+
+    if path.suffix.lower() in IMAGE_SUFFIXES:
+        return media.read_image(str(path))[..., :3]
+    video = media.read_video(str(path))
+    assert video.shape[0] > 0, f"video has no frames: {path}"
+    return video[0, ..., :3]
+
+
+def _load_first_frame(
+    path: Path,
+    *,
+    pixel_height: int,
+    pixel_width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Resize a first-frame asset and return ``[1, C, H, W]`` in ``[-1, 1]``."""
+    try:
+        import cv2  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "Resizing the first-frame asset needs opencv. "
+            "Install the runner extras: pip install 'flashdreams[runners]'."
+        ) from exc
+
+    arr = _read_first_frame_np(path)
+    arr = cv2.resize(arr, (pixel_width, pixel_height))
+    tensor = (
+        torch.from_numpy(arr).to(dtype=dtype, device=device) / 127.5 - 1.0
+    )  # [H, W, C]
+    return rearrange(tensor, "h w c -> 1 c h w")
+
+
+def _load_video(
+    path: Path,
+    *,
+    pixel_height: int,
+    pixel_width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Load + resize an HDMap video to ``[T, C, H, W]`` in ``[-1, 1]``."""
+    try:
+        import cv2  # noqa: PLC0415
+        import mediapy as media  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "Loading HDMap videos needs mediapy + opencv. "
+            "Install the runner extras: pip install 'flashdreams[runners]'."
+        ) from exc
+
+    video_np = media.read_video(str(path))[..., :3]
+    if video_np.shape[1:3] != (pixel_height, pixel_width):
+        video_np = np.stack(
+            [cv2.resize(f, (pixel_width, pixel_height)) for f in video_np], axis=0
+        )
+    tensor = (
+        torch.from_numpy(video_np).to(dtype=dtype, device=device) / 127.5 - 1.0
+    )  # [T, H, W, C]
+    return rearrange(tensor, "t h w c -> t c h w")
+
+
+def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
+    """Save a ``[T, H, W, C]`` ``[-1, 1]`` tensor as an MP4."""
+    try:
+        import mediapy as media  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "Writing the output video needs mediapy. Install the runner "
+            "extras: pip install 'flashdreams[runners]'."
+        ) from exc
+
+    arr = (canvas.float().numpy() + 1.0) / 2.0
+    arr = (arr * 255).clip(0, 255).astype("uint8")
+    media.write_video(str(path), arr, fps=fps)

@@ -15,16 +15,16 @@
 
 """Central registry of runner configs (in-tree + plugin-discovered).
 
-Mirrors nerfstudio's ``configs/method_configs.py`` end-to-end:
+Mirrors nerfstudio's ``configs/method_configs.py``:
 
 * Each in-tree recipe ships a
   ``<NAME>_RUNNERS: dict[str, RunnerConfig]`` dict in
-  ``recipes/<name>/runner.py``.
-* This module merges them into ``BUILTIN_RUNNERS`` and pairs them with
-  human-readable strings in ``BUILTIN_DESCRIPTIONS``.
-* :func:`all_runners` then layers external
-  :class:`~flashdreams.plugins.types.RunnerSpecification` discoveries on
-  top so the ``flashdreams-run`` CLI sees a single sorted dict.
+  ``recipes/<name>/runner.py`` whose values carry their CLI subcommand
+  description on ``cfg.description``.
+* This module merges them into ``BUILTIN_RUNNERS``.
+* :func:`all_runners` then layers external :class:`RunnerConfig`
+  discoveries on top so the ``flashdreams-run`` CLI sees a single
+  sorted dict.
 
 There is no central pipeline-config registry: a recipe that hasn't
 been wrapped into a runner stays reachable via direct per-recipe
@@ -36,23 +36,28 @@ runners are opt-in.
 Adding a new runner:
 
 1. Author ``recipes/<name>/runner.py`` with one ``RunnerConfig``
-   literal per shipped variant and a ``<NAME>_RUNNERS`` dict.
-2. Add a one-line import + spread here, and one entry per slug in
-   :data:`BUILTIN_DESCRIPTIONS` (the smoke test in
-   ``tests/test_recipe_configs.py`` enforces parity).
+   literal per shipped variant (each with a non-empty ``description``)
+   and a ``<NAME>_RUNNERS`` dict.
+2. Add a one-line import + spread into :data:`BUILTIN_RUNNERS`. The
+   smoke test in ``tests/test_recipe_configs.py`` enforces parity.
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping
+from typing import Any
 
 import tyro
 
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.plugins.registry import discover_runners
+from flashdreams.recipes.alpadreams.runner import ALPADREAMS_RUNNERS
+from flashdreams.recipes.lingbot_world.runner import LINGBOT_WORLD_RUNNERS
 from flashdreams.recipes.template.runner import TEMPLATE_RUNNERS
 from flashdreams.recipes.wan.runner import WAN21_RUNNERS
+from flashdreams.recipes.wan.runner_causal_wan21 import CAUSAL_WAN21_RUNNERS
+from flashdreams.recipes.wan.runner_causal_wan22 import CAUSAL_WAN22_RUNNERS
 
 
 def _merge(
@@ -80,92 +85,50 @@ def _merge(
 BUILTIN_RUNNERS: dict[str, RunnerConfig] = _merge(
     TEMPLATE_RUNNERS,
     WAN21_RUNNERS,
+    CAUSAL_WAN21_RUNNERS,
+    CAUSAL_WAN22_RUNNERS,
+    ALPADREAMS_RUNNERS,
+    LINGBOT_WORLD_RUNNERS,
 )
-"""Every shipped runner config, keyed by ``runner_name``.
-
-Currently covers the ``template`` and non-streaming ``wan21`` recipes;
-the remaining recipes (``causal_wan21``, ``causal_wan22``,
-``alpadreams``, ``lingbot_world``) still ship via direct per-recipe
-imports of their ``<NAME>_CONFIGS`` dict and are not yet
-``flashdreams-run``-able. Migrating them is the follow-up task -- author a
-``recipes/<name>/runner.py`` and append the dict to ``_merge`` above."""
-
-BUILTIN_DESCRIPTIONS: dict[str, str] = {
-    # template -- reference recipe used by the developer skill.
-    "template-offline": (
-        "Reference template recipe: one-shot offline diffusion (synthetic inputs)."
-    ),
-    "template-autoregressive": (
-        "Reference template recipe: streaming AR diffusion with sliding-window cache."
-    ),
-    "template-autoregressive-compiled": (
-        "Reference template recipe: AR variant with torch.compile + CUDA graphs."
-    ),
-    # wan 2.1 -- baseline non-streaming Wan 2.1 demo.
-    "wan21-t2v-1.3b-480p": (
-        "Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only)."
-    ),
-    "wan21-i2v-14b-480p": (
-        "Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame)."
-    ),
-}
-"""One-line description per built-in runner. Keys must equal
-``BUILTIN_RUNNERS`` (asserted by
-``tests/test_recipe_configs.py::test_builtin_descriptions_cover_runners``)."""
+"""Every shipped runner config, keyed by ``runner_name``."""
 
 
 def merge_runners(
     runners: Mapping[str, RunnerConfig],
-    descriptions: Mapping[str, str],
     new_runners: Mapping[str, RunnerConfig],
-    new_descriptions: Mapping[str, str],
     overwrite: bool = True,
-) -> tuple[OrderedDict[str, RunnerConfig], OrderedDict[str, str]]:
-    """Merge ``new_runners`` into ``runners`` (and the same for descriptions).
+) -> OrderedDict[str, RunnerConfig]:
+    """Merge ``new_runners`` into ``runners``.
 
     Mirrors :func:`nerfstudio.configs.method_configs.merge_methods`. The
     ``overwrite=False`` form is used by the layered :func:`all_runners`
     loader so a built-in is preferred over a same-slug plugin (and a
     plugin is preferred over the env-var fallback).
     """
-    out_runners: OrderedDict[str, RunnerConfig] = OrderedDict(runners)
-    out_descriptions: OrderedDict[str, str] = OrderedDict(descriptions)
+    out: OrderedDict[str, RunnerConfig] = OrderedDict(runners)
     for k, v in new_runners.items():
-        if overwrite or k not in out_runners:
-            out_runners[k] = v
-            out_descriptions[k] = new_descriptions.get(k, "")
-    return out_runners, out_descriptions
+        if overwrite or k not in out:
+            out[k] = v
+    return out
 
 
 def _sort(
     runners: Mapping[str, RunnerConfig],
-    descriptions: Mapping[str, str],
-) -> tuple[OrderedDict[str, RunnerConfig], OrderedDict[str, str]]:
-    """Sort both mappings by ``runner_name`` so subcommand listings are stable."""
-    return (
-        OrderedDict(sorted(runners.items())),
-        OrderedDict(sorted(descriptions.items())),
-    )
+) -> OrderedDict[str, RunnerConfig]:
+    """Sort the mapping by ``runner_name`` so subcommand listings are stable."""
+    return OrderedDict(sorted(runners.items()))
 
 
-def all_runners() -> tuple[
-    OrderedDict[str, RunnerConfig], OrderedDict[str, str]
-]:
-    """Return ``(runners, descriptions)`` covering builtin + plugin sources.
+def all_runners() -> OrderedDict[str, RunnerConfig]:
+    """Return the runner registry covering builtin + plugin sources.
 
     Built-in runners always win over a same-named plugin (that's
     ``overwrite=False`` for the discovery layer): an external package
     cannot silently shadow a shipped slug.
     """
-    discovered_runners, discovered_descriptions = discover_runners()
-    merged_runners, merged_descriptions = merge_runners(
-        BUILTIN_RUNNERS,
-        BUILTIN_DESCRIPTIONS,
-        discovered_runners,
-        discovered_descriptions,
-        overwrite=False,
-    )
-    return _sort(merged_runners, merged_descriptions)
+    discovered = discover_runners()
+    merged = merge_runners(BUILTIN_RUNNERS, discovered, overwrite=False)
+    return _sort(merged)
 
 
 def _annotated_base_runner_union():
@@ -182,17 +145,16 @@ def _annotated_base_runner_union():
     * ``FlagConversionOff`` -- don't auto-flip booleans into
       ``--no-foo`` flags inside nested configs.
     """
-    runners, descriptions = all_runners()
-    return tyro.conf.SuppressFixed[
-        tyro.conf.FlagConversionOff[
-            tyro.extras.subcommand_type_from_defaults(
-                defaults=dict(runners),
-                descriptions=dict(descriptions),
-                # Drop the ``runner:`` namespace prefix so users type
-                # ``flashdreams-run template-offline``, not
-                # ``flashdreams-run runner:template-offline``.
-                prefix_names=False,
-                sort_subcommands=True,
-            )
-        ]
-    ]
+    runners = all_runners()
+    descriptions = {k: cfg.description for k, cfg in runners.items()}
+    # ``Any`` because ty rejects the runtime tyro union as a type-form
+    # arg to the ``SuppressFixed`` / ``FlagConversionOff`` markers below.
+    subcommand_union: Any = tyro.extras.subcommand_type_from_defaults(
+        defaults=dict(runners),
+        descriptions=descriptions,
+        # Drop the ``runner:`` namespace prefix so users type
+        # ``flashdreams-run template-offline``.
+        prefix_names=False,
+        sort_subcommands=True,
+    )
+    return tyro.conf.SuppressFixed[tyro.conf.FlagConversionOff[subcommand_union]]

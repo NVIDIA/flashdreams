@@ -16,10 +16,10 @@
 Wan2.1 (bidirectional)
 ===================================
 
-Bidirectional Wan2.1, driven by ``flashdreams/examples/run_wan21.py``.
-The single entry point picks T2V (1.3B) when ``--image_path`` is omitted
-and I2V (14B 480P) when it is provided. Reference:
-`Wan2.1 official repo <https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation>`_.
+Bidirectional Wan2.1, driven by the unified ``flashdreams-run`` CLI. The
+two shipped runners are ``wan21-t2v-1.3b-480p`` and ``wan21-i2v-14b-480p``.
+Reference: `Wan2.1 official repo
+<https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation>`_.
 
 T2V (1.3B)
 ----------
@@ -28,26 +28,22 @@ T2V (1.3B)
 
    export HF_TOKEN=<your-hf-token>
 
-   uv run --package flashdreams --extra examples \
-     flashdreams/examples/run_wan21.py \
-       --height 480 --width 832
+   uv run flashdreams-run wan21-t2v-1.3b-480p
 
 I2V (14B 480P)
 --------------
 
+``--image-path`` defaults to the bundled ``assets/example_data/i2v/image.jpg``
+demo frame so the I2V runner produces a video out of the box:
+
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     flashdreams/examples/run_wan21.py \
-       --height 480 --width 832 \
-       --image_path assets/example_data/i2v/image.jpg \
-       --prompt_or_txt_path assets/example_data/i2v/prompt.txt
+   uv run flashdreams-run wan21-i2v-14b-480p
 
 Run with the example data shipped in the upstream Wan2.1 repo:
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     flashdreams/examples/run_wan21.py \
-       --image_path ../Wan2.1/examples/i2v_input.JPG \
-       --prompt_or_txt_path "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard..."
+   uv run flashdreams-run wan21-i2v-14b-480p \
+       --image-path ../Wan2.1/examples/i2v_input.JPG \
+       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard..."
