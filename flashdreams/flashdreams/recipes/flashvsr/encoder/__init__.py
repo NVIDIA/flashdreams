@@ -105,12 +105,13 @@ class FlashVSREncoderConfig(InstantiateConfig["FlashVSREncoder"]):
     use_cuda_graph: bool = False
     """Wrap the projector in ``CUDAGraphWrapper`` for steady-state replay.
 
-    Default ``False`` here, but
-    :class:`FlashVSRDecoderConfig.use_cuda_graph` defaults to ``True``.
-    The asymmetry matches :func:`build_flashvsr_v1_1`'s production wiring,
-    which always flips both knobs to ``True``: the encoder default is
-    conservative because the projector also has a ``use_compile`` branch
-    that needs the wrapper's ``drain`` to absorb Inductor autotune."""
+    Defaults to ``False`` and matches :class:`FlashVSRDecoderConfig.use_cuda_graph`.
+    :func:`build_flashvsr_v1_1` hard-codes both knobs to ``True`` for
+    production wiring; when ``use_compile`` is also ``True``, the wrapper's
+    ``drain`` step is what absorbs Inductor's lazy triton autotunes against
+    the same staged buffers capture will use (otherwise capture would fail
+    with ``cudaErrorStreamCaptureUnsupported``). This default only matters
+    when assembling sub-configs by hand outside the builder."""
 
     dtype: torch.dtype = torch.bfloat16
 

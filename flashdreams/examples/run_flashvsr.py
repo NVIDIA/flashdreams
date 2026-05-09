@@ -130,14 +130,6 @@ def main() -> None:
     )
     parser.add_argument("--kv_ratio", type=int, default=3)
     parser.add_argument("--local_range", type=int, default=11)
-    parser.add_argument(
-        "--compile",
-        action="store_true",
-        help="Enable torch.compile for projector / DiT / decoder (slow first chunk)",
-    )
-    parser.add_argument("--compile_dit", action="store_true")
-    parser.add_argument("--compile_encoder", action="store_true")
-    parser.add_argument("--compile_decoder", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--dtype",
@@ -240,14 +232,8 @@ def main() -> None:
         video_np = video_np[:usable_frames]
 
     # uint8 [T, H, W, C] in [0, 255] -> bf16 [1, C, T, H, W] in [-1, 1].
-    video_t = (torch.from_numpy(video_np.astype(np.float32)) / 127.5 - 1.0).to(
-        device=device, dtype=dtype
-    )
-    video_t = rearrange(video_t, "T H W C -> 1 C T H W")
-
-    compile_dit = args.compile_dit or args.compile
-    compile_encoder = args.compile_encoder or args.compile
-    compile_decoder = args.compile_decoder or args.compile
+    video_t = (torch.from_numpy(video_np.astype(np.float32)) / 127.5 - 1.0)
+    video_t = rearrange(video_t.to(device=device, dtype=dtype), "T H W C -> 1 C T H W")
 
     print(f"\nLoading FlashVSR pipeline (scale={args.scale}) ...")
     pipeline_config = build_flashvsr_v1_1(
@@ -257,9 +243,8 @@ def main() -> None:
         sparse_ratio=args.sparse_ratio,
         kv_ratio=args.kv_ratio,
         local_range=args.local_range,
-        compile_network=compile_dit,
-        compile_decoder=compile_decoder,
-        compile_encoder=compile_encoder,
+        compile_network=True,
+        use_cuda_graph=True,
         color_corrector_implementation=args.color_corrector_implementation,
         enable_sync_and_profile=args.profile,
         dtype=dtype,
@@ -304,7 +289,7 @@ def main() -> None:
 
     result = np.concatenate(chunks_out, axis=0)  # [T_out, H', W', 3]
 
-    SKIP_PROFILE = 4 if (compile_encoder or compile_dit or compile_decoder) else 2
+    SKIP_PROFILE = 4
 
     latencies = defaultdict(list)
     numframes = sum(chunk.shape[0] for chunk in chunks_out[SKIP_PROFILE:])

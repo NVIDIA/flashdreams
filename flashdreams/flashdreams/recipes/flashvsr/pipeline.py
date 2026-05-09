@@ -290,12 +290,30 @@ class FlashVSRPipeline(
         # internal AR step index advances by 1 per iter so the rolling
         # KV cache rolls at the right cadence (matches legacy
         # ``cur_process_idx = chunk_idx * n_iters + idx``).
+        #
+        # ``flow_full`` is pre-allocated once and each iter's flow is
+        # ``copy_``-ed into its slot immediately after ``predict_flow``.
+        # This is required for ``compile_network=True`` paths that fall
+        # back into Inductor cudagraphs (``mode="max-autotune"`` or
+        # similar): the DiT's compiled output lives in a static
+        # cudagraph buffer that gets clobbered by the next iter's call,
+        # so the original ``flow_parts.append(flow)`` + post-loop
+        # ``torch.cat`` pattern crashes with "accessing tensor output
+        # of CUDAGraphs that has been overwritten by a subsequent run".
+        # The slice-copy materialises each iter's flow into a stable,
+        # caller-owned tensor before the next call. Hoisting
+        # ``full_noise_patched`` lets us use it as the ``empty_like``
+        # template and reuse it for the post-loop ``noise - flow``
+        # subtract.
         L_per_iter = len_t * transformer._pH * transformer._pW
         # FlashVSR's distilled DiT is fixed at t=1000 every chunk.
         timestep = torch.tensor(
             [1000.0], device=transformer.device, dtype=transformer.dtype
         )
-        flow_parts: list[Tensor] = []
+        full_noise_patched = transformer.patchify_and_maybe_split_cp(
+            full_noise.transpose(1, 2)
+        )
+        flow_full = torch.empty_like(full_noise_patched)
         for idx in range(n_iters):
             internal_ar_idx = autoregressive_index * n_iters + idx
             cache.transformer_cache.start(autoregressive_index=internal_ar_idx)
@@ -307,7 +325,12 @@ class FlashVSRPipeline(
 
             # Slice the chunk-shared noise to this iter's 2 latent frames
             # (pre-patchify), then route through the transformer's standard
-            # patchify hook to get ``[B, L_per_iter, D]``.
+            # patchify hook to get ``[B, L_per_iter, D]``. Note: this is
+            # *not* equivalent to slicing ``full_noise_patched`` post-
+            # patchify -- the patchify rearrange interleaves spatial and
+            # temporal axes, so per-iter parity with the legacy upsampler
+            # requires slicing pre-patchify and patchifying each slice
+            # independently.
             noise_slice = full_noise[:, :, idx * len_t : (idx + 1) * len_t, :, :]
             noisy_patched = transformer.patchify_and_maybe_split_cp(
                 noise_slice.transpose(1, 2)
@@ -318,15 +341,11 @@ class FlashVSRPipeline(
                 cache=cache.transformer_cache,
                 input=per_iter_lq,
             )
-            flow_parts.append(flow)
+            flow_full[..., idx * L_per_iter : (idx + 1) * L_per_iter, :].copy_(flow)
 
-        flow_full = torch.cat(flow_parts, dim=-2)  # [..., n_iters * L_per_iter, D]
         record_event(event_profiler, "dit_concat")
 
         # ----- 4. clean = noise - flow at sigma=1 -----
-        full_noise_patched = transformer.patchify_and_maybe_split_cp(
-            full_noise.transpose(1, 2)
-        )
         clean_patched = full_noise_patched - flow_full
         clean_latent = transformer.unpatchify_and_maybe_gather_cp(clean_patched)
 

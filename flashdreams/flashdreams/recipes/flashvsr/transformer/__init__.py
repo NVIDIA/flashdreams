@@ -21,10 +21,13 @@ the raw :class:`FlashVSRDiTNetwork` from :mod:`.network` and exposes the
 streaming inference contract (``predict_flow``, autoregressive cache
 lifecycle, KV-cache-aware patchify hook).
 
-The CFG branch is structurally supported by the parent class but FlashVSR
-asserts ``guidance_scale == 1.0`` in ``__post_init__`` (the legacy
-distilled checkpoint does not provide negative-prompt embeddings); kept
-for future I2V experiments.
+FlashVSR is single-branch only by design: the distilled checkpoint does
+not ship negative-prompt embeddings, so the parent's CFG plumbing is
+structurally bypassed. ``FlashVSRTransformerConfig.__post_init__``
+asserts ``guidance_scale == 1.0`` and ``predict_flow`` defensively
+asserts ``cache.network_cache_uncond is None`` to catch a misconfigured
+cache (e.g. one built with a CFG-enabled transformer config and then
+used here).
 """
 
 from __future__ import annotations
@@ -32,8 +35,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import torch
 from torch import Tensor
 
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.recipes.flashvsr.transformer.network import (
     _SELF_ATTN_WINDOW,
     _SELF_ATTN_WINDOW_TOKENS,
@@ -98,6 +103,32 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
     local_range: int = 11
     """Local-block window radius (in window units) for the draft mask."""
 
+    use_cuda_graph: bool = False
+    """Capture the **steady-state** DiT call into a CUDA graph and replay it.
+
+    Mirrors :class:`FlashVSREncoderConfig.use_cuda_graph` and
+    :class:`FlashVSRDecoderConfig.use_cuda_graph`; the inherited
+    :attr:`Wan21TransformerConfig.compile_network` plays the role of
+    those configs' ``use_compile``.
+
+    When ``True``, ``predict_flow`` lazily wraps the DiT forward in a
+    :class:`flashdreams.infra.cuda_graph.CUDAGraphWrapper`. Filling chunks
+    (``internal_ar_idx < kv_ratio + 1``) still run eagerly because the
+    K/V cache tensor's effective shape varies during fill. From the first
+    steady-state call onwards the wrapper drains Inductor autotune for
+    ``warmup_iters`` calls, then captures one graph and replays it for
+    every subsequent steady-state call.
+
+    Requires ``compile_network=True`` to give Inductor a clean graph to
+    autotune; the wrapper will fail at capture time otherwise (lazy
+    triton autotunes are illegal during capture).
+
+    Phase 2 of the optimization plan in
+    [`internal/upsampler/PERF_NOTES.md`](../../../../internal/upsampler/PERF_NOTES.md).
+    Empirical ceiling on H100 is ~5-10% off ``dit_concat`` (~30-60 ms);
+    the headline ``dit_concat`` budget is dominated by the
+    ``block_sparse_attn`` C++ kernel which CUDA graphs do not affect."""
+
     def __post_init__(self) -> None:
         super().__post_init__()
         assert self.guidance_scale == 1.0, (
@@ -118,6 +149,23 @@ class FlashVSRTransformer(Wan21Transformer):
     config: FlashVSRTransformerConfig
     network: FlashVSRDiTNetwork
 
+    def __init__(
+        self,
+        config: FlashVSRTransformerConfig,
+        device: Optional[torch.device] = None,
+    ) -> None:
+        super().__init__(config, device=device)
+
+        # CUDA-graph wrapper for the steady-state DiT call. Lazy-initialised
+        # on the first steady-state call in :meth:`predict_flow` so we don't
+        # pay the wrapper-construction cost when ``use_cuda_graph`` is False.
+        # Tied to a specific ``Wan21TransformerCache`` instance via
+        # ``_captured_cache``; if a different cache is passed (new rollout
+        # via ``initialize_autoregressive_cache``), we reset the wrapper so
+        # the new cache's storage pointers get re-staged at re-capture time.
+        self._cuda_graph_wrapper: Optional[CUDAGraphWrapper] = None
+        self._captured_cache: Optional[Wan21TransformerCache] = None
+
     def finalize_kv_cache(self, *args: Any, **kwargs: Any) -> None:
         """No-op: FlashVSR keys its KV cache from the **noisy** forward."""
 
@@ -137,6 +185,131 @@ class FlashVSRTransformer(Wan21Transformer):
         if isinstance(x, list):
             return x
         return super().patchify_and_maybe_split_cp(x)
+
+    def _is_steady_state(self, ar_idx: int) -> bool:
+        """Return True if the per-block KV cache is full at this AR index.
+
+        With ``sink_size_t == 0`` and
+        ``window_size_t == (kv_ratio + 1) * len_t``, the per-block cache
+        becomes full after ``kv_ratio + 1`` calls (counted in **internal**
+        AR steps -- the ones the transformer cache sees, i.e.
+        ``autoregressive_index * n_iters + iter_idx``). From the next call
+        onward, ``BlockKVCache.cached_k()`` returns the full buffer (shape
+        ``[B, total_size, n_heads, head_dim]``) and all per-step DiT inputs
+        are statically shaped -- the prerequisite for graph capture.
+        """
+        return ar_idx >= self.config.kv_ratio + 1
+
+    def _compute_rope_freqs(
+        self, cache: Wan21TransformerCache, ar_idx: int
+    ) -> Tensor:
+        """FlashVSR temporal-RoPE: ``ar_idx==0`` uses offset 0, otherwise
+        ``2 + ar_idx * 2``.
+
+        The legacy WanModel keeps two distinct ``RotaryPositionEmbedding3D``
+        instances (``rope_freq_first`` for ``ar_idx==0``, ``rope_freq_other``
+        otherwise); a single instance with two different offsets is
+        bit-equivalent because both legacy instances were constructed from
+        identical inputs.
+        """
+        return cache.rope_adapter.shift_t(0 if ar_idx == 0 else 2 + ar_idx * 2)
+
+    def _compute_topk(self, cache: Wan21TransformerCache) -> int:
+        """Match the legacy ``WanModel`` top-k computation.
+
+        ``topk = int(block_n_per_chunk ** 2 * topk_ratio) - 1`` where
+        ``block_n_per_chunk = win[0] * h * w / 128 = 2 * pH * pW / 128``.
+        """
+        block_n_per_chunk = (
+            _SELF_ATTN_WINDOW[0] * cache.len_h * cache.len_w
+        ) // _SELF_ATTN_WINDOW_TOKENS
+        return (
+            int(block_n_per_chunk * block_n_per_chunk * self.config.topk_ratio) - 1
+        )
+
+    def _capturable_dit_forward(
+        self,
+        noisy_latent: Tensor,
+        timestep: Tensor,
+        rope_freqs: Tensor,
+        lq_latents: Optional[list[Tensor] | Tensor],
+        *,
+        cache,  # WanDiTNetworkCache; non-tensor, passes through CUDAGraphWrapper verbatim
+        topk: int,
+        f: int,
+        h: int,
+        w: int,
+        local_range: int,
+    ) -> Tensor:
+        """The DiT forward as :class:`CUDAGraphWrapper` will see it.
+
+        All tensor inputs are top-level positional args so
+        ``CUDAGraphWrapper._stage`` copies them into static buffers on every
+        call (including pre-capture warmup). The ``cache`` is passed as a
+        non-tensor kwarg and threads through verbatim; the network mutates
+        its per-block KV buffers in place against stable storage pointers.
+
+        ``lq_latents`` accepts either a ``list[Tensor]`` (eager path:
+        forwarded verbatim) or a single leading-dim ``Tensor`` of shape
+        ``[num_layers, B, L_per_iter, dim]`` (capture path: staged into a
+        static buffer on every wrapper call). The network's consumer
+        indexes by block (``lq_latents[i]`` / ``len(lq_latents)``), which
+        works identically on both representations.
+        :meth:`predict_flow` decides which form to pass based on whether
+        the wrapper is in use; passing a list to the wrapper would make
+        the captured graph reference whatever list elements existed at
+        capture time (wrong on subsequent replays).
+
+        ``eager_mode=False`` because :meth:`predict_flow` runs
+        ``before_update`` / ``after_update`` outside the captured region --
+        their Python state advances every call, while the conditional GPU
+        ops they issue (steady-state ``_roll_local_window_left``) execute
+        eagerly. This costs ~600 us per chunk vs. capturing them inside
+        and is the price of keeping cache Python state coherent across
+        replay.
+        """
+        # ``current_chunk_idx`` is consulted only when ``eager_mode=True``,
+        # which we never pass here; the per-block KV-cache lifecycle runs
+        # in :meth:`predict_flow` outside the captured region. Pass 0 as a
+        # placeholder so the kwarg is well-typed.
+        return self.network(
+            x=noisy_latent,
+            timesteps=timestep,
+            cache=cache,
+            rope_freqs=rope_freqs,
+            current_chunk_idx=0,
+            eager_mode=False,
+            block_extra_kwargs={
+                "f": f,
+                "h": h,
+                "w": w,
+                "topk": topk,
+                "local_range": local_range,
+            },
+            lq_latents=lq_latents,
+        )
+
+    def _get_or_create_wrapper(
+        self, cache: Wan21TransformerCache
+    ) -> CUDAGraphWrapper:
+        """Lazy-init the cudagraph wrapper; reset on cache identity change.
+
+        Captured kernels reference cache buffer storage pointers, so a
+        fresh rollout (new ``initialize_autoregressive_cache`` call) yields
+        new pointers and we must reset the wrapper to re-stage and
+        re-capture against the new cache.
+        """
+        if (
+            self._cuda_graph_wrapper is None
+            or cache is not self._captured_cache
+        ):
+            if self._cuda_graph_wrapper is not None:
+                self._cuda_graph_wrapper.reset()
+            self._cuda_graph_wrapper = CUDAGraphWrapper(
+                self._capturable_dit_forward, warmup_iters=2
+            )
+            self._captured_cache = cache
+        return self._cuda_graph_wrapper
 
     def predict_flow(  # type: ignore[override]
         self,
@@ -165,59 +338,62 @@ class FlashVSRTransformer(Wan21Transformer):
             "FlashVSRTransformerCache.start(autoregressive_index) must be called "
             "before predict_flow (DiffusionModel.generate handles this)."
         )
+        assert cache.network_cache_uncond is None, (
+            "FlashVSR doesn't support CFG (guidance_scale must be 1.0); "
+            "the CUDA-graph capture path also assumes single-network forward."
+        )
 
-        # FlashVSR temporal-RoPE rule. The legacy WanModel keeps two distinct
-        # ``RotaryPositionEmbedding3D`` instances (``rope_freq_first`` for
-        # ``ar_idx==0``, ``rope_freq_other`` otherwise) but both are
-        # constructed from identical inputs, so a single instance with two
-        # different offsets is bit-equivalent.
-        if ar_idx == 0:
-            rope_freqs = cache.rope_adapter.shift_t(0)
-        else:
-            rope_freqs = cache.rope_adapter.shift_t(2 + ar_idx * 2)
-
-        # Match the legacy topk computation (see ``WanModel.forward``):
-        #   block_n_per_chunk = win[0] * h * w / 128 = 2 * pH * pW / 128
-        #   topk = int(block_n_per_chunk**2 * topk_ratio) - 1
         cfg = self.config
-        block_n_per_chunk = (
-            _SELF_ATTN_WINDOW[0] * cache.len_h * cache.len_w
-        ) // _SELF_ATTN_WINDOW_TOKENS
-        topk = int(block_n_per_chunk * block_n_per_chunk * cfg.topk_ratio) - 1
+        rope_freqs = self._compute_rope_freqs(cache, ar_idx)
+        topk = self._compute_topk(cache)
+        use_capture = cfg.use_cuda_graph and self._is_steady_state(ar_idx)
 
-        block_extra_kwargs = {
+        # Stack the per-block LR latent slices into a single tensor only
+        # when going through the CUDA-graph wrapper. The wrapper stages
+        # top-level tensors into static buffers that the captured graph
+        # references on every replay; lists are forwarded verbatim, which
+        # would make the captured graph reference whatever list elements
+        # existed at capture time (wrong on subsequent replays). The
+        # eager path can pass the list straight through -- the network's
+        # ``lq_latents[i]`` / ``len(lq_latents)`` consumer works
+        # identically on a list and a leading-dim tensor.
+        if use_capture and isinstance(input, list):
+            lq: Optional[list[Tensor] | Tensor] = torch.stack(input)
+        else:
+            lq = input  # list[Tensor] | Tensor | None
+
+        # Cache lifecycle runs **outside** the capturable region so the
+        # Python bookkeeping (``_prev_chunk_idx``, ``_n_cached``) advances
+        # on every call. If we ran it inside the captured region, the
+        # bookkeeping would freeze at the values it had at capture time
+        # -- subsequent replays would silently read stale cache state
+        # and hit assertion failures on the next ``before_update``.
+        #
+        # Sequential (no try/finally): if the forward raises, the cache
+        # is left with ``_curr_chunk_idx`` set, so the next
+        # ``before_update`` fails loudly. This is deliberate -- a thrown
+        # forward leaves the per-block KV buffer in an inconsistent
+        # state, and the only safe recovery is ``initialize_cache()``.
+        # An earlier draft wrapped the forward in ``try/finally`` so
+        # ``after_update`` always ran, but that advanced
+        # ``_prev_chunk_idx`` / ``_n_cached`` even on the failure path,
+        # masking partial writes as silent correctness bugs downstream.
+        network_cache = cache.network_cache_cond
+        network_cache.before_update(ar_idx)
+
+        dit_args = (noisy_latent, timestep, rope_freqs, lq)
+        dit_kwargs = {
+            "cache": network_cache,
+            "topk": topk,
             "f": cache.len_t,
             "h": cache.len_h,
             "w": cache.len_w,
-            "topk": topk,
             "local_range": cfg.local_range,
         }
+        if use_capture:
+            flow = self._get_or_create_wrapper(cache)(*dit_args, **dit_kwargs)
+        else:
+            flow = self._capturable_dit_forward(*dit_args, **dit_kwargs)
 
-        flow_cond = self.network(
-            x=noisy_latent,
-            timesteps=timestep,
-            cache=cache.network_cache_cond,
-            rope_freqs=rope_freqs,
-            current_chunk_idx=ar_idx,
-            eager_mode=True,
-            block_extra_kwargs=block_extra_kwargs,
-            lq_latents=input,
-        )
-
-        if cache.network_cache_uncond is None:
-            return flow_cond
-
-        # CFG path is structurally supported by the parent class but FlashVSR
-        # asserts ``guidance_scale==1.0`` in ``__post_init__``, so this branch
-        # is never reached in practice. Keep it for future I2V experiments.
-        flow_uncond = self.network(
-            x=noisy_latent,
-            timesteps=timestep,
-            cache=cache.network_cache_uncond,
-            rope_freqs=rope_freqs,
-            current_chunk_idx=ar_idx,
-            eager_mode=True,
-            block_extra_kwargs=block_extra_kwargs,
-            lq_latents=input,
-        )
-        return flow_uncond + cfg.guidance_scale * (flow_cond - flow_uncond)
+        network_cache.after_update(ar_idx)
+        return flow

@@ -52,8 +52,13 @@ at attention time (default `kv_ratio = 3` -> 4 chunks).
 - `scale`: `2` (default) or `4`.
 - `sparse_ratio`: block-sparse attention budget multiplier. `2.0`
   (default, "more stable") or `1.5` ("faster" preset).
-- `compile_network` / `compile_decoder` / `compile_encoder`: per-component
-  `torch.compile` switches.
+- `compile_network`: single `torch.compile` switch applied uniformly to
+  the DiT, encoder projector, and decoder.
+- `use_cuda_graph`: capture the steady-state DiT call into a CUDA graph
+  and replay it (Phase 2 of `internal/upsampler/PERF_NOTES.md`). Requires
+  `compile_network=True`. Encoder / decoder cuda graphs are always on
+  inside the builder. Defaults to `False`; flip on per-resolution in the
+  gRPC server until proven stable.
 - `color_corrector_implementation`: `"cuda"` (default; AdaIN-only
   hand-rolled kernel) or `"torch"` (pure-torch wavelet + AdaIN reference).
 - `enable_sync_and_profile`: per-AR-step CUDA-event profiling. Adds one

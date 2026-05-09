@@ -67,13 +67,14 @@ class FlashVSRDecoderConfig(InstantiateConfig["FlashVSRDecoder"]):
     use_compile: bool = False
     """``torch.compile`` the TAEHV decode path."""
 
-    use_cuda_graph: bool = True
+    use_cuda_graph: bool = False
     """Wrap the TAEHV decode in ``CUDAGraphWrapper`` for steady-state replay.
 
-    Default ``True`` here (vs :class:`FlashVSREncoderConfig.use_cuda_graph`
-    which defaults to ``False``). Both knobs are flipped to ``True`` by
-    :func:`build_flashvsr_v1_1` in production; the asymmetry only matters
-    when wiring sub-configs by hand."""
+    Defaults to ``False`` and matches :class:`FlashVSREncoderConfig.use_cuda_graph`.
+    :func:`build_flashvsr_v1_1` hard-codes both knobs to ``True`` for
+    production wiring (the cudagraph paths for both components are
+    well-tested), so this default only matters when assembling sub-configs
+    by hand outside the builder -- e.g. in the equivalence pytest cases."""
 
     color_corrector_levels: int = 5
     """Wavelet decomposition levels for the (torch) wavelet color corrector."""

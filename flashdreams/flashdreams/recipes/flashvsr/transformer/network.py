@@ -665,7 +665,7 @@ class FlashVSRDiTNetwork(WanDiTNetwork):
         current_chunk_idx: int = 0,
         eager_mode: bool = True,
         block_extra_kwargs: Optional[dict[str, Any]] = None,
-        lq_latents: Optional[List[Tensor]] = None,
+        lq_latents: Optional[List[Tensor] | Tensor] = None,
     ) -> Tensor:
         """Run one denoising forward.
 
@@ -680,7 +680,17 @@ class FlashVSRDiTNetwork(WanDiTNetwork):
                 block (``f``, ``h``, ``w``, ``topk``, ``local_range``).
             lq_latents: Optional per-block additive low-resolution latent
                 contribution; ``lq_latents[i]`` (when set) is added to ``x``
-                before block ``i``'s AdaLN modulation.
+                before block ``i``'s AdaLN modulation. Accepts either a
+                ``List[Tensor]`` of length ``num_layers`` or a single
+                leading-dim ``Tensor`` of shape
+                ``[num_layers, ..., L, dim]`` -- both are indexable as
+                ``lq_latents[i]`` and report the layer count via
+                ``len(lq_latents)``. The Tensor form is used by
+                ``FlashVSRTransformer._capturable_dit_forward`` so
+                :class:`flashdreams.infra.cuda_graph.CUDAGraphWrapper` can
+                stage the LR contribution as a single static input buffer
+                (a list would be forwarded verbatim, leaving captured
+                kernels referencing the wrong addresses on replay).
 
         Returns:
             Tensor with shape ``[..., L, prod(patch_size) * out_dim]``.

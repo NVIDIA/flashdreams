@@ -110,6 +110,7 @@ def _transformer_config(
     local_range: int,
     dit_checkpoint_path: str,
     compile_network: bool,
+    use_cuda_graph: bool,
     dtype: torch.dtype,
 ) -> FlashVSRTransformerConfig:
     """Build the FlashVSR transformer config for a given target resolution.
@@ -133,6 +134,7 @@ def _transformer_config(
         kv_ratio=kv_ratio,
         local_range=local_range,
         compile_network=compile_network,
+        use_cuda_graph=use_cuda_graph,
     )
 
 
@@ -150,8 +152,7 @@ def build_flashvsr_v1_1(
     kv_ratio: int = 3,
     local_range: int = 11,
     compile_network: bool = False,
-    compile_decoder: bool = False,
-    compile_encoder: bool = False,
+    use_cuda_graph: bool = False,
     color_corrector_implementation: ColorCorrectorImplementation = "cuda",
     enable_sync_and_profile: bool = False,
     dtype: torch.dtype = torch.bfloat16,
@@ -168,8 +169,20 @@ def build_flashvsr_v1_1(
         kv_ratio: Prior chunks kept in streaming self-attn KV; buffer
             holds ``kv_ratio + 1`` at attention time.
         local_range: Local-block window radius for the topk draft mask.
-        compile_network / compile_decoder / compile_encoder: Per-component
-            ``torch.compile`` switches.
+        compile_network: ``torch.compile`` switch applied uniformly to
+            the DiT, encoder projector, and decoder. Maps onto
+            :attr:`FlashVSRTransformerConfig.compile_network` (inherited
+            from :class:`Wan21TransformerConfig`) and the encoder /
+            decoder ``use_compile`` knobs.
+        use_cuda_graph: Capture the **steady-state** DiT call into a
+            CUDA graph and replay it for every subsequent steady chunk.
+            Phase 2 of ``internal/upsampler/PERF_NOTES.md``. Maps onto
+            :attr:`FlashVSRTransformerConfig.use_cuda_graph`; the
+            encoder / decoder ``use_cuda_graph`` knobs are hard-coded to
+            ``True`` by this builder and not exposed. Requires
+            ``compile_network=True`` to give Inductor a clean graph to
+            autotune. Defaults to ``False``; flip on per-resolution in
+            the gRPC server until proven stable.
         color_corrector_implementation: ``"cuda"`` (hand-rolled AdaIN) or
             ``"torch"`` (wavelet + AdaIN reference).
         enable_sync_and_profile: Per-AR-step CUDA-event profiling; adds
@@ -191,13 +204,13 @@ def build_flashvsr_v1_1(
             input_W=input_W,
             scale=scale,
             projector_checkpoint_path=checkpoint_path["encoder"],
-            use_compile=compile_encoder,
+            use_compile=compile_network,
             use_cuda_graph=True,
             dtype=dtype,
         ),
         decoder=FlashVSRDecoderConfig(
             tcdecoder_checkpoint_path=checkpoint_path["decoder"],
-            use_compile=compile_decoder,
+            use_compile=compile_network,
             use_cuda_graph=True,
             color_corrector_implementation=color_corrector_implementation,
             dtype=dtype,
@@ -213,6 +226,7 @@ def build_flashvsr_v1_1(
                 local_range=local_range,
                 dit_checkpoint_path=checkpoint_path["dit"],
                 compile_network=compile_network,
+                use_cuda_graph=use_cuda_graph,
                 dtype=dtype,
             ),
             scheduler=_scheduler_config(),
