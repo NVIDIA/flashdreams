@@ -25,7 +25,7 @@ Usage::
     flashdreams-run --help                            # list every runner
     flashdreams-run wan21-t2v-1.3b-480p --help        # show overridable fields
     flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
-    flashdreams-run wan21-i2v-14b-480p --prompt "..." --image_path frame.png
+    flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
     flashdreams-run template-offline --no-instantiate # resolve config only
 
     # Multi-GPU via context-parallelism (recipe transformers auto-detect

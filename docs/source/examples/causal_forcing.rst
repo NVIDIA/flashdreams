@@ -16,9 +16,13 @@
 Causal-forcing T2V / I2V (Wan2.1)
 =================================
 
-The causal-forcing variants of Wan2.1 are exposed as separate runners on
-the unified ``flashdreams-run`` CLI: ``causal-wan21-causal-forcing-framewise-t2v``
-and ``causal-wan21-causal-forcing-framewise-i2v``.
+The causal-forcing variants of Wan2.1 are shipped as the
+``flashdreams-causal-forcing`` integration plugin and exposed as
+separate runners on the unified ``flashdreams-run`` CLI:
+
+- ``causal-forcing-wan2.1-t2v-1.3b-chunkwise`` — chunkwise T2V (``len_t=3``).
+- ``causal-forcing-wan2.1-t2v-1.3b-framewise`` — framewise T2V (``len_t=1``).
+- ``causal-forcing-wan2.1-i2v-1.3b-framewise`` — framewise I2V (``len_t=1``).
 
 T2V
 ---
@@ -28,16 +32,16 @@ T2V
    export HF_TOKEN=<your-hf-token>
 
    uv run flashdreams-run \
-       causal-wan21-causal-forcing-framewise-t2v --total-blocks 21
+       causal-forcing-wan2.1-t2v-1.3b-framewise --total-blocks 21
 
 I2V
 ---
 
-The I2V runner defaults ``--image-path`` to the bundled
-``assets/example_data/i2v/image.jpg`` demo frame; pass an explicit path to
-override:
+The I2V runner defaults ``--image-path`` to the plugin's bundled
+``integrations/causal_forcing/assets/image.jpg`` demo frame; pass an
+explicit path to override:
 
 .. code-block:: bash
 
    uv run flashdreams-run \
-       causal-wan21-causal-forcing-framewise-i2v --total-blocks 21
+       causal-forcing-wan2.1-i2v-1.3b-framewise --total-blocks 21

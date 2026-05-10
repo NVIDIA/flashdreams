@@ -7,7 +7,7 @@ Baselines:
 
 ```bash
 uv run flashdreams-run \
-    causal-wan21-self-forcing-lighttae-t2v --total-blocks 7
+    self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
 ```
 
 On A100
@@ -42,8 +42,9 @@ On H100
 ```bash
 conda activate self_forcing
 pip install mediapy pynvml loguru boto3 transformer-engine[pytorch,core-cu12]
+pip install -e integrations/self_forcing
 PYTHONPATH=./flashdreams python -m flashdreams.scripts.cli \
-  causal-wan21-self-forcing-lighttae-t2v --total-blocks 7
+  self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
 ```
 
 On A100

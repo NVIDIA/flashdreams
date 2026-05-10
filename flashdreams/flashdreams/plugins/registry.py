@@ -60,19 +60,50 @@ def discover_runners() -> dict[str, RunnerConfig]:
     factory returning one); the subcommand description is read off
     ``cfg.description``.
 
+    Resolution order:
+
+    1. Entry points sorted by ``ep.name`` so the winner of a collision
+       is deterministic across installs.
+    2. ``FLASHDREAMS_RUNNER_CONFIGS`` env-var entries, in declared
+       order.
+
+    On a ``runner_name`` collision the *first* seen config wins; the
+    later one is logged and skipped, including the ``module:attr``
+    origin of both configs so the plugin author can find and rename the
+    duplicate.
+
     Returns:
         A dict keyed by ``cfg.runner_name``.
     """
     runners: dict[str, RunnerConfig] = {}
+    # Tracks the ``module:attr`` (entry-point) or ``slug=module:attr``
+    # (env-var) origin of each accepted runner so we can name *both*
+    # sides of a collision in the warning message.
+    origins: dict[str, str] = {}
 
-    discovered = entry_points(group=ENTRY_POINT_GROUP)
+    def _accept(cfg: RunnerConfig, origin: str) -> None:
+        """Insert ``cfg`` unless its ``runner_name`` is already taken."""
+        existing = origins.get(cfg.runner_name)
+        if existing is not None:
+            logger.warning(
+                f"Skipping runner {cfg.runner_name!r} from {origin}: "
+                f"slug already registered by {existing}. Rename one of "
+                f"the two configs to disambiguate."
+            )
+            return
+        runners[cfg.runner_name] = cfg
+        origins[cfg.runner_name] = origin
+
+    # Sort entry points by name so the "first one wins" rule above is
+    # reproducible -- importlib.metadata gives no ordering guarantee.
+    discovered = sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda ep: ep.name)
     for ep in discovered:
+        origin = f"entry point {ep.name!r} -> {ep.value}"
         try:
             value = ep.load()
         except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
             logger.warning(
-                f"Failed to load flashdreams runner entry point "
-                f"{ep.name!r} from {ep.value!r}:\n{traceback.format_exc()}"
+                f"Failed to load flashdreams runner {origin}:\n{traceback.format_exc()}"
             )
             continue
         if callable(value) and not isinstance(value, RunnerConfig):
@@ -82,18 +113,17 @@ def discover_runners() -> dict[str, RunnerConfig]:
                 value = value()
             except Exception:  # noqa: BLE001
                 logger.warning(
-                    f"Calling runner entry point {ep.name!r} as a factory "
-                    f"raised:\n{traceback.format_exc()}"
+                    f"Calling runner {origin} as a factory raised:"
+                    f"\n{traceback.format_exc()}"
                 )
                 continue
         if not isinstance(value, RunnerConfig):
             logger.warning(
-                f"Skipping runner entry point {ep.name!r}: expected a "
-                f"RunnerConfig, got {type(value).__name__}."
+                f"Skipping runner {origin}: expected a RunnerConfig, "
+                f"got {type(value).__name__}."
             )
             continue
-        cfg = cast(RunnerConfig, value)
-        runners[cfg.runner_name] = cfg
+        _accept(cast(RunnerConfig, value), origin)
 
     raw = os.environ.get(ENV_VAR)
     if raw:
@@ -101,6 +131,7 @@ def discover_runners() -> dict[str, RunnerConfig]:
             definition = definition.strip()
             if not definition:
                 continue
+            origin = f"{ENV_VAR} entry {definition!r}"
             try:
                 slug, path = definition.split("=", 1)
                 module_name, attr = path.split(":", 1)
@@ -115,11 +146,10 @@ def discover_runners() -> dict[str, RunnerConfig]:
                         f"{module_name}:{attr} is not a RunnerConfig "
                         f"(got {type(attr_value).__name__})."
                     )
-                runners[attr_value.runner_name] = attr_value
+                _accept(attr_value, origin)
             except Exception:  # noqa: BLE001
                 logger.warning(
-                    f"Failed to load runner entry {definition!r} from "
-                    f"{ENV_VAR}:\n{traceback.format_exc()}"
+                    f"Failed to load runner from {origin}:\n{traceback.format_exc()}"
                 )
 
     return runners

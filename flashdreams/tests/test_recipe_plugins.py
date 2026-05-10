@@ -127,6 +127,40 @@ def test_env_var_backdoor_skips_bad_entries(
     assert isinstance(runners, dict)
 
 
+def test_discover_runners_skips_runner_name_collision(
+    monkeypatch: pytest.MonkeyPatch, fake_plugin_module: str
+) -> None:
+    """Two env-var entries claiming the same ``runner_name`` -> first wins."""
+    module = sys.modules[fake_plugin_module]
+    setattr(
+        module,
+        "DUP_FIRST",
+        derive_config(
+            TEMPLATE_OFFLINE_RUNNER,
+            runner_name="dup-collision-slug",
+            description="first",
+        ),
+    )
+    setattr(
+        module,
+        "DUP_SECOND",
+        derive_config(
+            TEMPLATE_OFFLINE_RUNNER,
+            runner_name="dup-collision-slug",
+            description="second",
+        ),
+    )
+    monkeypatch.setenv(
+        ENV_VAR,
+        (
+            f"first={fake_plugin_module}:DUP_FIRST,"
+            f"second={fake_plugin_module}:DUP_SECOND"
+        ),
+    )
+    runners = discover_runners()
+    assert runners["dup-collision-slug"].description == "first"
+
+
 def test_all_runners_does_not_let_plugins_shadow_builtins(
     monkeypatch: pytest.MonkeyPatch, fake_plugin_module: str
 ) -> None:
