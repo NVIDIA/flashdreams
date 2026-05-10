@@ -24,7 +24,11 @@ pipeline.recipe_name drift (which would surface as confusing
 
 from __future__ import annotations
 
-from flashdreams.configs.runner_configs import BUILTIN_RUNNERS
+# Importing ``runner_configs`` triggers each in-tree recipe's
+# self-registration side effects. Without this import the registry
+# would be empty when tests run in isolation.
+import flashdreams.configs.runner_configs  # noqa: F401
+from flashdreams.configs.registry import supported_runners
 from flashdreams.recipes.alpadreams.runner import ALPADREAMS_RUNNERS
 from flashdreams.recipes.lingbot_world.runner import LINGBOT_WORLD_RUNNERS
 from flashdreams.recipes.template.runner import TEMPLATE_RUNNERS
@@ -33,25 +37,25 @@ from flashdreams.recipes.wan.runner_causal_wan21 import CAUSAL_WAN21_RUNNERS
 from flashdreams.recipes.wan.runner_causal_wan22 import CAUSAL_WAN22_RUNNERS
 
 
-def test_builtin_runners_keys_match_runner_name() -> None:
+def test_supported_runners_keys_match_runner_name() -> None:
     """Every registered runner's key must equal its ``runner_name``."""
-    assert BUILTIN_RUNNERS, "BUILTIN_RUNNERS is empty -- aggregator broken?"
+    runners = supported_runners()
+    assert runners, "supported_runners() is empty -- aggregator broken?"
     mismatched = {
-        key: cfg.runner_name
-        for key, cfg in BUILTIN_RUNNERS.items()
-        if cfg.runner_name != key
+        key: cfg.runner_name for key, cfg in runners.items() if cfg.runner_name != key
     }
     assert not mismatched, (
-        f"BUILTIN_RUNNERS keys diverged from runner_name: {mismatched}"
+        f"supported_runners keys diverged from runner_name: {mismatched}"
     )
 
 
-def test_builtin_runners_covers_every_runner_dict() -> None:
+def test_supported_runners_covers_every_runner_dict() -> None:
     """Each per-recipe ``<NAME>_RUNNERS`` dict must be merged in full.
 
     Catches the case where a new recipe added a ``<NAME>_RUNNERS``
-    dict but forgot to wire it into the aggregator.
+    dict but forgot to wire its ``runner.py`` into the aggregator.
     """
+    runners = supported_runners()
     expected = {
         **TEMPLATE_RUNNERS,
         **WAN21_RUNNERS,
@@ -60,22 +64,21 @@ def test_builtin_runners_covers_every_runner_dict() -> None:
         **ALPADREAMS_RUNNERS,
         **LINGBOT_WORLD_RUNNERS,
     }
-    missing = set(expected) - set(BUILTIN_RUNNERS)
-    assert not missing, f"BUILTIN_RUNNERS missing slugs: {sorted(missing)}"
-    # And the converse: nothing extra slipped in via a later edit.
-    extra = set(BUILTIN_RUNNERS) - set(expected)
+    missing = set(expected) - set(runners)
+    assert not missing, f"supported_runners missing slugs: {sorted(missing)}"
+    extra = set(runners) - set(expected)
     assert not extra, (
-        f"BUILTIN_RUNNERS has slugs outside the per-recipe dicts: {sorted(extra)}"
+        f"supported_runners has slugs outside the per-recipe dicts: {sorted(extra)}"
     )
 
 
-def test_builtin_runners_unique_runner_names() -> None:
+def test_supported_runners_unique_runner_names() -> None:
     """No two registered runners share a ``runner_name``."""
     seen: dict[str, int] = {}
-    for cfg in BUILTIN_RUNNERS.values():
+    for cfg in supported_runners().values():
         seen[cfg.runner_name] = seen.get(cfg.runner_name, 0) + 1
     duplicates = {name: count for name, count in seen.items() if count > 1}
-    assert not duplicates, f"duplicate runner_name in BUILTIN_RUNNERS: {duplicates}"
+    assert not duplicates, f"duplicate runner_name in supported_runners: {duplicates}"
 
 
 def test_runner_name_mirrors_pipeline_recipe_name() -> None:
@@ -88,19 +91,19 @@ def test_runner_name_mirrors_pipeline_recipe_name() -> None:
     """
     drifted = {
         key: (cfg.runner_name, cfg.pipeline.recipe_name)
-        for key, cfg in BUILTIN_RUNNERS.items()
+        for key, cfg in supported_runners().items()
         if cfg.runner_name != cfg.pipeline.recipe_name
     }
     assert not drifted, f"runner_name != pipeline.recipe_name (CLI contract): {drifted}"
 
 
-def test_builtin_runners_have_descriptions() -> None:
+def test_supported_runners_have_descriptions() -> None:
     """Every shipped runner must carry a non-empty ``cfg.description``.
 
     The CLI surfaces ``cfg.description`` next to every subcommand, so a
     missing entry shows up as an empty help line.
     """
-    empty = [k for k, cfg in BUILTIN_RUNNERS.items() if not cfg.description.strip()]
+    empty = [k for k, cfg in supported_runners().items() if not cfg.description.strip()]
     assert not empty, (
-        f"BUILTIN_RUNNERS entries missing a non-empty description: {empty}"
+        f"supported_runners entries missing a non-empty description: {empty}"
     )

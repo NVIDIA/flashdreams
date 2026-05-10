@@ -27,6 +27,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
@@ -271,6 +272,9 @@ LINGBOT_WORLD_RUNNERS: dict[str, RunnerConfig] = {
     for name, cfg in LINGBOT_WORLD_CONFIGS.items()
 }
 """All shipped Lingbot-World runners, keyed by ``runner_name``."""
+
+for _name, _cfg in LINGBOT_WORLD_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")
 
 
 __all__ = [

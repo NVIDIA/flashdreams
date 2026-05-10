@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 import torch
 from loguru import logger
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.runner import Runner, RunnerConfig
@@ -245,6 +246,9 @@ TEMPLATE_RUNNERS: dict[str, TemplateRunnerConfig] = {
     )
 }
 """All shipped template-recipe runners, keyed by ``runner_name``."""
+
+for _name, _cfg in TEMPLATE_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")
 
 
 __all__ = [

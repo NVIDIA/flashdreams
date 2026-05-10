@@ -82,3 +82,9 @@ Slurm node.
    :caption: FlashDreams Serving API
 
    apis/serving
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Developer Guides
+
+   developer_guides/new_recipes

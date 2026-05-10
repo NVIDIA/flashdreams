@@ -13,8 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Aggregated, in-tree runner configs (``BUILTIN_RUNNERS``)."""
+"""Public surface for the runner registry and CLI aggregator."""
 
-from flashdreams.configs.runner_configs import BUILTIN_RUNNERS, all_runners
+from flashdreams.configs.registry import register_runner, supported_runners
+from flashdreams.configs.runner_configs import all_runners
 
-__all__ = ["BUILTIN_RUNNERS", "all_runners"]
+__all__ = [
+    "all_runners",
+    "register_runner",
+    "supported_runners",
+]

@@ -13,33 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Central registry of runner configs (in-tree + plugin-discovered).
+"""Aggregator for in-tree + plugin-discovered runner configs.
 
-Mirrors nerfstudio's ``configs/method_configs.py``:
-
-* Each in-tree recipe ships a
-  ``<NAME>_RUNNERS: dict[str, RunnerConfig]`` dict in
-  ``recipes/<name>/runner.py`` whose values carry their CLI subcommand
-  description on ``cfg.description``.
-* This module merges them into ``BUILTIN_RUNNERS``.
-* :func:`all_runners` then layers external :class:`RunnerConfig`
-  discoveries on top so the ``flashdreams-run`` CLI sees a single
-  sorted dict.
+Each in-tree recipe ``runner.py`` self-registers its slugs via
+:func:`flashdreams.configs.registry.register_runner` at module-import
+time. This module just imports those modules for their side effects
+and exposes :func:`all_runners`, which layers plugin discoveries on
+top of the populated
+:data:`flashdreams.configs.registry._SUPPORTED_RUNNERS` registry.
 
 There is no central pipeline-config registry: a recipe that hasn't
 been wrapped into a runner stays reachable via direct per-recipe
 imports (``from flashdreams.recipes.<name>.config import <NAME>_CONFIGS``)
 for serving / tests / programmatic use, but it does not appear here
-and is not a ``flashdreams-run`` subcommand. That's the soft contract:
-runners are opt-in.
+and is not a ``flashdreams-run`` subcommand. Runners are opt-in.
 
-Adding a new runner:
+Adding a new in-tree runner:
 
 1. Author ``recipes/<name>/runner.py`` with one ``RunnerConfig``
    literal per shipped variant (each with a non-empty ``description``)
-   and a ``<NAME>_RUNNERS`` dict.
-2. Add a one-line import + spread into :data:`BUILTIN_RUNNERS`. The
-   smoke test in ``tests/test_recipe_configs.py`` enforces parity.
+   and a ``<NAME>_RUNNERS`` dict, then loop
+   :func:`~flashdreams.configs.registry.register_runner` over its
+   items with ``source="builtin"``.
+2. Add a one-line ``import flashdreams.recipes.<name>.runner`` below
+   so this module triggers the side effect at CLI startup. The smoke
+   test in ``tests/test_recipe_configs.py`` enforces parity.
 """
 
 from __future__ import annotations
@@ -50,66 +48,22 @@ from typing import Any
 
 import tyro
 
+# Each import below triggers the recipe's `register_runner(..., source="builtin")`
+# calls against ``_SUPPORTED_RUNNERS``. Listed explicitly (no auto-walk
+# of ``flashdreams.recipes``) so the in-tree inventory is one grep away.
+import flashdreams.recipes.alpadreams.runner  # noqa: F401, E402
+import flashdreams.recipes.lingbot_world.runner  # noqa: F401, E402
+import flashdreams.recipes.template.runner  # noqa: F401, E402
+import flashdreams.recipes.wan.runner  # noqa: F401, E402
+import flashdreams.recipes.wan.runner_causal_wan21  # noqa: F401, E402
+import flashdreams.recipes.wan.runner_causal_wan22  # noqa: F401, E402
+from flashdreams.configs.registry import (
+    _SUPPORTED_RUNNERS,
+    register_runner,
+    supported_runners,
+)
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.plugins.registry import discover_runners
-from flashdreams.recipes.alpadreams.runner import ALPADREAMS_RUNNERS
-from flashdreams.recipes.lingbot_world.runner import LINGBOT_WORLD_RUNNERS
-from flashdreams.recipes.template.runner import TEMPLATE_RUNNERS
-from flashdreams.recipes.wan.runner import WAN21_RUNNERS
-from flashdreams.recipes.wan.runner_causal_wan21 import CAUSAL_WAN21_RUNNERS
-from flashdreams.recipes.wan.runner_causal_wan22 import CAUSAL_WAN22_RUNNERS
-
-
-def _merge(
-    *dicts: Mapping[str, RunnerConfig],
-) -> dict[str, RunnerConfig]:
-    """Merge per-recipe runner dicts and reject duplicate ``runner_name`` keys.
-
-    Duplicates would silently shadow a registered runner; rejecting
-    them forces the offending recipe to pick a unique slug at
-    definition time.
-    """
-    merged: dict[str, RunnerConfig] = {}
-    for d in dicts:
-        for key, cfg in d.items():
-            if key in merged:
-                raise ValueError(
-                    f"Duplicate runner_name {key!r} in BUILTIN_RUNNERS: "
-                    f"already registered as {type(merged[key]).__name__}, "
-                    f"new entry is {type(cfg).__name__}."
-                )
-            merged[key] = cfg
-    return merged
-
-
-BUILTIN_RUNNERS: dict[str, RunnerConfig] = _merge(
-    TEMPLATE_RUNNERS,
-    WAN21_RUNNERS,
-    CAUSAL_WAN21_RUNNERS,
-    CAUSAL_WAN22_RUNNERS,
-    ALPADREAMS_RUNNERS,
-    LINGBOT_WORLD_RUNNERS,
-)
-"""Every shipped runner config, keyed by ``runner_name``."""
-
-
-def merge_runners(
-    runners: Mapping[str, RunnerConfig],
-    new_runners: Mapping[str, RunnerConfig],
-    overwrite: bool = True,
-) -> OrderedDict[str, RunnerConfig]:
-    """Merge ``new_runners`` into ``runners``.
-
-    Mirrors :func:`nerfstudio.configs.method_configs.merge_methods`. The
-    ``overwrite=False`` form is used by the layered :func:`all_runners`
-    loader so a built-in is preferred over a same-slug plugin (and a
-    plugin is preferred over the env-var fallback).
-    """
-    out: OrderedDict[str, RunnerConfig] = OrderedDict(runners)
-    for k, v in new_runners.items():
-        if overwrite or k not in out:
-            out[k] = v
-    return out
 
 
 def _sort(
@@ -122,13 +76,15 @@ def _sort(
 def all_runners() -> OrderedDict[str, RunnerConfig]:
     """Return the runner registry covering builtin + plugin sources.
 
-    Built-in runners always win over a same-named plugin (that's
-    ``overwrite=False`` for the discovery layer): an external package
-    cannot silently shadow a shipped slug.
+    Built-in runners always win over a same-slug plugin: the plugin
+    layer goes through :func:`register_runner` with ``source="plugin"``,
+    which logs and skips collisions. The result is sorted alphabetically
+    by ``runner_name`` for stable subcommand listings.
     """
-    discovered = discover_runners()
-    merged = merge_runners(BUILTIN_RUNNERS, discovered, overwrite=False)
-    return _sort(merged)
+    runners = dict(_SUPPORTED_RUNNERS)
+    for name, cfg in discover_runners().items():
+        register_runner(name, cfg, source="plugin", target=runners)
+    return _sort(runners)
 
 
 def _annotated_base_runner_union():
@@ -158,3 +114,14 @@ def _annotated_base_runner_union():
         sort_subcommands=True,
     )
     return tyro.conf.SuppressFixed[tyro.conf.FlagConversionOff[subcommand_union]]
+
+
+# Re-export ``register_runner`` / ``supported_runners`` here too so
+# downstream code can stick to a single ``flashdreams.configs.runner_configs``
+# import path if desired.
+__all__ = [
+    "_annotated_base_runner_union",
+    "all_runners",
+    "register_runner",
+    "supported_runners",
+]

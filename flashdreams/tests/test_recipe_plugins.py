@@ -30,11 +30,10 @@ from collections.abc import Iterator
 
 import pytest
 
+from flashdreams.configs.registry import register_runner, supported_runners
 from flashdreams.configs.runner_configs import (
-    BUILTIN_RUNNERS,
     _annotated_base_runner_union,
     all_runners,
-    merge_runners,
 )
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
@@ -150,7 +149,7 @@ def test_all_runners_does_not_let_plugins_shadow_builtins(
         f"template-offline={fake_plugin_module}:SHADOW_CONFIG",
     )
     runners = all_runners()
-    assert runners["template-offline"] is BUILTIN_RUNNERS["template-offline"]
+    assert runners["template-offline"] is supported_runners()["template-offline"]
 
 
 def test_all_runners_returns_sorted_view() -> None:
@@ -158,27 +157,38 @@ def test_all_runners_returns_sorted_view() -> None:
     runners = all_runners()
     assert list(runners) == sorted(runners)
     # Every built-in is present (regardless of plugin discovery).
-    for slug in BUILTIN_RUNNERS:
+    for slug in supported_runners():
         assert slug in runners
 
 
-def test_merge_runners_overwrite_semantics() -> None:
-    """``merge_runners`` honours the ``overwrite`` flag on key collisions."""
-    base_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="merge-base")
-    override_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="merge-base")
-    out = merge_runners(
-        {"merge-base": base_cfg},
-        {"merge-base": override_cfg},
-        overwrite=True,
-    )
-    assert out["merge-base"] is override_cfg
+def test_register_runner_builtin_collision_raises() -> None:
+    """``source="builtin"`` with a duplicate slug is a programmer bug."""
+    base_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-base")
+    dup_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-base")
+    target: dict[str, RunnerConfig] = {"reg-base": base_cfg}
+    with pytest.raises(ValueError, match="Duplicate built-in runner_name"):
+        register_runner("reg-base", dup_cfg, source="builtin", target=target)
+    assert target["reg-base"] is base_cfg
 
-    out = merge_runners(
-        {"merge-base": base_cfg},
-        {"merge-base": override_cfg},
-        overwrite=False,
-    )
-    assert out["merge-base"] is base_cfg
+
+def test_register_runner_plugin_collision_skips() -> None:
+    """``source="plugin"`` skips slugs already in the target (in-tree wins)."""
+    base_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-base")
+    plugin_cfg = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-base")
+    target: dict[str, RunnerConfig] = {"reg-base": base_cfg}
+    register_runner("reg-base", plugin_cfg, source="plugin", target=target)
+    assert target["reg-base"] is base_cfg
+
+
+def test_register_runner_inserts_new_slugs() -> None:
+    """Both sources insert non-conflicting slugs into ``target``."""
+    a = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-new-a")
+    b = derive_config(TEMPLATE_OFFLINE_RUNNER, runner_name="reg-new-b")
+    target: dict[str, RunnerConfig] = {}
+    register_runner("reg-new-a", a, source="builtin", target=target)
+    register_runner("reg-new-b", b, source="plugin", target=target)
+    assert target["reg-new-a"] is a
+    assert target["reg-new-b"] is b
 
 
 def test_annotated_base_runner_union_builds() -> None:

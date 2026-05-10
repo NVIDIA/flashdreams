@@ -26,6 +26,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.config.wan21 import (
     WAN21_I2V_14B_480P,
@@ -218,6 +219,9 @@ WAN21_RUNNERS: dict[str, _Wan21RunnerConfigBase] = {
     )
 }
 """All shipped non-streaming Wan 2.1 runners, keyed by ``runner_name``."""
+
+for _name, _cfg in WAN21_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")
 
 
 __all__ = [

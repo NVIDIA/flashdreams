@@ -35,6 +35,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.alpadreams.config import (
@@ -560,6 +561,9 @@ def _build_alpadreams_runners() -> dict[str, RunnerConfig]:
 ALPADREAMS_RUNNERS: dict[str, RunnerConfig] = _build_alpadreams_runners()
 """All shipped Alpadreams runners (single- and multi-view variants),
 keyed by ``runner_name``."""
+
+for _name, _cfg in ALPADREAMS_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")
 
 
 __all__ = [

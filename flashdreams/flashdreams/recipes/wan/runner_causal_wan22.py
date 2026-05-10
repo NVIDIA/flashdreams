@@ -26,6 +26,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.config.causal_wan22 import (
     FASTVIDEO_T2V,
@@ -154,6 +155,9 @@ CAUSAL_WAN22_RUNNERS: dict[str, RunnerConfig] = {
     ),
 }
 """All shipped streaming causal Wan 2.2 runners, keyed by ``runner_name``."""
+
+for _name, _cfg in CAUSAL_WAN22_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")
 
 
 __all__ = [
