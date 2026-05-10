@@ -1356,7 +1356,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
                     str(index),
                     "--output_tag",
                     qvg_tag,
-                    "--store_prerope_keys",
                     "--qvg_scale_dtype",
                     "bfloat16",
                     "--qvg_kmeans_seed",

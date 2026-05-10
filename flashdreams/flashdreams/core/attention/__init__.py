@@ -19,7 +19,6 @@ from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.kv_compress import (
     KVCacheStats,
     KVCompressionConfig,
-    RuntimePhase,
 )
 from flashdreams.core.attention.native import NativeAttention
 from flashdreams.core.attention.ring import RingAttention
@@ -35,6 +34,5 @@ __all__ = [
     "NativeAttention",
     "RingAttention",
     "RotaryPositionEmbedding3D",
-    "RuntimePhase",
     "apply_rope_freqs",
 ]

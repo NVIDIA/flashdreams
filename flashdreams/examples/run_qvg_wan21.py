@@ -20,18 +20,12 @@ import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.infra.diffusion.noise import (
-    load_initial_noise_rollout,
-    select_initial_noise_chunk,
-    select_temporal_initial_noise_chunk,
-    stack_initial_noise_chunks,
-)
 from flashdreams.recipes.wan.config.causal_wan21 import (
-    CAUSAL_WAN21_CONFIG_BUILDERS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
     WAN_VAE_SPATIAL_COMPRESSION,
 )
+from flashdreams.recipes.wan.config.qvg_wan21 import QVG_WAN21_CONFIG_BUILDERS
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -89,17 +83,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Override transformer self-attention window in latent frames.",
-    )
-    parser.add_argument(
-        "--attention_backend",
-        choices=("cudnn", "flash", "sdpa_flash"),
-        default=None,
-        help="Override Wan attention backend. Use flash for official QVG alignment probes.",
-    )
-    parser.add_argument(
-        "--store_prerope_keys",
-        action="store_true",
-        help="Store BF16 self-attention keys pre-RoPE for official QVG alignment probes.",
     )
     parser.add_argument(
         "--output_tag",
@@ -190,42 +173,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override number of recent chunks left dense.",
     )
-    parser.add_argument(
-        "--initial_noise_path",
-        type=Path,
-        default=None,
-        help=(
-            "Optional torch Tensor path for explicit initial noise. Accepts "
-            "[num_chunks, B, L, D] patchified noise or [B, total_T, C, H, W]."
-        ),
-    )
-    parser.add_argument(
-        "--save_initial_noise_path",
-        type=Path,
-        default=None,
-        help=(
-            "Optional path to save the exact initial noise used by this run "
-            "in [B, total_T, C, H, W] layout."
-        ),
-    )
-    parser.add_argument(
-        "--text_embeddings_path",
-        type=Path,
-        default=None,
-        help=(
-            "Optional torch Tensor or {'prompt_embeds': Tensor} path to use "
-            "instead of FlashDreams text encoding."
-        ),
-    )
-    parser.add_argument(
-        "--renoise_noise_folder",
-        type=Path,
-        default=None,
-        help=(
-            "Optional folder containing official scheduler re-noise tensors "
-            "named <idx>_<chunk>_<step>.pt."
-        ),
-    )
     return parser.parse_args()
 
 
@@ -290,10 +237,6 @@ def _apply_qvg_overrides(
 
     if args.window_size_t is not None:
         transformer_config.window_size_t = args.window_size_t
-    if args.attention_backend is not None:
-        transformer_config.network.attention_backend = args.attention_backend
-    if args.store_prerope_keys:
-        transformer_config.store_prerope_keys = True
 
     return {
         "backend": kv_config.backend,
@@ -301,134 +244,7 @@ def _apply_qvg_overrides(
         "schedule": dict(kv_config.schedule),
         "protected_recent_chunks": kv_config.protected_recent_chunks,
         "window_size_t": transformer_config.window_size_t,
-        "attention_backend": transformer_config.network.attention_backend,
-        "store_prerope_keys": transformer_config.store_prerope_keys,
     }
-
-
-def _wan_unpatchified_noise_shape(pipeline: WanInferencePipeline) -> tuple[int, ...]:
-    transformer = pipeline.diffusion_model.transformer
-    transformer_config = transformer.config
-    channels = transformer_config.network.in_dim
-    if getattr(transformer_config, "concat_image_mask_to_latent", False):
-        channels -= 4 + 16
-    height = getattr(transformer, "_output_height", None)
-    width = getattr(transformer, "_output_width", None)
-    if height is None:
-        height = DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION
-    if width is None:
-        width = DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION
-    return (
-        *transformer_config.batch_shape,
-        transformer_config.len_t,
-        channels,
-        height,
-        width,
-    )
-
-
-def _prepare_initial_noise(
-    *,
-    pipeline: WanInferencePipeline,
-    device: torch.device,
-    rollout: torch.Tensor | None,
-    autoregressive_index: int,
-    should_draw: bool,
-) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-    """Return generation noise plus unpatchified noise for saving."""
-    noise_in_unpatchified_shape = (
-        pipeline.diffusion_model.config._noise_in_unpatchified_shape
-    )
-    if rollout is not None:
-        latent_shape = pipeline.diffusion_model.latent_shape
-        if rollout.ndim == len(latent_shape) + 1 or (
-            rollout.ndim == len(latent_shape) and len(latent_shape) == 5
-        ):
-            initial_noise = select_initial_noise_chunk(
-                rollout,
-                autoregressive_index=autoregressive_index,
-                latent_shape=latent_shape,
-            )
-            initial_noise = initial_noise.to(
-                device=device,
-                dtype=pipeline.diffusion_model.dtype,
-            )
-            if len(latent_shape) == 5:
-                save_noise = initial_noise
-            else:
-                save_noise = pipeline.diffusion_model.transformer.unpatchify_and_maybe_gather_cp(
-                    initial_noise
-                )
-            if noise_in_unpatchified_shape:
-                initial_noise = save_noise
-            return (
-                initial_noise.to(device=device, dtype=pipeline.diffusion_model.dtype),
-                save_noise,
-            )
-
-        unpatchified = select_temporal_initial_noise_chunk(
-            rollout,
-            autoregressive_index=autoregressive_index,
-            chunk_shape=_wan_unpatchified_noise_shape(pipeline),
-        )
-        unpatchified = unpatchified.to(
-            device=device,
-            dtype=pipeline.diffusion_model.dtype,
-        )
-        if noise_in_unpatchified_shape:
-            return unpatchified, unpatchified
-        initial_noise = pipeline.diffusion_model.transformer.patchify_and_maybe_split_cp(
-            unpatchified
-        )
-        return initial_noise, unpatchified
-
-    if not should_draw:
-        return None, None
-
-    if noise_in_unpatchified_shape:
-        initial_noise = torch.randn(
-            _wan_unpatchified_noise_shape(pipeline),
-            device=device,
-            dtype=pipeline.diffusion_model.dtype,
-            generator=pipeline.diffusion_model.rng,
-        )
-        save_noise = initial_noise
-    else:
-        initial_noise = torch.randn(
-            pipeline.diffusion_model.latent_shape,
-            device=device,
-            dtype=pipeline.diffusion_model.dtype,
-            generator=pipeline.diffusion_model.rng,
-        )
-        save_noise = pipeline.diffusion_model.transformer.unpatchify_and_maybe_gather_cp(
-            initial_noise
-        )
-    return initial_noise, save_noise
-
-
-def _load_text_embeddings(path: Path | None) -> torch.Tensor | None:
-    if path is None:
-        return None
-    payload = torch.load(path, map_location="cpu")
-    if isinstance(payload, dict):
-        payload = payload["prompt_embeds"]
-    if not isinstance(payload, torch.Tensor):
-        raise TypeError(f"text embeddings must be a Tensor, got {type(payload)}")
-    return payload
-
-
-def _load_renoise_replay(
-    folder: Path | None,
-    prompt_index: int = 0,
-) -> list[torch.Tensor] | None:
-    if folder is None:
-        return None
-    paths = sorted(folder.glob(f"{prompt_index}_*.pt"))
-    if not paths:
-        raise FileNotFoundError(
-            f"No scheduler re-noise replay tensors found in {folder}"
-        )
-    return [torch.load(path, map_location="cpu") for path in paths]
 
 
 def main() -> None:
@@ -448,7 +264,7 @@ def main() -> None:
     )
     print(f"Running QVG Wan 2.1 inference with config: {args.config_name}")
 
-    builder = CAUSAL_WAN21_CONFIG_BUILDERS[args.config_name]
+    builder = QVG_WAN21_CONFIG_BUILDERS[args.config_name]
     pipeline_config = builder(
         cp_size=world_size,
         compile_network=not args.no_compile,
@@ -460,16 +276,8 @@ def main() -> None:
     print("QVG runtime config:", json.dumps(qvg_run_config, sort_keys=True))
 
     pipeline = pipeline_config.setup().to(device=device)
-    pipeline.diffusion_model.transformer.set_scheduler_renoise_replay(
-        _load_renoise_replay(args.renoise_noise_folder)
-    )
     assert isinstance(pipeline, WanInferencePipeline)
 
-    initial_noise_rollout = (
-        load_initial_noise_rollout(args.initial_noise_path)
-        if args.initial_noise_path is not None
-        else None
-    )
     latent_h = DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION
     latent_w = DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION
     cache = pipeline.initialize_cache(
@@ -477,7 +285,6 @@ def main() -> None:
         image=None,
         height=latent_h,
         width=latent_w,
-        text_embeddings=_load_text_embeddings(args.text_embeddings_path),
     )
 
     torch.cuda.synchronize()
@@ -486,22 +293,11 @@ def main() -> None:
 
     chunks: list[torch.Tensor] = []
     stats_history: list[dict[str, float | int]] = []
-    initial_noise_chunks: list[torch.Tensor] = []
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
-        initial_noise, save_noise = _prepare_initial_noise(
-            pipeline=pipeline,
-            device=device,
-            rollout=initial_noise_rollout,
-            autoregressive_index=i,
-            should_draw=args.save_initial_noise_path is not None,
-        )
 
-        if save_noise is not None and args.save_initial_noise_path is not None:
-            initial_noise_chunks.append(save_noise.detach().cpu())
-
-        video_chunk = pipeline.generate(i, cache, initial_noise=initial_noise)
+        video_chunk = pipeline.generate(i, cache)
         stats = pipeline.finalize(i, cache)
         if stats is not None:
             stats_history.append({"autoregressive_index": i, **stats})
@@ -526,14 +322,6 @@ def main() -> None:
                 json.dump(stats_history, f, indent=2)
             print(f"saved per-AR-step stats to {stats_path}")
 
-        if args.save_initial_noise_path is not None:
-            args.save_initial_noise_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                stack_initial_noise_chunks(initial_noise_chunks),
-                args.save_initial_noise_path,
-            )
-            print(f"saved initial noise to {args.save_initial_noise_path}")
-
         metadata_path = f"{REPO_ROOT}/outputs/metadata_qvg_wan21_{suffix}.json"
         with open(metadata_path, "w") as f:
             json.dump(
@@ -542,16 +330,6 @@ def main() -> None:
                     "total_blocks": args.total_blocks,
                     "seed": args.seed,
                     "no_compile": args.no_compile,
-                    "initial_noise_path": (
-                        str(args.initial_noise_path)
-                        if args.initial_noise_path is not None
-                        else None
-                    ),
-                    "save_initial_noise_path": (
-                        str(args.save_initial_noise_path)
-                        if args.save_initial_noise_path is not None
-                        else None
-                    ),
                     "qvg": qvg_run_config,
                 },
                 f,

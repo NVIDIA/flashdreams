@@ -5,6 +5,8 @@
 
 from flashdreams.recipes.wan.config.causal_wan21 import (
     build_self_forcing,
+)
+from flashdreams.recipes.wan.config.qvg_wan21 import (
     build_self_forcing_qvg_int2,
     build_self_forcing_qvg_int4,
 )

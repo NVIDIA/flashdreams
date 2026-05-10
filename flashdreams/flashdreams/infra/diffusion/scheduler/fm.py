@@ -25,7 +25,6 @@ from torch import Tensor
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,
-    RenoiseNoiseFn,
     Scheduler,
 )
 
@@ -190,7 +189,6 @@ class FlowMatchScheduler(Scheduler):
         initial_noise: Tensor,
         predict_flow: FlowPredictor,
         rng: torch.Generator | None = None,
-        renoise_noise_fn: RenoiseNoiseFn | None = None,
     ) -> Tensor:
         """Run the self-forcing flow-match denoising loop.
 
@@ -214,10 +212,7 @@ class FlowMatchScheduler(Scheduler):
             timestep = timesteps[i]
             if i > 0:
                 assert clean is not None
-                if renoise_noise_fn is None:
-                    noise = torch.empty_like(noisy).normal_(generator=rng)
-                else:
-                    noise = renoise_noise_fn(clean, rng)
+                noise = torch.empty_like(noisy).normal_(generator=rng)
                 noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
             flow = predict_flow(noisy, timestep)
             clean = (noisy.to(torch.float32) - sigma * flow.to(torch.float32)).to(

@@ -26,7 +26,6 @@ from torch import Tensor
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,
-    RenoiseNoiseFn,
     Scheduler,
 )
 
@@ -311,7 +310,6 @@ class FlowMatchUniPCScheduler(Scheduler):
         initial_noise: Tensor,
         predict_flow: FlowPredictor,
         rng: torch.Generator | None = None,
-        renoise_noise_fn: RenoiseNoiseFn | None = None,
     ) -> Tensor:
         """Run the order-2 UniPC predictor-corrector denoising loop.
 

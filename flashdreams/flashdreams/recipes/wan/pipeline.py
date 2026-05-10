@@ -154,8 +154,6 @@ class WanInferencePipeline(
         *,
         height: int | None = None,
         width: int | None = None,
-        text_embeddings: Tensor | None = None,
-        negative_text_embeddings: Tensor | None = None,
     ) -> WanInferencePipelineCache:
         """Initialize the per-rollout cache for a batch of prompts.
 
@@ -178,21 +176,10 @@ class WanInferencePipeline(
         assert len(text) > 0, "text must be non-empty"
         n = len(text)
 
-        if text_embeddings is None:
-            text_embeddings = self.text_encoder(text)  # [B, L, D]
-        else:
-            text_embeddings = text_embeddings.to(
-                device=self.device,
-                dtype=self.diffusion_model.dtype,
-            )
-
+        text_embeddings = self.text_encoder(text)  # [B, L, D]
         guidance_scale = self._transformer_config.guidance_scale
-        if negative_text_embeddings is not None:
-            negative_text_embeddings = negative_text_embeddings.to(
-                device=self.device,
-                dtype=self.diffusion_model.dtype,
-            )
-        elif guidance_scale > 1.0:
+        negative_text_embeddings = None
+        if guidance_scale > 1.0:
             negative_text_embeddings = self.text_encoder([NEGATIVE_PROMPT] * n)
 
         # Encoder presence and image presence must agree. The image is *not*
@@ -302,15 +289,12 @@ class WanInferencePipeline(
         self,
         autoregressive_index: int,
         cache: WanInferencePipelineCache,
-        initial_noise: Tensor | None = None,
     ) -> Tensor:
         """Generate one decoded video chunk.
 
         Args:
             autoregressive_index: AR step index, starting at 0.
             cache: Per-rollout cache from ``initialize_cache``.
-            initial_noise: Optional denoising start tensor for reproduction
-                runs that need exact latent-noise parity.
 
         Returns:
             Decoded video of shape ``[*batch_shape, T, C, H, W]`` in ``[-1, 1]``.
@@ -323,7 +307,6 @@ class WanInferencePipeline(
             autoregressive_index=autoregressive_index,
             cache=cache,
             input=input,
-            initial_noise=initial_noise,
         )
 
     def get_num_input_frames(self, autoregressive_index: int) -> int:

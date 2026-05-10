@@ -130,8 +130,6 @@ class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
     """If True, concatenate one mask channel into the input channels."""
     patch_embedding_type: Literal["linear", "conv3d"] = "conv3d"
     """Type of patch embedding: ``"linear"`` (flattened patch MLP) or ``"conv3d"`` (strided conv)."""
-    attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn"
-    """Attention kernel backend used by Wan self/cross-attention."""
 
 
 @dataclass
@@ -174,7 +172,6 @@ class WanDiTNetwork(nn.Module):
         self.eps = config.eps
         self.concat_padding_mask = config.concat_padding_mask
         self.patch_embedding_type = config.patch_embedding_type
-        self.attention_backend = config.attention_backend
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -228,7 +225,6 @@ class WanDiTNetwork(nn.Module):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
-            attention_backend=self.attention_backend,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:

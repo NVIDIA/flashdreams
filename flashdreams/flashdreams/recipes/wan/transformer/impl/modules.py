@@ -20,14 +20,14 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, NativeAttention, RingAttention
+from flashdreams.core.attention import BlockKVCache, RingAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 
 
@@ -169,7 +169,6 @@ class MultiHeadAttention(nn.Module):
         n_heads: int = 8,
         head_dim: int = 64,
         eps: float = 1e-6,
-        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -198,11 +197,7 @@ class MultiHeadAttention(nn.Module):
         self.norm_q = WanRMSNorm(inner_dim, eps=eps)
         self.norm_k = WanRMSNorm(inner_dim, eps=eps)
 
-        self.attn_op = (
-            NativeAttention(qkv_format="bshd", backend="flash")
-            if attention_backend == "sdpa_flash"
-            else RingAttention(qkv_format="bshd", backend=attention_backend)
-        )
+        self.attn_op = RingAttention(qkv_format="bshd", backend="cudnn")
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Configure context-parallel process group for the underlying attention op."""
@@ -397,19 +392,15 @@ class CrossAttention(MultiHeadAttention):
         self,
         i2v: bool = False,
         *args: Any,
-        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.i2v = i2v
-        self.attention_backend = attention_backend
         if self.i2v:
             self.k_img = nn.Linear(self.context_dim, self.inner_dim)
             self.v_img = nn.Linear(self.context_dim, self.inner_dim)
             self.norm_k_img = WanRMSNorm(self.inner_dim, eps=self.eps)
-            self.attn_op_image = RingAttention(
-                qkv_format="bshd", backend=attention_backend
-            )
+            self.attn_op_image = RingAttention(qkv_format="bshd", backend="cudnn")
 
     def compute_kv_image(self, context: Tensor) -> BlockKVCache:
         """Compute K/V from image ``context``.
@@ -514,7 +505,6 @@ class Block(nn.Module):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         i2v: bool = False,
-        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -530,7 +520,6 @@ class Block(nn.Module):
             n_heads=num_heads,
             head_dim=dim // num_heads,
             eps=eps,
-            attention_backend=attention_backend,
         )
         self.norm3 = (
             WanLayerNorm(dim, eps, elementwise_affine=True)
@@ -543,7 +532,6 @@ class Block(nn.Module):
             head_dim=dim // num_heads,
             i2v=i2v,
             eps=eps,
-            attention_backend=attention_backend,
         )
         self.norm2 = WanLayerNorm(dim, eps=eps, elementwise_affine=False)
         self.ffn = nn.Sequential(

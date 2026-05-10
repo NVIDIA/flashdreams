@@ -77,11 +77,9 @@ class UMT5TextEncoder(Encoder):
             config.model_id_or_local_path,
             subfolder="text_encoder",
             local_files_only=local_files_only,
-            dtype=config.dtype,
         )
         self.text_encoder.eval().requires_grad_(False)
-        if self.text_encoder.dtype != config.dtype:
-            self.text_encoder.to(dtype=config.dtype)
+        self.text_encoder.to(dtype=config.dtype)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_local_path,
