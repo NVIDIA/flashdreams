@@ -66,3 +66,14 @@ class EventProfiler:
         """``torch.cuda.synchronize()`` then return ``elapsed_ms``."""
         torch.cuda.synchronize()
         return self.elapsed_ms()
+
+
+def record_event(profiler: EventProfiler | None, stage: str) -> None:
+    """Record an event if the profiler is not None.
+
+    Args:
+        profiler: The profiler to record the event on.
+        stage: The stage to record the event on.
+    """
+    if profiler is not None:
+        profiler.record(stage)
