@@ -85,7 +85,7 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
     WanDiTNetworkConfig,
 )
-from flashdreams.recipes.wan.transformer.impl.rope import apply_rope_freqs
+from flashdreams.core.attention.rope import apply_rope_freqs
 
 __all__ = [
     "FlashVSRDiTNetwork",

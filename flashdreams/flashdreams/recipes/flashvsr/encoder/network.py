@@ -20,7 +20,7 @@ optional :class:`CUDAGraphWrapper` around the streaming forward, plus
 :class:`PixelShuffle3d` and the :class:`RMS_norm` / :class:`CausalConv3d`
 building blocks the projector composes. Wrapped in
 :mod:`flashdreams.recipes.flashvsr.encoder` for the
-``flashdreams.infra.encoder.Encoder`` interface used by
+``flashdreams.infra.encoder.StreamingEncoder`` interface used by
 ``StreamInferencePipeline``.
 
 :class:`PixelShuffle3d` is also re-used by the TC decoder

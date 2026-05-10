@@ -119,16 +119,17 @@ def _transformer_config(
     pixel-count ratio (``sparse_ratio * 768*1280 / (target_H*target_W)``);
     we preserve that to keep the absolute top-k budget constant across
     resolutions.
+
+    Per-rollout latent ``(height, width) = (target_H // 8, target_W // 8)``
+    is supplied to :meth:`Wan21Transformer.initialize_autoregressive_cache`
+    by :meth:`FlashVSRPipeline.initialize_cache`, not baked into the config.
     """
     return FlashVSRTransformerConfig(
         network=FlashVSRDiTNetworkConfig(),  # ``flashvsr_tiny_long`` defaults
         dtype=dtype,
         checkpoint_path=dit_checkpoint_path,
         batch_shape=(1,),
-        height=target_H // 8,
-        width=target_W // 8,
         len_t=2,
-        cp_size=1,
         guidance_scale=1.0,
         topk_ratio=sparse_ratio * 768 * 1280 / (target_H * target_W),
         kv_ratio=kv_ratio,

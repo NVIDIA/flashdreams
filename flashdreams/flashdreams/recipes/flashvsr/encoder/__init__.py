@@ -16,7 +16,7 @@
 """FlashVSR encoder: bicubic upres + per-block LR-latent projector.
 
 Wraps :class:`Causal_LQ4x_Proj` (in :mod:`.network`) for the
-``flashdreams.infra.encoder.Encoder`` interface; one ``forward()`` call
+``flashdreams.infra.encoder.StreamingEncoder`` interface; one ``forward()`` call
 bicubic-upsamples a chunk of LR frames and runs the streaming projector.
 The bicubic upres is side-stashed on the cache so the pipeline can
 forward it to the decoder (TC decoder ``cond`` + color-corrector AdaIN
@@ -43,7 +43,7 @@ from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.encoder import Encoder, EncoderAutoregressiveCache
+from flashdreams.infra.encoder import StreamingEncoder, StreamingEncoderCache
 from flashdreams.infra.profiler import EventProfiler, record_event
 
 _DEV_ASSERT = os.environ.get("FLASHVSR_DEV_ASSERT", "0") == "1"
@@ -117,7 +117,7 @@ class FlashVSREncoderConfig(InstantiateConfig["FlashVSREncoder"]):
 
 
 @dataclass(kw_only=True)
-class FlashVSREncoderCache(EncoderAutoregressiveCache):
+class FlashVSREncoderCache(StreamingEncoderCache):
     """Per-rollout encoder cache.
 
     Holds the projector's internal causal-conv tail buffer plus per-step
@@ -147,7 +147,7 @@ class FlashVSREncoderCache(EncoderAutoregressiveCache):
     chunk; matches the legacy ``n_iters = (T // 4) // 2``."""
 
 
-class FlashVSREncoder(Encoder[FlashVSREncoderCache]):
+class FlashVSREncoder(StreamingEncoder[FlashVSREncoderCache]):
     """Bicubic-upsample + ``Causal_LQ4x_Proj`` encoder for FlashVSR."""
 
     # Mirrors the legacy ``_CHUNK_TARGET = {5: 8, 13: 16, 8: 8, 16: 16}``

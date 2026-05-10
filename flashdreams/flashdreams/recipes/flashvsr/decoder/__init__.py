@@ -16,7 +16,7 @@
 """FlashVSR decoder: TC decoder + AdaIN color corrector.
 
 Wraps :class:`TAEHV` (in :mod:`.network`) + :class:`FlashVSRColorCorrector`
-for the ``flashdreams.infra.decoder.Decoder`` interface. One
+for the ``flashdreams.infra.decoder.StreamingDecoder`` interface. One
 ``forward()`` call ingests a chunk of clean latents plus the bicubic
 upres stashed by :class:`FlashVSRPipeline.generate` on
 ``FlashVSRDecoderCache.last_upres``, and returns RGB frames in
@@ -35,7 +35,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.decoder import Decoder, DecoderAutoregressiveCache
+from flashdreams.infra.decoder import StreamingDecoder, StreamingDecoderCache
 from flashdreams.infra.profiler import EventProfiler, record_event
 from flashdreams.recipes.flashvsr.corrector import (
     ColorCorrectorImplementation,
@@ -88,7 +88,7 @@ class FlashVSRDecoderConfig(InstantiateConfig["FlashVSRDecoder"]):
 
 
 @dataclass(kw_only=True)
-class FlashVSRDecoderCache(DecoderAutoregressiveCache):
+class FlashVSRDecoderCache(StreamingDecoderCache):
     """Per-rollout decoder cache.
 
     Holds the TC decoder's streaming state plus a slot for the bicubic
@@ -112,7 +112,7 @@ class FlashVSRDecoderCache(DecoderAutoregressiveCache):
     color corrector."""
 
 
-class FlashVSRDecoder(Decoder[FlashVSRDecoderCache]):
+class FlashVSRDecoder(StreamingDecoder[FlashVSRDecoderCache]):
     """TC decoder + AdaIN color corrector for FlashVSR."""
 
     def __init__(self, config: FlashVSRDecoderConfig) -> None:

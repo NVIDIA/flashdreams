@@ -43,13 +43,13 @@ FlashVSR's distilled DiT was trained with KV cache K/V derived from the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias, cast
+from typing import TypeAlias, cast
 
 import torch
+from loguru import logger
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.infra.diffusion.model import DiffusionModel, DiffusionModelConfig
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
@@ -184,8 +184,19 @@ class FlashVSRPipeline(
             "pass prompt_tensor=... or set FlashVSRPipelineConfig.prompt_path."
         )
         prompt = prompt.to(device=self.device, dtype=self.diffusion_model.dtype)
+        # Per-rollout latent (height, width) for the DiT cache, derived from
+        # the encoder's pixel-space upres dims via Wan VAE's 8x spatial
+        # compression. ``Wan21Transformer.initialize_autoregressive_cache``
+        # consumes them via ``transformer_context``; the older config-time
+        # ``height``/``width`` knobs were removed in PR #47.
+        latent_height = self.encoder.target_H // 8
+        latent_width = self.encoder.target_W // 8
         return super().initialize_cache(
-            transformer_context={"text_embeddings": prompt},
+            transformer_context={
+                "text_embeddings": prompt,
+                "height": latent_height,
+                "width": latent_width,
+            },
             encoder_context={},
             decoder_context={},
         )
@@ -269,16 +280,27 @@ class FlashVSRPipeline(
         # per-iter noise vectors differ between the two approaches.
         transformer = self.diffusion_model.transformer
         # Narrow from the abstract base ``Wan21Transformer`` (with
-        # ``config: InstantiateConfig[Any]`` and ``_pH`` / ``_pW`` resolving
-        # through ``nn.Module.__getattr__``) to the concrete subclass
+        # ``config: InstantiateConfig[Any]``) to the concrete subclass
         # asserted in ``__init__``. Required for ty + readability.
         assert isinstance(transformer, FlashVSRTransformer)
         cfg = transformer.config
         assert isinstance(cfg, FlashVSRTransformerConfig)
+        # Per-rollout latent (height, width) and patchified (pH, pW) live on
+        # the transformer instance after ``initialize_autoregressive_cache``;
+        # ``initialize_cache`` above seeds them via ``transformer_context``.
+        latent_h = transformer._output_height
+        latent_w = transformer._output_width
+        assert latent_h is not None and latent_w is not None, (
+            "FlashVSRPipeline.generate called before initialize_cache: "
+            "transformer._output_height/_width must be populated."
+        )
+        _kt, kh, kw = cfg.network.patch_size
+        pH = latent_h // kh
+        pW = latent_w // kw
         len_t = cfg.len_t
         n_latent = len_t * n_iters
         full_noise = torch.randn(
-            (1, cfg.network.in_dim, n_latent, cfg.height, cfg.width),
+            (1, cfg.network.in_dim, n_latent, latent_h, latent_w),
             device=transformer.device,
             dtype=transformer.dtype,
             generator=self.diffusion_model.rng,
@@ -305,7 +327,7 @@ class FlashVSRPipeline(
         # ``full_noise_patched`` lets us use it as the ``empty_like``
         # template and reuse it for the post-loop ``noise - flow``
         # subtract.
-        L_per_iter = len_t * transformer._pH * transformer._pW
+        L_per_iter = len_t * pH * pW
         # FlashVSR's distilled DiT is fixed at t=1000 every chunk.
         timestep = torch.tensor(
             [1000.0], device=transformer.device, dtype=transformer.dtype
@@ -349,20 +371,12 @@ class FlashVSRPipeline(
         clean_patched = full_noise_patched - flow_full
         clean_latent = transformer.unpatchify_and_maybe_gather_cp(clean_patched)
 
-        # Build a real FinalState so the inherited
-        # :meth:`StreamInferencePipeline.finalize` runs cleanly. The K/V-cache
-        # refresh inside ``DiffusionModel.finalize`` is a no-op for FlashVSR
-        # because :meth:`FlashVSRTransformer.finalize_kv_cache` is overridden
-        # to skip the clean-latent re-key (legacy noisy-K/V semantics — see
-        # that method's docstring). ``input`` and ``clean_latent`` are unused
-        # by the no-op refresh, so we stash placeholders that satisfy the
-        # FinalState dataclass without leaking transient buffers.
-        cache.final_state = DiffusionModel.FinalState(
-            clean_latent=clean_patched,
-            autoregressive_index=autoregressive_index,
-            cache=cache.transformer_cache,
-            input=None,
-        )
+        # No FinalState is stashed: :meth:`finalize` overrides the parent
+        # to skip ``DiffusionModel.finalize`` entirely. FlashVSR drives the
+        # per-block KV-cache lifecycle per internal iter (above), and the
+        # clean-latent re-key inside ``DiffusionModel.finalize`` is already
+        # a no-op for FlashVSR (``FlashVSRTransformer.finalize_kv_cache``
+        # is overridden -- legacy noisy-K/V semantics).
         record_event(event_profiler, "denoise")
 
         # ----- 5. Decoder -----
@@ -375,3 +389,67 @@ class FlashVSRPipeline(
             cache=cache.decoder_cache,
             event_profiler=event_profiler,
         )
+
+    @torch.no_grad()
+    def finalize(  # type: ignore[override]
+        self,
+        autoregressive_index: int,
+        cache: FlashVSRPipelineCache,
+    ) -> dict[str, float] | None:
+        """Finalize one AR step.
+
+        Overrides :meth:`StreamInferencePipeline.finalize` to skip
+        ``DiffusionModel.finalize`` entirely. FlashVSR drives the per-block
+        KV-cache lifecycle per internal iter via
+        ``cache.transformer_cache.start()`` (in :meth:`generate`) plus a
+        manual ``after_update`` in :meth:`FlashVSRTransformer.predict_flow`,
+        so the framework's chunk-level ``cache.finalize(outer_ar_idx)`` would
+        mismatch the per-iter ``_curr_chunk_idx`` lifecycle. The clean-latent
+        re-key inside ``DiffusionModel.finalize`` is also a no-op for
+        FlashVSR (``finalize_kv_cache`` is overridden -- legacy noisy-K/V
+        semantics). All that's left from the parent is the per-AR-step
+        profiling tail.
+        """
+        assert cache.autoregressive_index == autoregressive_index, (
+            f"autoregressive_index mismatch: generate() ran with "
+            f"{cache.autoregressive_index} but finalize() was called with "
+            f"{autoregressive_index}."
+        )
+        if not self.config.enable_sync_and_profile:
+            return None
+
+        assert cache.event_profiler is not None, (
+            "finalize() called before any generate() — no EventProfiler on the cache."
+        )
+        cache.event_profiler.record("finalize")
+        stats_ms = cache.event_profiler.sync_and_summarize()
+        total_ms = sum(stats_ms.values())
+        total_ms_wo_finalize = total_ms - stats_ms.get("finalize", 0.0)
+        stages_str = " ".join(f"{stage} {ms:.3f} ms" for stage, ms in stats_ms.items())
+
+        stats: dict[str, float] = {f"{stage}_ms": ms for stage, ms in stats_ms.items()}
+        stats["total_ms"] = total_ms
+        stats["total_ms_wo_finalize"] = total_ms_wo_finalize
+
+        mem_str = ""
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            gib = 1024**3
+            mem_alloc_gib = torch.cuda.memory_allocated(device) / gib
+            mem_reserved_gib = torch.cuda.memory_reserved(device) / gib
+            mem_peak_gib = torch.cuda.max_memory_allocated(device) / gib
+            stats["mem_alloc_gib"] = mem_alloc_gib
+            stats["mem_reserved_gib"] = mem_reserved_gib
+            stats["mem_peak_gib"] = mem_peak_gib
+            mem_str = (
+                f" | GPU mem alloc {mem_alloc_gib:.3f} GiB "
+                f"reserved {mem_reserved_gib:.3f} GiB "
+                f"peak {mem_peak_gib:.3f} GiB"
+            )
+        logger.info(
+            f"AR {autoregressive_index} {stages_str} | "
+            f"total(w/o finalize) {total_ms_wo_finalize:.3f} ms "
+            f"total {total_ms:.3f} ms"
+            f"{mem_str}"
+        )
+        return stats

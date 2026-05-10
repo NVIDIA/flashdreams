@@ -130,7 +130,9 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
     ``block_sparse_attn`` C++ kernel which CUDA graphs do not affect."""
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        # ``Wan21TransformerConfig`` has no ``__post_init__`` of its own
+        # (height/width/cp_size validation moved to runtime in PR #47), so
+        # there's nothing to chain into.
         assert self.guidance_scale == 1.0, (
             "FlashVSR does not support classifier-free guidance; "
             f"set guidance_scale=1.0 (got {self.guidance_scale})."
@@ -149,12 +151,8 @@ class FlashVSRTransformer(Wan21Transformer):
     config: FlashVSRTransformerConfig
     network: FlashVSRDiTNetwork
 
-    def __init__(
-        self,
-        config: FlashVSRTransformerConfig,
-        device: Optional[torch.device] = None,
-    ) -> None:
-        super().__init__(config, device=device)
+    def __init__(self, config: FlashVSRTransformerConfig) -> None:
+        super().__init__(config)
 
         # CUDA-graph wrapper for the steady-state DiT call. Lazy-initialised
         # on the first steady-state call in :meth:`predict_flow` so we don't
@@ -220,9 +218,17 @@ class FlashVSRTransformer(Wan21Transformer):
         ``topk = int(block_n_per_chunk ** 2 * topk_ratio) - 1`` where
         ``block_n_per_chunk = win[0] * h * w / 128 = 2 * pH * pW / 128``.
         """
-        block_n_per_chunk = (
-            _SELF_ATTN_WINDOW[0] * cache.len_h * cache.len_w
-        ) // _SELF_ATTN_WINDOW_TOKENS
+        del cache  # patchified spatial dims live on ``self`` post-PR#47
+        _kt, kh, kw = self.config.network.patch_size
+        assert (
+            self._output_height is not None and self._output_width is not None
+        ), (
+            "_compute_topk requires an initialized rollout; call "
+            "initialize_autoregressive_cache(..., height=..., width=...) first."
+        )
+        pH = self._output_height // kh
+        pW = self._output_width // kw
+        block_n_per_chunk = (_SELF_ATTN_WINDOW[0] * pH * pW) // _SELF_ATTN_WINDOW_TOKENS
         return (
             int(block_n_per_chunk * block_n_per_chunk * self.config.topk_ratio) - 1
         )
@@ -335,8 +341,9 @@ class FlashVSRTransformer(Wan21Transformer):
         """
         ar_idx = cache.autoregressive_index
         assert ar_idx >= 0, (
-            "FlashVSRTransformerCache.start(autoregressive_index) must be called "
-            "before predict_flow (DiffusionModel.generate handles this)."
+            "Wan21TransformerCache.start(autoregressive_index) must be called "
+            "before predict_flow (FlashVSRPipeline.generate runs it per "
+            "internal iter)."
         )
         assert cache.network_cache_uncond is None, (
             "FlashVSR doesn't support CFG (guidance_scale must be 1.0); "
@@ -364,10 +371,16 @@ class FlashVSRTransformer(Wan21Transformer):
 
         # Cache lifecycle runs **outside** the capturable region so the
         # Python bookkeeping (``_prev_chunk_idx``, ``_n_cached``) advances
-        # on every call. If we ran it inside the captured region, the
-        # bookkeeping would freeze at the values it had at capture time
-        # -- subsequent replays would silently read stale cache state
-        # and hit assertion failures on the next ``before_update``.
+        # on every call. ``before_update`` was hoisted into
+        # ``Wan21TransformerCache.start`` in PR #47 -- the FlashVSR
+        # pipeline calls ``cache.start(internal_ar_idx)`` per iter before
+        # ``predict_flow``, so we don't repeat it here. ``after_update``
+        # is still driven manually below: FlashVSR's per-iter loop runs
+        # multiple internal AR steps per outer chunk, and the framework's
+        # chunk-level ``cache.finalize`` (which would call
+        # ``after_update`` once on the outer index) doesn't fit that
+        # cadence. :meth:`FlashVSRPipeline.finalize` overrides the parent
+        # to skip ``DiffusionModel.finalize`` for that reason.
         #
         # Sequential (no try/finally): if the forward raises, the cache
         # is left with ``_curr_chunk_idx`` set, so the next
@@ -378,16 +391,26 @@ class FlashVSRTransformer(Wan21Transformer):
         # ``after_update`` always ran, but that advanced
         # ``_prev_chunk_idx`` / ``_n_cached`` even on the failure path,
         # masking partial writes as silent correctness bugs downstream.
-        network_cache = cache.network_cache_cond
-        network_cache.before_update(ar_idx)
+        network_cache = cache.network_cache
+
+        _kt, kh, kw = cfg.network.patch_size
+        assert (
+            self._output_height is not None and self._output_width is not None
+        ), (
+            "predict_flow requires an initialized rollout; call "
+            "initialize_autoregressive_cache(..., height=..., width=...) first."
+        )
+        pT = cfg.len_t // _kt
+        pH = self._output_height // kh
+        pW = self._output_width // kw
 
         dit_args = (noisy_latent, timestep, rope_freqs, lq)
         dit_kwargs = {
             "cache": network_cache,
             "topk": topk,
-            "f": cache.len_t,
-            "h": cache.len_h,
-            "w": cache.len_w,
+            "f": pT,
+            "h": pH,
+            "w": pW,
             "local_range": cfg.local_range,
         }
         if use_capture:

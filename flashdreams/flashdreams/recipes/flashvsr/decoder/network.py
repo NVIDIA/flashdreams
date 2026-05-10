@@ -68,7 +68,7 @@ def _apply_identity_deepen(
     ``nn.ReLU`` in ``blocks``, returning a new ``nn.Sequential``.
 
     FlashVSR's ``TCDecoder.ckpt`` was trained on a deeper decoder than the
-    canonical FlashDreams ``Decoder``: the FlashVSR authors grew the body by
+    canonical FlashDreams ``StreamingDecoder``: the FlashVSR authors grew the body by
     appending ``Conv→ReLU`` pairs after each existing ReLU, and the checkpoint
     stores weights for those extra convs. This helper reproduces that
     structural change in-process so checkpoint keys line up at load time.
