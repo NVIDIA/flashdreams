@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -395,29 +399,9 @@ SPDX-License-Identifier: Apache-2.0
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.before_update">before_update() (BlockKVCache method)</a>
 </li>
-      <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache">BlockKVCache (class in flashdreams.core.attention)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.lingbot_world.config.build_lingbot_world_fast">build_lingbot_world_fast() (in module flashdreams.recipes.lingbot_world.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.lingbot_world.config.build_lingbot_world_fast_flash">build_lingbot_world_fast_flash() (in module flashdreams.recipes.lingbot_world.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_mv_2steps_chunk4_loc8_pshuffle_lighttae">build_mv_2steps_chunk4_loc8_pshuffle_lighttae() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_lightvae_lighttae">build_sv_2steps_chunk2_loc6_lightvae_lighttae() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf">build_sv_2steps_chunk2_loc6_lightvae_lighttae_perf() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk2_loc6_vae_vae">build_sv_2steps_chunk2_loc6_vae_vae() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk3_loc6_vae_vae">build_sv_2steps_chunk3_loc6_vae_vae() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_2steps_chunk4_loc8_pshuffle_lighttae">build_sv_2steps_chunk4_loc8_pshuffle_lighttae() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">build_sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m() (in module flashdreams.recipes.alpadreams.config)</a>
-</li>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.config.build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m">build_sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m() (in module flashdreams.recipes.alpadreams.config)</a>
+      <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache">BlockKVCache (class in flashdreams.core.attention)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -523,13 +507,6 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       </ul></li>
       <li>
-    flashdreams.recipes.alpadreams.config
-
-      <ul>
-        <li><a href="apis/recipes.html#module-flashdreams.recipes.alpadreams.config">module</a>
-</li>
-      </ul></li>
-      <li>
     flashdreams.recipes.alpadreams.pipeline
 
       <ul>
@@ -544,21 +521,14 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       </ul></li>
       <li>
-    flashdreams.recipes.lingbot_world.config
-
-      <ul>
-        <li><a href="apis/recipes.html#module-flashdreams.recipes.lingbot_world.config">module</a>
-</li>
-      </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li>
     flashdreams.recipes.lingbot_world.pipeline
 
       <ul>
         <li><a href="apis/recipes.html#module-flashdreams.recipes.lingbot_world.pipeline">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     flashdreams.recipes.taehv
 
@@ -726,13 +696,9 @@ SPDX-License-Identifier: Apache-2.0
       <ul>
         <li><a href="apis/recipes.html#module-flashdreams.recipes.alpadreams">flashdreams.recipes.alpadreams</a>
 </li>
-        <li><a href="apis/recipes.html#module-flashdreams.recipes.alpadreams.config">flashdreams.recipes.alpadreams.config</a>
-</li>
         <li><a href="apis/recipes.html#module-flashdreams.recipes.alpadreams.pipeline">flashdreams.recipes.alpadreams.pipeline</a>
 </li>
         <li><a href="apis/recipes.html#module-flashdreams.recipes.lingbot_world">flashdreams.recipes.lingbot_world</a>
-</li>
-        <li><a href="apis/recipes.html#module-flashdreams.recipes.lingbot_world.config">flashdreams.recipes.lingbot_world.config</a>
 </li>
         <li><a href="apis/recipes.html#module-flashdreams.recipes.lingbot_world.pipeline">flashdreams.recipes.lingbot_world.pipeline</a>
 </li>
@@ -793,12 +759,14 @@ SPDX-License-Identifier: Apache-2.0
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders">release_oneshot_encoders() (AlpadreamsPipeline method)</a>
+      <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.recipe_name">recipe_name (StreamInferencePipelineConfig attribute)</a>
 </li>
-      <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.reset">reset() (BlockKVCache method)</a>
+      <li><a href="apis/recipes.html#flashdreams.recipes.alpadreams.pipeline.AlpadreamsPipeline.release_oneshot_encoders">release_oneshot_encoders() (AlpadreamsPipeline method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.reset">reset() (BlockKVCache method)</a>
+</li>
       <li><a href="apis/core.html#flashdreams.core.attention.RingAttention">RingAttention (class in flashdreams.core.attention)</a>
 </li>
       <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.rng">rng (DiffusionModel property)</a>

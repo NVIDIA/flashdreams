@@ -29,9 +29,8 @@ for parity testing.
 The library is organised around a few sharp abstractions
 (:doc:`apis/infra`) that every recipe (:doc:`apis/recipes`) plugs into;
 shared low-level kernels and distributed helpers live under
-:doc:`apis/core`. End-to-end inference scripts for every shipped model
-live under ``flashdreams/examples`` and are walked through in the
-sections below.
+:doc:`apis/core`. The unified ``flashdreams-run`` CLI fronts every
+shipped recipe; per-recipe usage is walked through in the sections below.
 
 Installation
 ------------
@@ -43,13 +42,13 @@ The repository is a `uv <https://docs.astral.sh/uv/>`_ workspace:
    uv sync --extra dev
    uv run pytest flashdreams/tests
 
-End-to-end inference scripts under ``flashdreams/examples`` additionally
-require the ``examples`` extra:
+The ``flashdreams-run`` CLI runners lazy-import ``mediapy`` + ``opencv``
+for image / video I/O; install the ``runners`` extra to enable them:
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-       flashdreams/examples/run_alpadreams.py --help
+   uv sync --extra dev --extra runners
+   uv run flashdreams-run --help
 
 See the project ``README.md`` for the full container-based workflow on a
 Slurm node.
@@ -83,3 +82,9 @@ Slurm node.
    :caption: FlashDreams Serving API
 
    apis/serving
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Developer Guides
+
+   developer_guides/new_recipes

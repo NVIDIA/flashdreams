@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../../../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../../../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -385,7 +389,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span><span class="p">,</span> <span class="n">cast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -394,6 +398,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DecoderConfig</span><span class="p">,</span>
     <span class="n">StreamingDecoder</span><span class="p">,</span>
     <span class="n">StreamingDecoderCacheT</span><span class="p">,</span>
 <span class="p">)</span>
@@ -405,6 +410,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">TransformerCacheT</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">EncoderConfig</span><span class="p">,</span>
     <span class="n">StreamingEncoder</span><span class="p">,</span>
     <span class="n">StreamingEncoderCacheT</span><span class="p">,</span>
 <span class="p">)</span>
@@ -414,7 +420,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="StreamInferencePipelineConfig">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipelineConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamInferencePipelineConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the streaming inference pipeline.</span>
 
 <span class="sd">    Set ``encoder=None`` when the pipeline has no per-AR-step control input</span>
@@ -422,19 +428,22 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    (training, latent-space evaluation, or pipelines that own decoding).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;StreamInferencePipeline&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
-        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">StreamInferencePipeline</span>
-    <span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">StreamInferencePipeline</span><span class="p">)</span>
+
+    <span class="n">recipe_name</span><span class="p">:</span> <span class="nb">str</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stable slug for this pipeline variant; the primary key of</span>
+<span class="sd">    ``&lt;NAME&gt;_CONFIGS``. Runners mirror it as ``runner_name`` so</span>
+<span class="sd">    ``flashdreams-run &lt;slug&gt;`` resolves to this pipeline.&quot;&quot;&quot;</span>
 
     <span class="n">diffusion_model</span><span class="p">:</span> <span class="n">DiffusionModelConfig</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Transformer + scheduler config.&quot;&quot;&quot;</span>
 
-    <span class="n">decoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">decoder</span><span class="p">:</span> <span class="n">DecoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional output :class:`StreamingDecoder` with a per-rollout cache,</span>
 <span class="sd">    called as ``decoder(input, autoregressive_index, cache)``. Use</span>
 <span class="sd">    ``None`` to return the clean latent unchanged.&quot;&quot;&quot;</span>
 
-    <span class="n">encoder</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">encoder</span><span class="p">:</span> <span class="n">EncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional per-AR-step input encoder. Must be a</span>
 <span class="sd">    :class:`StreamingEncoder`; one-shot encoders go on</span>
 <span class="sd">    ``transformer.context_encoder`` instead.&quot;&quot;&quot;</span>
@@ -509,10 +518,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">decoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span>
-            <span class="s2">&quot;DiffusionModel[TransformerCacheT]&quot;</span><span class="p">,</span>
-            <span class="n">config</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">setup</span><span class="p">(),</span>
-        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>

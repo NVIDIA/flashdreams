@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../../../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../../../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -424,10 +428,17 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    from :class:`StreamingEncoder` instead.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="s2">&quot;EncoderConfig&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span></div>
 
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EncoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Category base for every encoder config (stateless or streaming).&quot;&quot;&quot;</span>
+
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Encoder</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="StreamingEncoderCache">
@@ -459,7 +470,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    ``forward(self, input, autoregressive_index=0, cache=None)``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="s2">&quot;EncoderConfig&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
 
@@ -563,10 +574,10 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="NullEncoderConfig">
 <a class="viewcode-back" href="../../../../apis/infra.html#flashdreams.infra.encoder.NullEncoderConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">NullEncoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;NullEncoder&quot;</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">NullEncoderConfig</span><span class="p">(</span><span class="n">EncoderConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the identity encoder.&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;NullEncoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">NullEncoder</span><span class="p">)</span></div>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">NullEncoder</span><span class="p">)</span></div>
 
 
 

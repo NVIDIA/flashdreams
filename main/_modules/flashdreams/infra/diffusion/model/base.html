@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../../../../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -385,7 +389,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Generic</span><span class="p">,</span> <span class="n">cast</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -393,16 +397,17 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="n">Scheduler</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="n">Scheduler</span><span class="p">,</span> <span class="n">SchedulerConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.transformer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Transformer</span><span class="p">,</span>
     <span class="n">TransformerAutoregressiveCache</span><span class="p">,</span>
     <span class="n">TransformerCacheT</span><span class="p">,</span>
+    <span class="n">TransformerConfig</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="c1"># Distinct TypeVar for ``DiffusionModel.FinalState`` so the nested generic</span>
-<span class="c1"># owns its own parameter instead of shadowing the outer ``TransformerCacheT``</span>
-<span class="c1"># (which would make ty resolve ``FinalState`` calls to the TypeVar&#39;s default).</span>
+<span class="c1"># Distinct TypeVar for ``DiffusionModel.FinalState``: nested generics don&#39;t</span>
+<span class="c1"># inherit the enclosing class&#39;s TypeVar, and reusing the outer name only</span>
+<span class="c1"># shadows it (then ty resolves it to the TypeVar&#39;s default).</span>
 <span class="n">_FinalStateCacheT</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span>
     <span class="s2">&quot;_FinalStateCacheT&quot;</span><span class="p">,</span>
     <span class="n">bound</span><span class="o">=</span><span class="n">TransformerAutoregressiveCache</span><span class="p">,</span>
@@ -413,15 +418,15 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="DiffusionModelConfig">
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">DiffusionModelConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;DiffusionModel&quot;</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DiffusionModelConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the autoregressive diffusion model.&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;DiffusionModel&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">DiffusionModel</span><span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">DiffusionModel</span><span class="p">)</span>
 
-    <span class="n">transformer</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span>
+    <span class="n">transformer</span><span class="p">:</span> <span class="n">TransformerConfig</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Flow-prediction network config.&quot;&quot;&quot;</span>
 
-    <span class="n">scheduler</span><span class="p">:</span> <span class="n">InstantiateConfig</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span>
+    <span class="n">scheduler</span><span class="p">:</span> <span class="n">SchedulerConfig</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Denoising-loop config.&quot;&quot;&quot;</span>
 
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -433,8 +438,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    ``0`` skips ``add_noise``.&quot;&quot;&quot;</span>
 
     <span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Debug only: Create the noise in the unpatchified shape (to align with the open-source codebases).</span>
-<span class="sd">    Note this will hurt performance so only use it for debugging.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Debug-only: draw the initial noise in the unpatchified shape, then</span>
+<span class="sd">    patchify. Slower than the default patchified path; useful when matching</span>
+<span class="sd">    another implementation&#39;s RNG sequence.&quot;&quot;&quot;</span></div>
 
 
 
@@ -458,13 +464,7 @@ SPDX-License-Identifier: Apache-2.0
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">[docs]</a>
     <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">class</span><span class="w"> </span><span class="nc">FinalState</span><span class="p">(</span><span class="n">Generic</span><span class="p">[</span><span class="n">_FinalStateCacheT</span><span class="p">]):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;State passed from ``generate`` to ``finalize``.</span>
-
-<span class="sd">        Uses its own ``_FinalStateCacheT`` rather than the enclosing class&#39;s</span>
-<span class="sd">        ``TransformerCacheT`` because nested classes don&#39;t inherit outer-scope</span>
-<span class="sd">        type parameters; reusing the same TypeVar object would only shadow</span>
-<span class="sd">        it and confuse the type checker.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;State passed from ``generate`` to ``finalize``.&quot;&quot;&quot;</span>
 
         <span class="n">clean_latent</span><span class="p">:</span> <span class="n">Tensor</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Patchified clean latent at the end of denoising.&quot;&quot;&quot;</span>
@@ -485,7 +485,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DiffusionModelConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span>
+            <span class="n">Transformer</span><span class="p">[</span><span class="n">TransformerCacheT</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scheduler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">scheduler</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
@@ -544,8 +546,10 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">cache</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-            <span class="c1"># The `self.latent_shape` is for patchified latent. To align with the OSS codebases</span>
-            <span class="c1"># we here want to create the noise with the *unpatchified* shape, then patchify it back.</span>
+            <span class="c1"># Draw noise at the unpatchified shape so the RNG sequence matches</span>
+            <span class="c1"># implementations that sample before patchify; ``self.latent_shape``</span>
+            <span class="c1"># is patchified, so go through ``unpatchify_and_maybe_gather_cp``</span>
+            <span class="c1"># first to recover the pixel-side latent shape.</span>
             <span class="n">dummy_latent</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
@@ -555,7 +559,7 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
                 <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
-            <span class="p">)</span>  <span class="c1"># shape of an unpatchified latent</span>
+            <span class="p">)</span>
 
         <span class="k">else</span><span class="p">:</span>
             <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
@@ -563,12 +567,13 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
                 <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
-            <span class="p">)</span>  <span class="c1"># shape of a patchified latent</span>
+            <span class="p">)</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">predict_flow</span><span class="p">(</span><span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+            <span class="c1"># Round-trip patchify/unpatchify around the network when the</span>
+            <span class="c1"># scheduler is operating on unpatchified latents; the transformer</span>
+            <span class="c1"># itself always consumes/emits patchified shapes.</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-                <span class="c1"># If the noise is in the unpatchified shape, we need to patchify it first</span>
-                <span class="c1"># because the transformer expects a patchified latent.</span>
                 <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
                     <span class="n">noisy_latent</span>
                 <span class="p">)</span>
@@ -578,11 +583,9 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">timestep</span><span class="o">=</span><span class="n">timestep</span><span class="p">,</span>
                 <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
                 <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
-            <span class="p">)</span>  <span class="c1"># patchified output</span>
+            <span class="p">)</span>
 
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-                <span class="c1"># The we need to unpatchify it again, to make sure scheduler operates</span>
-                <span class="c1"># on the unpatchified latent.</span>
                 <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">output</span>
 
@@ -593,8 +596,8 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-            <span class="c1"># If this option is enabled, the scheduler operates on the unpatchified latent.</span>
-            <span class="c1"># So the clean latent it outputs is in the unpatchified shape. Here we patchify it.</span>
+            <span class="c1"># Scheduler emitted an unpatchified latent; patchify before</span>
+            <span class="c1"># ``postprocess_clean_latent`` and the cache-update path.</span>
             <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="n">clean_latent</span><span class="p">)</span>
 
         <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">postprocess_clean_latent</span><span class="p">(</span>
@@ -637,8 +640,10 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">timestep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">context_noise</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">context_noise</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
             <span class="n">clean_latent</span> <span class="o">=</span> <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
+            <span class="c1"># Round-trip patchify/unpatchify around ``add_noise`` so the</span>
+            <span class="c1"># scheduler sees the same shape as in ``generate``; the cache</span>
+            <span class="c1"># update below always consumes a patchified latent.</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-                <span class="c1"># If this option is enabled, we want the scheduler to operate on the unpatchified latent.</span>
                 <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span>
                     <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
                 <span class="p">)</span>
@@ -648,8 +653,6 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
-                <span class="c1"># If this option is enabled, then the scheduler outputs an unpatchified latent so we</span>
-                <span class="c1"># need to patchify it.</span>
                 <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
                     <span class="n">noisy_latent</span>
                 <span class="p">)</span>

@@ -300,7 +300,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -316,6 +316,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -356,9 +360,8 @@ for parity testing.</p>
 <p>The library is organised around a few sharp abstractions
 (<a class="reference internal" href="apis/infra.html"><span class="doc">Infra</span></a>) that every recipe (<a class="reference internal" href="apis/recipes.html"><span class="doc">Recipes</span></a>) plugs into;
 shared low-level kernels and distributed helpers live under
-<a class="reference internal" href="apis/core.html"><span class="doc">Core</span></a>. End-to-end inference scripts for every shipped model
-live under <code class="docutils literal notranslate"><span class="pre">flashdreams/examples</span></code> and are walked through in the
-sections below.</p>
+<a class="reference internal" href="apis/core.html"><span class="doc">Core</span></a>. The unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI fronts every
+shipped recipe; per-recipe usage is walked through in the sections below.</p>
 </section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
@@ -367,10 +370,10 @@ sections below.</p>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>flashdreams/tests
 </pre></div>
 </div>
-<p>End-to-end inference scripts under <code class="docutils literal notranslate"><span class="pre">flashdreams/examples</span></code> additionally
-require the <code class="docutils literal notranslate"><span class="pre">examples</span></code> extra:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams/examples/run_alpadreams.py<span class="w"> </span>--help
+<p>The <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI runners lazy-import <code class="docutils literal notranslate"><span class="pre">mediapy</span></code> + <code class="docutils literal notranslate"><span class="pre">opencv</span></code>
+for image / video I/O; install the <code class="docutils literal notranslate"><span class="pre">runners</span></code> extra to enable them:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>runners
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>See the project <code class="docutils literal notranslate"><span class="pre">README.md</span></code> for the full container-based workflow on a
@@ -381,7 +384,7 @@ Slurm node.</p>
 <li class="toctree-l1"><a class="reference internal" href="examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 </div>
@@ -403,6 +406,12 @@ Slurm node.</p>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="apis/serving.html">Serving</a></li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </section>

@@ -17,40 +17,39 @@ AlpaDreams
 ===================================
 
 Driving-scene video generation with the Alpadreams recipe (Cosmos DiT +
-HDMap conditioning + I2V mask injection). Driver:
-``flashdreams/examples/run_alpadreams.py``. Checkpoints and example
-data are auto-downloaded on first run.
+HDMap conditioning + I2V mask injection). Driver: the unified
+``flashdreams-run`` CLI; checkpoints + S3 example data are auto-downloaded
+on first run.
 
-The launcher picks one of :data:`ALPADREAMS_CONFIG_BUILDERS` based on
-``--n_cameras``:
+The runner slug encodes every variant of :data:`ALPADREAMS_CONFIGS`. Pick
+the one matching the camera setup; for example:
 
-- ``--n_cameras 1`` — single front-facing camera, defaults to
-  ``sv_2steps_chunk2_loc6_lightvae_lighttae``.
-- ``--n_cameras 4`` — four surrounding cameras, defaults to
-  ``mv_2steps_chunk4_loc8_pshuffle_lighttae``.
+- single view -> ``alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
+- single view, perf preset -> ``alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
+- 4-camera multi view -> ``alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae``
 
-Single GPU, single view
------------------------
+Pass ``--example-data`` to lazy-sync the bundled HDMap clips + first frames
+into ``assets/example_data/alpadreams/`` and fill the per-camera path tuples.
+Drop the flag and pass ``--hdmap-video-paths`` / ``--first-frame-paths``
+explicitly for production runs.
+
+Single GPU, single view (perf preset)
+-------------------------------------
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-       flashdreams/examples/run_alpadreams.py \
-       --n_cameras 1 --total_blocks 20
-
-Add ``--overwrite_config_name sv_2steps_chunk2_loc6_lightvae_lighttae_perf``
-for the perf-tuned variant (CUDA-graph captured forward + light VAE/TAE).
+   uv run flashdreams-run \
+       alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --example-data True --total-blocks 20
 
 Multi GPU, multi view
 ---------------------
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-       flashdreams/examples/run_alpadreams.py \
-       --n_cameras 4 --total_blocks 20
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
+       --example-data True --total-blocks 20
 
 Each rank owns one camera; ring attention shards the per-camera context
 across the world.
@@ -60,34 +59,47 @@ Diffusion forcing, single view
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-       flashdreams/examples/run_alpadreams.py \
-       --n_cameras 1 \
-       --total_blocks 12 \
-       --overwrite_config_name sv_35steps_chunk2_loc24_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
-       --offload_text_encoder
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+       --example-data True --total-blocks 12
 
-With the usual ``--total_blocks 12`` rollout, the chunk2 checkpoint decodes to
-93 frames.
+With the usual ``--total-blocks 12`` rollout, the chunk2 checkpoint decodes
+to 93 frames.
 
 Bidirectional, single view
 --------------------------
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-       flashdreams/examples/run_alpadreams.py \
-       --n_cameras 1 \
-       --total_blocks 1 \
-       --num_chunks 24 \
-       --overwrite_config_name sv_35steps_chunk48_loc48_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m \
-       --offload_text_encoder
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+       --example-data True --total-blocks 1 \
+       --pipeline.diffusion-model.transformer.len-t 24
 
-The bidirectional checkpoint generates one full block per run. Omit
-``--num_chunks`` for the trained 48-chunk length, or set ``--num_chunks 24`` for
-a shorter 93-frame run.
+The bidirectional checkpoint generates one full block per run. Omit the
+``--pipeline.diffusion-model.transformer.len-t`` override for the
+trained 48-chunk length, or set it to 24 for a shorter 93-frame run.
+
+Encoder offload
+---------------
+
+For tight VRAM budgets, precompute the one-shot encoders on a single GPU
+and reuse the embeddings on the AR pass:
+
+.. code-block:: bash
+
+   # Rank-0-only producer: dump text + first-frame embeddings.
+   uv run flashdreams-run \
+       alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --example-data True \
+       --save-embeddings-path /tmp/alpa_emb.pt
+
+   # Consumer: skip the one-shot encoders, hydrate the cache from .pt.
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --example-data True \
+       --embeddings-path /tmp/alpa_emb.pt \
+       --total-blocks 20
 
 Credentials
 -----------

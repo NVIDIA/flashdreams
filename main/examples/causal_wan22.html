@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Causal Wan2.2 (FastVideo) &#8212; FlashDreams v0.1.0</title>
+    <title>FastVideo CausalWan 2.2 &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -297,7 +297,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -313,6 +313,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -347,7 +351,7 @@ SPDX-License-Identifier: Apache-2.0
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Causal Wan2.2 (FastVideo)</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">FastVideo CausalWan 2.2</span></li>
   </ul>
 </nav>
 </div>
@@ -364,21 +368,21 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="causal-wan2-2-fastvideo">
-<h1>Causal Wan2.2 (FastVideo)<a class="headerlink" href="#causal-wan2-2-fastvideo" title="Link to this heading">#</a></h1>
-<p>FastVideo-style Wan2.2 causal T2V, driven by
-<code class="docutils literal notranslate"><span class="pre">flashdreams/examples/run_causal_wan22.py</span></code>. Reference:
-<a class="reference external" href="https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py">FastVideo basic_self_forcing_causal_wan2_2_i2v.py</a>.</p>
-<p>T2V only for now: the FastVideo Wan2.2 checkpoint’s I2V protocol
+  <section id="fastvideo-causalwan-2-2">
+<h1>FastVideo CausalWan 2.2<a class="headerlink" href="#fastvideo-causalwan-2-2" title="Link to this heading">#</a></h1>
+<p>FastVideo CausalWan 2.2 14B MoE distilled streaming T2V, shipped as the
+out-of-tree <code class="docutils literal notranslate"><span class="pre">flashdreams-fastvideo-causal-wan22</span></code> plugin (see
+<code class="docutils literal notranslate"><span class="pre">integrations/fastvideo_causal_wan22/</span></code>) and driven by the unified
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI under the slug
+<code class="docutils literal notranslate"><span class="pre">fastvideo-causal-wan2.2-t2v-14b</span></code>. Reference: <a class="reference external" href="https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py">FastVideo
+basic_self_forcing_causal_wan2_2_i2v.py</a>.</p>
+<p>T2V only for now: the FastVideo Wan 2.2 checkpoint’s I2V protocol
 (one-shot first-frame VAE-seed warmup) does not fit the unified
 streaming pipeline’s per-AR-step mask-injection I2V and is not wired
 here.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams/examples/run_causal_wan22.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">21</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 </section>

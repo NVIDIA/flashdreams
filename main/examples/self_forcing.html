@@ -297,7 +297,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -313,6 +313,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -366,17 +370,19 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="self-forcing-t2v-wan2-1">
 <h1>Self-forcing T2V (Wan2.1)<a class="headerlink" href="#self-forcing-t2v-wan2-1" title="Link to this heading">#</a></h1>
-<p>Self-forcing T2V variant of Wan2.1, driven by
-<code class="docutils literal notranslate"><span class="pre">flashdreams/examples/run_causal_wan21.py</span></code>. The default config is the
-self-forcing recipe; checkpoints are auto-downloaded from HuggingFace
-on first run.</p>
+<p>Self-forcing T2V variant of Wan2.1, shipped as the
+<code class="docutils literal notranslate"><span class="pre">flashdreams-self-forcing</span></code> integration plugin and exposed on the
+unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI under two slugs:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b</span></code> — Wan VAE decoder, 4-step.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-flash</span></code> — same DiT, swapped to the
+TAEHV (LightTAE) decoder for faster decoding.</p></li>
+</ul>
+<p>Checkpoints are auto-downloaded from HuggingFace on first run.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 <span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">  </span><span class="c1"># optional</span>
 
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>torch.distributed.run<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams/examples/run_causal_wan21.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">7</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 </section>

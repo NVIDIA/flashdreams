@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../../../../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -389,10 +393,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FlowPredictor</span><span class="p">,</span>
     <span class="n">Scheduler</span><span class="p">,</span>
+    <span class="n">SchedulerConfig</span><span class="p">,</span>
 <span class="p">)</span>
 
 
@@ -404,7 +408,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="FlowMatchSchedulerConfig">
 <a class="viewcode-back" href="../../../../../apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchSchedulerConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;FlowMatchScheduler&quot;</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchSchedulerConfig</span><span class="p">(</span><span class="n">SchedulerConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the flow-matching scheduler.&quot;&quot;&quot;</span>
 
     <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;FlowMatchScheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
@@ -429,10 +433,12 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table.&quot;&quot;&quot;</span>
 
     <span class="n">sigma_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reserved for upstream parity; only ``0.0`` is supported.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Floor of the warped sigma schedule. Only ``0.0`` is supported here;</span>
+<span class="sd">    asserted at construction.&quot;&quot;&quot;</span>
 
     <span class="n">extra_one_step</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reserved for upstream parity; only ``True`` is supported.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Append the ``sigma=0`` step to the schedule. Only ``True`` is</span>
+<span class="sd">    supported here; asserted at construction.&quot;&quot;&quot;</span></div>
 
 
 

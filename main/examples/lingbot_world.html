@@ -64,7 +64,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Wan2.1 (bidirectional)" href="wan21.html" />
-    <link rel="prev" title="Causal Wan2.2 (FastVideo)" href="causal_wan22.html" />
+    <link rel="prev" title="FastVideo CausalWan 2.2" href="causal_wan22.html" />
 
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -301,7 +301,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -317,6 +317,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -373,27 +377,27 @@ SPDX-License-Identifier: Apache-2.0
 <p>Camera-controlled image-to-video with the Lingbot-World recipe.
 Reference:
 <a class="reference external" href="https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference">lingbot-world fast inference</a>.</p>
+<p>Driven by the unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI under the slug
+<code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (Wan VAE) or <code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-flash</span></code>
+(LightTAE). Pass <code class="docutils literal notranslate"><span class="pre">--example-data</span></code> to lazy-sync the bundled prompt +
+first-frame + camera arrays from S3 into
+<code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/</span></code> and fill the path defaults.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 </pre></div>
 </div>
 <section id="single-gpu">
 <h2>Single GPU<a class="headerlink" href="#single-gpu" title="Link to this heading">#</a></h2>
-<p>Currently, even single GPU inference requires <cite>torchrun</cite> to be used (in order to set the right env variables).</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>-m<span class="w"> </span>flashdreams.examples.run_lingbot_world<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">21</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 </section>
 <section id="multi-gpu">
 <h2>Multi GPU<a class="headerlink" href="#multi-gpu" title="Link to this heading">#</a></h2>
-<p>Wan 2.1 context parallel assumes <cite>cp_size == world_size</cite>, so Lingbot World can be launched
-with <cite>torchrun</cite> across multiple GPUs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nnodes<span class="o">=</span><span class="m">1</span><span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>-m<span class="w"> </span>flashdreams.examples.run_lingbot_world<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total_blocks<span class="w"> </span><span class="m">21</span>
+<p>Wan 2.1 context parallel assumes <code class="docutils literal notranslate"><span class="pre">cp_size</span> <span class="pre">==</span> <span class="pre">world_size</span></code>; launch via
+<code class="docutils literal notranslate"><span class="pre">torchrun</span> <span class="pre">--no-python</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 </section>
@@ -415,7 +419,7 @@ with <cite>torchrun</cite> across multiple GPUs:</p>
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Causal Wan2.2 (FastVideo)</p>
+        <p class="prev-next-title">FastVideo CausalWan 2.2</p>
       </div>
     </a>
     <a class="right-next"

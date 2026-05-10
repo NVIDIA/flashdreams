@@ -20,6 +20,12 @@ Camera-controlled image-to-video with the Lingbot-World recipe.
 Reference:
 `lingbot-world fast inference <https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference>`_.
 
+Driven by the unified ``flashdreams-run`` CLI under the slug
+``lingbot-world-fast`` (Wan VAE) or ``lingbot-world-fast-flash``
+(LightTAE). Pass ``--example-data`` to lazy-sync the bundled prompt +
+first-frame + camera arrays from S3 into
+``assets/example_data/lingbot_world/`` and fill the path defaults.
+
 .. code-block:: bash
 
    export HF_TOKEN=<your-hf-token>
@@ -27,24 +33,18 @@ Reference:
 Single GPU
 ----------
 
-Currently, even single GPU inference requires `torchrun` to be used (in order to set the right env variables).
-
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     torchrun --standalone --nnodes=1 --nproc_per_node=1 \
-       -m flashdreams.examples.run_lingbot_world \
-       --total_blocks 21
+   uv run flashdreams-run \
+       lingbot-world-fast --example-data True --total-blocks 21
 
 Multi GPU
 ---------
 
-Wan 2.1 context parallel assumes `cp_size == world_size`, so Lingbot World can be launched
-with `torchrun` across multiple GPUs:
+Wan 2.1 context parallel assumes ``cp_size == world_size``; launch via
+``torchrun --no-python``:
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     torchrun --standalone --nnodes=1 --nproc_per_node=2 \
-       -m flashdreams.examples.run_lingbot_world \
-       --total_blocks 21
+   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
+       lingbot-world-fast --example-data True --total-blocks 21

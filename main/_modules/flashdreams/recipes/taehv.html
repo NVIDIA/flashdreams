@@ -294,7 +294,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../examples/alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../examples/self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../examples/causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../examples/causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../examples/causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../examples/lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -310,6 +310,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -390,8 +394,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingVideoDecoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">DecoderConfig</span><span class="p">,</span> <span class="n">StreamingVideoDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
 
 <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
@@ -402,10 +405,10 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="TeahvVAEDecoderConfig">
 <a class="viewcode-back" href="../../../apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoderConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">[</span><span class="s2">&quot;TeahvVAEDecoder&quot;</span><span class="p">]):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TeahvVAEDecoderConfig</span><span class="p">(</span><span class="n">DecoderConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the TAEHV decoder.&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;TeahvVAEDecoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">TeahvVAEDecoder</span><span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">TeahvVAEDecoder</span><span class="p">)</span>
 
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;lighttae&quot;</span><span class="p">]</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights.&quot;&quot;&quot;</span>

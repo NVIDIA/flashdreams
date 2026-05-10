@@ -16,10 +16,13 @@
 Causal-forcing T2V / I2V (Wan2.1)
 =================================
 
-The causal-forcing variants of Wan2.1 swap in the
-``causal_forcing_framewise`` config on the same launcher
-(``flashdreams/examples/run_causal_wan21.py``). Whether the run is T2V
-or I2V is decided by the presence of ``--image_path``.
+The causal-forcing variants of Wan2.1 are shipped as the
+``flashdreams-causal-forcing`` integration plugin and exposed as
+separate runners on the unified ``flashdreams-run`` CLI:
+
+- ``causal-forcing-wan2.1-t2v-1.3b-chunkwise`` — chunkwise T2V (``len_t=3``).
+- ``causal-forcing-wan2.1-t2v-1.3b-framewise`` — framewise T2V (``len_t=1``).
+- ``causal-forcing-wan2.1-i2v-1.3b-framewise`` — framewise I2V (``len_t=1``).
 
 T2V
 ---
@@ -28,24 +31,17 @@ T2V
 
    export HF_TOKEN=<your-hf-token>
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-       flashdreams/examples/run_causal_wan21.py \
-       --total_blocks 21 \
-       --overwrite_config_name causal_forcing_framewise
+   uv run flashdreams-run \
+       causal-forcing-wan2.1-t2v-1.3b-framewise --total-blocks 21
 
 I2V
 ---
 
-Pass an image plus the matching prompt; the driver wires them through
-the per-AR-step mask-injection I2V path:
+The I2V runner defaults ``--image-path`` to the plugin's bundled
+``integrations/causal_forcing/assets/image.jpg`` demo frame; pass an
+explicit path to override:
 
 .. code-block:: bash
 
-   uv run --package flashdreams --extra examples \
-     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
-       flashdreams/examples/run_causal_wan21.py \
-       --total_blocks 21 \
-       --overwrite_config_name causal_forcing_framewise \
-       --prompt_or_txt_path assets/example_data/i2v/prompt.txt \
-       --image_path assets/example_data/i2v/image.jpg
+   uv run flashdreams-run \
+       causal-forcing-wan2.1-i2v-1.3b-framewise --total-blocks 21

@@ -301,7 +301,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="alpadreams.html">AlpaDreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2 (FastVideo)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">FastVideo CausalWan 2.2</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">Lingbot-World</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Bidirectional Models</span></p>
@@ -317,6 +317,10 @@ SPDX-License-Identifier: Apache-2.0
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">FlashDreams Serving API</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../apis/serving.html">Serving</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_recipes.html">Adding a new recipe</a></li>
 </ul>
 </div>
 </nav></div>
@@ -370,34 +374,28 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="wan2-1-bidirectional">
 <h1>Wan2.1 (bidirectional)<a class="headerlink" href="#wan2-1-bidirectional" title="Link to this heading">#</a></h1>
-<p>Bidirectional Wan2.1, driven by <code class="docutils literal notranslate"><span class="pre">flashdreams/examples/run_wan21.py</span></code>.
-The single entry point picks T2V (1.3B) when <code class="docutils literal notranslate"><span class="pre">--image_path</span></code> is omitted
-and I2V (14B 480P) when it is provided. Reference:
-<a class="reference external" href="https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation">Wan2.1 official repo</a>.</p>
+<p>Bidirectional Wan2.1, driven by the unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI. The
+two shipped runners are <code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code> and <code class="docutils literal notranslate"><span class="pre">wan21-i2v-14b-480p</span></code>.
+Reference: <a class="reference external" href="https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation">Wan2.1 official repo</a>.</p>
 <section id="t2v-1-3b">
 <h2>T2V (1.3B)<a class="headerlink" href="#t2v-1-3b" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>flashdreams/examples/run_wan21.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--width<span class="w"> </span><span class="m">832</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>wan21-t2v-1.3b-480p
 </pre></div>
 </div>
 </section>
 <section id="i2v-14b-480p">
 <h2>I2V (14B 480P)<a class="headerlink" href="#i2v-14b-480p" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>flashdreams/examples/run_wan21.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image_path<span class="w"> </span>assets/example_data/i2v/image.jpg<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt_or_txt_path<span class="w"> </span>assets/example_data/i2v/prompt.txt
+<p><code class="docutils literal notranslate"><span class="pre">--image-path</span></code> defaults to the bundled <code class="docutils literal notranslate"><span class="pre">assets/example_data/i2v/image.jpg</span></code>
+demo frame so the I2V runner produces a video out of the box:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>wan21-i2v-14b-480p
 </pre></div>
 </div>
 <p>Run with the example data shipped in the upstream Wan2.1 repo:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--extra<span class="w"> </span>examples<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>flashdreams/examples/run_wan21.py<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image_path<span class="w"> </span>../Wan2.1/examples/i2v_input.JPG<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt_or_txt_path<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard...&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>wan21-i2v-14b-480p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--image-path<span class="w"> </span>../Wan2.1/examples/i2v_input.JPG<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard...&quot;</span>
 </pre></div>
 </div>
 </section>
