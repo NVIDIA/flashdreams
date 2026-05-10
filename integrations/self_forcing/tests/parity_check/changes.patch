@@ -5,7 +5,7 @@ index a750f8a..df00d35 100644
 @@ -1,5 +1,8 @@
  __pycache__
  *.egg-info
- 
+
 +images/
 +videos/
 +
@@ -434,7 +434,7 @@ index 8845659..faec7d8 100644
 +import os
 +from contextlib import nullcontext
  import torch
- 
+
  try:
 @@ -151,7 +153,9 @@ def attention(
      dtype=torch.bfloat16,
@@ -452,11 +452,11 @@ index 8845659..faec7d8 100644
              )
          attn_mask = None
 +        out_dtype = q.dtype
- 
+
          q = q.transpose(1, 2).to(dtype)
          k = k.transpose(1, 2).to(dtype)
          v = v.transpose(1, 2).to(dtype)
- 
+
 -        out = torch.nn.functional.scaled_dot_product_attention(
 -            q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
 +        if FORCE_CUDNN_ATTN:
@@ -467,7 +467,7 @@ index 8845659..faec7d8 100644
 +        with context_manager:
 +            out = torch.nn.functional.scaled_dot_product_attention(
 +                q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
- 
+
          out = out.transpose(1, 2).contiguous()
 -        return out
 +        return out.to(out_dtype)
@@ -478,29 +478,29 @@ index 9fa81ee..9795e0d 100644
 @@ -8,7 +8,7 @@ import torch.nn as nn
  import torch.nn.functional as F
  import torchvision.transforms as T
- 
+
 -from .attention import flash_attention
 +from .attention import attention
  from .tokenizers import HuggingfaceTokenizer
  from .xlm_roberta import XLMRoberta
- 
+
 @@ -82,7 +82,7 @@ class SelfAttention(nn.Module):
- 
+
          # compute attention
          p = self.attn_dropout if self.training else 0.0
 -        x = flash_attention(q, k, v, dropout_p=p, causal=self.causal, version=2)
 +        x = attention(q, k, v, dropout_p=p, causal=self.causal, fa_version=2)
          x = x.reshape(b, s, c)
- 
+
          # output
 @@ -194,7 +194,7 @@ class AttentionPool(nn.Module):
          k, v = self.to_kv(x).view(b, s, 2, n, d).unbind(2)
- 
+
          # compute attention
 -        x = flash_attention(q, k, v, version=2)
 +        x = attention(q, k, v, fa_version=2)
          x = x.reshape(b, 1, c)
- 
+
          # output
 diff --git a/wan/modules/model.py b/wan/modules/model.py
 index f8fa927..381ebf1 100644
@@ -509,16 +509,16 @@ index f8fa927..381ebf1 100644
 @@ -7,7 +7,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
  from diffusers.models.modeling_utils import ModelMixin
  from einops import repeat
- 
+
 -from .attention import flash_attention
 +from .attention import attention
- 
+
  __all__ = ['WanModel']
- 
+
 @@ -143,7 +143,7 @@ class WanSelfAttention(nn.Module):
- 
+
          q, k, v = qkv_fn(x)
- 
+
 -        x = flash_attention(
 +        x = attention(
              q=rope_apply(q, grid_sizes, freqs),
@@ -526,20 +526,20 @@ index f8fa927..381ebf1 100644
              v=v,
 @@ -186,7 +186,7 @@ class WanT2VCrossAttention(WanSelfAttention):
              v = self.v(context).view(b, -1, n, d)
- 
+
          # compute attention
 -        x = flash_attention(q, k, v, k_lens=context_lens)
 +        x = attention(q, k, v, k_lens=context_lens)
- 
+
          # output
          x = x.flatten(2)
 @@ -213,7 +213,7 @@ class WanGanCrossAttention(WanSelfAttention):
          vv = self.v(x).view(b, -1, n, d)
- 
+
          # compute attention
 -        x = flash_attention(qq, kk, vv)
 +        x = attention(qq, kk, vv)
- 
+
          # output
          x = x.flatten(2)
 @@ -254,9 +254,9 @@ class WanI2VCrossAttention(WanSelfAttention):
@@ -551,6 +551,6 @@ index f8fa927..381ebf1 100644
          # compute attention
 -        x = flash_attention(q, k, v, k_lens=context_lens)
 +        x = attention(q, k, v, k_lens=context_lens)
- 
+
          # output
          x = x.flatten(2)
