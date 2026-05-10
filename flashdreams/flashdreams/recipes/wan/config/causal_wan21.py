@@ -182,6 +182,7 @@ def build_self_forcing(
         decoder=_wan_vae_decoder_config(),
         diffusion_model=DiffusionModelConfig(
             seed=seed,
+            _noise_in_unpatchified_shape=True,
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 compile_network=compile_network,
@@ -205,6 +206,7 @@ def build_self_forcing_lighttae(
         decoder=_taehv_vae_decoder_config(),
         diffusion_model=DiffusionModelConfig(
             seed=seed,
+            _noise_in_unpatchified_shape=True,
             transformer=_transformer_config(
                 checkpoint_path=AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS["self_forcing"],
                 compile_network=compile_network,

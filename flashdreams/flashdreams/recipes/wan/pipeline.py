@@ -230,6 +230,11 @@ class WanInferencePipeline(
                     f"width={width} does not match image latent width "
                     f"derived from pixels ({derived_w})."
                 )
+        transformer_cfg = self._transformer_config
+        if height is None and hasattr(transformer_cfg, "height"):
+            height = transformer_cfg.height
+        if width is None and hasattr(transformer_cfg, "width"):
+            width = transformer_cfg.width
         assert height is not None and width is not None, (
             "T2V (image=None) requires explicit `height` and `width` latent dims."
         )

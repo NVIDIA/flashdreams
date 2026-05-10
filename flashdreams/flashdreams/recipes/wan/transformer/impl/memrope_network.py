@@ -27,7 +27,7 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetworkCache,
     WanDiTNetworkConfig,
 )
-from flashdreams.recipes.wan.transformer.impl.rope import RotaryPositionEmbedding3D
+from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 
 
 @dataclass

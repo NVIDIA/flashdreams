@@ -19,7 +19,7 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     CrossAttnCache,
     SelfAttention,
 )
-from flashdreams.recipes.wan.transformer.impl.rope import (
+from flashdreams.core.attention.rope import (
     RotaryPositionEmbedding3D,
 )
 

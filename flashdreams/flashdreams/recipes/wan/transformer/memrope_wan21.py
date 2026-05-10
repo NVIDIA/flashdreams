@@ -40,12 +40,11 @@ class MemRoPEWan21TransformerConfig(Wan21TransformerConfig):
     memory_size_t: int = 2
     ema_alpha_long: float = 0.01
     ema_alpha_short: float = 0.1
+    height: int = 60
+    width: int = 104
+    cp_size: int = 1
 
     def __post_init__(self) -> None:
-        super().__post_init__()
-        assert self.cp_size == 1, (
-            "MemRoPE online RoPE indexing currently requires cp_size=1"
-        )
         assert self.network.patch_size[0] == 1, (
             "MemRoPE temporal cache sizing assumes patch_size_t=1"
         )
@@ -74,6 +73,16 @@ class MemRoPEWan21Transformer(Wan21Transformer):
     config: MemRoPEWan21TransformerConfig
     network: MemRoPEWanDiTNetwork
 
+    def __init__(self, config: MemRoPEWan21TransformerConfig) -> None:
+        super().__init__(config)
+        assert self._cp_size == self.config.cp_size, (
+            f"MemRoPE config cp_size={self.config.cp_size} does not match "
+            f"distributed cp_size={self._cp_size}"
+        )
+        assert self._cp_size == 1, (
+            "MemRoPE online RoPE indexing currently requires cp_size=1"
+        )
+
     @torch.no_grad()
     def _build_network_cache(
         self,
@@ -82,8 +91,14 @@ class MemRoPEWan21Transformer(Wan21Transformer):
         image_embeddings: Tensor | None = None,
     ) -> WanDiTNetworkCache:
         assert isinstance(self.network, MemRoPEWanDiTNetwork)
+        assert self._output_height is not None and self._output_width is not None, (
+            "_build_network_cache called before height/width were stashed."
+        )
+        _, kh, kw = self.config.network.patch_size
+        len_h = self._output_height // kh
+        len_w = self._output_width // kw
         chunk_size = self.latent_shape[-2]
-        frame_size = self._pH * self._pW
+        frame_size = len_h * len_w
         window_size = self.config.window_size_t * frame_size
         sink_size = self.config.sink_size_t * frame_size
         recent_size = self.config.recent_size_t * frame_size
@@ -114,16 +129,22 @@ class MemRoPEWan21Transformer(Wan21Transformer):
             "Wan21TransformerCache.start(autoregressive_index) must be called "
             "before predict_flow (DiffusionModel.generate handles this)."
         )
+        assert self._output_height is not None and self._output_width is not None, (
+            "predict_flow called before height/width were stashed."
+        )
+        _, kh, kw = self.config.network.patch_size
+        len_h = self._output_height // kh
+        len_w = self._output_width // kw
 
         flow_cond = self.network(
             x=noisy_latent,
             timesteps=timestep,
-            cache=cache.network_cache_cond,
+            cache=cache.network_cache,
             rope_adapter=cache.rope_adapter,
-            len_h=self._pH,
-            len_w=self._pW,
+            len_h=len_h,
+            len_w=len_w,
             current_chunk_idx=ar_idx,
-            eager_mode=True,
+            eager_mode=False,
             **network_extra_kwargs,
         )
         if cache.network_cache_uncond is None:
@@ -134,10 +155,10 @@ class MemRoPEWan21Transformer(Wan21Transformer):
             timesteps=timestep,
             cache=cache.network_cache_uncond,
             rope_adapter=cache.rope_adapter,
-            len_h=self._pH,
-            len_w=self._pW,
+            len_h=len_h,
+            len_w=len_w,
             current_chunk_idx=ar_idx,
-            eager_mode=True,
+            eager_mode=False,
             **network_extra_kwargs,
         )
         return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)

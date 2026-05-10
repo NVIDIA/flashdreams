@@ -42,6 +42,9 @@ class MemRoPEKVCache(BlockKVCache):
     _memory_initialized: bool = False
     """Whether the EMA memory slots have received their first compressed update."""
 
+    _curr_chunk_written: bool = False
+    """Whether the active chunk has already written K/V during this update."""
+
     def __post_init__(self) -> None:
         super().__post_init__()
 
@@ -195,7 +198,9 @@ class MemRoPEKVCache(BlockKVCache):
         )
         self._curr_chunk_idx = chunk_idx
         if chunk_idx == self._prev_chunk_idx:
+            self._curr_chunk_written = True
             return
+        self._curr_chunk_written = False
         assert chunk_idx == self._prev_chunk_idx + 1, (
             "Expected the new chunk_idx to be +1 from the previous chunk_idx, "
             f"got {chunk_idx} != {self._prev_chunk_idx} + 1"
@@ -213,7 +218,7 @@ class MemRoPEKVCache(BlockKVCache):
             f"Expected input v to have chunk_size {self.chunk_size}"
         )
 
-        if self._curr_chunk_idx == self._prev_chunk_idx:
+        if self._curr_chunk_idx == self._prev_chunk_idx or self._curr_chunk_written:
             self._overwrite_rightmost_filling(k, v)
         elif self._curr_chunk_idx == self._prev_chunk_idx + 1:
             if self._n_cached + self.chunk_size <= self.total_size:
@@ -221,6 +226,7 @@ class MemRoPEKVCache(BlockKVCache):
                 self._n_cached += self.chunk_size
             else:
                 self._compress_and_append(k, v)
+            self._curr_chunk_written = True
         else:
             raise ValueError(
                 f"{self._curr_chunk_idx=} should be either "
@@ -242,6 +248,7 @@ class MemRoPEKVCache(BlockKVCache):
                 f"{self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
             )
         self._curr_chunk_idx = None
+        self._curr_chunk_written = False
 
     def cached_k(self) -> Tensor:
         """Return valid raw keys."""
@@ -271,3 +278,4 @@ class MemRoPEKVCache(BlockKVCache):
         super().reset()
         self._curr_chunk_idx = None
         self._memory_initialized = False
+        self._curr_chunk_written = False

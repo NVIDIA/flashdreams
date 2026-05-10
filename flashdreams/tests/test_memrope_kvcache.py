@@ -157,6 +157,33 @@ def test_memrope_kvcache_same_chunk_overwrite_preserves_memory(
     torch.testing.assert_close(k, expected)
 
 
+def test_memrope_kvcache_repeated_update_before_finalize_overwrites(
+    device: torch.device,
+    dtype: torch.dtype,
+) -> None:
+    cache = _new_cache(device, dtype)
+    cache.before_update(0)
+
+    first = _scalar_chunk(0, 3, device, dtype)
+    cache.update(first, first + 1000)
+    second = _scalar_chunk(30, 3, device, dtype)
+    cache.update(second, second + 1000)
+
+    expected = torch.tensor(
+        [30, 31, 32],
+        device=device,
+        dtype=dtype,
+    ).reshape(1, 3, 1, 1)
+    torch.testing.assert_close(cache.cached_k(), expected)
+    torch.testing.assert_close(
+        cache.query_frame_indices(),
+        torch.arange(3, device=device),
+    )
+
+    cache.after_update(0)
+    torch.testing.assert_close(cache.cached_k(), expected)
+
+
 def test_memrope_kvcache_updates_initialized_ema(
     device: torch.device,
     dtype: torch.dtype,

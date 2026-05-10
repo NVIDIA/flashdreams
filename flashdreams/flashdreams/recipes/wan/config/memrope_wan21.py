@@ -9,13 +9,13 @@ from collections.abc import Callable
 
 from flashdreams.recipes.wan.config.causal_wan21 import (
     AVAILABLE_CAUSAL_WAN21_CHECKPOINT_PATHS,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_VIDEO_WIDTH,
+    WAN_VAE_SPATIAL_COMPRESSION,
     _DEFAULT_BATCH_SHAPE,
-    _DEFAULT_VIDEO_HEIGHT,
-    _DEFAULT_VIDEO_WIDTH,
     _remap_self_or_causal_forcing_state_dict,
     _scheduler_config,
     _wan_vae_decoder_config,
-    _WAN_VAE_SPATIAL_COMPRESSION,
 )
 from flashdreams.recipes.wan.memrope_diffusion import MemRoPEDiffusionModelConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
@@ -40,6 +40,7 @@ def _memrope_transformer_config(
     ema_alpha_short: float = 0.1,
 ) -> MemRoPEWan21TransformerConfig:
     """MemRoPE Wan 1.3B transformer defaults for T2V streaming inference."""
+    assert cp_size == 1, "MemRoPE online RoPE indexing currently requires cp_size=1"
     return MemRoPEWan21TransformerConfig(
         network=MemRoPEWanDiTNetwork1pt3BConfig(
             patch_embedding_type="conv3d",
@@ -47,8 +48,8 @@ def _memrope_transformer_config(
         checkpoint_path=checkpoint_path,
         state_dict_transform=_remap_self_or_causal_forcing_state_dict,
         batch_shape=_DEFAULT_BATCH_SHAPE,
-        height=_DEFAULT_VIDEO_HEIGHT // _WAN_VAE_SPATIAL_COMPRESSION,
-        width=_DEFAULT_VIDEO_WIDTH // _WAN_VAE_SPATIAL_COMPRESSION,
+        height=DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION,
+        width=DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION,
         len_t=len_t_latent,
         cp_size=cp_size,
         guidance_scale=1.0,
@@ -88,7 +89,7 @@ def build_self_forcing_memrope_s3m2r13(
                 memory_size_t=2,
                 recent_size_t=13,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -119,7 +120,7 @@ def build_self_forcing_memrope_s3m2r4(
                 memory_size_t=2,
                 recent_size_t=4,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -150,7 +151,7 @@ def build_self_forcing_memrope_s3m0r15(
                 memory_size_t=0,
                 recent_size_t=15,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -181,7 +182,7 @@ def build_self_forcing_memrope_s3m0r6(
                 memory_size_t=0,
                 recent_size_t=6,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -212,7 +213,7 @@ def build_self_forcing_memrope_s0m2r16(
                 memory_size_t=2,
                 recent_size_t=16,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
@@ -243,7 +244,7 @@ def build_self_forcing_memrope_s0m2r7(
                 memory_size_t=2,
                 recent_size_t=7,
             ),
-            scheduler=_scheduler_config(num_inference_steps=4),
+            scheduler=_scheduler_config(num_inference_steps=4, shift=8.0),
         ),
     )
 
