@@ -113,7 +113,8 @@ class Wan21TransformerConfig(TransformerConfig):
     - ``stamp_image_latent``: overwrite the noisy latent with the clean
       image latent at masked positions every denoising step, and re-stamp
       the predicted ``x0`` the same way. ``network.in_dim`` unchanged.
-      (flashdreams mask-inject recipe; used by causal_wan21.)
+      (flashdreams mask-inject recipe; used by the out-of-tree
+      ``causal_forcing`` plugin.)
     - ``concat_image_mask_to_latent``: append the 4-channel mask and
       16-channel image latent along the channel dim. Builders that set
       this flag must also set ``network.in_dim = 16 + 4 + 16`` to match

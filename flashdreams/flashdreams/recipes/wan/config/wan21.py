@@ -13,16 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built pipeline configs for non-streaming Wan 2.1.
+"""User-facing configs for non-streaming Wan 2.1.
 
-One module-level literal per shipped variant. Per-rollout latent
-``(height, width)`` is supplied to
-:meth:`WanInferencePipeline.initialize_cache`; for 480p use
-``height=60, width=104`` (``480/8, 832/8``) for the T2V variant.
+Hosts both the pre-built :class:`WanInferencePipelineConfig` literals
+and the per-slug ``RunnerConfig`` literals that drive
+``flashdreams-run``. Per-rollout latent ``(height, width)`` is supplied
+to :meth:`WanInferencePipeline.initialize_cache`; for 480p use
+``height=60, width=104`` (``480/8, 832/8``) for the T2V variant. The
+runner-config literals self-register with
+:mod:`flashdreams.configs.registry` at import time.
 """
 
 from __future__ import annotations
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCSchedulerConfig,
@@ -37,6 +41,11 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoderConfig,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+from flashdreams.recipes.wan.runner import (
+    Wan21I2VRunnerConfig,
+    Wan21T2VRunnerConfig,
+    _Wan21RunnerConfigBase,
+)
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork1pt3BConfig,
     WanDiTNetwork14BConfig,
@@ -127,3 +136,39 @@ WAN21_CONFIGS: dict[str, WanInferencePipelineConfig] = {
     )
 }
 """All shipped non-streaming Wan 2.1 variants, keyed by ``recipe_name``."""
+
+
+## Per-variant runner-config literals (slug == ``recipe_name``).
+
+WAN21_T2V_1PT3B_480P_RUNNER = Wan21T2VRunnerConfig(
+    runner_name="wan21-t2v-1.3b-480p",
+    description="Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).",
+    pipeline=WAN21_T2V_1PT3B_480P,
+    prompt=(
+        "Two anthropomorphic cats in comfy boxing gear and bright gloves "
+        "fight intensely on a spotlighted stage."
+    ),
+)
+"""Wan 2.1 1.3B T2V at 480p with a demo prompt baked in."""
+
+WAN21_I2V_14B_480P_RUNNER = Wan21I2VRunnerConfig(
+    runner_name="wan21-i2v-14b-480p",
+    description="Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).",
+    pipeline=WAN21_I2V_14B_480P,
+)
+"""Wan 2.1 14B I2V at 480p. ``image_path`` and ``prompt_path`` default to
+the bundled reindeer demo asset; pass ``--prompt`` and/or ``--image-path``
+to override."""
+
+
+WAN21_RUNNERS: dict[str, _Wan21RunnerConfigBase] = {
+    cfg.runner_name: cfg
+    for cfg in (
+        WAN21_T2V_1PT3B_480P_RUNNER,
+        WAN21_I2V_14B_480P_RUNNER,
+    )
+}
+"""All shipped non-streaming Wan 2.1 runners, keyed by ``runner_name``."""
+
+for _name, _cfg in WAN21_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")

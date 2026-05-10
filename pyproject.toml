@@ -1,5 +1,13 @@
 [tool.uv.workspace]
-members = ["flashdreams", "integrations/*"]
+members = [
+    "flashdreams",
+    # Each populated subdir under ``integrations/`` is a standalone
+    # external recipe repo (e.g. ``causal_forcing`` / ``self_forcing``
+    # plugins, ``alpadreams`` / ``lingbot`` integrations); empty stub
+    # folders alongside them are intentional placeholders for future
+    # extractions and don't ship a ``pyproject.toml`` yet.
+    "integrations/*",
+]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
 # compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
@@ -30,7 +38,13 @@ no-build-isolation-package = ["transformer-engine-torch"]
 transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.14.1", subdirectory = "transformer_engine/pytorch" }
 
 [tool.pyright]
-extraPaths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
+extraPaths = [
+    "flashdreams",
+    "integrations/alpadreams",
+    "integrations/causal_forcing",
+    "integrations/lingbot",
+    "integrations/self_forcing",
+]
 # For pyright to pickup the correct python.
 venvPath = "."
 venv = ".venv"
@@ -40,7 +54,13 @@ reportIncompatibleVariableOverride = "none"
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = ["flashdreams", "integrations/alpadreams", "integrations/lingbot"]
+extra-paths = [
+    "flashdreams",
+    "integrations/alpadreams",
+    "integrations/causal_forcing",
+    "integrations/lingbot",
+    "integrations/self_forcing",
+]
 
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to

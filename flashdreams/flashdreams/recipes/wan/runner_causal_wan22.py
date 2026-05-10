@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Streaming causal Wan 2.2 runner (FastVideo distilled T2V) for ``flashdreams-run``."""
+"""Streaming causal Wan 2.2 runner class (FastVideo distilled T2V).
+
+Pure implementation module. The per-slug ``*_RUNNER`` literal lives in
+:mod:`flashdreams.recipes.wan.config.causal_wan22`, alongside the
+matching pipeline config.
+"""
 
 from __future__ import annotations
 
@@ -26,18 +31,32 @@ import torch
 from einops import rearrange
 from loguru import logger
 
-from flashdreams.configs.registry import register_runner
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.wan.config.causal_wan22 import (
-    FASTVIDEO_T2V,
-    WAN_VAE_SPATIAL_COMPRESSION,
-)
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
-from flashdreams.recipes.wan.runner_causal_wan21 import (
-    DEFAULT_PIXEL_HEIGHT,
-    DEFAULT_PIXEL_WIDTH,
-    DEFAULT_PROMPT,
+
+WAN_VAE_SPATIAL_COMPRESSION = 8
+"""Wan VAE spatial downsample factor; pixel dims must divide cleanly."""
+
+DEFAULT_PIXEL_HEIGHT = 480
+"""Pixel-space rollout height. Wan VAE 8x compression -> 60-latent height."""
+
+DEFAULT_PIXEL_WIDTH = 832
+"""Pixel-space rollout width. Wan VAE 8x compression -> 104-latent width."""
+
+DEFAULT_PROMPT = (
+    "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
+    "neon lights and animated city signs casting vibrant reflections. She "
+    "wears a sleek black leather jacket paired with a flowing red dress and "
+    "black boots, her black purse slung over her shoulder. Sunglasses "
+    "perched on her nose and a bold red lipstick add to her confident, "
+    "casual demeanor. The street is damp and reflective, creating a "
+    "mirror-like effect that enhances the colorful lights and shadows. "
+    "Pedestrians move about, adding to the lively atmosphere. The scene is "
+    "captured in a dynamic medium shot with the woman walking slightly to "
+    "one side, highlighting her graceful strides."
 )
+"""Default demo prompt so ``flashdreams-run causal-wan22-...`` produces a
+sensible video out of the box without ``--prompt``."""
 
 
 @dataclass(kw_only=True)
@@ -147,23 +166,13 @@ class CausalWan22Runner(Runner[CausalWan22RunnerConfig, WanInferencePipeline]):
             )
 
 
-CAUSAL_WAN22_RUNNERS: dict[str, RunnerConfig] = {
-    FASTVIDEO_T2V.recipe_name: CausalWan22RunnerConfig(
-        runner_name=FASTVIDEO_T2V.recipe_name,
-        description="FastVideo distilled CausalWan 2.2 14B MoE T2V (8-step schedule).",
-        pipeline=FASTVIDEO_T2V,
-    ),
-}
-"""All shipped streaming causal Wan 2.2 runners, keyed by ``runner_name``."""
-
-for _name, _cfg in CAUSAL_WAN22_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")
-
-
 __all__ = [
-    "CAUSAL_WAN22_RUNNERS",
     "CausalWan22Runner",
     "CausalWan22RunnerConfig",
+    "DEFAULT_PIXEL_HEIGHT",
+    "DEFAULT_PIXEL_WIDTH",
+    "DEFAULT_PROMPT",
+    "WAN_VAE_SPATIAL_COMPRESSION",
 ]
 
 

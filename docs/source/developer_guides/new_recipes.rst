@@ -42,8 +42,8 @@ We recommend the following layout for an external recipe package::
     my_recipe/
     ├── my_recipe/
     │   ├── __init__.py
-    │   ├── runner.py            # RunnerConfig literal(s) + Runner subclass
-    │   ├── config.py            # StreamInferencePipelineConfig literal(s)
+    │   ├── runner.py            # Runner subclass + RunnerConfig dataclass + I/O helpers
+    │   ├── config.py            # Pipeline + RunnerConfig literals (entry-point targets)
     │   ├── pipeline.py          # optional: pipeline subclass / cache
     │   ├── transformer/         # network + Transformer subclass + AR cache
     │   ├── encoder/             # optional: control / text / image encoders
@@ -60,32 +60,27 @@ Authoring the recipe
    :func:`~flashdreams.infra.config.derive_config` to spawn variants
    without copy-pasting fields. ``recipe_name`` is the registry key.
 
-2. **Runner config.** Subclass
-   :class:`~flashdreams.infra.runner.RunnerConfig`, add the I/O fields
-   the CLI should expose (prompt, image path, …), and instantiate one
-   literal per shipped variant. ``runner_name`` is the
+2. **Runner subclass + RunnerConfig dataclass.** In ``runner.py``,
+   subclass :class:`~flashdreams.infra.runner.RunnerConfig` with the
+   I/O fields the CLI should expose (prompt, image path, …) and
+   subclass :class:`~flashdreams.infra.runner.Runner` to implement
+   :meth:`~flashdreams.infra.runner.Runner.run`: resolve runtime
+   inputs, call ``self.pipeline.initialize_cache(...)``, loop
+   ``generate`` + ``finalize``, then persist the output on rank 0.
+   Mirror :class:`flashdreams.recipes.template.runner.TemplateRunner`
+   for the canonical control flow.
+
+3. **Per-slug runner literals.** In ``config.py``, instantiate one
+   :class:`RunnerConfig` literal per shipped variant alongside the
+   matching pipeline configs. ``runner_name`` is the
    ``flashdreams-run`` subcommand slug; by convention it mirrors the
    wrapped pipeline's ``recipe_name``. Always set ``description`` —
-   it shows up in ``flashdreams-run --help``.
+   it shows up in ``flashdreams-run --help``. These literals are the
+   targets the entry-point declarations (next section) point at.
 
-3. **Runner subclass.** Subclass
-   :class:`~flashdreams.infra.runner.Runner` and implement
-   :meth:`~flashdreams.infra.runner.Runner.run`: resolve runtime inputs,
-   call ``self.pipeline.initialize_cache(...)``, loop ``generate`` +
-   ``finalize``, then persist the output on rank 0. Mirror
-   :class:`flashdreams.recipes.template.runner.TemplateRunner` for the
-   canonical control flow.
-
-4. **Module-level dict.** Expose a single
+4. **Module-level dict.** Still in ``config.py``, expose a single
    ``MY_RECIPE_RUNNERS: dict[str, RunnerConfig]`` keyed by
-   ``runner_name``.
-
-5. **Self-register at import time.** Each recipe ``runner.py`` calls
-   :func:`flashdreams.configs.registry.register_runner` once per slug
-   so the in-tree CLI picks the runner up just by importing the
-   module. ``source="builtin"`` makes a slug collision a hard
-   ``ValueError`` at import time, which catches typos before the CLI
-   even draws its help.
+   ``runner_name`` for programmatic use.
 
 A minimal sketch:
 
@@ -94,9 +89,7 @@ A minimal sketch:
    # my_recipe/runner.py
    from dataclasses import dataclass, field
 
-   from flashdreams.configs.registry import register_runner
    from flashdreams.infra.runner import Runner, RunnerConfig
-   from my_recipe.config import MY_RECIPE_OFFLINE
 
 
    @dataclass(kw_only=True)
@@ -123,6 +116,13 @@ A minimal sketch:
                # save out → cfg.output_dir / f"{cfg.runner_name}.<ext>"
                ...
 
+.. code-block:: python
+
+   # my_recipe/config.py
+   from flashdreams.infra.runner import RunnerConfig
+   from my_recipe.runner import MyRecipeRunnerConfig
+
+   MY_RECIPE_OFFLINE = ...   # the pipeline-config literal
 
    MY_RECIPE_OFFLINE_RUNNER = MyRecipeRunnerConfig(
        runner_name="my-recipe-offline",
@@ -134,8 +134,13 @@ A minimal sketch:
        cfg.runner_name: cfg for cfg in (MY_RECIPE_OFFLINE_RUNNER,)
    }
 
-   for _name, _cfg in MY_RECIPE_RUNNERS.items():
-       register_runner(_name, _cfg, source="builtin")
+Worked end-to-end examples live in this repo at
+``integrations/self_forcing/`` (Self-Forcing distilled Wan 2.1) and
+``integrations/causal_forcing/`` (Causal-Forcing chunkwise /
+framewise Wan 2.1). They share the same Wan 2.1 1.3B chassis but ship
+as two separate plugin repos -- a useful template both for "one
+external recipe per repo" and for the case where one author releases
+several closely-related recipe families as independent packages.
 
 Registering the runner with ``flashdreams-run``
 -----------------------------------------------
@@ -159,7 +164,7 @@ Add the entry point to your package's ``pyproject.toml``:
    include = ["my_recipe*"]
 
    [project.entry-points."flashdreams.runner_configs"]
-   my-recipe-offline = "my_recipe.runner:MY_RECIPE_OFFLINE_RUNNER"
+   my-recipe-offline = "my_recipe.config:MY_RECIPE_OFFLINE_RUNNER"
 
 You can register either a :class:`RunnerConfig` instance directly, or
 a zero-arg callable that returns one (handy when construction has side
@@ -192,7 +197,7 @@ startup:
 
 .. code-block:: bash
 
-   export FLASHDREAMS_RUNNER_CONFIGS="my-recipe-offline=my_recipe.runner:MY_RECIPE_OFFLINE_RUNNER"
+   export FLASHDREAMS_RUNNER_CONFIGS="my-recipe-offline=my_recipe.config:MY_RECIPE_OFFLINE_RUNNER"
    flashdreams-run my-recipe-offline --prompt "..."
 
 The attribute is loaded with
@@ -248,21 +253,40 @@ Adding a recipe to the in-tree distribution
 -------------------------------------------
 
 If your recipe lives inside this repository (under
-``flashdreams/flashdreams/recipes/<name>/``), skip the entry point —
-the same :func:`~flashdreams.configs.registry.register_runner`
-primitive the plugin layer uses also covers the in-tree case:
+``flashdreams/flashdreams/recipes/<name>/``), skip the entry point.
+In-tree recipes self-register against the process-global registry at
+import time -- the same
+:func:`~flashdreams.configs.registry.register_runner` primitive the
+plugin layer uses, just with ``source="builtin"`` instead of
+``source="plugin"``:
 
-1. Author ``recipes/<name>/runner.py`` with one
-   :class:`RunnerConfig` literal per shipped variant (each with a
-   non-empty ``description``), a ``<NAME>_RUNNERS`` dict, and a loop
-   that calls
-   :func:`~flashdreams.configs.registry.register_runner` for each
-   slug with ``source="builtin"`` (see the sketch above).
-2. Add a one-line ``import flashdreams.recipes.<name>.runner`` in
-   ``flashdreams/configs/runner_configs.py`` so the side effects
-   actually fire when the CLI starts up. ``source="builtin"`` makes a
-   slug collision a hard ``ValueError`` at import time. The smoke
-   test in ``tests/test_recipe_configs.py`` enforces parity.
+1. Author ``recipes/<name>/runner.py`` with the :class:`Runner`
+   subclass and its :class:`RunnerConfig` dataclass, exactly as for
+   an external plugin.
+2. In ``recipes/<name>/config.py``, define one :class:`RunnerConfig`
+   literal per shipped variant (each with a non-empty
+   ``description``) alongside the pipeline configs, collect them
+   into ``<NAME>_RUNNERS``, and end the file with a tiny
+   self-registration loop:
+
+   .. code-block:: python
+
+      from flashdreams.configs.registry import register_runner
+
+      for _name, _cfg in MY_RECIPE_RUNNERS.items():
+          register_runner(_name, _cfg, source="builtin")
+
+   ``source="builtin"`` makes a slug collision a hard ``ValueError``
+   at import time, which catches typos before the CLI even draws
+   its help. **Do not do this in an out-of-tree plugin** -- plugins
+   land in the live registry through the entry-point discovery layer
+   in :func:`flashdreams.plugins.registry.discover_runners`, which
+   passes ``source="plugin"`` automatically.
+3. Add a one-line ``import flashdreams.recipes.<name>.config`` in
+   ``flashdreams/configs/runner_configs.py`` so the self-registration
+   side effect actually fires when the CLI starts up. The smoke test
+   in ``tests/test_recipe_configs.py`` enforces parity between the
+   per-recipe ``<NAME>_RUNNERS`` dicts and the live registry.
 
 Contributing back
 -----------------

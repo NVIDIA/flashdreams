@@ -13,26 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built pipeline configs for streaming Wan 2.2.
+"""User-facing configs for streaming Wan 2.2.
 
-One module-level literal per shipped variant. Wan 2.2 currently ships
-only the FastVideo distilled T2V preset; the dual 14B MoE backbone is
-expressed as two ``Wan21TransformerConfig`` branches inside
-:class:`Wan22TransformerConfig`.
+Hosts both the pre-built :class:`WanInferencePipelineConfig` literals
+and the per-slug :class:`CausalWan22RunnerConfig` literals that drive
+``flashdreams-run``. Wan 2.2 currently ships only the FastVideo
+distilled T2V preset; the dual 14B MoE backbone is expressed as two
+``Wan21TransformerConfig`` branches inside
+:class:`Wan22TransformerConfig`. The runner-config literal
+self-registers with :mod:`flashdreams.configs.registry` at import
+time.
 """
 
 from __future__ import annotations
 
 import torch
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoderConfig,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+from flashdreams.recipes.wan.runner_causal_wan22 import CausalWan22RunnerConfig
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork14BConfig,
 )
@@ -53,7 +60,6 @@ AVAILABLE_CAUSAL_WAN22_CHECKPOINT_PATHS: dict[str, dict[str, str]] = {
 # (height, width) into :meth:`WanInferencePipeline.initialize_cache`.
 DEFAULT_VIDEO_HEIGHT = 480
 DEFAULT_VIDEO_WIDTH = 832
-WAN_VAE_SPATIAL_COMPRESSION = 8
 
 
 def _remap_diffusers_state_dict(
@@ -128,3 +134,22 @@ CAUSAL_WAN22_CONFIGS: dict[str, WanInferencePipelineConfig] = {
     cfg.recipe_name: cfg for cfg in (FASTVIDEO_T2V,)
 }
 """All shipped streaming Wan 2.2 variants, keyed by ``recipe_name``."""
+
+
+## Per-variant runner-config literals (slug == ``recipe_name``).
+
+CAUSAL_WAN22_FASTVIDEO_T2V_RUNNER = CausalWan22RunnerConfig(
+    runner_name=FASTVIDEO_T2V.recipe_name,
+    description="FastVideo distilled CausalWan 2.2 14B MoE T2V (8-step schedule).",
+    pipeline=FASTVIDEO_T2V,
+)
+"""FastVideo distilled streaming CausalWan 2.2 14B MoE T2V runner."""
+
+
+CAUSAL_WAN22_RUNNERS: dict[str, RunnerConfig] = {
+    cfg.runner_name: cfg for cfg in (CAUSAL_WAN22_FASTVIDEO_T2V_RUNNER,)
+}
+"""All shipped streaming causal Wan 2.2 runners, keyed by ``runner_name``."""
+
+for _name, _cfg in CAUSAL_WAN22_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")

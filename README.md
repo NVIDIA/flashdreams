@@ -233,38 +233,55 @@ call `update_parameters_after_loading_checkpoint()` before running forward.
 
 ## Instructions to run Self-forcing T2V Inference
 
+The Self-Forcing slugs ship as an out-of-tree plugin
+(`flashdreams/plugins/self_forcing/`); install it once before invoking
+its slugs through `flashdreams-run`.
+
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
 
-# 1. setup huggingface
+# 1. install the plugin (one-time; declared as a uv workspace member, so
+#    `uv sync` from the repo root is enough — this line is for clarity).
+uv pip install -e flashdreams/plugins/self_forcing
+
+# 2. setup huggingface
 # - (required) huggingface token
 export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
+# 3. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 uv run flashdreams-run causal-wan21-self-forcing-t2v --total-blocks 7
 ```
 
 ## Instructions to run Causal-forcing T2V and I2V Inference
 
+The Causal-Forcing slugs ship as a separate out-of-tree plugin
+(`flashdreams/plugins/causal_forcing/`).
+
 ```bash
 # 0. request interactive node with pre-built container save as above alpadreams demo.
 
-# 1. setup huggingface
+# 1. install the plugin.
+uv pip install -e flashdreams/plugins/causal_forcing
+
+# 2. setup huggingface
 # - (required) huggingface token
 export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
+# 3. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 # - T2V
 uv run flashdreams-run \
     causal-wan21-causal-forcing-framewise-t2v --total-blocks 21
 
-# - I2V (--image-path defaults to the bundled assets/example_data/i2v/image.jpg)
+# - I2V (out-of-tree plugin doesn't bundle demo assets; pass --image-path
+#   and, optionally, --prompt-path explicitly).
 uv run flashdreams-run \
-    causal-wan21-causal-forcing-framewise-i2v --total-blocks 21
+    causal-wan21-causal-forcing-framewise-i2v --total-blocks 21 \
+    --image-path assets/example_data/i2v/image.jpg \
+    --prompt-path assets/example_data/i2v/prompt.txt
 ```
 
 ## Instructions to run FastVideo Wan2.2 Causal T2V Inference

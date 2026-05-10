@@ -15,6 +15,8 @@ members = [
     "flash-alpadreams",
     "flash-lingbot",
     "flashdreams",
+    "flashdreams-causal-forcing",
+    "flashdreams-self-forcing",
 ]
 overrides = [{ name = "nvidia-cublas", specifier = ">=13.4" }]
 
@@ -682,6 +684,52 @@ requires-dist = [
     { name = "tyro", specifier = ">=0.8" },
 ]
 provides-extras = ["dev", "examples", "runners"]
+
+[[package]]
+name = "flashdreams-causal-forcing"
+version = "0.1.0"
+source = { editable = "integrations/causal_forcing" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "mediapy" },
+    { name = "opencv-python-headless" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "opencv-python-headless" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-self-forcing"
+version = "0.1.0"
+source = { editable = "integrations/self_forcing" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "mediapy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "fonttools"

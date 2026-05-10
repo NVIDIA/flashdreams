@@ -13,12 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built ``StreamInferencePipelineConfig`` literals for Alpadreams."""
+"""User-facing configs for Alpadreams.
+
+Hosts both the pre-built :class:`AlpadreamsPipelineConfig` literals
+and the per-slug :class:`AlpadreamsRunnerConfig` literals that drive
+``flashdreams-run``. Per-variant runner literals are projected from
+``ALPADREAMS_CONFIGS`` by :func:`_build_alpadreams_runners` so adding
+a new pipeline only requires registering a CLI description below. The
+runner-config literals self-register with
+:mod:`flashdreams.configs.registry` at import time.
+"""
 
 from __future__ import annotations
 
 from typing import cast
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import (
@@ -30,12 +40,14 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
 from flashdreams.infra.encoder.text.cosmos_reason1 import (
     CosmosReason1TextEncoderConfig,
 )
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
 )
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipelineConfig,
 )
+from flashdreams.recipes.alpadreams.runner import AlpadreamsRunnerConfig
 from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 from flashdreams.recipes.alpadreams.transformer.impl.network import (
     CosmosDiTNetworkConfig,
@@ -59,17 +71,6 @@ AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-diffusion-forcing-chunk2": "s3://flashdreams/assets/checkpoints/alpadreams/16N@causal_cosmos2_2B_res720p_30fps_hdmap_hdmap_pretrained_chunk2_vae_mads1m_1080p@20260225100739_000010600.pt",
     "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/alpadreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
 }
-
-DEFAULT_VIDEO_HEIGHT = 704
-"""Canonical pixel-space height; callers pass the matching latent
-``(height, width)`` into :meth:`AlpadreamsPipeline.initialize_cache`."""
-
-DEFAULT_VIDEO_WIDTH = 1280
-"""Canonical pixel-space width."""
-
-WAN_VAE_SPATIAL_COMPRESSION = 8
-"""Pixel-side / latent-side ratio of the Wan VAE."""
-
 
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = AlpadreamsPipelineConfig(
     recipe_name="alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
@@ -391,3 +392,99 @@ ALPADREAMS_CONFIGS: dict[str, AlpadreamsPipelineConfig] = {
     )
 }
 """All shipped Alpadreams variants, keyed by ``recipe_name``."""
+
+
+## Per-variant runner-config literals (slug == ``recipe_name``).
+
+_DEFAULT_PROMPT_1V = (
+    "Driving scene from a front-facing car camera. Urban environment with roads, "
+    "vehicles, pedestrians, traffic signs, and buildings. Clear visibility, "
+    "realistic lighting, photorealistic quality. High resolution dashcam footage "
+    "of city driving."
+)
+_DEFAULT_PROMPT_4V = (
+    "Wide-angle urban street scene from a low, dashboard-level viewpoint. "
+    "A straight two-lane road with a faded center line and curbside parking on "
+    "both sides. Parked sedans and SUVs in neutral colors line the curbs. On the "
+    "right, a white stucco mid-rise building with blue fabric awnings, rectangular "
+    "windows, and small storefronts at street level. On the left, a low commercial "
+    "strip with dark trim, glass fronts, signage, and shaded sidewalks. Mature green "
+    "trees punctuate both sides. Clear blue sky with sparse soft clouds. Bright midday "
+    "sunlight, natural colors, realistic materials, crisp shadows, clean asphalt texture."
+)
+
+_ALPADREAMS_DESCRIPTIONS: dict[str, str] = {
+    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae": (
+        "Single-view 2-step distilled chunk2 (LightVAE + LightTAE)."
+    ),
+    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf": (
+        "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
+    ),
+    "alpadreams-sv-2steps-chunk2-loc6-vae-vae": (
+        "Single-view chunk2 with the full Wan VAE on encoder + decoder."
+    ),
+    "alpadreams-sv-2steps-chunk3-loc6-vae-vae": (
+        "Single-view chunk3 (len_t=3) with the full Wan VAE."
+    ),
+    "alpadreams-sv-2steps-chunk4-loc8-pshuffle-lighttae": (
+        "Single-view chunk4 with the PixelShuffle HDMap encoder + LightTAE."
+    ),
+    "alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae": (
+        "4-camera multi-view chunk4 (PixelShuffle HDMap + LightTAE)."
+    ),
+    "alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+        "Teacher: single-view 35-step UniPC chunk2 (Cosmos2 2B, 720p, CFG=3.0)."
+    ),
+    "alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+        "Teacher: single-view 35-step bidirectional chunk48 (one rollout, 720p)."
+    ),
+    "alpadreams-experiment1-baseline": (
+        "Experiment-1 baseline (re-publishes the chunk2 perf chassis)."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache": (
+        "Experiment-1: skip-finalize-kv-cache ablation."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise350": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 350]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise250": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 250]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise150": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 150]."
+    ),
+    "alpadreams-experiment1-skip-finalize-kv-cache-noise100": (
+        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 100]."
+    ),
+}
+"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
+
+
+def _build_alpadreams_runners() -> dict[str, RunnerConfig]:
+    """Project ``ALPADREAMS_CONFIGS`` into per-variant runner literals."""
+    runners: dict[str, RunnerConfig] = {}
+    for name, pipeline_cfg in ALPADREAMS_CONFIGS.items():
+        transformer_cfg = pipeline_cfg.diffusion_model.transformer
+        assert isinstance(transformer_cfg, CosmosTransformerConfig)
+        prompt = (
+            _DEFAULT_PROMPT_4V if transformer_cfg.num_views == 4 else _DEFAULT_PROMPT_1V
+        )
+        assert name in _ALPADREAMS_DESCRIPTIONS, (
+            f"missing CLI description for alpadreams slug {name!r}; "
+            "add an entry to ``_ALPADREAMS_DESCRIPTIONS``."
+        )
+        runners[name] = AlpadreamsRunnerConfig(
+            runner_name=name,
+            description=_ALPADREAMS_DESCRIPTIONS[name],
+            pipeline=pipeline_cfg,
+            prompt=prompt,
+        )
+    return runners
+
+
+ALPADREAMS_RUNNERS: dict[str, RunnerConfig] = _build_alpadreams_runners()
+"""All shipped Alpadreams runners (single- and multi-view variants),
+keyed by ``runner_name``."""
+
+for _name, _cfg in ALPADREAMS_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")

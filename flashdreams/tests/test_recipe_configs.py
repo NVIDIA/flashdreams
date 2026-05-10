@@ -29,12 +29,11 @@ from __future__ import annotations
 # would be empty when tests run in isolation.
 import flashdreams.configs.runner_configs  # noqa: F401
 from flashdreams.configs.registry import supported_runners
-from flashdreams.recipes.alpadreams.runner import ALPADREAMS_RUNNERS
-from flashdreams.recipes.lingbot_world.runner import LINGBOT_WORLD_RUNNERS
-from flashdreams.recipes.template.runner import TEMPLATE_RUNNERS
-from flashdreams.recipes.wan.runner import WAN21_RUNNERS
-from flashdreams.recipes.wan.runner_causal_wan21 import CAUSAL_WAN21_RUNNERS
-from flashdreams.recipes.wan.runner_causal_wan22 import CAUSAL_WAN22_RUNNERS
+from flashdreams.recipes.alpadreams.config import ALPADREAMS_RUNNERS
+from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_RUNNERS
+from flashdreams.recipes.template.config import TEMPLATE_RUNNERS
+from flashdreams.recipes.wan.config.causal_wan22 import CAUSAL_WAN22_RUNNERS
+from flashdreams.recipes.wan.config.wan21 import WAN21_RUNNERS
 
 
 def test_supported_runners_keys_match_runner_name() -> None:
@@ -59,7 +58,6 @@ def test_supported_runners_covers_every_runner_dict() -> None:
     expected = {
         **TEMPLATE_RUNNERS,
         **WAN21_RUNNERS,
-        **CAUSAL_WAN21_RUNNERS,
         **CAUSAL_WAN22_RUNNERS,
         **ALPADREAMS_RUNNERS,
         **LINGBOT_WORLD_RUNNERS,

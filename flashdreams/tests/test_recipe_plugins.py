@@ -39,7 +39,7 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.plugins import discover_runners
 from flashdreams.plugins.registry import ENV_VAR
-from flashdreams.recipes.template.runner import TEMPLATE_OFFLINE_RUNNER
+from flashdreams.recipes.template.config import TEMPLATE_OFFLINE_RUNNER
 
 
 @pytest.fixture

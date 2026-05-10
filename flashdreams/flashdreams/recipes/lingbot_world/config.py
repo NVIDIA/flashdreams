@@ -13,22 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-built pipeline configs for streaming Lingbot World camera-control I2V.
+"""User-facing configs for streaming Lingbot World camera-control I2V.
 
-One module-level literal per shipped variant. CP size is auto-detected
-from ``torch.distributed.get_world_size()`` inside the transformer.
-Shape knobs (batch / view / resolution / per-chunk latent T) are pinned
-to canonical Lingbot defaults; callers that want different shapes
-should construct the transformer config directly.
+Hosts both the pre-built :class:`LingbotWorldInferencePipelineConfig`
+literals and the per-slug :class:`LingbotWorldRunnerConfig` literals
+that drive ``flashdreams-run``. CP size is auto-detected from
+``torch.distributed.get_world_size()`` inside the transformer; shape
+knobs (batch / view / resolution / per-chunk latent T) are pinned to
+canonical Lingbot defaults. The runner-config literals self-register
+with :mod:`flashdreams.configs.registry` at import time.
 """
 
 from __future__ import annotations
 
 from typing import cast
 
+from flashdreams.configs.registry import register_runner
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
 )
@@ -38,6 +42,7 @@ from flashdreams.recipes.lingbot_world.encoder.camctrl import (
 from flashdreams.recipes.lingbot_world.pipeline import (
     LingbotWorldInferencePipelineConfig,
 )
+from flashdreams.recipes.lingbot_world.runner import LingbotWorldRunnerConfig
 from flashdreams.recipes.lingbot_world.transformer import (
     LingbotWorldTransformerConfig,
 )
@@ -154,3 +159,29 @@ LINGBOT_WORLD_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     )
 }
 """All shipped Lingbot-World variants, keyed by ``recipe_name``."""
+
+
+## Per-variant runner-config literals (slug == ``recipe_name``).
+
+_LINGBOT_WORLD_DESCRIPTIONS: dict[str, str] = {
+    "lingbot-world-fast": (
+        "Lingbot World Fast streaming camera-control I2V (Wan VAE decoder)."
+    ),
+    "lingbot-world-fast-flash": (
+        "Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window)."
+    ),
+}
+"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
+
+LINGBOT_WORLD_RUNNERS: dict[str, RunnerConfig] = {
+    name: LingbotWorldRunnerConfig(
+        runner_name=name,
+        description=_LINGBOT_WORLD_DESCRIPTIONS[name],
+        pipeline=cfg,
+    )
+    for name, cfg in LINGBOT_WORLD_CONFIGS.items()
+}
+"""All shipped Lingbot-World runners, keyed by ``runner_name``."""
+
+for _name, _cfg in LINGBOT_WORLD_RUNNERS.items():
+    register_runner(_name, _cfg, source="builtin")

@@ -13,24 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot-World camera-control I2V runner for ``flashdreams-run``."""
+"""Lingbot-World camera-control I2V runner classes.
+
+Pure implementation module. The per-slug ``*_RUNNER`` literals + the
+``LINGBOT_WORLD_RUNNERS`` aggregating dict live in
+:mod:`flashdreams.recipes.lingbot_world.config`, alongside the
+matching pipeline configs.
+"""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import torch
 from einops import rearrange
 from loguru import logger
 
-from flashdreams.configs.registry import register_runner
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
 from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
 from flashdreams.recipes.lingbot_world.encoder.utils import compute_relative_poses
 from flashdreams.recipes.lingbot_world.pipeline import (
@@ -251,34 +254,7 @@ class LingbotWorldRunner(
             )
 
 
-## Per-variant runner-config literals (slug == ``recipe_name``).
-
-_LINGBOT_WORLD_DESCRIPTIONS: dict[str, str] = {
-    "lingbot-world-fast": (
-        "Lingbot World Fast streaming camera-control I2V (Wan VAE decoder)."
-    ),
-    "lingbot-world-fast-flash": (
-        "Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window)."
-    ),
-}
-"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
-
-LINGBOT_WORLD_RUNNERS: dict[str, RunnerConfig] = {
-    name: LingbotWorldRunnerConfig(
-        runner_name=name,
-        description=_LINGBOT_WORLD_DESCRIPTIONS[name],
-        pipeline=cfg,
-    )
-    for name, cfg in LINGBOT_WORLD_CONFIGS.items()
-}
-"""All shipped Lingbot-World runners, keyed by ``runner_name``."""
-
-for _name, _cfg in LINGBOT_WORLD_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")
-
-
 __all__ = [
-    "LINGBOT_WORLD_RUNNERS",
     "LingbotWorldRunner",
     "LingbotWorldRunnerConfig",
 ]

@@ -32,15 +32,8 @@ from dataclasses import dataclass, field
 import torch
 from loguru import logger
 
-from flashdreams.configs.registry import register_runner
-from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.template.config import (
-    TEMPLATE_AUTOREGRESSIVE,
-    TEMPLATE_AUTOREGRESSIVE_COMPILED,
-    TEMPLATE_OFFLINE,
-)
 from flashdreams.recipes.template.encoder import TemplateControlEncoder
 from flashdreams.recipes.template.transformer import (
     TemplateTransformer,
@@ -201,61 +194,7 @@ def _make_synthetic_inputs(
     )
 
 
-## Per-variant runner configs (slug == ``pipeline.recipe_name``).
-
-TEMPLATE_OFFLINE_RUNNER = TemplateRunnerConfig(
-    runner_name="template-offline",
-    description=(
-        "Reference template recipe: one-shot offline diffusion (synthetic inputs)."
-    ),
-    pipeline=TEMPLATE_OFFLINE,
-    num_ar_steps=1,
-)
-"""Single-AR-step bidirectional rollout. Matches ``TEMPLATE_OFFLINE``'s
-``window_size_t == len_t == 8`` (one chunk covers the full window)."""
-
-TEMPLATE_AUTOREGRESSIVE_RUNNER = TemplateRunnerConfig(
-    runner_name="template-autoregressive",
-    description=(
-        "Reference template recipe: streaming AR diffusion with sliding-window cache."
-    ),
-    pipeline=TEMPLATE_AUTOREGRESSIVE,
-    # Two AR steps exercise both the KV-cache filling phase and the
-    # first steady-state step (``window_size_t == 2 * len_t``).
-    num_ar_steps=2,
-)
-"""Streaming AR rollout."""
-
-TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER = derive_config(
-    TEMPLATE_AUTOREGRESSIVE_RUNNER,
-    runner_name="template-autoregressive-compiled",
-    description=(
-        "Reference template recipe: AR variant with torch.compile + CUDA graphs."
-    ),
-    pipeline=TEMPLATE_AUTOREGRESSIVE_COMPILED,
-)
-"""Same I/O knobs as the AR base, pinned to the compiled + CUDA-graph pipeline."""
-
-
-TEMPLATE_RUNNERS: dict[str, TemplateRunnerConfig] = {
-    cfg.runner_name: cfg
-    for cfg in (
-        TEMPLATE_OFFLINE_RUNNER,
-        TEMPLATE_AUTOREGRESSIVE_RUNNER,
-        TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER,
-    )
-}
-"""All shipped template-recipe runners, keyed by ``runner_name``."""
-
-for _name, _cfg in TEMPLATE_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")
-
-
 __all__ = [
-    "TEMPLATE_AUTOREGRESSIVE_COMPILED_RUNNER",
-    "TEMPLATE_AUTOREGRESSIVE_RUNNER",
-    "TEMPLATE_OFFLINE_RUNNER",
-    "TEMPLATE_RUNNERS",
     "TemplateRunner",
     "TemplateRunnerConfig",
 ]

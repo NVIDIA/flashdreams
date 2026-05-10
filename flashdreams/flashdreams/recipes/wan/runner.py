@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Non-streaming Wan 2.1 runners (T2V and I2V) for ``flashdreams-run``."""
+"""Non-streaming Wan 2.1 runner classes (T2V and I2V).
+
+Pure implementation module. The per-slug ``*_RUNNER`` literals live in
+:mod:`flashdreams.recipes.wan.config.wan21`, alongside the matching
+pipeline configs.
+"""
 
 from __future__ import annotations
 
@@ -26,12 +31,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
-from flashdreams.configs.registry import register_runner
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.wan.config.wan21 import (
-    WAN21_I2V_14B_480P,
-    WAN21_T2V_1PT3B_480P,
-)
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 WAN_VAE_SPATIAL_COMPRESSION = 8
@@ -188,46 +188,9 @@ class Wan21I2VRunner(_Wan21RunnerBase):
         return self.pipeline.initialize_cache(text=[prompt], image=image)
 
 
-## Per-variant runner-config literals (slug == ``recipe_name``).
-
-WAN21_T2V_1PT3B_480P_RUNNER = Wan21T2VRunnerConfig(
-    runner_name="wan21-t2v-1.3b-480p",
-    description="Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).",
-    pipeline=WAN21_T2V_1PT3B_480P,
-    prompt=(
-        "Two anthropomorphic cats in comfy boxing gear and bright gloves "
-        "fight intensely on a spotlighted stage."
-    ),
-)
-"""Wan 2.1 1.3B T2V at 480p with a demo prompt baked in."""
-
-WAN21_I2V_14B_480P_RUNNER = Wan21I2VRunnerConfig(
-    runner_name="wan21-i2v-14b-480p",
-    description="Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).",
-    pipeline=WAN21_I2V_14B_480P,
-)
-"""Wan 2.1 14B I2V at 480p. ``image_path`` and ``prompt_path`` default to
-the bundled reindeer demo asset; pass ``--prompt`` and/or ``--image-path``
-to override."""
-
-
-WAN21_RUNNERS: dict[str, _Wan21RunnerConfigBase] = {
-    cfg.runner_name: cfg
-    for cfg in (
-        WAN21_T2V_1PT3B_480P_RUNNER,
-        WAN21_I2V_14B_480P_RUNNER,
-    )
-}
-"""All shipped non-streaming Wan 2.1 runners, keyed by ``runner_name``."""
-
-for _name, _cfg in WAN21_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")
-
-
 __all__ = [
-    "WAN21_I2V_14B_480P_RUNNER",
-    "WAN21_RUNNERS",
-    "WAN21_T2V_1PT3B_480P_RUNNER",
+    "DEFAULT_I2V_IMAGE_PATH",
+    "DEFAULT_I2V_PROMPT_PATH",
     "WAN_VAE_SPATIAL_COMPRESSION",
     "Wan21I2VRunner",
     "Wan21I2VRunnerConfig",

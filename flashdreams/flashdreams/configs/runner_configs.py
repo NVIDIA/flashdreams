@@ -15,27 +15,32 @@
 
 """Aggregator for in-tree + plugin-discovered runner configs.
 
-Each in-tree recipe ``runner.py`` self-registers its slugs via
+Each in-tree recipe's ``config.py`` (or ``config/<variant>.py``)
+self-registers its slugs via
 :func:`flashdreams.configs.registry.register_runner` at module-import
-time. This module just imports those modules for their side effects
-and exposes :func:`all_runners`, which layers plugin discoveries on
-top of the populated
-:data:`flashdreams.configs.registry._SUPPORTED_RUNNERS` registry.
+time, alongside the matching pipeline configs. This module just
+imports those config modules for their side effects and exposes
+:func:`all_runners`, which layers plugin discoveries on top of the
+populated :data:`flashdreams.configs.registry._SUPPORTED_RUNNERS`
+registry.
 
-There is no central pipeline-config registry: a recipe that hasn't
-been wrapped into a runner stays reachable via direct per-recipe
-imports (``from flashdreams.recipes.<name>.config import <NAME>_CONFIGS``)
-for serving / tests / programmatic use, but it does not appear here
-and is not a ``flashdreams-run`` subcommand. Runners are opt-in.
+Recipes that haven't been wrapped into a runner stay reachable via
+direct per-recipe imports
+(``from flashdreams.recipes.<name>.config import <NAME>_CONFIGS``) for
+serving / tests / programmatic use, but they do not appear here and
+are not ``flashdreams-run`` subcommands. Runners are opt-in.
 
 Adding a new in-tree runner:
 
-1. Author ``recipes/<name>/runner.py`` with one ``RunnerConfig``
-   literal per shipped variant (each with a non-empty ``description``)
-   and a ``<NAME>_RUNNERS`` dict, then loop
+1. Author ``recipes/<name>/runner.py`` with the :class:`Runner`
+   subclass and its :class:`RunnerConfig` dataclass.
+2. In the matching ``recipes/<name>/config.py``, define one
+   ``RunnerConfig`` literal per shipped variant (each with a
+   non-empty ``description``) alongside the pipeline-config literals,
+   collect them in a ``<NAME>_RUNNERS`` dict, and loop
    :func:`~flashdreams.configs.registry.register_runner` over its
    items with ``source="builtin"``.
-2. Add a one-line ``import flashdreams.recipes.<name>.runner`` below
+3. Add a one-line ``import flashdreams.recipes.<name>.config`` below
    so this module triggers the side effect at CLI startup. The smoke
    test in ``tests/test_recipe_configs.py`` enforces parity.
 """
@@ -51,12 +56,11 @@ import tyro
 # Each import below triggers the recipe's `register_runner(..., source="builtin")`
 # calls against ``_SUPPORTED_RUNNERS``. Listed explicitly (no auto-walk
 # of ``flashdreams.recipes``) so the in-tree inventory is one grep away.
-import flashdreams.recipes.alpadreams.runner  # noqa: F401, E402
-import flashdreams.recipes.lingbot_world.runner  # noqa: F401, E402
-import flashdreams.recipes.template.runner  # noqa: F401, E402
-import flashdreams.recipes.wan.runner  # noqa: F401, E402
-import flashdreams.recipes.wan.runner_causal_wan21  # noqa: F401, E402
-import flashdreams.recipes.wan.runner_causal_wan22  # noqa: F401, E402
+import flashdreams.recipes.alpadreams.config  # noqa: F401, E402
+import flashdreams.recipes.lingbot_world.config  # noqa: F401, E402
+import flashdreams.recipes.template.config  # noqa: F401, E402
+import flashdreams.recipes.wan.config.causal_wan22  # noqa: F401, E402
+import flashdreams.recipes.wan.config.wan21  # noqa: F401, E402
 from flashdreams.configs.registry import (
     _SUPPORTED_RUNNERS,
     register_runner,
