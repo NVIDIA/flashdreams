@@ -23,8 +23,9 @@ import torch
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
-from flashdreams.infra.diffusion.scheduler import (
+from flashdreams.infra.diffusion.scheduler.base import (
     FlowPredictor,
+    RenoiseNoiseFn,
     Scheduler,
 )
 
@@ -189,6 +190,7 @@ class FlowMatchScheduler(Scheduler):
         initial_noise: Tensor,
         predict_flow: FlowPredictor,
         rng: torch.Generator | None = None,
+        renoise_noise_fn: RenoiseNoiseFn | None = None,
     ) -> Tensor:
         """Run the self-forcing flow-match denoising loop.
 
@@ -205,19 +207,24 @@ class FlowMatchScheduler(Scheduler):
         clean: Tensor | None = None
         for i in range(timesteps.shape[0]):
             sigma = sigmas[i]
-            # Schedule buffers are pinned to fp32 (to preserve integer
-            # timestep values under a stray `module.to(bf16)`), but the
-            # network expects timesteps in the input dtype so that
-            # downstream modulation / Linear layers stay consistent.
-            timestep = timesteps[i].to(dtype=input_dtype)
+            # Match official Self-Forcing/QVG: keep warped timestep values in
+            # fp32 until the model's sinusoidal embedding code casts them.
+            # Casting here to bf16 rounds values such as 833.3333 before the
+            # embedding and causes cross-repo reproduction drift.
+            timestep = timesteps[i]
             if i > 0:
                 assert clean is not None
-                noise = torch.empty_like(noisy).normal_(generator=rng)
+                if renoise_noise_fn is None:
+                    noise = torch.empty_like(noisy).normal_(generator=rng)
+                else:
+                    noise = renoise_noise_fn(clean, rng)
                 noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
             flow = predict_flow(noisy, timestep)
-            clean = noisy - sigma * flow
+            clean = (noisy.to(torch.float32) - sigma * flow.to(torch.float32)).to(
+                input_dtype
+            )
         assert clean is not None, "denoising_step_list is empty"
-        return clean.to(input_dtype)
+        return clean
 
     def add_noise(
         self,

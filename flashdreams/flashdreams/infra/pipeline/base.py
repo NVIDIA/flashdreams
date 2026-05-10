@@ -194,6 +194,7 @@ class StreamInferencePipeline(
             StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
         ],
         input: Any = None,
+        initial_noise: Tensor | None = None,
     ) -> Tensor:
         """Generate one chunk for this AR step.
 
@@ -205,6 +206,8 @@ class StreamInferencePipeline(
                 is configured, must be ``None`` otherwise. Use
                 ``NullEncoderConfig`` to pass an already-encoded tensor
                 straight through.
+            initial_noise: Optional denoising start tensor for alignment
+                harnesses. Defaults to the diffusion model's Gaussian draw.
 
         Returns:
             Decoded tensor (e.g. RGB video) when a decoder is configured;
@@ -243,6 +246,7 @@ class StreamInferencePipeline(
             autoregressive_index=autoregressive_index,
             cache=cache.transformer_cache,
             input=input,
+            initial_noise=initial_noise,
         )
         cache.final_state = final_state
 
@@ -327,6 +331,9 @@ class StreamInferencePipeline(
                 f"reserved {mem_reserved_gib:.3f} GiB "
                 f"peak {mem_peak_gib:.3f} GiB"
             )
+        kv_stats_fn = getattr(cache.transformer_cache, "kv_cache_stats", None)
+        if kv_stats_fn is not None:
+            stats.update(kv_stats_fn())
         logger.info(
             f"AR {autoregressive_index} {stages_str} | "
             f"total(w/o finalize) {total_ms_wo_finalize:.3f} ms "

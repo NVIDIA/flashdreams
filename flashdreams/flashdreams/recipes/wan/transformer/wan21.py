@@ -26,6 +26,13 @@ from torch import Tensor
 
 from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.core.attention.kv_compress import (
+    KVCompressionConfig,
+    QVGBackend,
+    QVGQuantConfig,
+    QuantizedKVCache,
+)
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
@@ -89,6 +96,37 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
         self.network_cache.after_update(autoregressive_index)
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.after_update(autoregressive_index)
+        # DiffusionModel.finalize has already re-keyed both branches with the
+        # clean representation. Compression hooks must run after after_update,
+        # when the chunk bookkeeping points at the clean KV chunk.
+        self.network_cache.finalize_clean_chunk(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.finalize_clean_chunk(autoregressive_index)
+
+    def kv_cache_stats(self) -> dict[str, float | int]:
+        """Aggregate optional KV-compression stats from cond/uncond caches."""
+        cond = self.network_cache.kv_cache_stats()
+        if self.network_cache_uncond is None:
+            return cond
+        uncond = self.network_cache_uncond.kv_cache_stats()
+        stored = int(cond["kv_cache_bytes"]) + int(uncond["kv_cache_bytes"])
+        bf16_equiv = int(cond["kv_cache_bf16_equiv_bytes"]) + int(
+            uncond["kv_cache_bf16_equiv_bytes"]
+        )
+        compression_ratio = bf16_equiv / stored if stored > 0 else 1.0
+        return {
+            "kv_cache_bytes": stored,
+            "kv_cache_bf16_equiv_bytes": bf16_equiv,
+            "kv_cache_compression_ratio": compression_ratio,
+            "qvg_quantize_ms": float(cond["qvg_quantize_ms"])
+            + float(uncond["qvg_quantize_ms"]),
+            "qvg_dequantize_ms": float(cond["qvg_dequantize_ms"])
+            + float(uncond["qvg_dequantize_ms"]),
+            "kv_cache_num_quantized_spans": int(
+                cond["kv_cache_num_quantized_spans"]
+            )
+            + int(uncond["kv_cache_num_quantized_spans"]),
+        }
 
 
 ## Transformer
@@ -171,6 +209,21 @@ class Wan21TransformerConfig(InstantiateConfig["Wan21Transformer"]):
     concat_image_mask_to_latent: bool = False
     """See class docstring (channel-concat I2V layout)."""
 
+    kv_compression: KVCompressionConfig | None = None
+    """Optional KV-compression config. ``None`` preserves the BF16 cache path."""
+
+    store_prerope_keys: bool = False
+    """Store BF16 self-attention keys before RoPE and apply RoPE at cache read.
+    This matches official Self-Forcing/QVG inference when enabled."""
+
+    scheduler_renoise_unpatchified: bool = False
+    """Legacy alignment flag kept for old configs. Main DiffusionModelConfig
+    now owns official-style unpatchified noise layout."""
+
+    def __post_init__(self) -> None:
+        assert self.guidance_scale >= 1.0, (
+            f"guidance_scale must be >= 1.0 (got {self.guidance_scale})"
+        )
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
     """Wan 2.1 DiT adapted to the infra Transformer interface."""
@@ -243,6 +296,10 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             if config.use_cuda_graph
             else self.network
         )
+        if config.kv_compression is not None:
+            assert self._cp_size == 1, "QVG v1 supports single-GPU cp_size=1 only"
+        self._scheduler_renoise_replay: list[Tensor] | None = None
+        self._scheduler_renoise_replay_index = 0
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
@@ -293,12 +350,30 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         chunk_size = self.latent_shape[-2]  # already CP-divided
         window_size = (cfg.window_size_t // kt * pHW) // cp_size
         sink_size = (cfg.sink_size_t // kt * pHW) // cp_size
+        self_attn_cache_factory = None
+        if cfg.kv_compression is not None:
+            qvg_backend = QVGBackend(
+                QVGQuantConfig.from_config(cfg.kv_compression)
+            )
+
+            def self_attn_cache_factory(**kwargs: Any) -> QuantizedKVCache:
+                return QuantizedKVCache(
+                    **kwargs,
+                    backend=qvg_backend,
+                    compression_config=cfg.kv_compression,
+                )
+        elif cfg.store_prerope_keys:
+
+            def self_attn_cache_factory(**kwargs: Any) -> BlockKVCache:
+                return BlockKVCache(**kwargs, stores_prerope_keys=True)
+
         return self.network.initialize_cache(
             chunk_size=chunk_size,
             window_size=window_size,
             sink_size=sink_size,
             text_embeddings=text_embeddings,
             img_embeddings=image_embeddings,
+            self_attn_cache_factory=self_attn_cache_factory,
         )
 
     @torch.no_grad()
@@ -421,6 +496,37 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             if autoregressive_index < self._cuda_graph_capture_ar_idx
             else network_call
         )
+
+    def scheduler_renoise_noise(
+        self,
+        sample: Tensor,
+        rng: torch.Generator | None = None,
+    ) -> Tensor:
+        """Optional replay hook for scheduler re-noise alignment tensors."""
+        if self._scheduler_renoise_replay is not None:
+            if self._scheduler_renoise_replay_index >= len(
+                self._scheduler_renoise_replay
+            ):
+                raise RuntimeError("scheduler re-noise replay is exhausted")
+            noise = self._scheduler_renoise_replay[
+                self._scheduler_renoise_replay_index
+            ]
+            self._scheduler_renoise_replay_index += 1
+            noise = noise.to(device=sample.device, dtype=sample.dtype)
+            if noise.ndim == sample.ndim - 1 and sample.ndim >= 2:
+                noise = noise.unflatten(0, sample.shape[:2])
+            if tuple(noise.shape) != tuple(sample.shape):
+                raise ValueError(
+                    "scheduler re-noise replay tensor shape mismatch: "
+                    f"got {tuple(noise.shape)}, expected {tuple(sample.shape)}"
+                )
+            return noise
+        return torch.empty_like(sample).normal_(generator=rng)
+
+    def set_scheduler_renoise_replay(self, tensors: list[Tensor] | None) -> None:
+        """Replay explicit scheduler re-noise tensors for alignment runs."""
+        self._scheduler_renoise_replay = tensors
+        self._scheduler_renoise_replay_index = 0
 
     def _build_network_input(
         self,

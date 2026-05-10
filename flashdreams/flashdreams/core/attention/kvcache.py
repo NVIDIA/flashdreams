@@ -74,6 +74,9 @@ class BlockKVCache:
     sink_size: int = 0
     """Number of sink tokens at the start of the cache that are never evicted. Defaults to 0."""
 
+    stores_prerope_keys: bool = False
+    """If True, keys are stored before RoPE and matching RoPE frequencies are cached."""
+
     device: torch.device | str = torch.device("cuda")
     """Device to store the cache on."""
 
@@ -94,6 +97,12 @@ class BlockKVCache:
 
     _v: Tensor = field(init=False)
     """Cached values. shape ``[..., total_size, ..., Dv]``, where the ``total_size`` is the length of the cache buffer at ``seq_dim`` dimension."""
+
+    _k_rope_freqs: Tensor | None = field(init=False, default=None)
+    """Cached RoPE frequencies for pre-RoPE keys, with sequence on dim 0."""
+
+    _pending_rope_freqs: Tensor | None = field(init=False, default=None)
+    """RoPE frequencies for the current update when storing pre-RoPE keys."""
 
     @classmethod
     def from_tensor(cls, k: Tensor, v: Tensor, seq_dim: int) -> Self:
@@ -145,6 +154,43 @@ class BlockKVCache:
         idx[self.seq_dim] = slice(start, end)
         return tuple(idx)
 
+    def _rope_seq_slice(self, start: int | None, end: int | None) -> tuple[slice, ...]:
+        if self._k_rope_freqs is None:
+            raise ValueError("RoPE frequency cache is not initialized")
+        return (slice(start, end),) + (slice(None),) * (self._k_rope_freqs.ndim - 1)
+
+    def _ensure_rope_freq_cache(self, rope_freqs: Tensor) -> None:
+        if self._k_rope_freqs is not None:
+            return
+        total_size = self._k.shape[self.seq_dim]
+        self._k_rope_freqs = torch.empty(
+            (total_size, *rope_freqs.shape[1:]),
+            device=rope_freqs.device,
+            dtype=rope_freqs.dtype,
+        )
+
+    def _write_pending_rope_freqs(
+        self,
+        write_start: int,
+        write_end: int,
+        *,
+        read_start: int = 0,
+        read_end: int | None = None,
+    ) -> None:
+        if not self.stores_prerope_keys:
+            return
+        if self._pending_rope_freqs is None:
+            raise ValueError("Missing pending RoPE frequencies for pre-RoPE cache")
+        read_end = read_end if read_end is not None else read_start + (write_end - write_start)
+        self._ensure_rope_freq_cache(self._pending_rope_freqs)
+        assert self._k_rope_freqs is not None
+        self._k_rope_freqs[self._rope_seq_slice(write_start, write_end)] = (
+            self._pending_rope_freqs[read_start:read_end].to(
+                device=self._k_rope_freqs.device,
+                dtype=self._k_rope_freqs.dtype,
+            )
+        )
+
     def _roll_local_window_left(self) -> None:
         """Shift the local window left by chunk_size tokens (steady-state only)."""
         total_size = self._k.shape[self.seq_dim]
@@ -163,6 +209,10 @@ class BlockKVCache:
             src_slice = self._seq_slice(src_start, src_end)
             self._k[dst_slice] = self._k[src_slice].clone()
             self._v[dst_slice] = self._v[src_slice].clone()
+            if self.stores_prerope_keys and self._k_rope_freqs is not None:
+                self._k_rope_freqs[self._rope_seq_slice(dst_start, dst_end)] = (
+                    self._k_rope_freqs[self._rope_seq_slice(src_start, src_end)].clone()
+                )
 
     def _overwrite_rightmost_steady(self, k: Tensor, v: Tensor) -> None:
         """Write the new chunk into the rightmost positions (steady-state, after roll)."""
@@ -176,6 +226,7 @@ class BlockKVCache:
             sl_write = self._seq_slice(write_start, write_end)
             self._k[sl_write] = k
             self._v[sl_write] = v
+            self._write_pending_rope_freqs(write_start, write_end)
         else:
             # The input token overlaps with the sink tokens, so we only keep partial of it.
             # Note: here we assume the sink tokens have already been written to the cache.
@@ -189,6 +240,9 @@ class BlockKVCache:
             sl_write = self._seq_slice(write_start, write_end)
             self._k[sl_write] = k[sl_read]
             self._v[sl_write] = v[sl_read]
+            self._write_pending_rope_freqs(
+                write_start, write_end, read_start=read_start, read_end=read_end
+            )
 
     def _overwrite_rightmost_filling(self, k: Tensor, v: Tensor) -> None:
         """Write the new chunk into the rightmost positions (filling phase)."""
@@ -200,6 +254,7 @@ class BlockKVCache:
         sl = self._seq_slice(write_start, write_end)
         self._k[sl] = k
         self._v[sl] = v
+        self._write_pending_rope_freqs(write_start, write_end)
 
     def _append_to_end(self, k: Tensor, v: Tensor) -> None:
         """Append the new chunk to the end of the cache (filling phase)."""
@@ -211,6 +266,7 @@ class BlockKVCache:
         sl = self._seq_slice(write_start, write_end)
         self._k[sl] = k
         self._v[sl] = v
+        self._write_pending_rope_freqs(write_start, write_end)
 
     def is_steady_state(self) -> bool:
         """Return True if the cache is full (steady-state phase)."""
@@ -288,6 +344,7 @@ class BlockKVCache:
                 raise ValueError(
                     f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
                 )
+        self._pending_rope_freqs = None
 
     def after_update(self, chunk_idx: int) -> None:
         """
@@ -347,7 +404,38 @@ class BlockKVCache:
                 f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
             )
 
+    def set_pending_rope_freqs(self, rope_freqs: Tensor | None) -> None:
+        """Provide RoPE frequencies for the next pre-RoPE key update."""
+        if not self.stores_prerope_keys:
+            return
+        if rope_freqs is None:
+            raise ValueError("pre-RoPE cache requires RoPE frequencies")
+        if rope_freqs.shape[0] != self.chunk_size:
+            raise ValueError(
+                f"RoPE frequency length must equal chunk_size: "
+                f"{rope_freqs.shape[0]} != {self.chunk_size}"
+            )
+        self._pending_rope_freqs = rope_freqs.detach()
+
+    def cached_k_rope_freqs(self) -> Tensor:
+        """Return cached RoPE frequencies aligned with ``cached_k()``."""
+        if not self.stores_prerope_keys:
+            raise ValueError("cached_k_rope_freqs is only valid for pre-RoPE caches")
+        if self._k_rope_freqs is None:
+            raise ValueError("RoPE frequency cache is not initialized")
+        if self.is_steady_state():
+            return self._k_rope_freqs
+        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
+            return self._k_rope_freqs[self._rope_seq_slice(0, self._n_cached + self.chunk_size)]
+        elif self._curr_chunk_idx == self._prev_chunk_idx:
+            return self._k_rope_freqs[self._rope_seq_slice(0, self._n_cached)]
+        else:
+            raise ValueError(
+                f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
+            )
+
     def reset(self) -> None:
         """Reset the cache to its initial empty state."""
         self._prev_chunk_idx = -1
         self._n_cached = 0
+        self._pending_rope_freqs = None

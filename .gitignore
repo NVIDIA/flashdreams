@@ -122,6 +122,11 @@ compile_commands.json
 *.dump
 
 outputs/
+flashdreams/outputs/
+/ckpts/
+/ckpts
+/flashdreams/ckpts/
+/flashdreams/ckpts
 data_local/
 credentials/*.secret
 

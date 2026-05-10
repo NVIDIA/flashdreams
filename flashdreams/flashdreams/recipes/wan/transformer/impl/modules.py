@@ -18,15 +18,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention
+from flashdreams.core.attention import BlockKVCache, NativeAttention, RingAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 
 
@@ -69,6 +70,37 @@ class MLPProj(torch.nn.Module):
         return self.proj(x)
 
 
+class WanRMSNorm(nn.Module):
+    """Wan-compatible RMSNorm: normalize in fp32, cast back, then apply weight."""
+
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: Tensor) -> Tensor:
+        normalized = x.float() * torch.rsqrt(
+            x.float().pow(2).mean(dim=-1, keepdim=True) + self.eps
+        )
+        return normalized.type_as(x) * self.weight
+
+
+class WanLayerNorm(nn.LayerNorm):
+    """Wan-compatible LayerNorm: preserve the input dtype after normalization."""
+
+    def __init__(
+        self,
+        dim: int,
+        eps: float = 1e-6,
+        elementwise_affine: bool = False,
+    ) -> None:
+        super().__init__(dim, eps=eps, elementwise_affine=elementwise_affine)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return super().forward(x).type_as(x)
+
+
 class Head(nn.Module):
     """Final projection head with AdaLN-style modulation."""
 
@@ -89,7 +121,7 @@ class Head(nn.Module):
 
         # Output projection
         out_dim = math.prod(patch_size) * out_dim
-        self.norm = nn.LayerNorm(dim, eps, elementwise_affine=False)
+        self.norm = WanLayerNorm(dim, eps, elementwise_affine=False)
         self.head = nn.Linear(dim, out_dim)
 
         # AdaLN-style modulation
@@ -137,6 +169,7 @@ class MultiHeadAttention(nn.Module):
         n_heads: int = 8,
         head_dim: int = 64,
         eps: float = 1e-6,
+        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -162,10 +195,14 @@ class MultiHeadAttention(nn.Module):
         self.v = nn.Linear(context_dim, inner_dim)
         self.o = nn.Linear(inner_dim, query_dim)
 
-        self.norm_q = nn.RMSNorm(inner_dim, eps=eps)
-        self.norm_k = nn.RMSNorm(inner_dim, eps=eps)
+        self.norm_q = WanRMSNorm(inner_dim, eps=eps)
+        self.norm_k = WanRMSNorm(inner_dim, eps=eps)
 
-        self.attn_op = RingAttention(qkv_format="bshd", backend="cudnn")
+        self.attn_op = (
+            NativeAttention(qkv_format="bshd", backend="flash")
+            if attention_backend == "sdpa_flash"
+            else RingAttention(qkv_format="bshd", backend=attention_backend)
+        )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Configure context-parallel process group for the underlying attention op."""
@@ -202,13 +239,18 @@ class MultiHeadAttention(nn.Module):
 
         k = self.norm_k(self.k(context)).reshape(batch_size, L, n, d)
         v = self.v(context).reshape(batch_size, L, n, d)
-        if rope_freqs is not None:
+        stores_prerope_keys = bool(
+            kv_cache is not None and getattr(kv_cache, "stores_prerope_keys", False)
+        )
+        if rope_freqs is not None and not stores_prerope_keys:
             # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
             k = apply_rope_freqs(k, rope_freqs, interleaved=True)
 
         if kv_cache is None:
             kv_cache = BlockKVCache.from_tensor(k, v, seq_dim=-3)
         else:
+            if stores_prerope_keys:
+                kv_cache.set_pending_rope_freqs(rope_freqs)
             kv_cache.update(k, v)
         return kv_cache
 
@@ -257,6 +299,9 @@ class MultiHeadAttention(nn.Module):
             q = apply_rope_freqs(q, rope_freqs, interleaved=True)
 
         cached_k = kv_cache.cached_k()
+        if getattr(kv_cache, "stores_prerope_keys", False):
+            key_rope_freqs = kv_cache.cached_k_rope_freqs()
+            cached_k = apply_rope_freqs(cached_k, key_rope_freqs, interleaved=True)
         cached_v = kv_cache.cached_v()
 
         out = self.attn_op(q, cached_k, cached_v)
@@ -297,7 +342,8 @@ class SelfAttention(MultiHeadAttention):
         sink_size: int,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> BlockKVCache:
+        self_attn_cache_factory: Callable[..., Any] | None = None,
+    ) -> Any:
         """Initialize KV cache for streaming self-attention.
 
         Args:
@@ -312,9 +358,12 @@ class SelfAttention(MultiHeadAttention):
             An initialized ``BlockKVCache``.
         """
         total_size = sink_size + window_size
-        return BlockKVCache(
-            k_shape=(batch_size, total_size, self.n_heads, self.head_dim),
-            v_shape=(batch_size, total_size, self.n_heads, self.head_dim),
+        k_shape = (batch_size, total_size, self.n_heads, self.head_dim)
+        v_shape = (batch_size, total_size, self.n_heads, self.head_dim)
+        cache_factory = self_attn_cache_factory or BlockKVCache
+        return cache_factory(
+            k_shape=k_shape,
+            v_shape=v_shape,
             seq_dim=-3,
             chunk_size=chunk_size,
             window_size=window_size,
@@ -344,14 +393,23 @@ class CrossAttnCache:
 class CrossAttention(MultiHeadAttention):
     """Cross-attention with static cached context."""
 
-    def __init__(self, i2v: bool = False, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        i2v: bool = False,
+        *args: Any,
+        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.i2v = i2v
+        self.attention_backend = attention_backend
         if self.i2v:
             self.k_img = nn.Linear(self.context_dim, self.inner_dim)
             self.v_img = nn.Linear(self.context_dim, self.inner_dim)
-            self.norm_k_img = nn.RMSNorm(self.inner_dim, eps=self.eps)
-            self.attn_op_image = RingAttention(qkv_format="bshd", backend="cudnn")
+            self.norm_k_img = WanRMSNorm(self.inner_dim, eps=self.eps)
+            self.attn_op_image = RingAttention(
+                qkv_format="bshd", backend=attention_backend
+            )
 
     def compute_kv_image(self, context: Tensor) -> BlockKVCache:
         """Compute K/V from image ``context``.
@@ -425,7 +483,7 @@ class CrossAttention(MultiHeadAttention):
 class BlockCache:
     """Per-block cache container for self-attention and cross-attention."""
 
-    self_attn: BlockKVCache
+    self_attn: Any
     cross_attn: CrossAttnCache
 
     def before_update(self, chunk_idx: int) -> None:
@@ -435,6 +493,12 @@ class BlockCache:
     def after_update(self, chunk_idx: int) -> None:
         """Run post-update hook for self-attention cache."""
         self.self_attn.after_update(chunk_idx)
+
+    def finalize_clean_chunk(self, chunk_idx: int) -> None:
+        """Run clean-KV finalization hook when the cache supports it."""
+        hook = getattr(self.self_attn, "finalize_clean_chunk", None)
+        if hook is not None:
+            hook(chunk_idx)
 
 
 class Block(nn.Module):
@@ -450,6 +514,7 @@ class Block(nn.Module):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         i2v: bool = False,
+        attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn",
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -459,15 +524,16 @@ class Block(nn.Module):
         self.eps = eps
 
         # Core submodules
-        self.norm1 = nn.LayerNorm(dim, eps=eps, elementwise_affine=False)
+        self.norm1 = WanLayerNorm(dim, eps=eps, elementwise_affine=False)
         self.self_attn = SelfAttention(
             query_dim=dim,
             n_heads=num_heads,
             head_dim=dim // num_heads,
             eps=eps,
+            attention_backend=attention_backend,
         )
         self.norm3 = (
-            nn.LayerNorm(dim, eps, elementwise_affine=True)
+            WanLayerNorm(dim, eps, elementwise_affine=True)
             if cross_attn_norm
             else nn.Identity()
         )
@@ -477,8 +543,9 @@ class Block(nn.Module):
             head_dim=dim // num_heads,
             i2v=i2v,
             eps=eps,
+            attention_backend=attention_backend,
         )
-        self.norm2 = nn.LayerNorm(dim, eps=eps, elementwise_affine=False)
+        self.norm2 = WanLayerNorm(dim, eps=eps, elementwise_affine=False)
         self.ffn = nn.Sequential(
             nn.Linear(dim, ffn_dim),
             nn.GELU(approximate="tanh"),
@@ -496,6 +563,7 @@ class Block(nn.Module):
         sink_size: int,
         context_text: Tensor,
         context_img: Tensor | None = None,
+        self_attn_cache_factory: Callable[..., Any] | None = None,
     ) -> BlockCache:
         """Initialize per-branch caches for this transformer block.
 
@@ -522,6 +590,7 @@ class Block(nn.Module):
                 sink_size,
                 device=device,
                 dtype=dtype,
+                self_attn_cache_factory=self_attn_cache_factory,
             ),
             cross_attn=self.cross_attn.initialize_cache(context_text, context_img),
         )

@@ -1,54 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Causal Wan 2.1 demo on top of :class:`WanInferencePipeline`.
+"""QVG Wan 2.1 T2V demo on top of :class:`WanInferencePipeline`.
 
-Distributed streaming inference entrypoint for the Self-Forcing /
-Causal-Forcing Wan 2.1 checkpoints. The mode is picked by the presence
-of ``--image_path``:
-
-- **T2V** — no ``--image_path``. Builds one of the
-  :data:`CAUSAL_WAN21_CONFIG_BUILDERS` presets with ``i2v=False``; the
-  infra :class:`StreamInferencePipeline` has no encoder slot and the
-  recipe pipeline only needs the long-lived :class:`UMT5TextEncoder`.
-- **I2V** — ``--image_path`` provided. Flips the builder's ``i2v``
-  flag, which wires a streaming :class:`I2VCtrlEncoder` on the infra
-  encoder slot. Per AR step the recipe pipeline pads the user's first
-  frame along T to one full latent chunk and hands the pixel chunk to
-  that encoder; the encoder VAE-encodes it and packages the result as
-  an :class:`I2VCtrl` (encoded latent + binary first-frame mask)
-  which the infra patchifies and forwards to the transformer as the
-  ``input`` argument.
-
-Rollouts are multi-AR-step by design (streaming); ``--total_blocks``
-controls how many AR chunks to generate.
-
-Run::
-
-    # T2V
-    torchrun --nproc_per_node=N \\
-        examples/run_causal_wan21.py \\
-        --total_blocks 60 \\
-        --config_name self_forcing
-
-    # I2V
-    torchrun --nproc_per_node=N \\
-        examples/run_causal_wan21.py \\
-        --total_blocks 60 \\
-        --config_name self_forcing \\
-        --image_path path/to/first_frame.png
+This runner is intentionally T2V-only for the first QVG integration. It uses
+the Self-Forcing Wan 2.1 checkpoint and opt-in QVG KV compression configs.
 """
 
 from __future__ import annotations
@@ -58,14 +14,12 @@ import json
 import os
 from pathlib import Path
 
-import cv2
 import mediapy as media
 import numpy as np
 import torch
 from einops import rearrange
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.infra.decoder.base import StreamingVideoDecoder
 from flashdreams.infra.diffusion.noise import (
     load_initial_noise_rollout,
     select_initial_noise_chunk,
@@ -79,9 +33,9 @@ from flashdreams.recipes.wan.config.causal_wan21 import (
     WAN_VAE_SPATIAL_COMPRESSION,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+QVG_CONFIG_NAMES = ("self_forcing_qvg_int2", "self_forcing_qvg_int4")
 
 DEFAULT_T2V_PROMPT = (
     "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
@@ -95,22 +49,16 @@ DEFAULT_T2V_PROMPT = (
     "captured in a dynamic medium shot with the woman walking slightly to "
     "one side, highlighting her graceful strides."
 )
-DEFAULT_I2V_PROMPT = DEFAULT_T2V_PROMPT
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Causal Wan 2.1 streaming demo. Without --image_path runs T2V; "
-            "with --image_path runs I2V (mask-injection)."
-        )
-    )
+    parser = argparse.ArgumentParser(description="QVG Wan 2.1 T2V demo.")
     parser.add_argument(
         "--config_name",
         type=str,
-        default="self_forcing",
-        choices=sorted(CAUSAL_WAN21_CONFIG_BUILDERS.keys()),
-        help="Streaming checkpoint preset to load.",
+        default="self_forcing_qvg_int2",
+        choices=QVG_CONFIG_NAMES,
+        help="QVG KV-compression preset to load.",
     )
     parser.add_argument(
         "--total_blocks",
@@ -119,24 +67,10 @@ def parse_args() -> argparse.Namespace:
         help="Number of AR chunks to generate.",
     )
     parser.add_argument(
-        "--image_path",
-        type=str,
-        default=None,
-        help=(
-            "Optional path to a first-frame image. When provided the "
-            "script switches to I2V (mask-injection): the image is "
-            "VAE-encoded per AR step and the first temporal frame's "
-            "noisy/clean latent is overridden at AR step 0."
-        ),
-    )
-    parser.add_argument(
         "--prompt_or_txt_path",
         type=str,
         default=None,
-        help=(
-            "Text prompt, or path to a .txt file containing one. When "
-            "omitted, a mode-specific default prompt is used."
-        ),
+        help="Text prompt, or path to a .txt file containing one.",
     )
     parser.add_argument(
         "--prompt_index",
@@ -147,9 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no_compile",
         action="store_true",
-        help=(
-            "Disable torch.compile of the DiT network (faster startup, slower steps)."
-        ),
+        help="Disable torch.compile of the DiT network.",
     )
     parser.add_argument("--seed", type=int, default=42, help="Base random seed.")
     parser.add_argument(
@@ -159,10 +91,104 @@ def parse_args() -> argparse.Namespace:
         help="Override transformer self-attention window in latent frames.",
     )
     parser.add_argument(
+        "--attention_backend",
+        choices=("cudnn", "flash", "sdpa_flash"),
+        default=None,
+        help="Override Wan attention backend. Use flash for official QVG alignment probes.",
+    )
+    parser.add_argument(
+        "--store_prerope_keys",
+        action="store_true",
+        help="Store BF16 self-attention keys pre-RoPE for official QVG alignment probes.",
+    )
+    parser.add_argument(
         "--output_tag",
         type=str,
         default=None,
         help="Optional suffix for output mp4/json names.",
+    )
+    parser.add_argument(
+        "--qvg_kmeans_max_iters",
+        type=int,
+        default=None,
+        help="Override QVG k-means iterations for benchmark/tuning runs.",
+    )
+    parser.add_argument(
+        "--qvg_quant_block_size",
+        type=int,
+        default=None,
+        help="Override QVG residual quantization block size.",
+    )
+    parser.add_argument(
+        "--qvg_cache_num_k_centroids",
+        type=int,
+        default=None,
+        help="Override number of K centroids.",
+    )
+    parser.add_argument(
+        "--qvg_cache_num_v_centroids",
+        type=int,
+        default=None,
+        help="Override number of V centroids.",
+    )
+    parser.add_argument(
+        "--qvg_cache_k_num_bits",
+        type=int,
+        default=None,
+        choices=(2, 4),
+        help="Override K residual bit width for mixed-bit QVG tuning.",
+    )
+    parser.add_argument(
+        "--qvg_cache_v_num_bits",
+        type=int,
+        default=None,
+        choices=(2, 4),
+        help="Override V residual bit width for mixed-bit QVG tuning.",
+    )
+    parser.add_argument(
+        "--qvg_num_prq_stages",
+        type=int,
+        default=None,
+        help="Override number of PRQ stages.",
+    )
+    parser.add_argument(
+        "--qvg_scale_dtype",
+        type=str,
+        default=None,
+        choices=("bfloat16", "float16", "float32", "float8_e4m3fn"),
+        help="Override QVG scale storage dtype.",
+    )
+    parser.add_argument(
+        "--qvg_kmeans_init",
+        type=str,
+        default=None,
+        choices=("linspace", "random"),
+        help="Override QVG k-means centroid initialization.",
+    )
+    parser.add_argument(
+        "--qvg_kmeans_seed",
+        type=int,
+        default=None,
+        help="Local seed for random QVG k-means initialization.",
+    )
+    parser.add_argument(
+        "--qvg_kernel_impl",
+        type=str,
+        default="official_triton",
+        choices=("native", "official_triton"),
+        help="Override QVG implementation: native PyTorch or official QVG Triton.",
+    )
+    parser.add_argument(
+        "--qvg_compress_every_n_chunks",
+        type=int,
+        default=None,
+        help="Override QVG compression cadence.",
+    )
+    parser.add_argument(
+        "--qvg_protected_recent_chunks",
+        type=int,
+        default=None,
+        help="Override number of recent chunks left dense.",
     )
     parser.add_argument(
         "--initial_noise_path",
@@ -200,22 +226,12 @@ def parse_args() -> argparse.Namespace:
             "named <idx>_<chunk>_<step>.pt."
         ),
     )
-    parser.add_argument(
-        "--save_latents_path",
-        type=Path,
-        default=None,
-        help="Optional path to save clean latent rollout in [B, T, C, H, W].",
-    )
     return parser.parse_args()
 
 
-def _resolve_prompt(
-    prompt_or_txt_path: str | None,
-    default: str,
-    prompt_index: int,
-) -> str:
+def _resolve_prompt(prompt_or_txt_path: str | None, prompt_index: int) -> str:
     if prompt_or_txt_path is None:
-        return default
+        return DEFAULT_T2V_PROMPT
     if prompt_or_txt_path.endswith(".txt"):
         with open(prompt_or_txt_path, "r") as f:
             prompts = [line.strip() for line in f if line.strip()]
@@ -225,6 +241,69 @@ def _resolve_prompt(
             )
         return prompts[prompt_index]
     return prompt_or_txt_path
+
+
+def _output_suffix(args: argparse.Namespace, world_size: int) -> str:
+    suffix = f"{args.config_name}_{args.total_blocks}blocks_seed{args.seed}"
+    if args.no_compile:
+        suffix += "_nocompile"
+    if args.output_tag:
+        suffix += f"_{args.output_tag}"
+    return f"{suffix}_t2v_{world_size}gpus"
+
+
+def _apply_qvg_overrides(
+    pipeline_config: object,
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    """Apply runner-only QVG tuning overrides before setup."""
+    transformer_config = pipeline_config.diffusion_model.transformer
+    kv_config = transformer_config.kv_compression
+    assert kv_config is not None, "QVG runner expects kv_compression config"
+
+    backend_overrides = {
+        "kmeans_max_iters": args.qvg_kmeans_max_iters,
+        "quant_block_size": args.qvg_quant_block_size,
+        "cache_num_k_centroids": args.qvg_cache_num_k_centroids,
+        "cache_num_v_centroids": args.qvg_cache_num_v_centroids,
+        "cache_k_num_bits": args.qvg_cache_k_num_bits,
+        "cache_v_num_bits": args.qvg_cache_v_num_bits,
+        "num_prq_stages": args.qvg_num_prq_stages,
+        "scale_dtype": args.qvg_scale_dtype,
+        "kmeans_init": args.qvg_kmeans_init,
+        "kmeans_seed": args.qvg_kmeans_seed,
+        "kernel_impl": args.qvg_kernel_impl,
+    }
+    backend_config = dict(kv_config.backend_config)
+    for key, value in backend_overrides.items():
+        if value is not None:
+            backend_config[key] = value
+    kv_config.backend_config = backend_config
+
+    schedule = dict(kv_config.schedule)
+    if args.qvg_compress_every_n_chunks is not None:
+        schedule["compress_every_n_chunks"] = args.qvg_compress_every_n_chunks
+    kv_config.schedule = schedule
+
+    if args.qvg_protected_recent_chunks is not None:
+        kv_config.protected_recent_chunks = args.qvg_protected_recent_chunks
+
+    if args.window_size_t is not None:
+        transformer_config.window_size_t = args.window_size_t
+    if args.attention_backend is not None:
+        transformer_config.network.attention_backend = args.attention_backend
+    if args.store_prerope_keys:
+        transformer_config.store_prerope_keys = True
+
+    return {
+        "backend": kv_config.backend,
+        "backend_config": dict(kv_config.backend_config),
+        "schedule": dict(kv_config.schedule),
+        "protected_recent_chunks": kv_config.protected_recent_chunks,
+        "window_size_t": transformer_config.window_size_t,
+        "attention_backend": transformer_config.network.attention_backend,
+        "store_prerope_keys": transformer_config.store_prerope_keys,
+    }
 
 
 def _wan_unpatchified_noise_shape(pipeline: WanInferencePipeline) -> tuple[int, ...]:
@@ -354,12 +433,7 @@ def _load_renoise_replay(
 
 def main() -> None:
     args = parse_args()
-    is_i2v = args.image_path is not None
-    prompt = _resolve_prompt(
-        args.prompt_or_txt_path,
-        DEFAULT_I2V_PROMPT if is_i2v else DEFAULT_T2V_PROMPT,
-        args.prompt_index,
-    )
+    prompt = _resolve_prompt(args.prompt_or_txt_path, args.prompt_index)
 
     assert os.getenv("HF_TOKEN") is not None, "HF_TOKEN is not set"
 
@@ -372,56 +446,35 @@ def main() -> None:
         f"initialized distributed inference with world size {world_size} "
         f"and rank {rank}"
     )
-    print(f"Running causal Wan 2.1 inference with config: {args.config_name}")
+    print(f"Running QVG Wan 2.1 inference with config: {args.config_name}")
 
     builder = CAUSAL_WAN21_CONFIG_BUILDERS[args.config_name]
     pipeline_config = builder(
+        cp_size=world_size,
         compile_network=not args.no_compile,
         seed=args.seed + rank,
-        i2v=is_i2v,
+        i2v=False,
         enable_sync_and_profile=True,
     )
-    if args.window_size_t is not None:
-        pipeline_config.diffusion_model.transformer.window_size_t = (
-            args.window_size_t
-        )
+    qvg_run_config = _apply_qvg_overrides(pipeline_config, args)
+    print("QVG runtime config:", json.dumps(qvg_run_config, sort_keys=True))
+
     pipeline = pipeline_config.setup().to(device=device)
     pipeline.diffusion_model.transformer.set_scheduler_renoise_replay(
         _load_renoise_replay(args.renoise_noise_folder)
     )
-
     assert isinstance(pipeline, WanInferencePipeline)
+
     initial_noise_rollout = (
         load_initial_noise_rollout(args.initial_noise_path)
         if args.initial_noise_path is not None
         else None
     )
-
-    # Per-rollout latent (H, W). For T2V we pass these explicitly; for
-    # I2V the pipeline derives them from the resized first-frame pixels.
-    transformer_cfg = pipeline.diffusion_model.transformer.config
-    assert isinstance(transformer_cfg, Wan21TransformerConfig)
-    assert isinstance(pipeline.decoder, StreamingVideoDecoder)
     latent_h = DEFAULT_VIDEO_HEIGHT // WAN_VAE_SPATIAL_COMPRESSION
     latent_w = DEFAULT_VIDEO_WIDTH // WAN_VAE_SPATIAL_COMPRESSION
-
-    image: torch.Tensor | None = None
-    if is_i2v:
-        decoder_sp = pipeline.decoder.spatial_compression_ratio
-        pixel_h = latent_h * decoder_sp
-        pixel_w = latent_w * decoder_sp
-        first_frame = media.read_image(args.image_path)[..., :3]  # drop alpha
-        first_frame = cv2.resize(first_frame, (pixel_w, pixel_h))  # [H, W, 3]
-        first_frame_t = (
-            torch.from_numpy(first_frame).to(device=device, dtype=transformer_cfg.dtype)
-            / 127.5
-            - 1.0
-        )  # [H, W, 3] in range [-1, 1]
-        image = rearrange(first_frame_t, "h w c -> 1 1 c h w")  # [B=1, T=1, C=3, H, W]
-
     cache = pipeline.initialize_cache(
         text=[prompt],
-        image=image,
+        image=None,
         height=latent_h,
         width=latent_w,
         text_embeddings=_load_text_embeddings(args.text_embeddings_path),
@@ -431,11 +484,9 @@ def main() -> None:
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    # ---------------------------------------------------------------- rollout
     chunks: list[torch.Tensor] = []
-    stats_history: list[dict[str, float]] = []
+    stats_history: list[dict[str, float | int]] = []
     initial_noise_chunks: list[torch.Tensor] = []
-    latent_chunks: list[torch.Tensor] = []
     for i in range(args.total_blocks):
         num_frames = pipeline.get_num_output_frames(i)
         print(f"autoregressive_index: {i}, num_frames: {num_frames}")
@@ -451,42 +502,26 @@ def main() -> None:
             initial_noise_chunks.append(save_noise.detach().cpu())
 
         video_chunk = pipeline.generate(i, cache, initial_noise=initial_noise)
-        if args.save_latents_path is not None:
-            assert cache.final_state is not None
-            latent_chunks.append(
-                pipeline.diffusion_model.transformer.unpatchify_and_maybe_gather_cp(
-                    cache.final_state.clean_latent
-                )
-                .detach()
-                .cpu()
-            )
         stats = pipeline.finalize(i, cache)
         if stats is not None:
             stats_history.append({"autoregressive_index": i, **stats})
         chunks.append(video_chunk.cpu())
-    generated_video = torch.cat(chunks, dim=1)  # [B, T, C, H, W]
+
+    generated_video = torch.cat(chunks, dim=1)
     print("end of streaming inference, generated_video.shape:", generated_video.shape)
 
     if rank == 0:
         canvas = rearrange(generated_video, "1 t c h w -> t h w c")
         canvas = (canvas.float().numpy() + 1.0) / 2.0
         canvas = (canvas * 255).clip(0, 255).astype(np.uint8)
-        suffix = "i2v" if is_i2v else "t2v"
-        if args.output_tag:
-            suffix += f"_{args.output_tag}"
-        save_path = (
-            f"{REPO_ROOT}/outputs/causal_wan21_{args.config_name}"
-            f"_{suffix}_{world_size}gpus.mp4"
-        )
+        suffix = _output_suffix(args, world_size)
+        save_path = f"{REPO_ROOT}/outputs/qvg_wan21_{suffix}.mp4"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         media.write_video(save_path, canvas, fps=16)
         print(f"saved generated video to {save_path}")
 
         if stats_history:
-            stats_path = (
-                f"{REPO_ROOT}/outputs/stats_causal_wan21_{args.config_name}"
-                f"_{suffix}_{world_size}gpus.json"
-            )
+            stats_path = f"{REPO_ROOT}/outputs/stats_qvg_wan21_{suffix}.json"
             with open(stats_path, "w") as f:
                 json.dump(stats_history, f, indent=2)
             print(f"saved per-AR-step stats to {stats_path}")
@@ -499,23 +534,35 @@ def main() -> None:
             )
             print(f"saved initial noise to {args.save_initial_noise_path}")
 
-        if args.save_latents_path is not None:
-            args.save_latents_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(torch.cat(latent_chunks, dim=-4), args.save_latents_path)
-            print(f"saved clean latents to {args.save_latents_path}")
+        metadata_path = f"{REPO_ROOT}/outputs/metadata_qvg_wan21_{suffix}.json"
+        with open(metadata_path, "w") as f:
+            json.dump(
+                {
+                    "config_name": args.config_name,
+                    "total_blocks": args.total_blocks,
+                    "seed": args.seed,
+                    "no_compile": args.no_compile,
+                    "initial_noise_path": (
+                        str(args.initial_noise_path)
+                        if args.initial_noise_path is not None
+                        else None
+                    ),
+                    "save_initial_noise_path": (
+                        str(args.save_initial_noise_path)
+                        if args.save_initial_noise_path is not None
+                        else None
+                    ),
+                    "qvg": qvg_run_config,
+                },
+                f,
+                indent=2,
+            )
+        print(f"saved run metadata to {metadata_path}")
 
-    # Drop captured CUDA graphs / private mempools BEFORE NCCL teardown so
-    # they don't hold workspace buffers across the destroy. Otherwise the
-    # private mempool can outlive the communicator and rank-0's destroy
-    # can hang waiting for already-exited peers.
     del cache
     del pipeline
     torch.cuda.synchronize()
     torch.cuda.empty_cache()
-    # Hold every rank here until rank 0 finishes its mp4 encode. Without
-    # this barrier rank>0 races to destroy_process_group() and exits while
-    # rank 0 is still encoding; rank 0's later destroy then deadlocks
-    # trying to talk to peers that no longer exist.
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
         torch.distributed.destroy_process_group()

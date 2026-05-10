@@ -148,6 +148,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
         autoregressive_index: int,
         cache: TransformerCacheT,
         input: Any = None,
+        initial_noise: Tensor | None = None,
     ) -> tuple[Tensor, "DiffusionModel.FinalState[TransformerCacheT]"]:
         """Run the denoising loop for one AR step.
 
@@ -157,6 +158,10 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input: Optional per-AR-step encoder output. Patchified here and
                 forwarded to ``predict_flow`` / ``postprocess_clean_latent``,
                 then stashed on the returned ``FinalState`` for ``finalize``.
+            initial_noise: Optional caller-provided denoising start tensor.
+                Defaults to a Gaussian draw from this model's RNG. This is
+                used only by reproduction/alignment harnesses that must share
+                the exact same latent noise across codebases.
 
         Returns:
             ``(clean_latent, final_state)``. ``clean_latent`` is unpatchified;
@@ -166,27 +171,46 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input = self.transformer.patchify_and_maybe_split_cp(input)
         cache.start(autoregressive_index)
 
-        if self.config._noise_in_unpatchified_shape:
-            # The `self.latent_shape` is for patchified latent. To align with the OSS codebases
-            # we here want to create the noise with the *unpatchified* shape, then patchify it back.
-            dummy_latent = torch.empty(
-                self.latent_shape, device=self.device, dtype=self.dtype
-            )
-            dummy_latent = self.transformer.unpatchify_and_maybe_gather_cp(dummy_latent)
-            initial_noise = torch.randn(
-                dummy_latent.shape,
-                device=self.device,
-                dtype=self.dtype,
-                generator=self.rng,
-            )  # shape of an unpatchified latent
-
+        if initial_noise is None:
+            if self.config._noise_in_unpatchified_shape:
+                # The `self.latent_shape` is patchified. To align with OSS
+                # Self-Forcing/QVG, draw noise in unpatchified [B,T,C,H,W]
+                # layout and let the scheduler operate in that layout.
+                dummy_latent = torch.empty(
+                    self.latent_shape, device=self.device, dtype=self.dtype
+                )
+                dummy_latent = self.transformer.unpatchify_and_maybe_gather_cp(
+                    dummy_latent
+                )
+                initial_noise = torch.randn(
+                    dummy_latent.shape,
+                    device=self.device,
+                    dtype=self.dtype,
+                    generator=self.rng,
+                )
+            else:
+                initial_noise = torch.randn(
+                    self.latent_shape,
+                    device=self.device,
+                    dtype=self.dtype,
+                    generator=self.rng,
+                )
         else:
-            initial_noise = torch.randn(
-                self.latent_shape,
-                device=self.device,
-                dtype=self.dtype,
-                generator=self.rng,
-            )  # shape of a patchified latent
+            expected_shape = self.latent_shape
+            if self.config._noise_in_unpatchified_shape:
+                dummy_latent = torch.empty(
+                    self.latent_shape, device=self.device, dtype=self.dtype
+                )
+                expected_shape = tuple(
+                    self.transformer.unpatchify_and_maybe_gather_cp(dummy_latent).shape
+                )
+            if tuple(initial_noise.shape) != tuple(expected_shape):
+                raise ValueError(
+                    "initial_noise shape must match latent_shape: "
+                    f"got {tuple(initial_noise.shape)}, "
+                    f"expected {tuple(expected_shape)}"
+                )
+            initial_noise = initial_noise.to(device=self.device, dtype=self.dtype)
 
         def predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:
             if self.config._noise_in_unpatchified_shape:
@@ -209,10 +233,12 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 output = self.transformer.unpatchify_and_maybe_gather_cp(output)
             return output
 
+        renoise_noise_fn = getattr(self.transformer, "scheduler_renoise_noise", None)
         clean_latent = self.scheduler.sample(
             initial_noise=initial_noise,
             predict_flow=predict_flow,
             rng=self.rng,
+            renoise_noise_fn=renoise_noise_fn,
         )
 
         if self.config._noise_in_unpatchified_shape:

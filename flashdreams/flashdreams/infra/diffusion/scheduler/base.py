@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import torch
@@ -25,6 +26,8 @@ import torch.nn as nn
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig
+
+RenoiseNoiseFn = Callable[[Tensor, torch.Generator | None], Tensor]
 
 
 class FlowPredictor(Protocol):
@@ -68,6 +71,7 @@ class Scheduler(nn.Module, ABC):
         initial_noise: Tensor,
         predict_flow: FlowPredictor,
         rng: torch.Generator | None = None,
+        renoise_noise_fn: RenoiseNoiseFn | None = None,
     ) -> Tensor:
         """Run the full denoising loop and return the clean latent.
 
@@ -82,6 +86,8 @@ class Scheduler(nn.Module, ABC):
                 ``num_inference_steps`` times.
             rng: Generator on the same device. Used by self-forcing renoise
                 loops; pure ODE solvers ignore it.
+            renoise_noise_fn: Optional noise-draw hook for scheduler/model
+                alignment. Defaults to ``randn_like`` on the scheduler state.
 
         Returns:
             Clean latent with the same shape, device, and dtype as

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -61,6 +62,37 @@ class WanDiTNetworkCache:
         for block_cache in self.block_caches:
             block_cache.after_update(chunk_idx)
 
+    def finalize_clean_chunk(self, chunk_idx: int) -> None:
+        """Run clean-KV finalization hooks for all block caches."""
+        for block_cache in self.block_caches:
+            block_cache.finalize_clean_chunk(chunk_idx)
+
+    def kv_cache_stats(self) -> dict[str, float | int]:
+        """Aggregate optional per-block KV-compression stats."""
+        stored = 0
+        bf16_equiv = 0
+        quantize_ms = 0.0
+        dequantize_ms = 0.0
+        quantized_spans = 0
+        for block_cache in self.block_caches:
+            stats = getattr(block_cache.self_attn, "stats", None)
+            if stats is None:
+                continue
+            stored += int(stats.stored_bytes)
+            bf16_equiv += int(stats.bf16_equivalent_bytes)
+            quantize_ms += float(stats.quantize_ms)
+            dequantize_ms += float(stats.dequantize_ms)
+            quantized_spans += int(stats.num_quantized_spans)
+        compression_ratio = bf16_equiv / stored if stored > 0 else 1.0
+        return {
+            "kv_cache_bytes": stored,
+            "kv_cache_bf16_equiv_bytes": bf16_equiv,
+            "kv_cache_compression_ratio": compression_ratio,
+            "qvg_quantize_ms": quantize_ms,
+            "qvg_dequantize_ms": dequantize_ms,
+            "kv_cache_num_quantized_spans": quantized_spans,
+        }
+
 
 @dataclass
 class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
@@ -98,6 +130,8 @@ class WanDiTNetworkConfig(InstantiateConfig["WanDiTNetwork"]):
     """If True, concatenate one mask channel into the input channels."""
     patch_embedding_type: Literal["linear", "conv3d"] = "conv3d"
     """Type of patch embedding: ``"linear"`` (flattened patch MLP) or ``"conv3d"`` (strided conv)."""
+    attention_backend: Literal["cudnn", "flash", "sdpa_flash"] = "cudnn"
+    """Attention kernel backend used by Wan self/cross-attention."""
 
 
 @dataclass
@@ -140,6 +174,7 @@ class WanDiTNetwork(nn.Module):
         self.eps = config.eps
         self.concat_padding_mask = config.concat_padding_mask
         self.patch_embedding_type = config.patch_embedding_type
+        self.attention_backend = config.attention_backend
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -193,6 +228,7 @@ class WanDiTNetwork(nn.Module):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
+            attention_backend=self.attention_backend,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:
@@ -293,6 +329,7 @@ class WanDiTNetwork(nn.Module):
         sink_size: int,
         text_embeddings: Tensor,
         img_embeddings: Tensor | None = None,
+        self_attn_cache_factory: Callable[..., Any] | None = None,
     ) -> WanDiTNetworkCache:
         """Initialize block caches from text/image context embeddings.
 
@@ -321,7 +358,12 @@ class WanDiTNetwork(nn.Module):
             assert isinstance(block, Block)
             block_caches.append(
                 block.initialize_cache(
-                    chunk_size, window_size, sink_size, context_text, context_img
+                    chunk_size,
+                    window_size,
+                    sink_size,
+                    context_text,
+                    context_img,
+                    self_attn_cache_factory=self_attn_cache_factory,
                 )
             )
         return WanDiTNetworkCache(block_caches=block_caches)
