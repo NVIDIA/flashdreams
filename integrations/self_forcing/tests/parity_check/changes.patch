@@ -1,0 +1,556 @@
+diff --git a/.gitignore b/.gitignore
+index a750f8a..df00d35 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,8 @@
+ __pycache__
+ *.egg-info
+ 
++images/
++videos/
++
+ wan_models
+ checkpoints
+\ No newline at end of file
+diff --git a/benchmark.py b/benchmark.py
+new file mode 100644
+index 0000000..a8175cf
+--- /dev/null
++++ b/benchmark.py
+@@ -0,0 +1,387 @@
++"""
++Offline demo for Self-Forcing.
++
++Runs the same autoregressive block-by-block generation as `demo.py`, but
++without the Flask / SocketIO / threading machinery.
++
++Usage:
++    uv pip install flashdreams
++    uv pip install omegaconf imageio[ffmpeg] easydict lmdb diffusers
++    FORCE_CUDNN_ATTN=1 uv run python benchmark.py --enable_torch_compile --use_taehv
++"""
++
++import os
++import argparse
++import json
++import urllib.request
++
++import numpy as np
++import torch
++from omegaconf import OmegaConf
++import imageio.v3 as iio
++
++from pipeline import CausalInferencePipeline
++from demo_utils.constant import ZERO_VAE_CACHE
++from demo_utils.vae_block3 import VAEDecoderWrapper
++from utils.wan_wrapper import WanDiffusionWrapper, WanTextEncoder
++from demo_utils.memory import gpu, get_cuda_free_memory_gb, DynamicSwapInstaller, move_model_to_device_with_memory_preservation
++from flashdreams.infra.profiler import EventProfiler
++
++DEFAULT_PROMPT = "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides."
++
++# Parse arguments
++parser = argparse.ArgumentParser()
++parser.add_argument("--checkpoint_path", type=str, default='./checkpoints/self_forcing_dmd.pt')
++parser.add_argument("--config_path", type=str, default='./configs/self_forcing_dmd.yaml')
++parser.add_argument('--trt', action='store_true')
++parser.add_argument('--prompt', type=str, default=DEFAULT_PROMPT)
++parser.add_argument('--seed', type=int, default=42)
++parser.add_argument('--output', type=str, default='./videos/offline.mp4')
++parser.add_argument('--fps', type=int, default=16)
++parser.add_argument('--enable_torch_compile', action='store_true')
++parser.add_argument('--enable_fp8', action='store_true')
++parser.add_argument('--use_taehv', action='store_true')
++args = parser.parse_args()
++
++print(f'Free VRAM {get_cuda_free_memory_gb(gpu)} GB')
++low_memory = get_cuda_free_memory_gb(gpu) < 40
++
++# Load models
++config = OmegaConf.load(args.config_path)
++default_config = OmegaConf.load("configs/default_config.yaml")
++config = OmegaConf.merge(default_config, config)
++
++text_encoder = WanTextEncoder()
++
++# Global variables for dynamic model switching
++current_vae_decoder = None
++current_use_taehv = False
++fp8_applied = False
++torch_compile_applied = False
++models_compiled = False
++
++
++def initialize_vae_decoder(use_taehv=False, use_trt=False):
++    """Initialize VAE decoder based on the selected option"""
++    global current_vae_decoder, current_use_taehv
++
++    if use_trt:
++        from demo_utils.vae import VAETRTWrapper
++        current_vae_decoder = VAETRTWrapper()
++        return current_vae_decoder
++
++    if use_taehv:
++        from demo_utils.taehv import TAEHV
++        # Check if taew2_1.pth exists in checkpoints folder, download if missing
++        taehv_checkpoint_path = "checkpoints/taew2_1.pth"
++        if not os.path.exists(taehv_checkpoint_path):
++            print(f"taew2_1.pth not found in checkpoints folder {taehv_checkpoint_path}. Downloading...")
++            os.makedirs("checkpoints", exist_ok=True)
++            download_url = "https://github.com/madebyollin/taehv/raw/main/taew2_1.pth"
++            try:
++                urllib.request.urlretrieve(download_url, taehv_checkpoint_path)
++                print(f"Successfully downloaded taew2_1.pth to {taehv_checkpoint_path}")
++            except Exception as e:
++                print(f"Failed to download taew2_1.pth: {e}")
++                raise
++
++        class DotDict(dict):
++            __getattr__ = dict.__getitem__
++            __setattr__ = dict.__setitem__
++
++        class TAEHVDiffusersWrapper(torch.nn.Module):
++            def __init__(self):
++                super().__init__()
++                self.dtype = torch.float16
++                self.taehv = TAEHV(checkpoint_path=taehv_checkpoint_path).to(self.dtype)
++                self.config = DotDict(scaling_factor=1.0)
++
++            def decode(self, latents, return_dict=None):
++                # n, c, t, h, w = latents.shape
++                # low-memory, set parallel=True for faster + higher memory
++                return self.taehv.decode_video(latents, parallel=False).mul_(2).sub_(1)
++
++        current_vae_decoder = TAEHVDiffusersWrapper()
++    else:
++        current_vae_decoder = VAEDecoderWrapper()
++        vae_state_dict = torch.load('wan_models/Wan2.1-T2V-1.3B/Wan2.1_VAE.pth', map_location="cpu")
++        decoder_state_dict = {}
++        for key, value in vae_state_dict.items():
++            if 'decoder.' in key or 'conv2' in key:
++                decoder_state_dict[key] = value
++        current_vae_decoder.load_state_dict(decoder_state_dict)
++
++    current_vae_decoder.eval()
++    current_vae_decoder.to(dtype=torch.float16)
++    current_vae_decoder.requires_grad_(False)
++    current_vae_decoder.to(gpu)
++    current_use_taehv = use_taehv
++
++    print(f"✅ VAE decoder initialized with {'TAEHV' if use_taehv else 'default VAE'}")
++    return current_vae_decoder
++
++
++# Initialize with default VAE
++vae_decoder = initialize_vae_decoder(use_taehv=False, use_trt=args.trt)
++
++transformer = WanDiffusionWrapper(is_causal=True)
++state_dict = torch.load(args.checkpoint_path, map_location="cpu")
++transformer.load_state_dict(state_dict['generator_ema'])
++
++text_encoder.eval()
++transformer.eval()
++
++transformer.to(dtype=torch.float16)
++text_encoder.to(dtype=torch.bfloat16)
++
++text_encoder.requires_grad_(False)
++transformer.requires_grad_(False)
++
++pipeline = CausalInferencePipeline(
++    config,
++    device=gpu,
++    generator=transformer,
++    text_encoder=text_encoder,
++    vae=vae_decoder
++)
++
++if low_memory:
++    DynamicSwapInstaller.install_model(text_encoder, device=gpu)
++else:
++    text_encoder.to(gpu)
++transformer.to(gpu)
++
++
++def tensor_to_uint8_frame(frame_tensor):
++    """Convert a single CHW frame tensor in [-1, 1] to a uint8 HWC numpy array."""
++    frame = torch.clamp(frame_tensor.float(), -1., 1.) * 127.5 + 127.5
++    frame = frame.to(torch.uint8).cpu().numpy()
++
++    # CHW -> HWC
++    if len(frame.shape) == 3:
++        frame = np.transpose(frame, (1, 2, 0))
++
++    return frame
++
++
++@torch.no_grad()
++def generate_video(prompt, seed, enable_torch_compile=False, enable_fp8=False, use_taehv=False):
++    """Generate video autoregressively, block by block, and return all frames.
++
++    Returns:
++        torch.Tensor of shape ``[T, H, W, C]`` with dtype ``uint8`` on CPU.
++    """
++    global models_compiled, torch_compile_applied, fp8_applied, current_vae_decoder, current_use_taehv
++
++    # Handle VAE decoder switching
++    if use_taehv != current_use_taehv:
++        print(f"🔄 Switching VAE decoder to {'TAEHV' if use_taehv else 'default VAE'}")
++        current_vae_decoder = initialize_vae_decoder(use_taehv=use_taehv)
++        # Update pipeline with new VAE decoder
++        pipeline.vae = current_vae_decoder
++
++    # Handle FP8 quantization
++    if enable_fp8 and not fp8_applied:
++        print("🔧 Applying FP8 quantization to transformer")
++        from torchao.quantization.quant_api import quantize_, Float8DynamicActivationFloat8WeightConfig, PerTensor
++        quantize_(transformer, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
++        fp8_applied = True
++
++    # Text encoding
++    print("📝 Encoding text prompt...")
++    conditional_dict = text_encoder(text_prompts=[prompt])
++    for key, value in conditional_dict.items():
++        conditional_dict[key] = value.to(dtype=torch.float16)
++    if low_memory:
++        gpu_memory_preservation = get_cuda_free_memory_gb(gpu) + 5
++        move_model_to_device_with_memory_preservation(
++            text_encoder, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
++
++    # Handle torch.compile if enabled
++    torch_compile_applied = enable_torch_compile
++    if enable_torch_compile and not models_compiled:
++        # Compile transformer and decoder
++        transformer.compile(mode="max-autotune-no-cudagraphs")
++        if not current_use_taehv and not low_memory and not args.trt:
++            current_vae_decoder.compile(mode="max-autotune-no-cudagraphs")
++
++    # Initialize generation
++    print("⚙️  Initializing generation...")
++
++    rnd = torch.Generator(gpu).manual_seed(seed)
++    # all_latents = torch.zeros([1, 21, 16, 60, 104], device=gpu, dtype=torch.bfloat16)
++
++    pipeline._initialize_kv_cache(batch_size=1, dtype=torch.float16, device=gpu)
++    pipeline._initialize_crossattn_cache(batch_size=1, dtype=torch.float16, device=gpu)
++
++    # Generation parameters
++    num_blocks = 7
++    current_start_frame = 0
++    num_input_frames = 0
++    all_num_frames = [pipeline.num_frame_per_block] * num_blocks
++    if current_use_taehv:
++        vae_cache = None
++    else:
++        vae_cache = ZERO_VAE_CACHE
++        for i in range(len(vae_cache)):
++            vae_cache[i] = vae_cache[i].to(device=gpu, dtype=torch.float16)
++
++    all_frames = []  # list of HWC uint8 numpy arrays
++    total_frames = 0
++
++    stats_history: list[dict[str, float | int]] = []
++
++    for idx, current_num_frames in enumerate(all_num_frames):
++        # Special message for first block with torch.compile
++        if idx == 0 and torch_compile_applied and not models_compiled:
++            # print(f"🔥 Processing block {idx+1}/{len(all_num_frames)} - "
++            #       f"compiling models (may take 5-10 minutes)...")
++            models_compiled = True
++        # else:
++        #     print(f"🔄 Processing block {idx+1}/{len(all_num_frames)}")
++
++        block_profiler = EventProfiler()
++
++        noisy_input = torch.randn([1, current_num_frames, 16, 60, 104], device=gpu, dtype=torch.float16, generator=rnd)
++
++        # Denoising loop
++        for index, current_timestep in enumerate(pipeline.denoising_step_list):
++            timestep = torch.ones([1, current_num_frames], device=noisy_input.device,
++                                  dtype=torch.int64) * current_timestep
++
++            if index < len(pipeline.denoising_step_list) - 1:
++                _, denoised_pred = transformer(
++                    noisy_image_or_video=noisy_input,
++                    conditional_dict=conditional_dict,
++                    timestep=timestep,
++                    kv_cache=pipeline.kv_cache1,
++                    crossattn_cache=pipeline.crossattn_cache,
++                    current_start=current_start_frame * pipeline.frame_seq_length
++                )
++                next_timestep = pipeline.denoising_step_list[index + 1]
++                noisy_input = pipeline.scheduler.add_noise(
++                    denoised_pred.flatten(0, 1),
++                    torch.randn_like(denoised_pred.flatten(0, 1), generator=rnd),
++                    next_timestep * torch.ones([1 * current_num_frames], device=noisy_input.device, dtype=torch.long)
++                ).unflatten(0, denoised_pred.shape[:2])
++            else:
++                _, denoised_pred = transformer(
++                    noisy_image_or_video=noisy_input,
++                    conditional_dict=conditional_dict,
++                    timestep=timestep,
++                    kv_cache=pipeline.kv_cache1,
++                    crossattn_cache=pipeline.crossattn_cache,
++                    current_start=current_start_frame * pipeline.frame_seq_length
++                )
++
++        block_profiler.record("denoise")
++
++        # Record output
++        # all_latents[:, current_start_frame:current_start_frame + current_num_frames] = denoised_pred
++
++        # Update KV cache for next block
++        if idx != len(all_num_frames) - 1:
++            transformer(
++                noisy_image_or_video=denoised_pred,
++                conditional_dict=conditional_dict,
++                timestep=torch.zeros_like(timestep),
++                kv_cache=pipeline.kv_cache1,
++                crossattn_cache=pipeline.crossattn_cache,
++                current_start=current_start_frame * pipeline.frame_seq_length,
++            )
++        block_profiler.record("kv_update")
++
++        # Decode to pixels
++        # print(f"🎨 Decoding block {idx+1} to pixels...")
++        if args.trt:
++            all_current_pixels = []
++            for i in range(denoised_pred.shape[1]):
++                is_first_frame = torch.tensor(1.0).cuda().half() if idx == 0 and i == 0 else \
++                    torch.tensor(0.0).cuda().half()
++                outputs = vae_decoder.forward(denoised_pred[:, i:i + 1, :, :, :].half(), is_first_frame, *vae_cache)
++                # outputs = vae_decoder.forward(denoised_pred.float(), *vae_cache)
++                current_pixels, vae_cache = outputs[0], outputs[1:]
++                all_current_pixels.append(current_pixels.clone())
++            pixels = torch.cat(all_current_pixels, dim=1)
++            if idx == 0:
++                pixels = pixels[:, 3:, :, :, :]  # Skip first 3 frames of first block
++        else:
++            if current_use_taehv:
++                if vae_cache is None:
++                    vae_cache = denoised_pred
++                else:
++                    denoised_pred = torch.cat([vae_cache, denoised_pred], dim=1)
++                    vae_cache = denoised_pred[:, -3:, :, :, :]
++                pixels = current_vae_decoder.decode(denoised_pred)
++                if idx == 0:
++                    pixels = pixels[:, 3:, :, :, :]  # Skip first 3 frames of first block
++                else:
++                    pixels = pixels[:, 12:, :, :, :]
++
++            else:
++                pixels, vae_cache = current_vae_decoder(denoised_pred.half(), *vae_cache)
++                if idx == 0:
++                    pixels = pixels[:, 3:, :, :, :]  # Skip first 3 frames of first block
++
++        block_profiler.record("decode")
++
++        stages_ms = block_profiler.sync_and_summarize()
++        total_ms = sum(stages_ms.values())
++        # ``kv_update`` here plays the same role as ``finalize`` in
++        # flashdreams' StreamInferencePipeline: it advances the AR cache for
++        # the next step. Exclude it from the "useful work" total so this
++        # number is directly comparable to flashdreams' ``total_ms_wo_finalize``.
++        total_ms_wo_finalize = total_ms - stages_ms.get("kv_update", 0.0)
++
++        stats: dict[str, float | int] = {
++            f"{stage}_ms": ms for stage, ms in stages_ms.items()
++        }
++        stats["total_ms"] = total_ms
++        stats["total_ms_wo_finalize"] = total_ms_wo_finalize
++        if torch.cuda.is_available():
++            device = torch.cuda.current_device()
++            gib = 1024**3
++            stats["mem_alloc_gib"] = torch.cuda.memory_allocated(device) / gib
++            stats["mem_reserved_gib"] = torch.cuda.memory_reserved(device) / gib
++            stats["mem_peak_gib"] = torch.cuda.max_memory_allocated(device) / gib
++        stats_history.append({"autoregressive_index": idx, **stats})
++
++        block_frames = pixels.shape[1]
++        stages_str = " ".join(f"{stage} {ms:.2f}ms" for stage, ms in stages_ms.items())
++        print(
++            f"✅ Block {idx+1} completed in {total_ms:.2f}ms "
++            f"({block_frames} frames) | {stages_str}"
++        )
++
++        current_start_frame += current_num_frames
++
++        # Collect frames from this block
++        for frame_idx in range(block_frames):
++            all_frames.append(tensor_to_uint8_frame(pixels[0, frame_idx]))
++            total_frames += 1
++
++
++    # Stack frames into a single [T, H, W, C] uint8 tensor
++    video = torch.from_numpy(np.stack(all_frames, axis=0))
++    return video, stats_history
++
++if __name__ == '__main__':
++    video, stats_history = generate_video(
++        prompt=args.prompt,
++        seed=args.seed,
++        enable_torch_compile=args.enable_torch_compile,
++        enable_fp8=args.enable_fp8,
++        use_taehv=args.use_taehv,
++    )
++
++    output_dir = os.path.dirname(args.output) or '.'
++    os.makedirs(output_dir, exist_ok=True)
++    iio.imwrite(args.output, video.numpy(), fps=args.fps, codec="libx264")
++    print(f"📼 Video saved to {os.path.abspath(args.output)}")
++
++    if stats_history:
++        stats_name = os.path.splitext(os.path.basename(args.output))[0]
++        stats_path = os.path.join(output_dir, f"stats_{stats_name}.json")
++        with open(stats_path, "w") as f:
++            json.dump(stats_history, f, indent=2)
++        print(f"📊 Per-block stats saved to {os.path.abspath(stats_path)}")
+diff --git a/utils/__init__.py b/utils/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/wan/modules/__init__.py b/wan/modules/__init__.py
+index f8935bb..73b71d6 100644
+--- a/wan/modules/__init__.py
++++ b/wan/modules/__init__.py
+@@ -1,4 +1,4 @@
+-from .attention import flash_attention
++from .attention import attention, flash_attention
+ from .model import WanModel
+ from .t5 import T5Decoder, T5Encoder, T5EncoderModel, T5Model
+ from .tokenizers import HuggingfaceTokenizer
+@@ -12,5 +12,6 @@ __all__ = [
+     'T5Decoder',
+     'T5EncoderModel',
+     'HuggingfaceTokenizer',
++    'attention',
+     'flash_attention',
+ ]
+diff --git a/wan/modules/attention.py b/wan/modules/attention.py
+index 8845659..faec7d8 100644
+--- a/wan/modules/attention.py
++++ b/wan/modules/attention.py
+@@ -1,4 +1,6 @@
+ # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
++import os
++from contextlib import nullcontext
+ import torch
+ 
+ try:
+@@ -151,7 +153,9 @@ def attention(
+     dtype=torch.bfloat16,
+     fa_version=None,
+ ):
+-    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
++    FORCE_CUDNN_ATTN: bool = os.getenv('FORCE_CUDNN_ATTN', '0') == '1'
++
++    if (FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE) and not FORCE_CUDNN_ATTN:
+         return flash_attention(
+             q=q,
+             k=k,
+@@ -173,13 +177,20 @@ def attention(
+                 'Padding mask is disabled when using scaled_dot_product_attention. It can have a significant impact on performance.'
+             )
+         attn_mask = None
++        out_dtype = q.dtype
+ 
+         q = q.transpose(1, 2).to(dtype)
+         k = k.transpose(1, 2).to(dtype)
+         v = v.transpose(1, 2).to(dtype)
+ 
+-        out = torch.nn.functional.scaled_dot_product_attention(
+-            q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
++        if FORCE_CUDNN_ATTN:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++
++        with context_manager:
++            out = torch.nn.functional.scaled_dot_product_attention(
++                q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
+ 
+         out = out.transpose(1, 2).contiguous()
+-        return out
++        return out.to(out_dtype)
+diff --git a/wan/modules/clip.py b/wan/modules/clip.py
+index 9fa81ee..9795e0d 100644
+--- a/wan/modules/clip.py
++++ b/wan/modules/clip.py
+@@ -8,7 +8,7 @@ import torch.nn as nn
+ import torch.nn.functional as F
+ import torchvision.transforms as T
+ 
+-from .attention import flash_attention
++from .attention import attention
+ from .tokenizers import HuggingfaceTokenizer
+ from .xlm_roberta import XLMRoberta
+ 
+@@ -82,7 +82,7 @@ class SelfAttention(nn.Module):
+ 
+         # compute attention
+         p = self.attn_dropout if self.training else 0.0
+-        x = flash_attention(q, k, v, dropout_p=p, causal=self.causal, version=2)
++        x = attention(q, k, v, dropout_p=p, causal=self.causal, fa_version=2)
+         x = x.reshape(b, s, c)
+ 
+         # output
+@@ -194,7 +194,7 @@ class AttentionPool(nn.Module):
+         k, v = self.to_kv(x).view(b, s, 2, n, d).unbind(2)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, version=2)
++        x = attention(q, k, v, fa_version=2)
+         x = x.reshape(b, 1, c)
+ 
+         # output
+diff --git a/wan/modules/model.py b/wan/modules/model.py
+index f8fa927..381ebf1 100644
+--- a/wan/modules/model.py
++++ b/wan/modules/model.py
+@@ -7,7 +7,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
+ from diffusers.models.modeling_utils import ModelMixin
+ from einops import repeat
+ 
+-from .attention import flash_attention
++from .attention import attention
+ 
+ __all__ = ['WanModel']
+ 
+@@ -143,7 +143,7 @@ class WanSelfAttention(nn.Module):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+@@ -186,7 +186,7 @@ class WanT2VCrossAttention(WanSelfAttention):
+             v = self.v(context).view(b, -1, n, d)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)
+@@ -213,7 +213,7 @@ class WanGanCrossAttention(WanSelfAttention):
+         vv = self.v(x).view(b, -1, n, d)
+ 
+         # compute attention
+-        x = flash_attention(qq, kk, vv)
++        x = attention(qq, kk, vv)
+ 
+         # output
+         x = x.flatten(2)
+@@ -254,9 +254,9 @@ class WanI2VCrossAttention(WanSelfAttention):
+         v = self.v(context).view(b, -1, n, d)
+         k_img = self.norm_k_img(self.k_img(context_img)).view(b, -1, n, d)
+         v_img = self.v_img(context_img).view(b, -1, n, d)
+-        img_x = flash_attention(q, k_img, v_img, k_lens=None)
++        img_x = attention(q, k_img, v_img, k_lens=None)
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)

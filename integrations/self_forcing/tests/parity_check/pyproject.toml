@@ -1,0 +1,24 @@
+[project]
+name = "self-forcing-parity-check"
+version = "0.0.0"
+description = "Isolated venv for the Self-Forcing parity-check benchmark."
+# Match flashdreams' supported Python range exactly (it pins 3.12).
+requires-python = ">=3.12,<3.13"
+
+# flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
+# numpy, tqdm, safetensors, etc. Self-Forcing only needs a small handful of
+# extras layered on top. Transitive deps (accelerate, sentencepiece,
+# tokenizers, imageio-ffmpeg, ...) come along via these top-level entries.
+dependencies = [
+    "flashdreams",
+    "diffusers",
+    "omegaconf",
+    "imageio[ffmpeg]",
+    "easydict",
+    "lmdb",
+]
+
+[tool.uv.sources]
+# flashdreams is not on PyPI; install it from the local source tree
+# (../../../../flashdreams relative to this directory).
+flashdreams = { path = "../../../../flashdreams", editable = true }
