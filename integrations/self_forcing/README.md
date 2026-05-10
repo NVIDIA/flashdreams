@@ -29,6 +29,19 @@ Standalone (outside the workspace) also works:
 uv pip install -e integrations/self_forcing
 ```
 
+## HuggingFace setup
+
+Checkpoints are auto-downloaded from HuggingFace at first run. Set an
+auth token first.
+
+```bash
+# huggingface token.
+export HF_TOKEN=<your-hf-token>
+
+# (optional) override the cache location.
+export HF_HOME=~/.cache/huggingface  # default
+```
+
 ## Run
 
 Once installed, the slugs are discovered automatically by `flashdreams-run`:

@@ -32,7 +32,6 @@ from flashdreams.configs.registry import supported_runners
 from flashdreams.recipes.alpadreams.config import ALPADREAMS_RUNNERS
 from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_RUNNERS
 from flashdreams.recipes.template.config import TEMPLATE_RUNNERS
-from flashdreams.recipes.wan.config.causal_wan22 import CAUSAL_WAN22_RUNNERS
 from flashdreams.recipes.wan.config.wan21 import WAN21_RUNNERS
 
 
@@ -58,7 +57,6 @@ def test_supported_runners_covers_every_runner_dict() -> None:
     expected = {
         **TEMPLATE_RUNNERS,
         **WAN21_RUNNERS,
-        **CAUSAL_WAN22_RUNNERS,
         **ALPADREAMS_RUNNERS,
         **LINGBOT_WORLD_RUNNERS,
     }

@@ -302,7 +302,7 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface # default
 
 # 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
-uv run flashdreams-run causal-wan22-fastvideo-t2v --total-blocks 21
+uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
 ```
 
 ## Instructions to run Lingbot-World Camera Control I2V Inference

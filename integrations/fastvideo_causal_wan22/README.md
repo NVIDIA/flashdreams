@@ -1,6 +1,6 @@
-# flashdreams-causal-forcing
+# flashdreams-fastvideo-causal-wan22
 
-Causal-Forcing chunkwise / framewise streaming T2V + I2V inference for Wan 2.1 1.3B,
+FastVideo CausalWan 2.2 14B MoE distilled streaming T2V inference,
 packaged as a [`flashdreams`](../..) plugin, in a standalone repo.
 
 This is a worked example of the
@@ -11,14 +11,15 @@ developer-guide flow.
 
 | slug | description |
 | --- | --- |
-| `causal-forcing-wan2.1-t2v-1.3b-chunkwise` | Causal-Forcing chunkwise Wan 2.1 1.3B T2V (`len_t=3`). |
-| `causal-forcing-wan2.1-t2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B T2V (`len_t=1`). |
-| `causal-forcing-wan2.1-i2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B I2V (`len_t=1`). |
+| `fastvideo-causal-wan2.2-t2v-14b` | FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step). |
 
-The I2V slug defaults to the bundled `assets/image.jpg` first frame;
-override with `--image-path /path/to/frame.png`. Causal-Forcing only
-releases a framewise I2V checkpoint, so there is no chunkwise I2V
-counterpart.
+The two MoE branches share every Wan 2.1 14B knob and only differ by
+checkpoint: `high_noise` runs above the boundary
+(`timestep / num_train_timesteps >= boundary_ratio`), `low_noise` runs
+below. T2V only -- the FastVideo Wan 2.2 checkpoint's I2V protocol
+(one-shot first-frame VAE-seed warmup) does not fit the unified
+streaming pipeline's per-AR-step mask-injection I2V and is not wired
+here.
 
 ## Install
 
@@ -32,7 +33,7 @@ uv sync
 Standalone (outside the workspace) also works:
 
 ```bash
-uv pip install -e integrations/causal_forcing
+uv pip install -e integrations/fastvideo_causal_wan22
 ```
 
 ## HuggingFace setup
@@ -53,27 +54,22 @@ export HF_HOME=~/.cache/huggingface  # default
 Once installed, the slugs are discovered automatically by `flashdreams-run`:
 
 ```bash
-# List every registered runner (this plugin's slugs appear under "causal-forcing-*").
+# List every registered runner (this plugin's slug appears under "fastvideo-causal-wan2.2-*").
 uv run flashdreams-run --help
 
 # Per-runner help: every overridable field is a CLI flag.
-uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise --help
+uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --help
 
-# Single-GPU T2V run with the bundled demo prompt (assets/prompt.txt).
-uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise --total-blocks 21
+# Single-GPU run with the bundled demo prompt (assets/prompt.txt).
+uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
 
 # Inline prompt override.
-uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise \
+uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b \
     --prompt "A cat surfing." --total-blocks 21
 
 # Path override (any .txt; first non-empty line is used as the prompt).
-uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise \
+uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b \
     --prompt /path/to/my_prompt.txt --total-blocks 21
-
-# I2V: defaults to the bundled assets/image.jpg first frame; override with
-# --prompt "..." --image-path /path/to/frame.png
-# if you want a different anchor.
-uv run flashdreams-run causal-forcing-wan2.1-i2v-1.3b-framewise --total-blocks 21
 ```
 
 Multi-GPU via context-parallelism:
@@ -81,14 +77,14 @@ Multi-GPU via context-parallelism:
 ```bash
 # e.g. 4GPUs
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-    causal-forcing-wan2.1-t2v-1.3b-framewise --total-blocks 21
+    fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
 ```
 
 ## Programmatic access
 
 Access via runner.
 ```python
-from causal_forcing.config import RUNNER_WAN21_T2V_1PT3B_FRAMEWISE as runner_config
+from fastvideo_causal_wan22.config import RUNNER_WAN22_T2V_14B as runner_config
 from flashdreams.infra.config import derive_config
 
 # set a new prompt
@@ -100,7 +96,7 @@ runner.run()
 Access via pipeline.
 ```python
 import torch
-from causal_forcing.config import PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE as pipeline_config
+from fastvideo_causal_wan22.config import PIPELINE_WAN22_T2V_14B as pipeline_config
 
 pipeline = pipeline_config.setup().to("cuda").eval()
 
@@ -115,12 +111,12 @@ total_blocks: int = 21
 generated_chunks: list[torch.Tensor] = []
 for i in range(total_blocks):
     video_chunk = pipeline.generate(autoregressive_index=i, cache=cache)
-    pipeline.finalize(autoregressive_index=i, cache=cache) # advance streaming caches
+    pipeline.finalize(autoregressive_index=i, cache=cache) # update KV cache
     generated_chunks.append(video_chunk.cpu()) # each chunk is [T, C, H, W]
 ```
 
 ## Tests
 
 ```bash
-uv run --extra dev pytest integrations/causal_forcing/tests
+uv run --extra dev pytest integrations/fastvideo_causal_wan22/tests
 ```
