@@ -15,6 +15,7 @@
 
 """Unified checkpoint loader that dispatches by source URL."""
 
+import hashlib
 import io
 import json
 import os
@@ -22,6 +23,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from typing import Literal, overload
 from urllib.parse import unquote, urlparse
+from urllib.request import Request, urlopen
 
 import torch
 from huggingface_hub import hf_hub_download
@@ -302,6 +304,60 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
     return local_path
 
 
+def _is_generic_http_url(path: str) -> bool:
+    """True if ``path`` is an HTTP(S) URL that is *not* a Hugging Face URL.
+
+    Hugging Face URLs go through ``hf_hub_download`` and live under the HF
+    cache; everything else (raw GitHub mirrors, generic web hosts, internal
+    artifact stores, etc.) is streamed via
+    :func:`_download_checkpoint_from_http_url` into
+    ``<local_cache_dir>/http_checkpoints/``.
+    """
+    if not path.startswith(("http://", "https://")):
+        return False
+    return not _is_huggingface_checkpoint_url(path)
+
+
+def _http_checkpoint_cache_path(url: str, local_cache_dir: str) -> str:
+    """Stable per-URL cache path for a generic HTTP checkpoint.
+
+    Uses a short SHA-256 of the full URL plus the basename so two distinct
+    URLs that happen to share a basename (e.g. ``model.pt`` from different
+    hosts) don't collide, while the cached files stay human-recognizable.
+    """
+    parsed = urlparse(url)
+    basename = os.path.basename(unquote(parsed.path)) or "checkpoint"
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    return os.path.join(local_cache_dir, "http_checkpoints", f"{digest}__{basename}")
+
+
+def _download_checkpoint_from_http_url(url: str, local_cache_dir: str) -> str:
+    """Stream a generic HTTP(S) checkpoint to local cache; return cached path.
+
+    Subsequent calls with the same URL return the cached file without
+    re-downloading. Streams in 1 MiB chunks to a ``.part`` sibling and then
+    ``os.replace``s into place, so a partial fetch (interrupted process,
+    OOM, etc.) never poisons the cache. No cross-process locking: if two
+    workers race on the same URL they'll both download, but the rename is
+    atomic so the cached file is always complete.
+    """
+    cache_path = _http_checkpoint_cache_path(url, local_cache_dir)
+    if os.path.exists(cache_path):
+        logger.info(f"Loading from local HTTP cache: {cache_path}")
+        return cache_path
+
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    tmp_path = cache_path + ".part"
+    logger.info(f"Downloading checkpoint from HTTP: {url}")
+    req = Request(url, headers={"User-Agent": "flashdreams/load_checkpoint"})
+    with urlopen(req) as resp, open(tmp_path, "wb") as out:
+        for chunk in iter(lambda: resp.read(1024 * 1024), b""):
+            out.write(chunk)
+    os.replace(tmp_path, cache_path)
+    logger.info(f"Checkpoint downloaded to: {cache_path}")
+    return cache_path
+
+
 def get_storage_reader(
     checkpoint_path: str, credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH
 ) -> FileSystemReader:
@@ -414,25 +470,27 @@ def load_single_checkpoint(
     credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
-    """Load a single-file checkpoint from local disk, S3, or a Hugging Face URL.
+    """Load a single-file checkpoint from local disk, S3, HF, or HTTP(S).
 
-    S3 paths are cached locally for faster subsequent loads. HF file URLs are
-    downloaded via ``hf_hub_download``.
+    S3 paths are cached locally for faster subsequent loads. HF file URLs
+    are downloaded via ``hf_hub_download``. Generic HTTP(S) URLs (raw
+    GitHub mirrors, internal artifact hosts, etc.) are streamed once into
+    ``<local_cache_dir>/http_checkpoints/`` and reused on subsequent calls.
 
     Args:
-        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.safetensors``
-            file, or to an HF-style ``*.safetensors.index.json`` (shards are
-            merged on first load and cached).
-        local_cache_dir: Directory for S3 / merged-safetensors caches.
+        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.ckpt`` /
+            ``.safetensors`` file, or to an HF-style ``*.safetensors.index.json``
+            (shards are merged on first load and cached).
+        local_cache_dir: Directory for S3 / merged-safetensors / HTTP caches.
         credential_path: S3 credentials path.
-        map_location: Device to map tensors to (``.pt`` / ``.pth`` only).
+        map_location: Device to map tensors to (``.pt`` / ``.pth`` / ``.ckpt`` only).
 
     Returns:
         State dict.
 
     Raises:
-        ValueError: Unsupported file extension or unsupported S3 sharded
-            index input.
+        ValueError: Unsupported file extension, unsupported S3 sharded
+            index input, or HTTP URL with no ``local_cache_dir``.
     """
     if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
         if checkpoint_path.startswith("s3://"):
@@ -440,23 +498,42 @@ def load_single_checkpoint(
                 "Sharded safetensors index checkpoints are not supported on S3; "
                 "use a Hugging Face file URL or a local index path."
             )
+        if _is_generic_http_url(checkpoint_path):
+            raise ValueError(
+                "Sharded safetensors index checkpoints are only supported for "
+                "Hugging Face URLs and local paths; got generic HTTP URL: "
+                f"{checkpoint_path}"
+            )
         return _load_sharded_safetensors_index_checkpoint(
             checkpoint_path, local_cache_dir, map_location
         )
 
     is_s3_path = checkpoint_path.startswith("s3://")
     is_hf_url = _is_huggingface_checkpoint_url(checkpoint_path)
+    is_http_url = _is_generic_http_url(checkpoint_path)
 
     # Determine file extension
     ext = _get_checkpoint_extension(checkpoint_path)
-    if ext not in (".pt", ".pth", ".safetensors"):
+    if ext not in (".pt", ".pth", ".ckpt", ".safetensors"):
         raise ValueError(
-            f"Unsupported checkpoint extension: {ext}. Supported: .pt, .pth, .safetensors"
+            f"Unsupported checkpoint extension: {ext}. "
+            f"Supported: .pt, .pth, .ckpt, .safetensors"
         )
 
     # For Hugging Face URLs, use HF cache and then load locally.
     if is_hf_url:
         local_path = _download_checkpoint_from_huggingface_url(checkpoint_path)
+        return _load_checkpoint_from_local(local_path, ext, map_location)
+
+    # Generic HTTP(S) URLs: stream to local cache once, then load locally.
+    if is_http_url:
+        if local_cache_dir is None:
+            raise ValueError(
+                "local_cache_dir is required to cache HTTP(S) checkpoint downloads"
+            )
+        local_path = _download_checkpoint_from_http_url(
+            checkpoint_path, local_cache_dir
+        )
         return _load_checkpoint_from_local(local_path, ext, map_location)
 
     # For S3 paths, check local cache first
@@ -561,14 +638,16 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
-    """Load checkpoints from S3, local disk, or Hugging Face.
+    """Load checkpoints from S3, local disk, Hugging Face, or HTTP(S).
 
-    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.safetensors``) and
-    distributed checkpoints (DCP). Detection is automatic by default.
+    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.ckpt`` /
+    ``.safetensors``) and distributed checkpoints (DCP). Detection is
+    automatic by default.
 
     Args:
-        checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
-            DCP directory.
+        checkpoint_path: ``s3://`` URI, local path, HF URL, or generic
+            HTTP(S) URL. Single-file or DCP directory (DCP only supports
+            local / S3).
         model: Model to load weights into. Required for DCP. Optional for
             single-file: when provided, ``load_state_dict`` is called.
         checkpoint_type: ``"auto"``, ``"single"``, or ``"distributed"``.
@@ -588,6 +667,12 @@ def load_checkpoint(
     Examples:
 
       >>> state = load_checkpoint("s3://bucket/foo.safetensors")
+      >>> state = load_checkpoint(
+      ...     "https://huggingface.co/foo/bar/resolve/main/model.pt"
+      ... )
+      >>> state = load_checkpoint(
+      ...     "https://raw.githubusercontent.com/org/repo/main/posi_prompt.pth"
+      ... )
       >>> model = load_checkpoint("s3://bucket/dcp_dir/", model=my_model)
     """
     # Auto-detect checkpoint type
@@ -596,7 +681,7 @@ def load_checkpoint(
             checkpoint_type = "single"
         else:
             ext = _get_checkpoint_extension(checkpoint_path)
-            if ext in (".pt", ".pth", ".safetensors"):
+            if ext in (".pt", ".pth", ".ckpt", ".safetensors"):
                 checkpoint_type = "single"
             else:
                 checkpoint_type = "distributed"
