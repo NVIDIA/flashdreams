@@ -432,13 +432,26 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">num_train_timesteps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table.&quot;&quot;&quot;</span>
 
+    <span class="n">sigma_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream</span>
+<span class="sd">    Wan / Lingbot ships ``0.999``.&quot;&quot;&quot;</span>
+
     <span class="n">sigma_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Floor of the warped sigma schedule. Only ``0.0`` is supported here;</span>
-<span class="sd">    asserted at construction.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bottom of the linspace before warping. Reserved for upstream parity;</span>
+<span class="sd">    only ``0.0`` is exercised.&quot;&quot;&quot;</span>
 
     <span class="n">extra_one_step</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Append the ``sigma=0`` step to the schedule. Only ``True`` is</span>
-<span class="sd">    supported here; asserted at construction.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;If ``True``, build the schedule from</span>
+<span class="sd">    ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /</span>
+<span class="sd">    upstream Wan); ``False`` uses ``N`` points and is kept for non-Wan</span>
+<span class="sd">    recipes.&quot;&quot;&quot;</span>
+
+    <span class="n">timestep_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.</span>
+<span class="sd">    ``torch.int64``) when the network&#39;s time embedding is sensitive to the</span>
+<span class="sd">    fractional part of the warped timestep — upstream Wan stores</span>
+<span class="sd">    ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to</span>
+<span class="sd">    ``float64`` internally.&quot;&quot;&quot;</span></div>
 
 
 
@@ -485,17 +498,19 @@ SPDX-License-Identifier: Apache-2.0
             <span class="sa">f</span><span class="s2">&quot;num_inference_steps (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">num_inference_steps</span><span class="si">}</span><span class="s2">) must equal &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;len(denoising_timesteps) (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">denoising_timesteps</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">extra_one_step</span><span class="p">,</span> <span class="s2">&quot;extra_one_step=False not exercised; not ported&quot;</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">sigma_min</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;sigma_min != 0 not exercised; not ported&quot;</span>
-
         <span class="c1"># Full warped schedule: identical to DiffSynth&#39;s</span>
         <span class="c1">#   sigmas = linspace(1, 0, N + 1)[:-1]</span>
         <span class="c1">#   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)</span>
         <span class="c1"># (matches reference exactly in fp32).</span>
-        <span class="n">full_sigmas</span> <span class="o">=</span> <span class="n">_warp</span><span class="p">(</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">config</span><span class="o">.</span><span class="n">shift</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">extra_one_step</span><span class="p">:</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+            <span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+            <span class="p">)</span>
+        <span class="n">full_sigmas</span> <span class="o">=</span> <span class="n">_warp</span><span class="p">(</span><span class="n">sigmas</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">shift</span><span class="p">)</span>
         <span class="n">full_timesteps</span> <span class="o">=</span> <span class="n">full_sigmas</span> <span class="o">*</span> <span class="n">N</span>
 
         <span class="c1"># Pre-resolve per-step (sigma, timestep) so sample() does no</span>
@@ -527,7 +542,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="c1"># the sigma table.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="s2">&quot;denoising_step_list&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">step_list</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">step_list</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">timestep_dtype</span><span class="p">),</span>
             <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>

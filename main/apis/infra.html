@@ -1156,8 +1156,10 @@ dtype (UniPC uses int64, flow-match uses float).</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">denoising_timesteps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">warp_denoising_step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">num_train_timesteps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">sigma_max</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">sigma_min</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.0</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">extra_one_step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">timestep_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+git063b516 ))"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float32</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig" title="Link to this definition">#</a></dt>
@@ -1194,17 +1196,36 @@ dtype (UniPC uses int64, flow-match uses float).</p>
 </dd></dl>
 
 <dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max">
+<span class="sig-name descname"><span class="pre">sigma_max</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max" title="Link to this definition">#</a></dt>
+<dd><p>Top of the linspace before warping; <code class="docutils literal notranslate"><span class="pre">1.0</span></code> matches DiffSynth, upstream
+Wan / Lingbot ships <code class="docutils literal notranslate"><span class="pre">0.999</span></code>.</p>
+</dd></dl>
+
+<dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min">
 <span class="sig-name descname"><span class="pre">sigma_min</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min" title="Link to this definition">#</a></dt>
-<dd><p>Floor of the warped sigma schedule. Only <code class="docutils literal notranslate"><span class="pre">0.0</span></code> is supported here;
-asserted at construction.</p>
+<dd><p>Bottom of the linspace before warping. Reserved for upstream parity;
+only <code class="docutils literal notranslate"><span class="pre">0.0</span></code> is exercised.</p>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step">
 <span class="sig-name descname"><span class="pre">extra_one_step</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step" title="Link to this definition">#</a></dt>
-<dd><p>Append the <code class="docutils literal notranslate"><span class="pre">sigma=0</span></code> step to the schedule. Only <code class="docutils literal notranslate"><span class="pre">True</span></code> is
-supported here; asserted at construction.</p>
+<dd><p>If <code class="docutils literal notranslate"><span class="pre">True</span></code>, build the schedule from
+<code class="docutils literal notranslate"><span class="pre">linspace(sigma_max,</span> <span class="pre">sigma_min,</span> <span class="pre">N+1)[:-1]</span></code> (matches DiffSynth /
+upstream Wan); <code class="docutils literal notranslate"><span class="pre">False</span></code> uses <code class="docutils literal notranslate"><span class="pre">N</span></code> points and is kept for non-Wan
+recipes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype">
+<span class="sig-name descname"><span class="pre">timestep_dtype</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+git063b516 ))"><span class="pre">dtype</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">torch.float32</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype" title="Link to this definition">#</a></dt>
+<dd><p>Dtype of <code class="docutils literal notranslate"><span class="pre">denoising_step_list</span></code>. Set to an integer dtype (e.g.
+<code class="docutils literal notranslate"><span class="pre">torch.int64</span></code>) when the network’s time embedding is sensitive to the
+fractional part of the warped timestep — upstream Wan stores
+<code class="docutils literal notranslate"><span class="pre">scheduler.timesteps</span></code> as <code class="docutils literal notranslate"><span class="pre">int64</span></code> and lets the embedding upcast to
+<code class="docutils literal notranslate"><span class="pre">float64</span></code> internally.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1877,8 +1898,10 @@ buffers carried across AR steps).</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.denoising_timesteps"><code class="docutils literal notranslate"><span class="pre">denoising_timesteps</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step"><code class="docutils literal notranslate"><span class="pre">warp_denoising_step</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps"><code class="docutils literal notranslate"><span class="pre">num_train_timesteps</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max"><code class="docutils literal notranslate"><span class="pre">sigma_max</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min"><code class="docutils literal notranslate"><span class="pre">sigma_min</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step"><code class="docutils literal notranslate"><span class="pre">extra_one_step</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype"><code class="docutils literal notranslate"><span class="pre">timestep_dtype</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler"><code class="docutils literal notranslate"><span class="pre">FlowMatchScheduler</span></code></a><ul class="nav section-nav flex-column">
