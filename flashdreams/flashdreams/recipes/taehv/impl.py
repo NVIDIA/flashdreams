@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional
 
@@ -175,8 +176,27 @@ class Decoder(nn.Module):
         return x.reshape(b, bt // b, c_out, h_out, w_out)
 
 
+def _legacy_to_blocks_keys(
+    sd: Mapping[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    """Re-key legacy ``decoder.<i>.*`` weights to ``decoder.blocks.<i>.*``.
+
+    The current ``Decoder`` wraps its Sequential in a ``blocks`` attribute, so
+    older checkpoints whose keys flatten to ``decoder.<idx>.*`` need this
+    one-shot rewrite to line up with the module tree.
+    """
+    return {
+        (
+            k.replace("decoder.", "decoder.blocks.", 1)
+            if k.startswith("decoder.") and not k.startswith("decoder.blocks.")
+            else k
+        ): v
+        for k, v in sd.items()
+    }
+
+
 def _patch_tgrow_state_dict(
-    sd: Dict[str, torch.Tensor], decoder_blocks: nn.Sequential
+    sd: Mapping[str, torch.Tensor], decoder_blocks: nn.Sequential
 ) -> Dict[str, torch.Tensor]:
     """Truncate over-sized TGrow weights in ``sd`` to the model's expected channels.
 
@@ -222,6 +242,11 @@ class TAEHV(nn.Module):
 
     SUPPORTED_MODEL_TYPES = ("wan21", "wan22")
 
+    # Concrete types so ``self.decoder`` / ``self._decoder_call`` access
+    # doesn't go through ``nn.Module.__getattr__``'s ``Tensor | Module``.
+    decoder: "Decoder"
+    _decoder_call: Callable[..., torch.Tensor]
+
     def __init__(
         self,
         checkpoint_path: str = "taew2_1.pth",
@@ -229,6 +254,8 @@ class TAEHV(nn.Module):
         decoder_space_upscale: tuple[bool, bool, bool] = (True, True, True),
         patch_size: int = 1,
         latent_channels: int = 16,
+        channels: tuple[int, int, int, int] = (256, 128, 64, 64),
+        clamp_output: bool = True,
         model_type: str = "wan21",
         use_cuda_graph: bool = True,
         use_compile: bool = False,
@@ -255,15 +282,16 @@ class TAEHV(nn.Module):
         self.latent_channels = latent_channels
         self.image_channels = 3
         self.model_type = model_type
+        self.channels = channels
+        self.clamp_output = clamp_output
         # Frames the decoder drops from the front of its first chunk output
         # (matches the legacy 2 ** sum(time_upscale) - 1 formula).
         self.frames_to_trim = 2 ** sum(decoder_time_upscale) - 1
 
-        n_f = (256, 128, 64, 64)
         # Build on meta so only the checkpoint allocates real memory.
         with torch.device("meta"):
             self.decoder = Decoder(
-                n_f=n_f,
+                n_f=self.channels,
                 latent_channels=latent_channels,
                 image_channels=self.image_channels,
                 patch_size=patch_size,
@@ -272,18 +300,9 @@ class TAEHV(nn.Module):
                 act_func=act_func,
             )
 
+        self._post_model_init_hook()
+
         sd = load_checkpoint(checkpoint_path)
-        # Re-key legacy ``decoder.<i>.*`` to ``decoder.blocks.<i>.*`` because
-        # the new Decoder wraps the Sequential in an attribute.
-        sd = {
-            (
-                k.replace("decoder.", "decoder.blocks.", 1)
-                if k.startswith("decoder.") and not k.startswith("decoder.blocks.")
-                else k
-            ): v
-            for k, v in sd.items()
-        }
-        sd = _patch_tgrow_state_dict(sd, self.decoder.blocks)
         # assign=True: meta params become the checkpoint tensors directly;
         # strict=False: silently drop encoder-only weights.
         self.load_state_dict(sd, strict=False, assign=True)
@@ -299,8 +318,50 @@ class TAEHV(nn.Module):
             if use_cuda_graph
             else None
         )
-        self._decoder_call: Callable[..., torch.Tensor] = (
-            self._decoder_wrapper if self._decoder_wrapper is not None else self.decoder
+        # Plain ``self._decoder_call = <Module>`` would go through
+        # ``nn.Module.__setattr__`` and register the same module a second time,
+        # duplicating every key in ``state_dict`` under ``_decoder_call.*``.
+        # ``object.__setattr__`` skips that and stores it as a plain attribute.
+        object.__setattr__(
+            self,
+            "_decoder_call",
+            self._decoder_wrapper
+            if self._decoder_wrapper is not None
+            else self.decoder,
+        )
+
+    def _post_model_init_hook(self) -> None:
+        """Override to mutate the module tree after construction.
+
+        Runs once after ``self.decoder`` is built and before any checkpoint is
+        loaded. Default is a no-op; subclasses may insert/replace layers here
+        (e.g., FlashVSR-style identity-deepening of ``decoder.blocks``).
+        """
+
+    def _pre_load_state_dict_hook(
+        self, state_dict: Mapping[str, torch.Tensor]
+    ) -> Mapping[str, torch.Tensor]:
+        """Override to remap or patch a state dict before it is loaded.
+
+        Default applies the generic ``decoder.<i>.* -> decoder.blocks.<i>.*``
+        rewrite and the TGrow stride truncation. Subclasses can extend this
+        to perform additional adapter-specific remapping.
+        """
+        sd = _legacy_to_blocks_keys(state_dict)
+        sd = _patch_tgrow_state_dict(sd, self.decoder.blocks)
+        return sd
+
+    def load_state_dict(
+        self,
+        state_dict: Mapping[str, torch.Tensor],
+        strict: bool = True,
+        assign: bool = False,
+    ) -> torch.nn.modules.module._IncompatibleKeys:
+        """Route every state-dict load through ``_pre_load_state_dict_hook``."""
+        return super().load_state_dict(
+            self._pre_load_state_dict_hook(state_dict),
+            strict=strict,
+            assign=assign,
         )
 
     def prepare_cache(self) -> TAEHVCache:
@@ -316,7 +377,10 @@ class TAEHV(nn.Module):
 
     @torch.inference_mode()
     def decode(
-        self, z: torch.Tensor, cache: Optional[TAEHVCache] = None
+        self,
+        z: torch.Tensor,
+        cache: Optional[TAEHVCache] = None,
+        **_: object,
     ) -> torch.Tensor:
         """Streaming decode of an ``[N, T, C_z, H, W]`` latent.
 
@@ -343,7 +407,8 @@ class TAEHV(nn.Module):
         x = decoder(z, state, b)
         # Clamp / pixel-shuffle / trim happen outside the captured region;
         # the wrapper returns static_output.clone() so clamp_ is safe in-place.
-        x = x.clamp_(0, 1)
+        if self.clamp_output:
+            x = x.clamp_(0, 1)
         if self.patch_size > 1:
             n, t, c, h, w = x.shape
             x = F.pixel_shuffle(x.reshape(n * t, c, h, w), self.patch_size)
