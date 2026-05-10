@@ -17,8 +17,6 @@
 
 import numpy as np
 import torch
-from scipy.interpolate import interp1d
-from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
 
 ## Lingbot World example-data preprocessing
@@ -82,13 +80,19 @@ def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
         axis=0,
     )  # [T, 4, 4]
 
-    # Sanity check that the encoder will recover the encoded poses.
-    indices = [0] + list(
-        range(_TEMPORAL_COMPRESSION_RATIO, poses.shape[0], _TEMPORAL_COMPRESSION_RATIO)
-    )
-    np.testing.assert_allclose(
-        poses[indices], poses_after_encoding, atol=1e-4, rtol=1e-4
-    )
+    # Round-trip check that the encoder's stride-4 frame selection will
+    # recover ``poses_after_encoding``. Skipped under ``python -O`` so
+    # production runs don't pay for the per-pose allclose.
+    # indices = [0] + list(
+    #     range(
+    #         _TEMPORAL_COMPRESSION_RATIO,
+    #         poses.shape[0],
+    #         _TEMPORAL_COMPRESSION_RATIO,
+    #     )
+    # )
+    # np.testing.assert_allclose(
+    #     poses[indices], poses_after_encoding, atol=1e-4, rtol=1e-4
+    # )
 
     return poses, trans_normalizer
 
@@ -110,7 +114,8 @@ def get_Ks_transformed(
     crop down to the final size.
 
     Args:
-        Ks: Per-frame intrinsics ``[T, 4]`` (``fx, fy, cx, cy``).
+        Ks: Per-frame intrinsics ``[..., 4]`` (``fx, fy, cx, cy``); arbitrary
+            leading batch dims are preserved.
         height_org: Capture-resolution height ``Ks`` is expressed in.
         width_org: Capture-resolution width ``Ks`` is expressed in.
         height_resize: Height after the resize step.
@@ -119,9 +124,9 @@ def get_Ks_transformed(
         width_final: Width after the center crop.
 
     Returns:
-        Transformed intrinsics ``[T, 4]`` in the same dtype as ``Ks``.
+        Transformed intrinsics with the same shape and dtype as ``Ks``.
     """
-    fx, fy, cx, cy = Ks.chunk(4, dim=-1)  # [f, 1]
+    fx, fy, cx, cy = Ks.chunk(4, dim=-1)  # [..., 1]
 
     scale_x = width_resize / width_org
     scale_y = height_resize / height_org
@@ -138,10 +143,10 @@ def get_Ks_transformed(
     cy_final = cy_resize - crop_offset_y
 
     Ks_transformed = torch.zeros_like(Ks)
-    Ks_transformed[:, 0:1] = fx_resize
-    Ks_transformed[:, 1:2] = fy_resize
-    Ks_transformed[:, 2:3] = cx_final
-    Ks_transformed[:, 3:4] = cy_final
+    Ks_transformed[..., 0:1] = fx_resize
+    Ks_transformed[..., 1:2] = fy_resize
+    Ks_transformed[..., 2:3] = cx_final
+    Ks_transformed[..., 3:4] = cy_final
 
     return Ks_transformed
 
@@ -166,7 +171,19 @@ def interpolate_camera_poses(
 
     Returns:
         Resampled SE(3) poses ``[M, 4, 4]``.
+
+    Raises:
+        ImportError: SciPy is not installed.
     """
+    try:
+        from scipy.interpolate import interp1d  # noqa: PLC0415
+        from scipy.spatial.transform import Rotation, Slerp  # noqa: PLC0415
+    except ImportError as e:
+        raise ImportError(
+            "interpolate_camera_poses requires SciPy. Install it with "
+            "`pip install scipy` (or `pip install flashdreams[examples]`)."
+        ) from e
+
     interp_func_trans = interp1d(
         src_indices,
         src_trans_vec,

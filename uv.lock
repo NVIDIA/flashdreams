@@ -595,6 +595,7 @@ dependencies = [
     { name = "aiortc" },
     { name = "flashdreams" },
     { name = "opencv-python-headless" },
+    { name = "scipy" },
 ]
 
 [package.optional-dependencies]
@@ -611,6 +612,7 @@ requires-dist = [
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 
@@ -648,10 +650,12 @@ dev = [
 examples = [
     { name = "mediapy" },
     { name = "opencv-python-headless" },
+    { name = "scipy" },
 ]
 runners = [
     { name = "mediapy" },
     { name = "opencv-python-headless" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -672,6 +676,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'" },
     { name = "safetensors", specifier = ">=0.4" },
+    { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.11" },
+    { name = "scipy", marker = "extra == 'runners'", specifier = ">=1.11" },
     { name = "torch", marker = "sys_platform != 'win32'", specifier = ">=2.11" },
     { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.11", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "sys_platform != 'win32'" },

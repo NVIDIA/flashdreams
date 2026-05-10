@@ -28,6 +28,7 @@ dependencies = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
     "opencv-python-headless",
+    "scipy>=1.11",
 ]
 
 [tool.uv.sources]

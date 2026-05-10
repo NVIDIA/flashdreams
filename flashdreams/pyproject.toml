@@ -79,6 +79,7 @@ dev = [
 examples = [
     "mediapy>=1.1",
     "opencv-python-headless",
+    "scipy>=1.11",
 ]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
@@ -87,6 +88,7 @@ examples = [
 runners = [
     "mediapy>=1.1",
     "opencv-python-headless",
+    "scipy>=1.11",
 ]
 
 [tool.setuptools.packages.find]
