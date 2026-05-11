@@ -423,7 +423,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanInferencePipelineCache">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineCache">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipelineCache</span><span class="p">(</span>
     <span class="n">StreamInferencePipelineCache</span><span class="p">[</span>
@@ -445,7 +445,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanInferencePipelineConfig">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipelineConfig</span><span class="p">(</span><span class="n">StreamInferencePipelineConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Wan inference pipeline.</span>
@@ -469,7 +469,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanInferencePipeline">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanInferencePipeline</span><span class="p">(</span>
     <span class="n">StreamInferencePipeline</span><span class="p">[</span>
         <span class="n">I2VCtrlEncoderCache</span><span class="p">,</span>
@@ -526,7 +526,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">return</span> <span class="n">cfg</span>
 
 <div class="viewcode-block" id="WanInferencePipeline.initialize_cache">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.initialize_cache">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.initialize_cache">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -571,7 +571,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">if</span> <span class="n">image</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
                 <span class="s2">&quot;Image was provided but the pipeline has no I2V input &quot;</span>
-                <span class="s2">&quot;encoder; configure encoder to an I2VCtrlEncoderConfig.&quot;</span>
+                <span class="s2">&quot;encoder; configure encoder to a WanI2VCtrlEncoderConfig.&quot;</span>
             <span class="p">)</span>
             <span class="k">assert</span> <span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;image must have a single time step (T=1), got shape &quot;</span>
@@ -669,7 +669,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">)</span>
 
 <div class="viewcode-block" id="WanInferencePipeline.generate">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.generate">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.generate">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -697,7 +697,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanInferencePipeline.get_num_input_frames">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_input_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_input_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of input video frames the model expects at this AR step.&quot;&quot;&quot;</span>
         <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
@@ -709,7 +709,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanInferencePipeline.get_num_output_frames">
-<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[docs]</a>
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_output_frames">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_num_output_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of decoded video frames produced at this AR step.&quot;&quot;&quot;</span>
         <span class="n">len_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">len_t</span>
