@@ -138,21 +138,16 @@ srun \
     --container-workdir=$HOME/workspace/flashdreams \
     /bin/bash
 
-# 1. setup huggingface
-# - (required) huggingface token
+# 1. huggingface
 export HF_TOKEN=<YOUR-HF-TOKEN>
-# - (optional) huggingface cache path
-export HF_HOME=~/.cache/huggingface # default
-# - (optional) Lighthouse adopters: route omni-dreams-* fetches to the LHA mirror
-export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha # default: "nvidia"
+export HF_HOME=~/.cache/huggingface              # optional; this is the default
+export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
 
-# 2. (optional) setup where to cache flashdreams checkpoints
-export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # default
+# 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
+#    Skip for external users. Requires the S3 credentials in step 3.
+export FLASHDREAMS_INTERNAL_STORAGE=1
 
-# 3. (only if you intend to run the slugs flagged "S3" below) setup S3 credentials.
-#    Skip this block if you only run the chunk2 single-view perf preset, which is
-#    fully HF-native (checkpoints from nvidia/omni-dreams-models, --example-data
-#    from nvidia/omni-dreams-samples).
+# 3. (only if step 2 is set, or you run a slug flagged "S3" below) S3 credentials.
 cat > credentials/s3_checkpoint.secret <<EOF
 {
   "aws_access_key_id": "team-sil-videogen",
@@ -162,13 +157,11 @@ cat > credentials/s3_checkpoint.secret <<EOF
 }
 EOF
 
-# 4. Run inference. Checkpoints + example data are auto-downloaded at first run.
-#    Pass --example-data to lazy-fetch a bundled HDMap clip + first frame and
-#    fill the per-camera path tuples. Pick a different demo clip with
-#    --example-data-uuid <uuid> (single-view only); see
-#    https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view
-#    for the catalogue.
-# - single view on single GPU (best-perf preset; HF-native, no S3 needed)
+# 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
+#    --example-data fills the per-camera path tuples from a bundled HDMap clip
+#    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
+#    clips at https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view .
+# - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
     --example-data True --total-blocks 20
@@ -178,8 +171,7 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
     --example-data True --total-blocks 20
 
-# - diffusion forcing AR model on bundled single-view example data
-#   (S3: the chunk2 diffusion-forcing checkpoint is still S3-hosted)
+# - diffusion forcing AR model (S3: chunk2 diffusion-forcing checkpoint not on HF yet)
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
     --example-data True --total-blocks 12
