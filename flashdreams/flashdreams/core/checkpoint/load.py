@@ -33,6 +33,7 @@ from torch.distributed.checkpoint import FileSystemReader
 from torch.distributed.checkpoint import load as dcp_load
 from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
+from flashdreams.core.io.hf_org import rewrite_omni_dreams_hf_url
 from flashdreams.core.io.s3_filesystem import S3FileSystem, S3StorageReader
 
 _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
@@ -185,6 +186,7 @@ def _load_sharded_safetensors_index_checkpoint(
     is_hf_url = _is_huggingface_checkpoint_url(checkpoint_path)
 
     if is_hf_url:
+        checkpoint_path = rewrite_omni_dreams_hf_url(checkpoint_path)
         repo_id, index_filename, subfolder, revision = (
             _parse_huggingface_checkpoint_url(checkpoint_path)
         )
@@ -290,6 +292,7 @@ def _parse_huggingface_checkpoint_url(
 
 def _download_checkpoint_from_huggingface_url(url: str) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
+    url = rewrite_omni_dreams_hf_url(url)
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
     logger.info(f"Downloading checkpoint from Hugging Face: {url}")
     local_path = hf_hub_download(
