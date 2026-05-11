@@ -26,10 +26,12 @@ from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
-from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoderConfig
-from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork1pt3BConfig
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+from flashdreams.recipes.wan import (
+    Wan21TransformerConfig,
+    WanDiTNetwork1pt3BConfig,
+    WanInferencePipelineConfig,
+    WanVAEDecoderConfig,
+)
 from self_forcing.runner import SelfForcingT2VRunnerConfig
 
 CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt"

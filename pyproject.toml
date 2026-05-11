@@ -45,6 +45,7 @@ extraPaths = [
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
     "integrations/self_forcing",
+    "integrations/wan21",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -62,6 +63,7 @@ extra-paths = [
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
     "integrations/self_forcing",
+    "integrations/wan21",
 ]
 
 [tool.ty.src]

@@ -18,6 +18,7 @@ members = [
     "flashdreams-causal-forcing",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-self-forcing",
+    "flashdreams-wan21",
 ]
 overrides = [{ name = "nvidia-cublas", specifier = ">=13.4" }]
 
@@ -756,6 +757,30 @@ dev = [
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "mediapy", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-wan21"
+version = "0.1.0"
+source = { editable = "integrations/wan21" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "mediapy" },
+    { name = "opencv-python-headless" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]

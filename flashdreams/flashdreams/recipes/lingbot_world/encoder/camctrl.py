@@ -32,7 +32,7 @@ from flashdreams.infra.encoder import (
 from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrl,
     I2VCtrlEncoderCache,
-    I2VCtrlEncoderConfig,
+    WanI2VCtrlEncoderConfig,
 )
 
 from .utils import (
@@ -87,7 +87,7 @@ class I2VCamCtrlEncoderConfig(EncoderConfig):
 
     _target: type = field(default_factory=lambda: I2VCamCtrlEncoder)
 
-    i2v: I2VCtrlEncoderConfig = field(default_factory=I2VCtrlEncoderConfig)
+    i2v: WanI2VCtrlEncoderConfig = field(default_factory=WanI2VCtrlEncoderConfig)
     """Config for the Wan-VAE I2V encoder branch."""
 
 

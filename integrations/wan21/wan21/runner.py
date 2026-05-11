@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Causal-Forcing Wan 2.1 streaming runner classes (T2V and I2V)."""
+"""Non-streaming Wan 2.1 runner classes (T2V and I2V)."""
 
 from __future__ import annotations
 
@@ -35,30 +35,29 @@ from flashdreams.recipes.wan import (
 )
 
 __all__ = [
-    "CausalForcingI2VRunnerConfig",
-    "CausalForcingI2VRunner",
-    "CausalForcingT2VRunnerConfig",
-    "CausalForcingT2VRunner",
+    "Wan21I2VRunnerConfig",
+    "Wan21I2VRunner",
+    "Wan21T2VRunnerConfig",
+    "Wan21T2VRunner",
 ]
 
 
 @dataclass(kw_only=True)
-class CausalForcingT2VRunnerConfig(RunnerConfig):
-    """Runner config for the Causal-Forcing T2V variants.
+class Wan21T2VRunnerConfig(RunnerConfig):
+    """Runner config for the Wan 2.1 T2V variant.
 
-    Also serves as the base for :class:`CausalForcingI2VRunnerConfig`
+    Also serves as the base for :class:`Wan21I2VRunnerConfig`
     (I2V is T2V plus an ``image_path``).
     """
 
-    _target: type = field(default_factory=lambda: CausalForcingT2VRunner)
+    _target: type = field(default_factory=lambda: Wan21T2VRunner)
 
-    prompt: str | Path = Path(__file__).resolve().parents[1] / "assets" / "prompt.txt"
+    prompt: str | Path = (
+        Path(__file__).resolve().parents[1] / "assets" / "prompt_t2v.txt"
+    )
     """Either an inline text prompt (--prompt "...") or a path to a
     txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to assets/prompt.txt."""
-
-    total_blocks: int = 60
-    """Number of autoregressive chunks to generate before terminating the rollout."""
+    Defaults to assets/prompt_t2v.txt."""
 
     pixel_height: int = 480
     """Output video pixel height."""
@@ -71,31 +70,42 @@ class CausalForcingT2VRunnerConfig(RunnerConfig):
 
 
 @dataclass(kw_only=True)
-class CausalForcingI2VRunnerConfig(CausalForcingT2VRunnerConfig):
-    """Runner config for the Causal-Forcing I2V variants.
+class Wan21I2VRunnerConfig(Wan21T2VRunnerConfig):
+    """Runner config for the Wan 2.1 I2V variant.
 
-    Inherits all T2V fields (prompt, total_blocks, pixel_*, fps) and
+    Inherits all T2V fields (prompt, pixel_*, fps) and
     adds the first-frame image path that I2V needs at runtime.
     """
 
-    _target: type = field(default_factory=lambda: CausalForcingI2VRunner)
+    _target: type = field(default_factory=lambda: Wan21I2VRunner)
 
-    image_path: Path = Path(__file__).resolve().parents[1] / "assets" / "image.jpg"
+    image_path: Path = Path(__file__).resolve().parents[1] / "assets" / "image_i2v.jpg"
     """Path to the first-frame RGB image. Defaults to the bundled
-    assets/image.jpg; override with --image-path /path/to/frame.png."""
+    assets/image_i2v.jpg; override with --image-path /path/to/frame.png."""
+
+    prompt: str | Path = (
+        Path(__file__).resolve().parents[1] / "assets" / "prompt_i2v.txt"
+    )
+    """Either an inline text prompt (--prompt "...") or a path to a
+    txt file whose first line is read as the prompt (--prompt prompt.txt).
+    Defaults to assets/prompt_i2v.txt."""
+
+    pixel_height: int = 832
+    """Output video pixel height."""
+
+    pixel_width: int = 480
+    """Output video pixel width."""
 
 
-class CausalForcingT2VRunner(
-    Runner[CausalForcingT2VRunnerConfig, WanInferencePipeline]
-):
-    """Causal-Forcing Wan 2.1 streaming T2V driver.
+class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
+    """Wan 2.1 non-streaming T2V driver.
 
-    Also serves as the base for :class:`CausalForcingI2VRunner` (I2V
+    Also serves as the base for :class:`Wan21I2VRunner` (I2V
     only overrides :meth:`_initialize_cache` to load the first frame;
     everything else, including :meth:`run`, is reused).
     """
 
-    config: CausalForcingT2VRunnerConfig
+    config: Wan21T2VRunnerConfig
 
     def _resolve_prompt(self) -> str:
         """Resolve config.prompt.
@@ -131,27 +141,18 @@ class CausalForcingT2VRunner(
         )
 
     def run(self) -> None:
-        """Drive the autoregressive rollout and write outputs."""
+        """Drive the single-step rollout and write outputs."""
         config = self.config
 
         # Initialize the autoregressive cache.
         cache = self._initialize_cache()
 
-        # Generate the autoregressive chunks.
-        chunks: list[torch.Tensor] = []
-        stats_history: list[dict[str, float]] = []
-        for i in range(config.total_blocks):
-            video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
-            stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            if stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
-
-        # Concatenate the autoregressive chunks along the time axis.
-        # The result is a tensor of shape [T, C, H, W], value in [-1, 1].
-        generated = torch.cat(chunks, dim=0)
+        # Generate the output in one AR step.
+        generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
+        stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
         if not self.is_rank_zero:
             return
+        generated = generated.cpu()
 
         # Write the video.
         config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -168,23 +169,20 @@ class CausalForcingT2VRunner(
         )
 
         # Write the perf stats.
-        if stats_history:
+        if stats is not None:
             stats_path = config.output_dir / f"stats_{config.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path.write_text(
+                json.dumps([{"autoregressive_index": 0, **stats}], indent=2)
+            )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
 
-class CausalForcingI2VRunner(CausalForcingT2VRunner):
-    """Causal-Forcing Wan 2.1 streaming I2V driver (mask-injection first frame).
+class Wan21I2VRunner(Wan21T2VRunner):
+    """Wan 2.1 non-streaming I2V driver (first-frame injection)."""
 
-    Inherits :meth:`run` and :meth:`_resolve_prompt` from
-    :class:`CausalForcingT2VRunner`; only :meth:`_initialize_cache`
-    differs (loads + encodes the first frame).
-    """
-
-    config: CausalForcingI2VRunnerConfig
+    config: Wan21I2VRunnerConfig
 
     def _initialize_cache(self) -> WanInferencePipelineCache:
         """Initialize the autoregressive cache for I2V (loads first frame)."""

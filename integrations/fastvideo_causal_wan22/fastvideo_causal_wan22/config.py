@@ -24,17 +24,53 @@ from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoderConfig
-from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork14BConfig
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
-from flashdreams.recipes.wan.transformer.wan22 import (
-    CHECKPOINT_KEY_MAPPING,
+from flashdreams.recipes.wan import (
+    Wan21TransformerConfig,
     Wan22TransformerConfig,
+    WanDiTNetwork14BConfig,
+    WanInferencePipelineConfig,
+    WanVAEDecoderConfig,
 )
 
 CHECKPOINT_PATH_HIGH_NOISE = "https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers/blob/main/transformer/diffusion_pytorch_model.safetensors"
 CHECKPOINT_PATH_LOW_NOISE = "https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers/blob/main/transformer_2/diffusion_pytorch_model.safetensors"
+
+## HF diffusers → bare WanDiTNetwork key remap
+
+# Wan 2.2 ships in the HF diffusers layout, which differs from the bare
+# WanDiTNetwork.state_dict() keys. This is the same mapping the legacy
+# projects.causal_wan2_2.dit.model.WanDiT used.
+CHECKPOINT_KEY_MAPPING: dict[str, str] = {
+    # Global embedding/head remaps
+    r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
+    r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",
+    r"^condition_embedder\.time_embedder\.linear_1\.(.*)$": r"time_embedding.0.\1",
+    r"^condition_embedder\.time_embedder\.linear_2\.(.*)$": r"time_embedding.2.\1",
+    r"^condition_embedder\.time_proj\.(.*)$": r"time_projection.1.\1",
+    r"^scale_shift_table$": r"head.modulation",
+    r"^proj_out\.(.*)$": r"head.head.\1",
+    # Block attention projections
+    r"^blocks\.(\d+)\.attn1\.to_q\.(.*)$": r"blocks.\1.self_attn.q.\2",
+    r"^blocks\.(\d+)\.attn1\.to_k\.(.*)$": r"blocks.\1.self_attn.k.\2",
+    r"^blocks\.(\d+)\.attn1\.to_v\.(.*)$": r"blocks.\1.self_attn.v.\2",
+    r"^blocks\.(\d+)\.attn1\.to_out\.0\.(.*)$": r"blocks.\1.self_attn.o.\2",
+    r"^blocks\.(\d+)\.attn2\.to_q\.(.*)$": r"blocks.\1.cross_attn.q.\2",
+    r"^blocks\.(\d+)\.attn2\.to_k\.(.*)$": r"blocks.\1.cross_attn.k.\2",
+    r"^blocks\.(\d+)\.attn2\.to_v\.(.*)$": r"blocks.\1.cross_attn.v.\2",
+    r"^blocks\.(\d+)\.attn2\.to_out\.0\.(.*)$": r"blocks.\1.cross_attn.o.\2",
+    # Block norm/modulation remaps
+    r"^blocks\.(\d+)\.attn1\.norm_q\.(.*)$": r"blocks.\1.self_attn.norm_q.\2",
+    r"^blocks\.(\d+)\.attn1\.norm_k\.(.*)$": r"blocks.\1.self_attn.norm_k.\2",
+    r"^blocks\.(\d+)\.attn2\.norm_q\.(.*)$": r"blocks.\1.cross_attn.norm_q.\2",
+    r"^blocks\.(\d+)\.attn2\.norm_k\.(.*)$": r"blocks.\1.cross_attn.norm_k.\2",
+    r"^blocks\.(\d+)\.norm2\.(.*)$": r"blocks.\1.norm3.\2",
+    r"^blocks\.(\d+)\.scale_shift_table$": r"blocks.\1.modulation",
+    # Block FFN remaps
+    r"^blocks\.(\d+)\.ffn\.fc_in\.(.*)$": r"blocks.\1.ffn.0.\2",
+    r"^blocks\.(\d+)\.ffn\.fc_out\.(.*)$": r"blocks.\1.ffn.2.\2",
+    r"^blocks\.(\d+)\.ffn\.net\.0\.proj\.(.*)$": r"blocks.\1.ffn.0.\2",
+    r"^blocks\.(\d+)\.ffn\.net\.2\.(.*)$": r"blocks.\1.ffn.2.\2",
+}
 
 
 def state_dict_transform(

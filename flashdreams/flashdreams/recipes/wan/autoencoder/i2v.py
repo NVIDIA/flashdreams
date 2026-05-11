@@ -53,7 +53,7 @@ class I2VCtrl:
 
 
 @dataclass(kw_only=True)
-class I2VCtrlEncoderConfig(EncoderConfig):
+class WanI2VCtrlEncoderConfig(EncoderConfig):
     """Config for the I2V control encoder."""
 
     _target: type = field(default_factory=lambda: I2VCtrlEncoder)
@@ -78,9 +78,9 @@ class I2VCtrlEncoder(StreamingVideoEncoder[I2VCtrlEncoderCache]):
 
     encoder: WanVAEEncoder
 
-    def __init__(self, config: I2VCtrlEncoderConfig) -> None:
+    def __init__(self, config: WanI2VCtrlEncoderConfig) -> None:
         super().__init__(config)
-        self.config: I2VCtrlEncoderConfig = config
+        self.config: WanI2VCtrlEncoderConfig = config
         self.encoder = config.encoder.setup()
 
         self._last_latent: Tensor | None = None

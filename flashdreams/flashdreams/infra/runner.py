@@ -21,13 +21,13 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar, cast
 
 import torch
 import tyro
 
 from flashdreams.core.distributed import init as init_distributed
-from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.config import InstantiateConfig, derive_config
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineConfig,
@@ -66,6 +66,11 @@ class RunnerConfig(InstantiateConfig):
     ``torchrun`` the runner overrides this with ``cuda:LOCAL_RANK`` so
     each rank pins its own GPU."""
 
+    offset_seed_by_global_rank: bool = True
+    """Offset ``pipeline.diffusion_model.seed`` by ``global_rank`` when
+    running distributed. Defaults to ``True`` so each rank draws from a
+    distinct RNG stream while preserving deterministic replay per rank."""
+
 
 RunnerConfigT = TypeVar("RunnerConfigT", bound=RunnerConfig)
 PipelineT = TypeVar("PipelineT", bound=StreamInferencePipeline[Any, Any, Any])
@@ -96,8 +101,6 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
     pipeline: PipelineT
 
     def __init__(self, config: RunnerConfigT) -> None:
-        self.config = config
-
         # Bridge ``torchrun`` -> ``torch.distributed`` *before*
         # ``config.pipeline.setup()`` so recipe transformers can pick up
         # the CP world size at construction time. Idempotent: skipped
@@ -118,7 +121,27 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
             device = config.device
         self.is_rank_zero = self.global_rank == 0
 
-        pipeline = config.pipeline.setup()
+        # Keep per-rank RNG streams distinct under torchrun without mutating
+        # the caller's literal config.
+        effective_config = config
+        base_seed = config.pipeline.diffusion_model.seed
+        if (
+            config.offset_seed_by_global_rank
+            and base_seed is not None
+            and self.global_rank != 0
+        ):
+            effective_config = cast(
+                RunnerConfigT,
+                derive_config(
+                    config,
+                    pipeline=dict(
+                        diffusion_model=dict(seed=base_seed + self.global_rank),
+                    ),
+                ),
+            )
+        self.config = effective_config
+
+        pipeline = self.config.pipeline.setup()
         self.pipeline = pipeline.to(device=device).eval()
 
     @abstractmethod

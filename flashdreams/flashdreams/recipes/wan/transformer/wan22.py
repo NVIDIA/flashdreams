@@ -35,56 +35,6 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerConfig,
 )
 
-## HF diffusers → bare WanDiTNetwork key remap
-
-# Wan 2.2 ships in the HF diffusers layout, which differs from the bare
-# WanDiTNetwork.state_dict() keys. This is the same mapping the legacy
-# projects.causal_wan2_2.dit.model.WanDiT used.
-CHECKPOINT_KEY_MAPPING: dict[str, str] = {
-    # Global embedding/head remaps
-    r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
-    r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",
-    r"^condition_embedder\.time_embedder\.linear_1\.(.*)$": r"time_embedding.0.\1",
-    r"^condition_embedder\.time_embedder\.linear_2\.(.*)$": r"time_embedding.2.\1",
-    r"^condition_embedder\.time_proj\.(.*)$": r"time_projection.1.\1",
-    r"^scale_shift_table$": r"head.modulation",
-    r"^proj_out\.(.*)$": r"head.head.\1",
-    # Block attention projections
-    r"^blocks\.(\d+)\.attn1\.to_q\.(.*)$": r"blocks.\1.self_attn.q.\2",
-    r"^blocks\.(\d+)\.attn1\.to_k\.(.*)$": r"blocks.\1.self_attn.k.\2",
-    r"^blocks\.(\d+)\.attn1\.to_v\.(.*)$": r"blocks.\1.self_attn.v.\2",
-    r"^blocks\.(\d+)\.attn1\.to_out\.0\.(.*)$": r"blocks.\1.self_attn.o.\2",
-    r"^blocks\.(\d+)\.attn2\.to_q\.(.*)$": r"blocks.\1.cross_attn.q.\2",
-    r"^blocks\.(\d+)\.attn2\.to_k\.(.*)$": r"blocks.\1.cross_attn.k.\2",
-    r"^blocks\.(\d+)\.attn2\.to_v\.(.*)$": r"blocks.\1.cross_attn.v.\2",
-    r"^blocks\.(\d+)\.attn2\.to_out\.0\.(.*)$": r"blocks.\1.cross_attn.o.\2",
-    # Block norm/modulation remaps
-    r"^blocks\.(\d+)\.attn1\.norm_q\.(.*)$": r"blocks.\1.self_attn.norm_q.\2",
-    r"^blocks\.(\d+)\.attn1\.norm_k\.(.*)$": r"blocks.\1.self_attn.norm_k.\2",
-    r"^blocks\.(\d+)\.attn2\.norm_q\.(.*)$": r"blocks.\1.cross_attn.norm_q.\2",
-    r"^blocks\.(\d+)\.attn2\.norm_k\.(.*)$": r"blocks.\1.cross_attn.norm_k.\2",
-    r"^blocks\.(\d+)\.norm2\.(.*)$": r"blocks.\1.norm3.\2",
-    r"^blocks\.(\d+)\.scale_shift_table$": r"blocks.\1.modulation",
-    # Block FFN remaps
-    r"^blocks\.(\d+)\.ffn\.fc_in\.(.*)$": r"blocks.\1.ffn.0.\2",
-    r"^blocks\.(\d+)\.ffn\.fc_out\.(.*)$": r"blocks.\1.ffn.2.\2",
-    r"^blocks\.(\d+)\.ffn\.net\.0\.proj\.(.*)$": r"blocks.\1.ffn.0.\2",
-    r"^blocks\.(\d+)\.ffn\.net\.2\.(.*)$": r"blocks.\1.ffn.2.\2",
-}
-
-
-## Defaults for the two branches
-
-
-def _default_branch_config() -> Wan21TransformerConfig:
-    return Wan21TransformerConfig(
-        network=WanDiTNetwork14BConfig(),
-        len_t=3,
-    )
-
-
-## Autoregressive cache (per-rollout, mutated across AR steps)
-
 
 @dataclass(kw_only=True)
 class Wan22TransformerCache(TransformerAutoregressiveCache):
@@ -131,12 +81,12 @@ class Wan22TransformerConfig(TransformerConfig):
     _target: type["Wan22Transformer"] = field(default_factory=lambda: Wan22Transformer)
 
     transformer_high_noise: Wan21TransformerConfig = field(
-        default_factory=_default_branch_config
+        default_factory=Wan21TransformerConfig
     )
     """Sub-config for the high-noise branch (timestep > boundary)."""
 
     transformer_low_noise: Wan21TransformerConfig = field(
-        default_factory=_default_branch_config
+        default_factory=Wan21TransformerConfig
     )
     """Sub-config for the low-noise branch (timestep <= boundary)."""
 

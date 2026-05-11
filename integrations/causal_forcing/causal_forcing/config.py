@@ -29,14 +29,14 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderConfig
-from flashdreams.recipes.wan.autoencoder.vae import (
+from flashdreams.recipes.wan import (
+    Wan21TransformerConfig,
+    WanDiTNetwork1pt3BConfig,
+    WanI2VCtrlEncoderConfig,
+    WanInferencePipelineConfig,
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
-from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetwork1pt3BConfig
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
 CHECKPOINT_PATH_CHUNKWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/chunkwise/causal_forcing.pt"
 CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/framewise/causal_forcing.pt"
@@ -136,7 +136,7 @@ PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
         recipe_name="causal-forcing-wan2.1-i2v-1.3b-framewise",
-        encoder=I2VCtrlEncoderConfig(
+        encoder=WanI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(),
         ),
         diffusion_model=dict(

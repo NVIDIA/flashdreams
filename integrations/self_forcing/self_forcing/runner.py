@@ -28,7 +28,7 @@ from loguru import logger
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.wan.pipeline import (
+from flashdreams.recipes.wan import (
     WanInferencePipeline,
     WanInferencePipelineCache,
 )

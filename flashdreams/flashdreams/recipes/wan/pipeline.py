@@ -190,7 +190,7 @@ class WanInferencePipeline(
         if image is not None:
             assert self.encoder is not None, (
                 "Image was provided but the pipeline has no I2V input "
-                "encoder; configure encoder to an I2VCtrlEncoderConfig."
+                "encoder; configure encoder to a WanI2VCtrlEncoderConfig."
             )
             assert image.shape[-4] == 1, (
                 f"image must have a single time step (T=1), got shape "

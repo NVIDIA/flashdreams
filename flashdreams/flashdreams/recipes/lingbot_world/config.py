@@ -49,7 +49,7 @@ from flashdreams.recipes.lingbot_world.transformer.impl.network import (
     LingbotWorldDiTNetwork14BConfig,
 )
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
-from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderConfig
+from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoderConfig,
@@ -90,7 +90,7 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     recipe_name="lingbot-world-fast",
     enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
-        i2v=I2VCtrlEncoderConfig(
+        i2v=WanI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(
                 checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
             ),
