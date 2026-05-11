@@ -199,12 +199,15 @@ class Wan21I2VRunner(Wan21T2VRunner):
         )
 
         # Load + resize the first frame, then convert to [-1, 1] bf16
-        # in shape [T=1, C, H, W] (matches batch_shape=()).
-        device = torch.device(f"cuda:{self.local_rank}")
+        # in shape [T=1, C, H, W] (matches batch_shape=()). Pin to the
+        # pipeline's actual device so non-default ``--device`` selections
+        # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
         arr = media.read_image(str(config.image_path))[..., :3]
         arr = cv2.resize(arr, (config.pixel_width, config.pixel_height))
         tensor = (
-            torch.from_numpy(arr).to(device=device, dtype=torch.bfloat16) / 127.5 - 1.0
+            torch.from_numpy(arr).to(device=self.pipeline.device, dtype=torch.bfloat16)
+            / 127.5
+            - 1.0
         )
         image = rearrange(tensor, "h w c -> 1 c h w")
 
