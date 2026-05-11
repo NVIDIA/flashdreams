@@ -53,7 +53,7 @@ uv run flashdreams-run --help
 # Per-runner help: every overridable field is a CLI flag.
 uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b --help
 
-# Single-GPU run with the bundled demo prompt (assets/prompt.txt).
+# Single-GPU run with the inline demo prompt (DEFAULT_T2V_PROMPT).
 uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b --total-blocks 7
 
 # Inline prompt override.

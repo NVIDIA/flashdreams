@@ -18,8 +18,10 @@
 from __future__ import annotations
 
 import json
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import cv2
 import mediapy as media
@@ -42,6 +44,49 @@ __all__ = [
 ]
 
 
+DEFAULT_T2V_PROMPT = (
+    "A cinematic closeup and detailed portrait of a reindeer standing in a "
+    "snowy forest at sunset. The lighting is gorgeous and soft, with a golden "
+    "backlight creating a warm and dreamy effect. Soft bokeh and lens flares "
+    "add a magical touch, enhancing the cinematic quality of the image. The "
+    "reindeer has a gentle expression, its fur glistening in the fading light. "
+    "The background features a serene snowy landscape with tall trees "
+    "silhouetted against the orange and pink hues of the setting sun. The "
+    "color grade is rich and magical, capturing the essence of a winter "
+    "wonderland at twilight. A close-up shot from a slightly elevated angle."
+)
+
+
+DEFAULT_I2V_IMAGE_URL = (
+    "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
+)
+
+IMAGE_CACHE_DIR = Path(__file__).resolve().parents[1] / "assets"
+"""Plugin-local image cache. Downloads land next to the bundled prompt
+assets so all demo data lives in one place."""
+
+
+def _resolve_image_path(image_path: str | Path) -> Path:
+    """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
+
+    ``http(s)://`` strings are fetched into :data:`_IMAGE_CACHE_DIR`
+    under the URL's basename and skipped on subsequent calls. Local
+    paths pass through unchanged.
+    """
+    if isinstance(image_path, Path):
+        return image_path
+    if not image_path.startswith(("http://", "https://")):
+        return Path(image_path)
+
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    filename = Path(urlsplit(image_path).path).name or "downloaded_image.jpg"
+    local_path = IMAGE_CACHE_DIR / filename
+    if not local_path.exists():
+        logger.info(f"Downloading I2V first frame: {image_path} -> {local_path}")
+        urllib.request.urlretrieve(image_path, local_path)
+    return local_path
+
+
 @dataclass(kw_only=True)
 class CausalForcingT2VRunnerConfig(RunnerConfig):
     """Runner config for the Causal-Forcing T2V variants.
@@ -52,10 +97,9 @@ class CausalForcingT2VRunnerConfig(RunnerConfig):
 
     _target: type = field(default_factory=lambda: CausalForcingT2VRunner)
 
-    prompt: str | Path = Path(__file__).resolve().parents[1] / "assets" / "prompt.txt"
+    prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
-    txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to assets/prompt.txt."""
+    txt file whose first line is read as the prompt (--prompt prompt.txt)."""
 
     total_blocks: int = 60
     """Number of autoregressive chunks to generate before terminating the rollout."""
@@ -80,9 +124,8 @@ class CausalForcingI2VRunnerConfig(CausalForcingT2VRunnerConfig):
 
     _target: type = field(default_factory=lambda: CausalForcingI2VRunner)
 
-    image_path: Path = Path(__file__).resolve().parents[1] / "assets" / "image.jpg"
-    """Path to the first-frame RGB image. Defaults to the bundled
-    assets/image.jpg; override with --image-path /path/to/frame.png."""
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    """First-frame RGB image. Either a local path or an HTTP(S) URL."""
 
 
 class CausalForcingT2VRunner(
@@ -204,7 +247,8 @@ class CausalForcingI2VRunner(CausalForcingT2VRunner):
         # in shape [T=1, C, H, W] (matches batch_shape=()). Pin to the
         # pipeline's actual device so non-default ``--device`` selections
         # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
-        arr = media.read_image(str(config.image_path))[..., :3]
+        local_image_path = _resolve_image_path(config.image_path)
+        arr = media.read_image(str(local_image_path))[..., :3]
         arr = cv2.resize(arr, (config.pixel_width, config.pixel_height))
         tensor = (
             torch.from_numpy(arr).to(device=self.pipeline.device, dtype=torch.bfloat16)
