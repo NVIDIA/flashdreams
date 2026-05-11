@@ -63,8 +63,10 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 )
 
 AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
+    # public
+    "1view-vae-chunk2": "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt",
+    # internal
     "1view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt",
-    "1view-vae-chunk2": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt",
     "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
     "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
     "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/alpadreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",

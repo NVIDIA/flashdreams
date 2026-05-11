@@ -41,8 +41,8 @@ from flashdreams.infra.encoder import (
 )
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
-    "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
-    "vae": "s3://flashdreams/assets/checkpoints/autoencoders/Wan2.1_VAE.pth",
+    "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
+    "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
 }
 
 CACHE_T = 2
