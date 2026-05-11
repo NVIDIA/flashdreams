@@ -75,10 +75,20 @@ def test_rewrite_swaps_models_url(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_rewrite_swaps_scenes_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """The same hook also covers the omni-dreams scenes dataset, even
     though flashdreams doesn't fetch scenes itself -- exposing the
-    behaviour means callers can route both kinds with one helper."""
+    behaviour means callers can route every omni-dreams kind with one
+    helper."""
     monkeypatch.setenv(hf_org.OMNI_DREAMS_HF_ORG_ENV_VAR, "nvidia-omni-dreams-lha")
     url = "https://huggingface.co/datasets/nvidia/omni-dreams-scenes/resolve/main/foo.usdz"
     expected = "https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-scenes/resolve/main/foo.usdz"
+    assert hf_org.rewrite_omni_dreams_hf_url(url) == expected
+
+
+def test_rewrite_swaps_samples_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The omni-dreams-samples HF dataset (alpadreams example HDMap clips
+    + first frames) is routed through the same rewriter."""
+    monkeypatch.setenv(hf_org.OMNI_DREAMS_HF_ORG_ENV_VAR, "nvidia-omni-dreams-lha")
+    url = "https://huggingface.co/datasets/nvidia/omni-dreams-samples/resolve/main/data/single_view/foo/first_frame.png"
+    expected = "https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/resolve/main/data/single_view/foo/first_frame.png"
     assert hf_org.rewrite_omni_dreams_hf_url(url) == expected
 
 
@@ -99,11 +109,8 @@ def test_rewrite_handles_bare_repo_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """The pattern matches a bare ``nvidia/omni-dreams-*`` repo id too,
     not just full HF URLs -- callers may pass either."""
     monkeypatch.setenv(hf_org.OMNI_DREAMS_HF_ORG_ENV_VAR, "nvidia-omni-dreams-lha")
-    assert (
-        hf_org.rewrite_omni_dreams_hf_url("nvidia/omni-dreams-models")
-        == "nvidia-omni-dreams-lha/omni-dreams-models"
-    )
-    assert (
-        hf_org.rewrite_omni_dreams_hf_url("nvidia/omni-dreams-scenes")
-        == "nvidia-omni-dreams-lha/omni-dreams-scenes"
-    )
+    for kind in ("models", "samples", "scenes"):
+        assert (
+            hf_org.rewrite_omni_dreams_hf_url(f"nvidia/omni-dreams-{kind}")
+            == f"nvidia-omni-dreams-lha/omni-dreams-{kind}"
+        )

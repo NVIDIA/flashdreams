@@ -37,12 +37,12 @@ from typing import Final
 OMNI_DREAMS_HF_ORG_ENV_VAR: Final[str] = "OMNI_DREAMS_HF_ORG"
 DEFAULT_OMNI_DREAMS_HF_ORG: Final[str] = "nvidia"
 
-# Match the canonical ``nvidia/omni-dreams-{models,scenes}`` repo id wherever
-# it appears (full HF URLs and bare repo ids both work). Anchored on word
-# boundaries so unrelated nvidia/* repos (e.g. ``nvidia/Cosmos-Reason1-7B``)
+# Match the canonical ``nvidia/omni-dreams-{models,samples,scenes}`` repo id
+# wherever it appears (full HF URLs and bare repo ids both work). Anchored on
+# word boundaries so unrelated nvidia/* repos (e.g. ``nvidia/Cosmos-Reason1-7B``)
 # pass through untouched.
 _OMNI_DREAMS_REPO_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\bnvidia/omni-dreams-(models|scenes)\b"
+    r"\bnvidia/omni-dreams-(models|samples|scenes)\b"
 )
 
 
@@ -52,11 +52,12 @@ def resolve_omni_dreams_hf_org() -> str:
 
 
 def rewrite_omni_dreams_hf_url(url: str) -> str:
-    """Substitute ``nvidia/omni-dreams-*`` with ``<org>/omni-dreams-*``.
+    """Substitute ``nvidia/omni-dreams-{models,samples,scenes}`` with
+    ``<org>/omni-dreams-{...}``.
 
     ``<org>`` is read from the ``OMNI_DREAMS_HF_ORG`` env var. No-op when the
     env var is unset, equal to ``"nvidia"``, or when ``url`` contains no
-    ``nvidia/omni-dreams-*`` substring.
+    matching omni-dreams substring.
     """
     org = resolve_omni_dreams_hf_org()
     if org == DEFAULT_OMNI_DREAMS_HF_ORG:
