@@ -106,7 +106,13 @@ else:
 
 PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = ArtifixerInferencePipelineConfig(
     recipe_name="artifixer-dmd-wan2.1-t2v-1.3b",
-    enable_sync_and_profile=True,
+    # Profiling is off for the initial bring-up. The base
+    # ``StreamInferencePipeline.generate`` is what installs
+    # ``cache.event_profiler`` when this is True, but our custom
+    # ``ArtifixerInferencePipeline.generate`` bypasses that path. Re-enable
+    # only alongside the corresponding ``EventProfiler`` setup in
+    # ``ArtifixerInferencePipeline.generate``.
+    enable_sync_and_profile=False,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
