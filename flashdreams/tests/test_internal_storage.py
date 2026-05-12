@@ -85,18 +85,18 @@ def test_taehv_paths_respect_env_var(
 
 
 def test_alpadreams_paths_at_current_env() -> None:
-    """Checks the resolved state at the launching env -- the alpadreams
-    config module can't be reloaded mid-test (runner re-registration)."""
+    """Check the default/public alpadreams paths for the scrubbed test env.
+
+    ``alpadreams.config`` can't be reloaded mid-test because importing it
+    re-registers runners, and the autouse fixture clears the internal-storage
+    env var before this test runs.
+    """
     from flashdreams.recipes.alpadreams import config
 
-    if internal.use_internal_storage():
-        for slug, url in config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS.items():
-            assert url.startswith("s3://flashdreams/"), (slug, url)
-    else:
-        # Mirrored chunk2 -> HF; unmirrored slugs fall through to s3.
-        assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-            "1view-vae-chunk2"
-        ].startswith("https://huggingface.co/")
-        assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-            "1view-vae-chunk3"
-        ].startswith("s3://")
+    # Mirrored chunk2 -> HF; unmirrored slugs fall through to s3.
+    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+        "1view-vae-chunk2"
+    ].startswith("https://huggingface.co/")
+    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
+        "1view-vae-chunk3"
+    ].startswith("s3://")
