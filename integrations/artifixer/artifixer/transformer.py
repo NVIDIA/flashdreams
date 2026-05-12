@@ -128,24 +128,33 @@ class ArtifixerWanTransformer(Wan21Transformer):
     ) -> Tensor:
         """Add ArtiFixer block_extra_kwargs to the base predict_flow.
 
-        Reads patchified opacity/camera features and the ``ignore_neighbors``
-        flag from :class:`ArtifixerCtrl` and forwards them to every block via
-        ``network_extra_kwargs``. Also passes the PRoPE source/target modules
-        themselves -- they are bound at construction time, but
-        :class:`ArtifixerCrossAttention.forward` expects them as forward args
-        so they show up uniformly under ``block_extra_kwargs``.
+        Wraps the ArtiFixer per-block extras inside a ``block_extra_kwargs``
+        dict so :meth:`Wan21Transformer._predict_flow`'s
+        ``**network_extra_kwargs`` unpack lands them as
+        ``WanDiTNetwork.forward(... block_extra_kwargs=...)`` -- a single
+        kwarg, *not* individual ones. ``WanDiTNetwork.forward`` then forwards
+        each entry to every block as keyword args via ``**block_extra_kwargs``
+        (network.py L438-449), where :class:`ArtifixerBlock.forward` accepts
+        ``opacity_extra`` / ``camera_extra`` / ``prope_src`` / ``prope_tgt`` /
+        ``ignore_neighbors`` directly.
 
-        When ``input`` is not an :class:`ArtifixerCtrl` (e.g. T2V smoke
+        The PRoPE source/target modules are bound at construction time, but
+        :class:`ArtifixerCrossAttention.forward` expects them as forward
+        kwargs so every per-block call gets them via the same path.
+
+        When ``input`` is not an :class:`ArtifixerCtrl` (e.g. text-only smoke
         without any conditioning), falls through to the base behavior;
         :class:`ArtifixerBlock` treats every conditioning kwarg as optional.
         """
         network_extra_kwargs = dict(network_extra_kwargs or {})
         if isinstance(input, ArtifixerCtrl):
-            network_extra_kwargs.setdefault("opacity_extra", input.opacity_extra)
-            network_extra_kwargs.setdefault("camera_extra", input.camera_extra)
-            network_extra_kwargs.setdefault("ignore_neighbors", input.ignore_neighbors)
-            network_extra_kwargs.setdefault("prope_src", self.prope_cross_attn_src)
-            network_extra_kwargs.setdefault("prope_tgt", self.prope_cross_attn_tgt)
+            block_extra_kwargs = dict(network_extra_kwargs.get("block_extra_kwargs", {}))
+            block_extra_kwargs.setdefault("opacity_extra", input.opacity_extra)
+            block_extra_kwargs.setdefault("camera_extra", input.camera_extra)
+            block_extra_kwargs.setdefault("ignore_neighbors", input.ignore_neighbors)
+            block_extra_kwargs.setdefault("prope_src", self.prope_cross_attn_src)
+            block_extra_kwargs.setdefault("prope_tgt", self.prope_cross_attn_tgt)
+            network_extra_kwargs["block_extra_kwargs"] = block_extra_kwargs
             # The base ``predict_flow`` will dispatch ``_build_network_input``
             # on ``input`` -- ArtifixerCtrl isn't an I2VCtrl, so pass None
             # for the I2V mask-inject leg.
