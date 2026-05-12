@@ -437,7 +437,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Timestep used by ``finalize`` for the AR cache-update forward.</span>
 <span class="sd">    ``0`` skips ``add_noise``.&quot;&quot;&quot;</span>
 
-    <span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">noise_in_unpatchified_shape</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Debug-only: draw the initial noise in the unpatchified shape, then</span>
 <span class="sd">    patchify. Slower than the default patchified path; useful when matching</span>
 <span class="sd">    another implementation&#39;s RNG sequence.&quot;&quot;&quot;</span></div>
@@ -545,7 +545,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="nb">input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
         <span class="n">cache</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">)</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
             <span class="c1"># Draw noise at the unpatchified shape so the RNG sequence matches</span>
             <span class="c1"># implementations that sample before patchify; ``self.latent_shape``</span>
             <span class="c1"># is patchified, so go through ``unpatchify_and_maybe_gather_cp``</span>
@@ -573,7 +573,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="c1"># Round-trip patchify/unpatchify around the network when the</span>
             <span class="c1"># scheduler is operating on unpatchified latents; the transformer</span>
             <span class="c1"># itself always consumes/emits patchified shapes.</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
                 <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
                     <span class="n">noisy_latent</span>
                 <span class="p">)</span>
@@ -585,7 +585,7 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
             <span class="p">)</span>
 
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
                 <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">output</span>
 
@@ -595,7 +595,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
             <span class="c1"># Scheduler emitted an unpatchified latent; patchify before</span>
             <span class="c1"># ``postprocess_clean_latent`` and the cache-update path.</span>
             <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="n">clean_latent</span><span class="p">)</span>
@@ -643,7 +643,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="c1"># Round-trip patchify/unpatchify around ``add_noise`` so the</span>
             <span class="c1"># scheduler sees the same shape as in ``generate``; the cache</span>
             <span class="c1"># update below always consumes a patchified latent.</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
                 <span class="n">clean_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span>
                     <span class="n">final_state</span><span class="o">.</span><span class="n">clean_latent</span>
                 <span class="p">)</span>
@@ -652,7 +652,7 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="n">timestep</span><span class="o">=</span><span class="n">timestep</span><span class="p">,</span>
                 <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">_noise_in_unpatchified_shape</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">noise_in_unpatchified_shape</span><span class="p">:</span>
                 <span class="n">noisy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">patchify_and_maybe_split_cp</span><span class="p">(</span>
                     <span class="n">noisy_latent</span>
                 <span class="p">)</span>

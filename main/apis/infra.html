@@ -681,7 +681,7 @@ iteration loop are hidden inside
 <dd><em class="sig-param"><span class="n"><span class="pre">scheduler</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">SchedulerConfig</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">context_noise</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
-<dd><em class="sig-param"><span class="n"><span class="pre">_noise_in_unpatchified_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">noise_in_unpatchified_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/model/base.html#DiffusionModelConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig" title="Link to this definition">#</a></dt>
@@ -711,6 +711,19 @@ iteration loop are hidden inside
 <span class="sig-name descname"><span class="pre">context_noise</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise" title="Link to this definition">#</a></dt>
 <dd><p>Timestep used by <code class="docutils literal notranslate"><span class="pre">finalize</span></code> for the AR cache-update forward.
 <code class="docutils literal notranslate"><span class="pre">0</span></code> skips <code class="docutils literal notranslate"><span class="pre">add_noise</span></code>.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape">
+<span class="sig-name descname"><span class="pre">noise_in_unpatchified_shape</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape" title="Link to this definition">#</a></dt>
+<dd><p>draw the initial noise in the unpatchified shape, then
+patchify. Slower than the default patchified path; useful when matching
+another implementation’s RNG sequence.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Debug-only</p>
+</dd>
+</dl>
 </dd></dl>
 
 </dd></dl>
@@ -1310,6 +1323,7 @@ and uses it as sigma in the standard lerp.</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">shift</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">5.0</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">num_train_timesteps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">solver_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">use_kerras_sigma</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig" title="Link to this definition">#</a></dt>
@@ -1340,6 +1354,12 @@ upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).</p>
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">
 <span class="sig-name descname"><span class="pre">solver_order</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order" title="Link to this definition">#</a></dt>
 <dd><p>UniPC solver order; only 2 is supported.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma">
+<span class="sig-name descname"><span class="pre">use_kerras_sigma</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma" title="Link to this definition">#</a></dt>
+<dd><p>Whether to use the exact sigma used in edm sampler.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1850,6 +1870,7 @@ buffers carried across AR steps).</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler"><code class="docutils literal notranslate"><span class="pre">scheduler</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed"><code class="docutils literal notranslate"><span class="pre">seed</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise"><code class="docutils literal notranslate"><span class="pre">context_noise</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape"><code class="docutils literal notranslate"><span class="pre">noise_in_unpatchified_shape</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.model.DiffusionModel"><code class="docutils literal notranslate"><span class="pre">DiffusionModel</span></code></a><ul class="nav section-nav flex-column">
@@ -1914,6 +1935,7 @@ buffers carried across AR steps).</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift"><code class="docutils literal notranslate"><span class="pre">shift</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps"><code class="docutils literal notranslate"><span class="pre">num_train_timesteps</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order"><code class="docutils literal notranslate"><span class="pre">solver_order</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma"><code class="docutils literal notranslate"><span class="pre">use_kerras_sigma</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler"><code class="docutils literal notranslate"><span class="pre">FlowMatchUniPCScheduler</span></code></a><ul class="nav section-nav flex-column">

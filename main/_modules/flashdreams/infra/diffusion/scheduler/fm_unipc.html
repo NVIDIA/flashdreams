@@ -567,7 +567,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table.&quot;&quot;&quot;</span>
 
     <span class="n">solver_order</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;UniPC solver order; only 2 is supported.&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;UniPC solver order; only 2 is supported.&quot;&quot;&quot;</span>
+
+    <span class="n">use_kerras_sigma</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether to use the exact sigma used in edm sampler.&quot;&quot;&quot;</span></div>
 
 
 
@@ -609,30 +612,41 @@ SPDX-License-Identifier: Apache-2.0
             <span class="s2">&quot;need other orders.&quot;</span>
         <span class="p">)</span>
         <span class="n">N</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">num_inference_steps</span>
-
-        <span class="c1"># Schedule build: identical to upstream</span>
-        <span class="c1"># ``set_timesteps(num_inference_steps, shift=config.shift)``:</span>
-        <span class="c1">#</span>
-        <span class="c1">#   sigmas = linspace(sigma_max, sigma_min, N + 1)[:-1]</span>
-        <span class="c1">#   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)</span>
-        <span class="c1">#   sigmas = concat(sigmas, [0.0])</span>
-        <span class="c1">#</span>
-        <span class="c1"># where (sigma_min, sigma_max) come from the</span>
-        <span class="c1"># ``alphas = linspace(1, 1/num_train_timesteps, num_train_timesteps)[::-1]``</span>
-        <span class="c1"># / ``sigmas = 1 - alphas`` table built at construction.</span>
-        <span class="c1"># Training-time sigma table: ``alphas = linspace(1, 1/N, N)[::-1]``</span>
-        <span class="c1"># then ``sigmas = 1 - alphas``. Reference builds this with</span>
-        <span class="c1"># ``shift=1.0`` (no warp); only the inference schedule below</span>
-        <span class="c1"># gets warped with ``config.shift``.</span>
         <span class="n">N_train</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">num_train_timesteps</span>
-        <span class="n">train_alphas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">N_train</span><span class="p">,</span> <span class="n">N_train</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-        <span class="n">train_sigmas</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">train_alphas</span>
-        <span class="n">sigma_min</span><span class="p">,</span> <span class="n">sigma_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
 
-        <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-        <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">*</span> <span class="n">sigmas_inf</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigmas_inf</span><span class="p">)</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">use_kerras_sigma</span><span class="p">:</span>
+            <span class="c1"># force to use the exact sigma used in edm sampler</span>
+            <span class="n">sigma_max</span> <span class="o">=</span> <span class="mi">200</span>
+            <span class="n">sigma_min</span> <span class="o">=</span> <span class="mf">0.01</span>
+            <span class="n">rho</span> <span class="o">=</span> <span class="mi">7</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">N</span>
+            <span class="n">min_inv_rho</span> <span class="o">=</span> <span class="n">sigma_min</span> <span class="o">**</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">rho</span><span class="p">)</span>
+            <span class="n">max_inv_rho</span> <span class="o">=</span> <span class="n">sigma_max</span> <span class="o">**</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">rho</span><span class="p">)</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="p">(</span><span class="n">max_inv_rho</span> <span class="o">+</span> <span class="n">sigmas</span> <span class="o">*</span> <span class="p">(</span><span class="n">min_inv_rho</span> <span class="o">-</span> <span class="n">max_inv_rho</span><span class="p">))</span> <span class="o">**</span> <span class="n">rho</span>
+            <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="n">sigmas</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">sigmas</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Schedule build: identical to upstream</span>
+            <span class="c1"># ``set_timesteps(num_inference_steps, shift=config.shift)``:</span>
+            <span class="c1">#</span>
+            <span class="c1">#   sigmas = linspace(sigma_max, sigma_min, N + 1)[:-1]</span>
+            <span class="c1">#   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)</span>
+            <span class="c1">#   sigmas = concat(sigmas, [0.0])</span>
+            <span class="c1">#</span>
+            <span class="c1"># where (sigma_min, sigma_max) come from the</span>
+            <span class="c1"># ``alphas = linspace(1, 1/num_train_timesteps, num_train_timesteps)[::-1]``</span>
+            <span class="c1"># / ``sigmas = 1 - alphas`` table built at construction.</span>
+            <span class="c1"># Training-time sigma table: ``alphas = linspace(1, 1/N, N)[::-1]``</span>
+            <span class="c1"># then ``sigmas = 1 - alphas``. Reference builds this with</span>
+            <span class="c1"># ``shift=1.0`` (no warp); only the inference schedule below</span>
+            <span class="c1"># gets warped with ``config.shift``.</span>
+            <span class="n">train_alphas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">N_train</span><span class="p">,</span> <span class="n">N_train</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="n">train_sigmas</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">train_alphas</span>
+            <span class="n">sigma_min</span><span class="p">,</span> <span class="n">sigma_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">train_sigmas</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">sigmas_inf</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">*</span> <span class="n">sigmas_inf</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">shift</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigmas_inf</span><span class="p">)</span>
+            <span class="p">)</span>
+
         <span class="c1"># Match reference: timesteps come from the fp64 ``sigmas * N``</span>
         <span class="c1"># cast directly to int64 (truncation), not via fp32. The fp32</span>
         <span class="c1"># round-trip can shift entries by 1 LSB and break the</span>
