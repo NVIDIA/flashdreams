@@ -196,6 +196,9 @@ class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
     solver_order: int = 2
     """UniPC solver order; only 2 is supported."""
 
+    use_kerras_sigma: bool = False
+    """Whether to use the exact sigma used in edm sampler."""
+
 
 class FlowMatchUniPCScheduler(Scheduler):
     """Order-2 UniPC predictor-corrector for flow-matching.
@@ -233,30 +236,41 @@ class FlowMatchUniPCScheduler(Scheduler):
             "need other orders."
         )
         N = config.num_inference_steps
-
-        # Schedule build: identical to upstream
-        # ``set_timesteps(num_inference_steps, shift=config.shift)``:
-        #
-        #   sigmas = linspace(sigma_max, sigma_min, N + 1)[:-1]
-        #   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)
-        #   sigmas = concat(sigmas, [0.0])
-        #
-        # where (sigma_min, sigma_max) come from the
-        # ``alphas = linspace(1, 1/num_train_timesteps, num_train_timesteps)[::-1]``
-        # / ``sigmas = 1 - alphas`` table built at construction.
-        # Training-time sigma table: ``alphas = linspace(1, 1/N, N)[::-1]``
-        # then ``sigmas = 1 - alphas``. Reference builds this with
-        # ``shift=1.0`` (no warp); only the inference schedule below
-        # gets warped with ``config.shift``.
         N_train = config.num_train_timesteps
-        train_alphas = np.linspace(1.0, 1.0 / N_train, N_train)[::-1].copy()
-        train_sigmas = 1.0 - train_alphas
-        sigma_min, sigma_max = float(train_sigmas[-1]), float(train_sigmas[0])
 
-        sigmas_inf = np.linspace(sigma_max, sigma_min, N + 1)[:-1]
-        sigmas_inf = (
-            config.shift * sigmas_inf / (1.0 + (config.shift - 1.0) * sigmas_inf)
-        )
+        if self.config.use_kerras_sigma:
+            # force to use the exact sigma used in edm sampler
+            sigma_max = 200
+            sigma_min = 0.01
+            rho = 7
+            sigmas = np.arange(N + 1) / N
+            min_inv_rho = sigma_min ** (1 / rho)
+            max_inv_rho = sigma_max ** (1 / rho)
+            sigmas = (max_inv_rho + sigmas * (min_inv_rho - max_inv_rho)) ** rho
+            sigmas_inf = sigmas / (1 + sigmas)
+        else:
+            # Schedule build: identical to upstream
+            # ``set_timesteps(num_inference_steps, shift=config.shift)``:
+            #
+            #   sigmas = linspace(sigma_max, sigma_min, N + 1)[:-1]
+            #   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)
+            #   sigmas = concat(sigmas, [0.0])
+            #
+            # where (sigma_min, sigma_max) come from the
+            # ``alphas = linspace(1, 1/num_train_timesteps, num_train_timesteps)[::-1]``
+            # / ``sigmas = 1 - alphas`` table built at construction.
+            # Training-time sigma table: ``alphas = linspace(1, 1/N, N)[::-1]``
+            # then ``sigmas = 1 - alphas``. Reference builds this with
+            # ``shift=1.0`` (no warp); only the inference schedule below
+            # gets warped with ``config.shift``.
+            train_alphas = np.linspace(1.0, 1.0 / N_train, N_train)[::-1].copy()
+            train_sigmas = 1.0 - train_alphas
+            sigma_min, sigma_max = float(train_sigmas[-1]), float(train_sigmas[0])
+            sigmas_inf = np.linspace(sigma_max, sigma_min, N + 1)[:-1]
+            sigmas_inf = (
+                config.shift * sigmas_inf / (1.0 + (config.shift - 1.0) * sigmas_inf)
+            )
+
         # Match reference: timesteps come from the fp64 ``sigmas * N``
         # cast directly to int64 (truncation), not via fp32. The fp32
         # round-trip can shift entries by 1 LSB and break the
