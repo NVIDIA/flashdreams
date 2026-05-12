@@ -170,6 +170,30 @@ class ArtifixerWanTransformer(Wan21Transformer):
             network_extra_kwargs=network_extra_kwargs,
         )
 
+    def finalize_kv_cache(self, *args: Any, **kwargs: Any) -> None:
+        """No-op: artifixer (dreamfix reference) does not finalize the KV cache.
+
+        The dreamfix ``ArtifixerKvCachePipeline.generate_samples_from_batch``
+        advances its KV cache *in-place* during the regular denoise forwards
+        and never runs an extra "finalization" forward at AR-chunk
+        boundaries. The FlashDreams default ``finalize_kv_cache`` runs one
+        more ``predict_flow`` at the context-noise timestep to advance the
+        cache; that extra forward writes a *different* KV state than
+        dreamfix's last in-loop forward, which empirically opens a ~7-9 dB
+        cross-backend PSNR gap at the start of every AR chunk past chunk 0
+        (calls 4, 8 in ``scripts/parity_harness.py``'s per-step diff).
+
+        Skipping the extra forward here aligns FlashDreams' KV-cache
+        semantics with the dreamfix reference: the cache going into AR
+        chunk ``N+1`` is the one written by the final denoise step of AR
+        chunk ``N``, identical to what dreamfix uses. ``cache.finalize`` is
+        still called by ``DiffusionModel.finalize`` after this (the
+        bookkeeping that increments ``autoregressive_index``), so the
+        rollout state advances correctly -- only the redundant predict is
+        suppressed.
+        """
+        del args, kwargs  # intentionally no-op; see docstring
+
 
 __all__ = [
     "ArtifixerCtrl",
