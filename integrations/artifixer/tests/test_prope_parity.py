@@ -45,7 +45,16 @@ from artifixer.network.prope import PropeDotProductAttention
 
 @pytest.fixture(autouse=True)
 def _deterministic_torch() -> None:
-    """Use fp64 by default in this file: PRoPE math is bit-exact at fp64."""
+    """Seed PyTorch for the file.
+
+    Note: PRoPE's ``_rope_precompute_coeffs`` performs an implicit int64->fp32
+    promotion (``torch.arange(...) / num_freqs``), so the RoPE coefficients
+    are always at fp32 precision regardless of the input dtype. The dreamfix
+    reference has the same property. Tests therefore run at fp32 with fp32-
+    appropriate tolerances rather than fp64. dreamfix's ``_lift_K`` also
+    hard-codes float32 output (no ``dtype=`` in ``torch.zeros``), so any
+    cross-implementation comparison must use fp32 inputs.
+    """
     torch.manual_seed(0)
 
 
@@ -56,7 +65,7 @@ def _build_inputs(
     patches_y: int = 4,
     num_heads: int = 4,
     head_dim: int = 32,
-    dtype: torch.dtype = torch.float64,
+    dtype: torch.dtype = torch.float32,
     device: torch.device | str = "cpu",
 ) -> dict[str, torch.Tensor]:
     """Build a deterministic fixture for PRoPE parity tests."""
@@ -107,11 +116,11 @@ def test_prope_internal_consistency() -> None:
     With viewmats = identity and Ks = identity, ``P = P_T = P_inv = I``
     and the projection-matrix legs of the block-diagonal transform become
     no-ops. The RoPE legs of ``apply_to_o`` are the *inverse* of those in
-    ``apply_to_q``, so ``apply_to_o(apply_to_q(x)) == x`` exactly.
+    ``apply_to_q``, so ``apply_to_o(apply_to_q(x)) ~= x`` up to fp32
+    round-off (RoPE coeffs are always at fp32 — see fixture docstring).
     """
     inp = _build_inputs()
 
-    # Replace viewmats / Ks with identity so the projmat legs cancel.
     inp["viewmats"] = (
         torch.eye(4, dtype=inp["viewmats"].dtype).expand_as(inp["viewmats"]).clone()
     )
@@ -122,7 +131,7 @@ def test_prope_internal_consistency() -> None:
     prope = _instantiate(PropeDotProductAttention, inp)
     q = inp["q"]
     round_trip = prope._apply_to_o(prope._apply_to_q(q))
-    torch.testing.assert_close(round_trip, q, atol=1e-10, rtol=1e-10)
+    torch.testing.assert_close(round_trip, q, atol=5e-6, rtol=5e-6)
 
 
 def test_prope_apply_to_q_changes_input_for_nontrivial_cameras() -> None:
@@ -154,11 +163,16 @@ def _try_import_dreamfix_reference() -> object | None:
     ),
 )
 def test_prope_matches_dreamfix_reference() -> None:
-    """Numerical parity vs dreamfix at fp64.
+    """Numerical parity vs dreamfix at fp32.
 
     Asserts ``apply_to_q``, ``apply_to_kv``, ``apply_to_o`` produce
-    bit-identical outputs to the reference within ``atol=1e-10``
-    (fp64 round-off floor).
+    bit-identical outputs to the reference within fp32 round-off.
+
+    Inputs are fp32 because dreamfix's ``_lift_K`` hard-codes float32
+    output (no ``dtype=`` in ``torch.zeros``), so feeding fp64 viewmats
+    crashes its einsum. Our port carries the dreamfix dtype bug fix
+    (passes ``dtype=Ks.dtype``), making it slightly more dtype-robust;
+    at fp32 the two are bit-identical.
     """
     RefPRoPE = _try_import_dreamfix_reference()
     assert RefPRoPE is not None
@@ -171,17 +185,17 @@ def test_prope_matches_dreamfix_reference() -> None:
         ours_q = ours._apply_to_q(x)
         ref_q = ref._apply_to_q(x)
         torch.testing.assert_close(
-            ours_q, ref_q, atol=1e-10, rtol=1e-10, msg=f"apply_to_q on {name}"
+            ours_q, ref_q, atol=1e-6, rtol=1e-6, msg=f"apply_to_q on {name}"
         )
 
         ours_kv = ours._apply_to_kv(x)
         ref_kv = ref._apply_to_kv(x)
         torch.testing.assert_close(
-            ours_kv, ref_kv, atol=1e-10, rtol=1e-10, msg=f"apply_to_kv on {name}"
+            ours_kv, ref_kv, atol=1e-6, rtol=1e-6, msg=f"apply_to_kv on {name}"
         )
 
         ours_o = ours._apply_to_o(x)
         ref_o = ref._apply_to_o(x)
         torch.testing.assert_close(
-            ours_o, ref_o, atol=1e-10, rtol=1e-10, msg=f"apply_to_o on {name}"
+            ours_o, ref_o, atol=1e-6, rtol=1e-6, msg=f"apply_to_o on {name}"
         )

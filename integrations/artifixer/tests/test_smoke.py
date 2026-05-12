@@ -109,7 +109,8 @@ def test_artifixer_hyperparams_match_dreamfix_stage3() -> None:
 def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
     """Phase 2.1: ArtifixerBlock instances carry opacity + camera MLPs."""
     import torch
-    from artifixer.network import ArtifixerBlock, artifixer_embedding_dims
+    from artifixer.network.block import ArtifixerBlock
+    from artifixer.network.dit import artifixer_embedding_dims
 
     opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
     block = ArtifixerBlock(
@@ -135,7 +136,7 @@ def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
 
 def test_artifixer_recipe_uses_artifixer_network() -> None:
     """Phase 2.1: the shipped recipe wires up ArtifixerDiTNetwork."""
-    from artifixer.network import ArtifixerDiTNetwork1pt3BConfig
+    from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
 
     cfg = RUNNER_CONFIGS["artifixer-dmd-wan2.1-t2v-1.3b"]
     network_cfg = cfg.pipeline.diffusion_model.transformer.network
@@ -156,7 +157,7 @@ def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
     """
     import torch
     from artifixer.checkpoint import zero_pad_artifixer_keys
-    from artifixer.network import artifixer_embedding_dims
+    from artifixer.network.dit import artifixer_embedding_dims
 
     transform = zero_pad_artifixer_keys(
         num_layers=2, dim=1536, patch_size=(1, 2, 2), dtype=torch.bfloat16
@@ -185,11 +186,9 @@ def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
 def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
     """Phase 2.2: ArtifixerBlock's cross_attn carries the neighbor branch."""
     import torch
-    from artifixer.network import (
-        ArtifixerBlock,
-        ArtifixerCrossAttention,
-        artifixer_embedding_dims,
-    )
+    from artifixer.network.block import ArtifixerBlock
+    from artifixer.network.cross_attn import ArtifixerCrossAttention
+    from artifixer.network.dit import artifixer_embedding_dims
 
     opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
     block = ArtifixerBlock(

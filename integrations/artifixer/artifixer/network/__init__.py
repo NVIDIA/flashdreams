@@ -13,22 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from artifixer.network.block import ArtifixerBlock
-from artifixer.network.cross_attn import ArtifixerCrossAttention
-from artifixer.network.dit import (
-    ArtifixerDiTNetwork,
-    ArtifixerDiTNetwork1pt3BConfig,
-    ArtifixerDiTNetworkConfig,
-    artifixer_embedding_dims,
-)
-from artifixer.network.prope import PropeDotProductAttention
-
-__all__ = [
-    "ArtifixerBlock",
-    "ArtifixerCrossAttention",
-    "ArtifixerDiTNetwork",
-    "ArtifixerDiTNetwork1pt3BConfig",
-    "ArtifixerDiTNetworkConfig",
-    "PropeDotProductAttention",
-    "artifixer_embedding_dims",
-]
+# Intentionally empty: importing this package should not transitively pull
+# in the full flashdreams dependency tree (RingAttention -> loguru -> boto3
+# etc.). Submodules are imported explicitly by the recipe and by tests::
+#
+#   from artifixer.network.block import ArtifixerBlock
+#   from artifixer.network.prope import PropeDotProductAttention
+#
+# Mirrors dreamfix's ``model_training/net/__init__.py`` (also empty) so the
+# PRoPE module is testable with only ``torch`` installed.

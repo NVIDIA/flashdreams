@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import torch
 from artifixer.checkpoint import zero_pad_artifixer_keys
-from artifixer.network import ArtifixerDiTNetwork1pt3BConfig
+from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
 from artifixer.runner import ArtifixerDmdT2VRunnerConfig
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
