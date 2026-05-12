@@ -279,8 +279,9 @@ __device__ __inline__ void triangleSetupImpl(void)
     // Pick a task.
 
     int taskIdx = threadIdx.x + 32 * (threadIdx.y + CR_SETUP_WARPS * (blockIdx.x + gridDim.x * blockIdx.y));
-    if (taskIdx >= c_crParams.numTris)
+    if (taskIdx >= c_crParams.numTrisDraw)
         return;
+    int globalTri = c_crParams.firstTri + taskIdx;
 
     // Read vertices.
 
@@ -288,7 +289,7 @@ __device__ __inline__ void triangleSetupImpl(void)
     CR_TIMER_IN(SetupTotal);
     CR_TIMER_IN(SetupVertexRead);
 
-    int3 vidx = indexBuffer[taskIdx];
+    int3 vidx = indexBuffer[globalTri];
     int stride = sizeof(VertexClass) / sizeof(Vec4f);
     float4 v0 = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vidx.x * stride);
     float4 v1 = tex1Dfetch<float4>(c_crParams.t_vertexBuffer, vidx.y * stride);
@@ -317,7 +318,7 @@ __device__ __inline__ void triangleSetupImpl(void)
 
             CR_TIMER_OUT(SetupCullSnap);
             CR_TIMER_IN(SetupNumSubWrite);
-            triSubtris[taskIdx] = 0;
+            triSubtris[globalTri] = 0;
             CR_TIMER_OUT(SetupNumSubWrite);
             CR_TIMER_OUT(SetupTotal);
             CR_TIMER_DEINIT_LARGE_GRID();
@@ -351,7 +352,7 @@ __device__ __inline__ void triangleSetupImpl(void)
             int res = prepareTriangle<SamplesLog2>(p0, p1, p2, lo, hi, d1, d2, area);
             CR_TIMER_OUT_DEP(SetupCullSnap, res);
             CR_TIMER_IN(SetupNumSubWrite);
-            triSubtris[taskIdx] = (res == 0) ? 1 : 0;
+            triSubtris[globalTri] = (res == 0) ? 1 : 0;
             CR_TIMER_OUT(SetupNumSubWrite);
 
             CR_COUNT_LARGE_GRID(SetupBackfaceCull, (res == 1) ? 100 : 0, 0);
@@ -359,7 +360,7 @@ __device__ __inline__ void triangleSetupImpl(void)
 
             if (res == 0)
                 setupTriangle<SamplesLog2, RenderModeFlags>(
-                    &triHeader[taskIdx], &triData[taskIdx], vidx,
+                    &triHeader[globalTri], &triData[globalTri], vidx,
                     v0, v1, v2,
                     make_float2(0.0f, 0.0f),
                     make_float2(1.0f, 0.0f),
@@ -419,17 +420,17 @@ __device__ __inline__ void triangleSetupImpl(void)
 
     CR_TIMER_OUT(SetupClip);
     CR_TIMER_IN(SetupNumSubWrite);
-    triSubtris[taskIdx] = numSubtris;
+    triSubtris[globalTri] = numSubtris;
     CR_TIMER_OUT(SetupNumSubWrite);
 
     // Multiple subtriangles => allocate.
 
     CR_TIMER_IN(SetupAllocSub);
-    int subtriBase = taskIdx;
+    int subtriBase = globalTri;
     if (numSubtris > 1)
     {
         subtriBase = atomicAdd(&g_crAtomics.numSubtris, numSubtris);
-        triHeader[taskIdx].misc = subtriBase;
+        triHeader[globalTri].misc = subtriBase;
         if (subtriBase + numSubtris > c_crParams.maxSubtris)
             numVerts = 0;
     }

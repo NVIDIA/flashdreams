@@ -146,6 +146,8 @@ private:
     uint32_t*               m_colorBufferRaw;
     uint32_t*               m_depthBufferRaw;
     uint32_t*               m_peelBufferRaw;
+    int32_t*                m_triIdxBufferRaw;      // Per-pixel resident-fragment triangle index for deterministic tiebreaker.
+    int                     m_triIdxStride;         // Row stride of m_triIdxBufferRaw in S32 elements (tile-aligned).
     cudaArray_t             m_colorArray;
     cudaArray_t             m_depthArray;
     cudaArray_t             m_peelArray;

@@ -450,6 +450,29 @@ def test_per_tile_emit_imbalance_does_not_misroute_triangles(
 
 
 @pytest.mark.gpu
+def test_many_overlapping_triangles_do_not_overflow_tile_segments(harness: CudaRasterHarness) -> None:
+    triangle_count = 4096
+    vertices = torch.empty((triangle_count * 3, 4), device="cuda", dtype=torch.float32)
+    vertices[0::3, 0] = -0.2
+    vertices[0::3, 1] = -0.2
+    vertices[1::3, 0] = 0.2
+    vertices[1::3, 1] = -0.2
+    vertices[2::3, 0] = 0.0
+    vertices[2::3, 1] = 0.2
+    vertices[:, 2] = 0.5
+    vertices[:, 3] = 1.0
+    idx = torch.arange(triangle_count, device="cuda", dtype=torch.int32)
+    indices = torch.stack([idx * 3, idx * 3 + 1, idx * 3 + 2], dim=1).contiguous()
+
+    harness.configure(128, 128)
+    harness.upload(vertices, indices)
+    assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
+
+    color = harness.read().color
+    assert np.count_nonzero(color) > 0, "overlapping triangles produced no visible coverage"
+
+
+@pytest.mark.gpu
 def test_clipped_backface_swap_preserves_depth_plane(
     harness: CudaRasterHarness,
 ) -> None:

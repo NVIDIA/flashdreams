@@ -83,6 +83,8 @@ struct CRParams
     // Common.
 
     S32         numTris;
+    S32         firstTri;
+    S32         numTrisDraw;
     CUdeviceptr vertexBuffer;       // numVerts * ShadedVertexSubclass
     CUdeviceptr indexBuffer;        // numTris * int3
     cudaTextureObject_t t_vertexBuffer;
@@ -90,9 +92,14 @@ struct CRParams
     cudaTextureObject_t t_triData;
     cudaSurfaceObject_t s_colorBuffer;
     cudaSurfaceObject_t s_depthBuffer;
+    CUdeviceptr tiebreakerColors;
+    CUdeviceptr triIdxBuffer;       // S32 per pixel, framebuffer-shaped, holds the resident fragment's triangle index (-1 = none).
+    S32         triIdxStride;       // Row stride of triIdxBuffer in S32 elements. Tile-aligned to permit edge-tile writes without bounds checks.
 
     S32         viewportWidth;      // Viewport size. May be smaller than framebuffer.
     S32         viewportHeight;
+    S32         surfaceOffsetX;     // Viewport origin inside the backing surface.
+    S32         surfaceOffsetY;
     S32         widthPixels;        // widthTiles * CR_TILE_SIZE
     S32         heightPixels;       // heightTiles * CR_TILE_SIZE
 
@@ -106,6 +113,7 @@ struct CRParams
 
     S32         binBatchSize;       // Number of triangles per batch.
     S32         enableBackfaceCulling;
+    S32         deterministicTiebreaker;
 
     S32         deferredClear;      // 1 = Clear framebuffer before rendering triangles.
     U32         clearColor;

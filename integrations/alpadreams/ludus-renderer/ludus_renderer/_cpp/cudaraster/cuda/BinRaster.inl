@@ -83,13 +83,13 @@ __device__ __inline__ void binRasterImpl(void)
         CR_TIMER_OUT_DEP(BinPickBin, batchPos);
 
         // all batches done?
-        if (batchPos >= c_crParams.numTris)
+        if (batchPos >= c_crParams.numTrisDraw)
             break;
 
         // per-thread state
         int bufIndex = 0;
         int bufCount = 0;
-        int batchEnd = ::min(batchPos + c_crParams.binBatchSize, c_crParams.numTris);
+        int batchEnd = ::min(batchPos + c_crParams.binBatchSize, c_crParams.numTrisDraw);
 
         // loop over batch as long as we have triangles in it
         do
@@ -100,9 +100,10 @@ __device__ __inline__ void binRasterImpl(void)
                 // get subtriangle count
 
                 CR_TIMER_IN(BinReadTriHeader);
-                int triIdx = batchPos + thrInBlock;
+                int drawTriIdx = batchPos + thrInBlock;
+                int triIdx = c_crParams.firstTri + drawTriIdx;
                 int num = 0;
-                if (triIdx < batchEnd)
+                if (drawTriIdx < batchEnd)
                     num = triSubtris[triIdx];
                 CR_COUNT(SetupSamplesPerTri, 0, (num != 0) ? 1 : 0);
                 CR_TIMER_OUT_DEP(BinReadTriHeader, num);

@@ -68,7 +68,8 @@ __global__ void crClearBuffersKernel(uint32_t* color, uint32_t* depth, size_t co
 }
 
 __global__ void crClearSurfacesKernel(cudaSurfaceObject_t colorSurf, cudaSurfaceObject_t depthSurf,
-                                       int width, int height, uint32_t clearColor, uint32_t clearDepth)
+                                       int width, int height, int offsetX, int offsetY,
+                                       uint32_t clearColor, uint32_t clearDepth)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -76,8 +77,8 @@ __global__ void crClearSurfacesKernel(cudaSurfaceObject_t colorSurf, cudaSurface
     if (x >= width || y >= height)
         return;
 
-    surf2Dwrite<uint32_t>(clearColor, colorSurf, x * sizeof(uint32_t), y);
-    surf2Dwrite<uint32_t>(clearDepth, depthSurf, x * sizeof(uint32_t), y);
+    surf2Dwrite<uint32_t>(clearColor, colorSurf, (x + offsetX) * sizeof(uint32_t), y + offsetY);
+    surf2Dwrite<uint32_t>(clearDepth, depthSurf, (x + offsetX) * sizeof(uint32_t), y + offsetY);
 }
 
 }
@@ -93,14 +94,15 @@ void crClearBuffers(uint32_t* color, uint32_t* depth, size_t count, uint32_t cle
 }
 
 void crClearSurfaces(cudaSurfaceObject_t colorSurf, cudaSurfaceObject_t depthSurf,
-                     int width, int height, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream)
+                     int width, int height, int offsetX, int offsetY,
+                     uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream)
 {
     if (width <= 0 || height <= 0)
         return;
 
     dim3 block(16, 16);
     dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
-    crClearSurfacesKernel<<<grid, block, 0, stream>>>(colorSurf, depthSurf, width, height, clearColor, clearDepth);
+    crClearSurfacesKernel<<<grid, block, 0, stream>>>(colorSurf, depthSurf, width, height, offsetX, offsetY, clearColor, clearDepth);
 }
 
 void crCopyFromArray(uint32_t* dst, cudaArray_t src, int width, int height, cudaStream_t stream)

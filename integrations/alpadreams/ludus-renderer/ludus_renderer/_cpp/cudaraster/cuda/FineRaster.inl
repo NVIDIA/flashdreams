@@ -417,6 +417,66 @@ __device__ __inline__ int findFragment(U64 coverage, int fragIdx)
 // Single-sample implementation.
 //------------------------------------------------------------------------
 
+__device__ __inline__ U32 getTriangleTiebreakerKey(int triIdx)
+{
+    const int3* indexBuffer = (const int3*)c_crParams.indexBuffer;
+    const U32* colors = (const U32*)c_crParams.tiebreakerColors;
+    int3 vidx = indexBuffer[triIdx];
+    return ::max(colors[vidx.x], ::max(colors[vidx.y], colors[vidx.z]));
+}
+
+__device__ __inline__ bool tiebreakerCandidateWins(int triIdx, U32 key, int oldTriIdx)
+{
+    if (oldTriIdx < 0)
+        return true;
+
+    if (!c_crParams.tiebreakerColors)
+        return triIdx > oldTriIdx;
+
+    U32 oldKey = getTriangleTiebreakerKey(oldTriIdx);
+    return (key > oldKey) || (key == oldKey && triIdx < oldTriIdx);
+}
+
+__device__ __inline__ bool tiebreakerLaneWins(
+    U32 candidateMask, int triIdx, U32 key)
+{
+    // The caller is always in candidateMask (it's the depthWinner that asked).
+    // When it's the only candidate it trivially wins, skipping the 32-lane
+    // shfl loop. This is the common case under typical fragment distributions.
+    if (__popc(candidateMask) == 1)
+        return true;
+
+    bool bestSet = false;
+    U32 bestKey = 0;
+    int bestTriIdx = 0;
+    int bestLane = 0;
+
+    #pragma unroll
+    for (int lane = 0; lane < 32; ++lane)
+    {
+        if ((candidateMask & (1u << lane)) == 0)
+            continue;
+
+        U32 laneKey = __shfl_sync(candidateMask, key, lane);
+        int laneTriIdx = __shfl_sync(candidateMask, triIdx, lane);
+        bool better;
+        if (!c_crParams.tiebreakerColors)
+            better = !bestSet || laneTriIdx > bestTriIdx;
+        else
+            better = !bestSet || laneKey > bestKey || (laneKey == bestKey && laneTriIdx < bestTriIdx);
+
+        if (better)
+        {
+            bestSet = true;
+            bestKey = laneKey;
+            bestTriIdx = laneTriIdx;
+            bestLane = lane;
+        }
+    }
+
+    return (threadIdx.x & 31) == bestLane;
+}
+
 // Volta+ ITS fix: The original retry loop assumed warp-synchronous execution
 // where all lanes see each other's shared memory writes. Under Independent
 // Thread Scheduling, lanes can race and read stale depth values.
@@ -425,7 +485,7 @@ __device__ __inline__ int findFragment(U64 coverage, int fragIdx)
 template <class BlendShaderClass, U32 RenderModeFlags>
 __device__ __inline__ void executeROP_SingleSample(
     int triIdx, int pixelX, int pixelY, int pixelInTile,
-    U32 color, U32 depth, volatile U32* pColor, volatile U32* pDepth,
+    U32 color, U32 depth, volatile U32* pColor, volatile U32* pDepth, volatile S32* pTriIdx,
 	U32& timerTotal)
 {
     BlendShaderClass bs;
@@ -439,18 +499,45 @@ __device__ __inline__ void executeROP_SingleSample(
         // All active lanes atomically update depth, sync to ensure visibility,
         // then only the winner (lane with minimum depth) writes color.
         U32 activeMask = __activemask();
+        U32 oldDepth = *pDepth;
+        S32 oldTriIdx = *pTriIdx;
         atomicMin((U32*)pDepth, depth);
         __syncwarp(activeMask);
-        if (depth == *pDepth)
+
+        bool depthWinner = (depth == *pDepth);
+        U32 candidateMask = 0;
+        if (c_crParams.deterministicTiebreaker)
         {
-            rounds++;
-            CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
-            CR_TIMER_IN(FineROPBlend);
-            U32 sColor = *pColor;
-            runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, 0, color, sColor);
-            if (bs.m_writeColor)
-                *pColor = bs.m_color;
-            CR_TIMER_OUT(FineROPBlend);
+            U32 pixelMask = __match_any_sync(activeMask, pixelInTile);
+            candidateMask = __ballot_sync(activeMask, depthWinner) & pixelMask;
+        }
+
+        if (depthWinner)
+        {
+            bool writeFragment = true;
+            if (c_crParams.deterministicTiebreaker)
+            {
+                U32 key = c_crParams.tiebreakerColors ? getTriangleTiebreakerKey(triIdx) : (U32)triIdx;
+                writeFragment = tiebreakerLaneWins(candidateMask, triIdx, key) &&
+                    (depth < oldDepth || tiebreakerCandidateWins(triIdx, key, (int)oldTriIdx));
+            }
+
+            if (writeFragment)
+            {
+                rounds++;
+                CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
+                CR_TIMER_IN(FineROPBlend);
+                U32 sColor = *pColor;
+                runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, 0, color, sColor);
+                if (bs.m_writeColor)
+                    *pColor = bs.m_color;
+                *pTriIdx = (S32)triIdx;
+                CR_TIMER_OUT(FineROPBlend);
+            }
+            else
+            {
+                CR_TIMER_OUT(FineROPConfResolve);
+            }
         }
         else
         {
@@ -551,6 +638,17 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
         int tileY = idiv_fast(tileIdx, c_crParams.widthTiles);
         int tileX = tileIdx - tileY * c_crParams.widthTiles;
 
+        // The deterministic tiebreaker stores the resident fragment's triangle
+        // index in a framebuffer-shaped global buffer. Compute the per-tile
+        // origin (top-left) once per tile; per-pixel pointers are derived
+        // below by adding (yInTile * stride + xInTile).
+        // volatile is required because the same buffer is read/written
+        // multiple times within the warp's per-fragment loop and the compiler
+        // would otherwise hoist or elide the loads.
+        volatile S32* tileTriIdxOrigin = (volatile S32*)c_crParams.triIdxBuffer
+            + (c_crParams.surfaceOffsetY + (tileY << CR_TILE_LOG2)) * c_crParams.triIdxStride
+            + (c_crParams.surfaceOffsetX + (tileX << CR_TILE_LOG2));
+
         // initialize per-tile state
         int triRead = 0, triWrite = 0;
         int fragRead = 0, fragWrite = 0;
@@ -571,8 +669,8 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
         // otherwise => read tile from framebuffer
         else
         {
-            int surfX = (tileX << (CR_TILE_LOG2 + 2)) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
-            int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
+            int surfX = ((c_crParams.surfaceOffsetX + (tileX << CR_TILE_LOG2) + (threadIdx.x & (CR_TILE_SIZE - 1))) << 2);
+            int surfY = c_crParams.surfaceOffsetY + (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
 			tileColor[threadIdx.x] = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY);
             tileDepth[threadIdx.x] = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, surfY);
             tileColor[threadIdx.x + 32] = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY + 4);
@@ -694,8 +792,20 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
 					CR_TIMER_IN(FineZKill);
                     depth = zdata.x * pixelX + zdata.y * pixelY + zdata.z;
                     U32 oldDepth = tileDepth[pixelInTile];
-                    if (depth >= oldDepth)
+                    if (depth > oldDepth)
                         zkill = true;
+                    else if (depth == oldDepth)
+                    {
+                        if (c_crParams.deterministicTiebreaker)
+                        {
+                            int triIdxOffset = (pixelInTile >> 3) * c_crParams.triIdxStride + (pixelInTile & 7);
+                            int oldTriIdx = (int)tileTriIdxOrigin[triIdxOffset];
+                            U32 key = c_crParams.tiebreakerColors ? getTriangleTiebreakerKey(triIdx) : (U32)triIdx;
+                            zkill = !tiebreakerCandidateWins(triIdx, key, oldTriIdx);
+                        }
+                        else
+                            zkill = true;
+                    }
                     else if (oldDepth == tileZMax)
                         tileZUpd = true; // we are replacing previous zmax => need to update
 					CR_TIMER_OUT_DEP(FineZKill, tileZUpd);
@@ -717,9 +827,10 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
                     bool covered = (((U32)(coverage >> pixelInTile) & 1) != 0);
                     if (((RenderModeFlags & RenderModeFlag_EnableQuads) == 0 || (covered && !zkill)) && !fragShader.m_discard)
                     {
+                        int triIdxOffset = (pixelInTile >> 3) * c_crParams.triIdxStride + (pixelInTile & 7);
 					    executeROP_SingleSample<BlendShaderClass, RenderModeFlags>(
                             triIdx, pixelX, pixelY, pixelInTile, fragShader.m_color, depth,
-                            &tileColor[pixelInTile], &tileDepth[pixelInTile],
+                            &tileColor[pixelInTile], &tileDepth[pixelInTile], &tileTriIdxOrigin[triIdxOffset],
 							timerTotal);
                     }
                 }
@@ -737,8 +848,8 @@ __device__ __inline__ void fineRasterImpl_SingleSample(void)
 
         CR_TIMER_IN(FineWriteTile);
         {
-            int surfX = (tileX << (CR_TILE_LOG2 + 2)) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
-            int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
+            int surfX = ((c_crParams.surfaceOffsetX + (tileX << CR_TILE_LOG2) + (threadIdx.x & (CR_TILE_SIZE - 1))) << 2);
+            int surfY = c_crParams.surfaceOffsetY + (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
             surf2Dwrite<U32>(tileColor[threadIdx.x], c_crParams.s_colorBuffer, surfX, surfY);
             surf2Dwrite<U32>(tileDepth[threadIdx.x], c_crParams.s_depthBuffer, surfX, surfY);
             surf2Dwrite<U32>(tileColor[threadIdx.x + 32], c_crParams.s_colorBuffer, surfX, surfY + 4);
@@ -764,11 +875,12 @@ __device__ __inline__ U32 executeROP_MultiSample(
     BlendShaderClass bs;
     int rounds = 0;
     U32 newDepth = 0;
+    int surfY = c_crParams.surfaceOffsetY + pixelY;
 
     if ((RenderModeFlags & RenderModeFlag_EnableDepth) != 0)
     {
 		CR_TIMER_IN(FineROPRead);
-        U32 oldDepth = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, pixelY);
+        U32 oldDepth = surf2Dread<U32>(c_crParams.s_depthBuffer, surfX, surfY);
         *temp = oldDepth;
 		CR_TIMER_OUT_DEP(FineROPRead, oldDepth);
 	    CR_TIMER_IN(FineROPConfResolve);
@@ -780,14 +892,14 @@ __device__ __inline__ U32 executeROP_MultiSample(
                 *temp = depth;
 			    CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
 				CR_TIMER_IN(FineROPRead);
-                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, pixelY);
+                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY);
 				CR_TIMER_OUT_DEP(FineROPRead, dst);
 				CR_TIMER_IN(FineROPBlend);
                 runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, sampleIdx, color, dst);
 				CR_TIMER_OUT(FineROPBlend);
 				CR_TIMER_IN(FineROPWrite);
                 if (bs.m_writeColor)
-                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
+                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, surfY);
 				CR_TIMER_OUT(FineROPWrite);
 			    CR_TIMER_IN(FineROPConfResolve);
             }
@@ -798,7 +910,7 @@ __device__ __inline__ U32 executeROP_MultiSample(
 		CR_TIMER_IN(FineROPWrite);
         newDepth = *temp;
         if (newDepth != oldDepth)
-            surf2Dwrite<U32>(newDepth, c_crParams.s_depthBuffer, surfX, pixelY);
+            surf2Dwrite<U32>(newDepth, c_crParams.s_depthBuffer, surfX, surfY);
 		CR_TIMER_OUT(FineROPWrite);
     }
     else if (covered)
@@ -811,7 +923,7 @@ __device__ __inline__ U32 executeROP_MultiSample(
 			CR_TIMER_OUT(FineROPBlend);
 			CR_TIMER_IN(FineROPWrite);
             if (bs.m_writeColor)
-                surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
+                surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, surfY);
 			CR_TIMER_OUT(FineROPWrite);
         }
         else
@@ -823,14 +935,14 @@ __device__ __inline__ U32 executeROP_MultiSample(
                 *temp = threadIdx.x;
 				CR_TIMER_OUT_DEP(FineROPConfResolve, rounds);
 				CR_TIMER_IN(FineROPRead);
-                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, pixelY);
+                U32 dst = surf2Dread<U32>(c_crParams.s_colorBuffer, surfX, surfY);
 				CR_TIMER_OUT_DEP(FineROPRead, dst);
 				CR_TIMER_IN(FineROPBlend);
                 runBlendShader<BlendShaderClass>(bs, triIdx, pixelX, pixelY, sampleIdx, color, dst);
 				CR_TIMER_OUT(FineROPBlend);
 			    CR_TIMER_IN(FineROPWrite);
                 if (bs.m_writeColor)
-                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, pixelY);
+                    surf2Dwrite<U32>(bs.m_color, c_crParams.s_colorBuffer, surfX, surfY);
 			    CR_TIMER_OUT(FineROPWrite);
 				CR_TIMER_IN(FineROPConfResolve);
             }
@@ -907,7 +1019,7 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
         S32 segment = tileFirstSeg[tileIdx];
         int tileY = idiv_fast(tileIdx, c_crParams.widthTiles);
         int tileX = tileIdx - tileY * c_crParams.widthTiles;
-        int tileSurfX = tileX << (CR_TILE_LOG2 + SamplesLog2 + 2);
+        int tileSurfX = (c_crParams.surfaceOffsetX << 2) + (tileX << (CR_TILE_LOG2 + SamplesLog2 + 2));
 
         // initialize per-tile state
         int triRead = 0, triWrite = 0;
@@ -917,8 +1029,8 @@ __device__ __inline__ void fineRasterImpl_MultiSample(void)
         // deferred clear => clear tile
         if (c_crParams.deferredClear)
         {
-            int surfX = (tileX << (CR_TILE_LOG2 + (SamplesLog2 + 2))) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
-            int surfY = (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
+            int surfX = (c_crParams.surfaceOffsetX << 2) + (tileX << (CR_TILE_LOG2 + (SamplesLog2 + 2))) + ((threadIdx.x & (CR_TILE_SIZE - 1)) << 2);
+            int surfY = c_crParams.surfaceOffsetY + (tileY << CR_TILE_LOG2) + (threadIdx.x >> CR_TILE_LOG2);
             for (int i = 0; i < (1 << SamplesLog2); i++)
             {
                 surf2Dwrite<U32>(c_crParams.clearColor, c_crParams.s_colorBuffer, surfX, surfY);

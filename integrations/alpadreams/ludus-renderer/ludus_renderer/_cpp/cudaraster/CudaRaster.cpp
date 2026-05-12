@@ -42,7 +42,7 @@ using namespace FW;
 //------------------------------------------------------------------------
 
 void crClearBuffers(uint32_t* color, uint32_t* depth, size_t count, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
-void crClearSurfaces(cudaSurfaceObject_t colorSurf, cudaSurfaceObject_t depthSurf, int width, int height, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
+void crClearSurfaces(cudaSurfaceObject_t colorSurf, cudaSurfaceObject_t depthSurf, int width, int height, int offsetX, int offsetY, uint32_t clearColor, uint32_t clearDepth, cudaStream_t stream);
 void crCopyFromArray(uint32_t* dst, cudaArray_t src, int width, int height, cudaStream_t stream);
 void crUploadParams(const CRParams& params, cudaStream_t stream);
 void crInitAtomics(int numTris, cudaStream_t stream);
@@ -60,6 +60,8 @@ CudaRaster::CudaRaster(void)
     m_colorBufferRaw(NULL),
     m_depthBufferRaw(NULL),
     m_peelBufferRaw (NULL),
+    m_triIdxBufferRaw(NULL),
+    m_triIdxStride  (0),
     m_colorArray    (NULL),
     m_depthArray    (NULL),
     m_peelArray     (NULL),
@@ -134,6 +136,7 @@ CudaRaster::~CudaRaster(void)
     if (m_colorBufferRaw) cudaFree(m_colorBufferRaw);
     if (m_depthBufferRaw) cudaFree(m_depthBufferRaw);
     if (m_peelBufferRaw) cudaFree(m_peelBufferRaw);
+    if (m_triIdxBufferRaw) cudaFree(m_triIdxBufferRaw);
 }
 
 //------------------------------------------------------------------------
@@ -153,6 +156,8 @@ void CudaRaster::setBufferSize(int width, int height, int numImages)
     if (m_colorBufferRaw) { cudaFree(m_colorBufferRaw); m_colorBufferRaw = NULL; }
     if (m_depthBufferRaw) { cudaFree(m_depthBufferRaw); m_depthBufferRaw = NULL; }
     if (m_peelBufferRaw) { cudaFree(m_peelBufferRaw); m_peelBufferRaw = NULL; }
+    if (m_triIdxBufferRaw) { cudaFree(m_triIdxBufferRaw); m_triIdxBufferRaw = NULL; }
+    m_triIdxStride = 0;
 
     if (m_width == 0 || m_height == 0 || m_numImages == 0)
         return;
@@ -166,6 +171,21 @@ void CudaRaster::setBufferSize(int width, int height, int numImages)
     cudaMemset(m_colorBufferRaw, 0, bytes);
     cudaMemset(m_depthBufferRaw, 0, bytes);
     cudaMemset(m_peelBufferRaw, 0, bytes);
+
+    // Allocate the per-pixel deterministic-tiebreaker triangle-index buffer.
+    // The kernel writes through tile-aligned coordinates, so the row stride must
+    // be tile-aligned and the buffer must extend past the last image far enough
+    // to cover the tile-rounded tail (the existing color/depth surfaces hide
+    // the same overshoot via surf2Dwrite's silent OOB drop, but a linear buffer
+    // would actually corrupt memory).
+    int alignedW = (m_width + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
+    int alignedH = (m_height + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
+    size_t maxRow = (size_t)(m_numImages - 1) * (size_t)m_height + (size_t)alignedH;
+    size_t triIdxBytes = (size_t)alignedW * maxRow * sizeof(int32_t);
+    cudaMalloc(&m_triIdxBufferRaw, triIdxBytes);
+    // 0xFF bytes => -1 as int32_t, marking every cell as having no resident fragment.
+    cudaMemset(m_triIdxBufferRaw, 0xFF, triIdxBytes);
+    m_triIdxStride = alignedW;
 
     // Allocate 2D cudaArrays for surface access (required by surf2D in fine raster)
     cudaChannelFormatDesc desc = cudaCreateChannelDesc<uint32_t>();
@@ -284,12 +304,39 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
     m_samplesLog2 = 0;
     m_numSamples = 1;
 
-    // Clear the framebuffer surfaces if deferred clear is pending
+    // Clear the target viewport surfaces if deferred clear is pending
     if (m_deferredClear && m_colorSurfaceObj && m_depthSurfaceObj)
     {
-        crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
-                        m_width, m_height * m_numImages,
-                        m_clearColor, m_clearDepth, stream);
+        if (m_ranges)
+        {
+            for (int imageIdx = 0; imageIdx < m_numImages; ++imageIdx)
+            {
+                crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
+                                vpWidth, vpHeight,
+                                m_viewportOffsetX, m_viewportOffsetY + imageIdx * m_height,
+                                m_clearColor, m_clearDepth, stream);
+            }
+        }
+        else
+        {
+            crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
+                            vpWidth, vpHeight,
+                            m_viewportOffsetX, m_viewportOffsetY,
+                            m_clearColor, m_clearDepth, stream);
+        }
+        // Reset the deterministic-tiebreaker triangle-index buffer to -1
+        // (no resident fragment) for every cell. The kernel's pre-ROP zkill
+        // path reads this value, so it must be in a known state at the start
+        // of a freshly-cleared frame. We clear the whole allocation rather
+        // than just the viewport because edge tiles write through tile-aligned
+        // coordinates that can extend past the viewport rect.
+        if (m_triIdxBufferRaw && m_triIdxStride > 0)
+        {
+            int alignedH = (m_height + CR_TILE_SIZE - 1) & ~(CR_TILE_SIZE - 1);
+            size_t maxRow = (size_t)(m_numImages - 1) * (size_t)m_height + (size_t)alignedH;
+            size_t triIdxBytes = (size_t)m_triIdxStride * maxRow * sizeof(int32_t);
+            cudaMemsetAsync(m_triIdxBufferRaw, 0xFF, triIdxBytes, stream);
+        }
         m_deferredClear = false;
     }
 
@@ -307,7 +354,10 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         m_binBatchSize = FW::max(1, FW::min((m_numTris / (roundSize * minBatches)), maxRounds)) * roundSize;
         m_maxSubtris = FW::max(m_maxSubtris, m_numTris + maxSubtrisSlack);
         m_maxBinSegs = FW::max(m_maxBinSegs, FW::max(m_numBins * CR_BIN_STREAMS_SIZE, (m_numTris - 1) / CR_BIN_SEG_SIZE + 1) + maxBinSegsSlack);
-        m_maxTileSegs = FW::max(m_maxTileSegs, FW::max(m_numTiles, (m_numTris - 1) / CR_TILE_SEG_SIZE + 1) + maxTileSegsSlack);
+        int triTileSegs = (m_numTris - 1) / CR_TILE_SEG_SIZE + 1;
+        S64 conservativeTileSegs = (S64)m_numTiles * triTileSegs;
+        int targetTileSegs = (int)FW::min(conservativeTileSegs, (S64)(1 << 20));
+        m_maxTileSegs = FW::max(m_maxTileSegs, FW::max(m_numTiles, targetTileSegs) + maxTileSegsSlack);
 
         // Allocate intermediate buffers
         m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
@@ -364,6 +414,8 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         memset(&params, 0, sizeof(params));
 
         params.numTris = m_numTris;
+        params.firstTri = 0;
+        params.numTrisDraw = m_numTris;
         params.vertexBuffer = (CUdeviceptr)m_vertexBufferRaw;
         params.indexBuffer = (CUdeviceptr)m_indexBufferRaw;
         params.t_vertexBuffer = texVertex;
@@ -371,9 +423,14 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         params.t_triData = texTriData;
         params.s_colorBuffer = m_colorSurfaceObj;
         params.s_depthBuffer = m_depthSurfaceObj;
+        params.tiebreakerColors = (CUdeviceptr)m_tiebreakerColors;
+        params.triIdxBuffer = (CUdeviceptr)m_triIdxBufferRaw;
+        params.triIdxStride = m_triIdxStride;
 
         params.viewportWidth = vpWidth;
         params.viewportHeight = vpHeight;
+        params.surfaceOffsetX = m_viewportOffsetX;
+        params.surfaceOffsetY = m_viewportOffsetY;
         params.widthPixels = m_sizePixels.x;
         params.heightPixels = m_sizePixels.y;
 
@@ -387,6 +444,7 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
 
         params.binBatchSize = m_binBatchSize;
         params.enableBackfaceCulling = (m_renderModeFlags & RenderModeFlag_EnableBackfaceCulling) ? 1 : 0;
+        params.deterministicTiebreaker = m_deterministicTiebreaker ? 1 : 0;
 
         params.deferredClear = 0;
         params.clearColor = m_clearColor;
@@ -411,15 +469,38 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         params.tileSegNext = ptrTileSegNext;
         params.tileSegCount = ptrTileSegCount;
 
-        // Upload params and initialize atomics
-        crUploadParams(params, stream);
-        crInitAtomics(m_numTris, stream);
+        auto launchRange = [&](int firstTri, int numTrisDraw, int surfaceOffsetY)
+        {
+            params.firstTri = max(0, min(firstTri, m_numTris));
+            params.numTrisDraw = max(0, min(numTrisDraw, m_numTris - params.firstTri));
+            if (params.numTrisDraw <= 0)
+                return;
 
-        // Launch pipeline stages
-        crLaunchSetup(m_numTris, stream);
-        crLaunchBin(stream);
-        crLaunchCoarse(m_numSMs, stream);
-        crLaunchFine(m_numSMs, m_numFineWarps, stream);
+            params.surfaceOffsetX = m_viewportOffsetX;
+            params.surfaceOffsetY = m_viewportOffsetY + surfaceOffsetY;
+
+            // Upload params and initialize atomics. Atomics still use the full
+            // triangle count because clipped subtriangles allocate after the
+            // original dense triangle range.
+            crUploadParams(params, stream);
+            crInitAtomics(m_numTris, stream);
+
+            // Launch pipeline stages
+            crLaunchSetup(params.numTrisDraw, stream);
+            crLaunchBin(stream);
+            crLaunchCoarse(m_numSMs, stream);
+            crLaunchFine(m_numSMs, m_numFineWarps, stream);
+        };
+
+        if (m_ranges)
+        {
+            for (int imageIdx = 0; imageIdx < m_numImages; ++imageIdx)
+                launchRange(m_ranges[imageIdx * 2 + 0], m_ranges[imageIdx * 2 + 1], imageIdx * m_height);
+        }
+        else
+        {
+            launchRange(0, m_numTris, 0);
+        }
 
         // Cleanup texture objects
         if (texVertex) cudaDestroyTextureObject(texVertex);
