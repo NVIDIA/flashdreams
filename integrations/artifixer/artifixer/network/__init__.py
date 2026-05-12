@@ -21,6 +21,7 @@ from artifixer.network.dit import (
     ArtifixerDiTNetworkConfig,
     artifixer_embedding_dims,
 )
+from artifixer.network.prope import PropeDotProductAttention
 
 __all__ = [
     "ArtifixerBlock",
@@ -28,5 +29,6 @@ __all__ = [
     "ArtifixerDiTNetwork",
     "ArtifixerDiTNetwork1pt3BConfig",
     "ArtifixerDiTNetworkConfig",
+    "PropeDotProductAttention",
     "artifixer_embedding_dims",
 ]
