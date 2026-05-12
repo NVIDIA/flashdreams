@@ -40,6 +40,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.alpadreams.pipeline import (
@@ -57,14 +58,24 @@ DEFAULT_VIDEO_WIDTH = 1280
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+
+EXAMPLE_DATA_HF_REPO = "nvidia-omni-dreams-lha/omni-dreams-samples"
+"""Single-view HDMap clips + first frames. Public default."""
+
+DEFAULT_EXAMPLE_DATA_UUID_1V = "23599139-948f-4681-b7f4-74794113086d"
+"""Arbitrary first-alphabetically pick from the 32 single-view clips
+the dataset ships. Override with ``--example-data-uuid <uuid>``; see
+https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view ."""
+
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
-"""S3 prefix the bundled HDMap clips + first frames are pulled from."""
+"""Internal-team source for both views; also the external fallback for
+multi-view (no HF mirror yet)."""
 
 EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/alpadreams"
-"""Local cache the S3 sync writes into and the runner reads from."""
+"""Local cache the S3 sync writes into."""
 
 S3_CREDENTIAL_PATH = _REPO_ROOT / "credentials/s3_checkpoint.secret"
-"""Default S3 credentials file for the bundled example data sync."""
+"""Required for any S3 sync (internal mode, or external multi-view)."""
 
 _CAMERA_NAMES_1V = ("camera_front_wide_120fov",)
 _CAMERA_NAMES_4V = (
@@ -87,16 +98,61 @@ def _example_camera_names(num_views: int) -> tuple[str, ...]:
     )
 
 
-def _example_data_paths(num_views: int) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Build ``(hdmap_video_paths, first_frame_paths)`` for the bundled set."""
-    names = _example_camera_names(num_views)
-    hdmap = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.mp4" for n in names)
-    first = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.png" for n in names)
-    return hdmap, first
+def _ensure_hf_single_view_example_data_synced(
+    uuid: str,
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Pull ``data/single_view/<uuid>/{*_hdmap.mp4, first_frame.png}``
+    from :data:`EXAMPLE_DATA_HF_REPO` (the hdmap filename is per-clip so
+    we list the dir first to find it). Returns ``((hdmap,), (first_frame,))``."""
+    from huggingface_hub import HfApi, hf_hub_download
+
+    subdir = f"data/single_view/{uuid}"
+    api = HfApi()
+    entries = api.list_repo_tree(
+        repo_id=EXAMPLE_DATA_HF_REPO,
+        repo_type="dataset",
+        path_in_repo=subdir,
+        recursive=False,
+    )
+    files = [entry.path for entry in entries if getattr(entry, "type", None) == "file"]
+    hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
+    if not hdmap_candidates:
+        raise FileNotFoundError(
+            f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
+            f"{EXAMPLE_DATA_HF_REPO!r}. Pick a UUID listed at "
+            f"https://huggingface.co/datasets/{EXAMPLE_DATA_HF_REPO}/tree/main/data/single_view "
+            "via --example-data-uuid <uuid>, or supply --hdmap-video-paths / "
+            "--first-frame-paths explicitly."
+        )
+    if len(hdmap_candidates) > 1:
+        raise RuntimeError(
+            f"Multiple '*_hdmap.mp4' files under {subdir!r} in "
+            f"{EXAMPLE_DATA_HF_REPO!r}: {hdmap_candidates}. Expected exactly "
+            "one; aborting to avoid an ambiguous demo selection."
+        )
+    hdmap_local = Path(
+        hf_hub_download(
+            repo_id=EXAMPLE_DATA_HF_REPO,
+            repo_type="dataset",
+            filename=hdmap_candidates[0],
+        )
+    )
+    first_frame_local = Path(
+        hf_hub_download(
+            repo_id=EXAMPLE_DATA_HF_REPO,
+            repo_type="dataset",
+            filename=f"{subdir}/first_frame.png",
+        )
+    )
+    return (hdmap_local,), (first_frame_local,)
 
 
-def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
-    """Mirror the bundled S3 prefix locally on rank 0; barrier other ranks."""
+def _ensure_s3_example_data_synced(
+    num_views: int, *, is_rank_zero: bool
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Mirror :data:`EXAMPLE_DATA_DIR_S3` to local on rank 0 and return
+    per-camera ``(hdmap_paths, first_frame_paths)``. Requires
+    :data:`S3_CREDENTIAL_PATH`."""
     if is_rank_zero:
         assert S3_CREDENTIAL_PATH.exists(), (
             f"S3 credential file not found at {S3_CREDENTIAL_PATH}. "
@@ -112,6 +168,10 @@ def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
         verify_checksum=True,
         desc="Syncing alpadreams example data from S3",
     )
+    names = _example_camera_names(num_views)
+    hdmap = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.mp4" for n in names)
+    first = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.png" for n in names)
+    return hdmap, first
 
 
 @dataclass(kw_only=True)
@@ -172,11 +232,13 @@ class AlpadreamsRunnerConfig(RunnerConfig):
     ``--save_embeddings_path``."""
 
     example_data: bool = False
-    """When ``True``, lazy-sync the bundled S3 example clips into
-    ``assets/example_data/alpadreams/`` and fill ``hdmap_video_paths``
-    / ``first_frame_paths`` / ``camera_names`` from the canonical
-    per-view defaults. Use for the README demo; pass explicit paths
-    instead for production runs."""
+    """Lazy-fetch a bundled HDMap clip + first frame and fill the empty
+    path tuples from the canonical per-view defaults. Use for the README
+    demo; pass explicit paths instead for production runs."""
+
+    example_data_uuid: str = DEFAULT_EXAMPLE_DATA_UUID_1V
+    """Single-view example clip to pull from :data:`EXAMPLE_DATA_HF_REPO`.
+    Ignored for multi-view or when paths are already populated."""
 
 
 class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
@@ -202,11 +264,19 @@ class AlpadreamsRunner(Runner[AlpadreamsRunnerConfig, AlpadreamsPipeline]):
         self._run_default()
 
     def _fill_example_data_defaults(self) -> None:
-        """Lazy-sync bundled assets and fill empty path tuples in-place."""
+        """Lazy-fetch bundled assets and fill empty path tuples in-place.
+        External 1V uses HF; everything else (internal mode, external 4V)
+        uses S3."""
         cfg = self.config
         num_views = self._num_views()
-        _ensure_example_data_synced(is_rank_zero=self.is_rank_zero)
-        hdmap, first = _example_data_paths(num_views)
+        if not use_internal_storage() and num_views == 1:
+            hdmap, first = _ensure_hf_single_view_example_data_synced(
+                cfg.example_data_uuid
+            )
+        else:
+            hdmap, first = _ensure_s3_example_data_synced(
+                num_views, is_rank_zero=self.is_rank_zero
+            )
         if not cfg.hdmap_video_paths:
             cfg.hdmap_video_paths = hdmap
         if not cfg.first_frame_paths:

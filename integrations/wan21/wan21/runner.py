@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan import (
@@ -42,6 +44,52 @@ __all__ = [
 ]
 
 
+DEFAULT_T2V_PROMPT = (
+    "Two anthropomorphic cats in comfy boxing gear and bright gloves "
+    "fight intensely on a spotlighted stage."
+)
+
+DEFAULT_I2V_PROMPT = (
+    "Summer beach vacation style, a white cat wearing sunglasses sits on "
+    "a surfboard. The fluffy-furred feline gazes directly at the camera "
+    "with a relaxed expression. Blurred beach scenery forms the background "
+    "featuring crystal-clear waters, distant green hills, and a blue sky "
+    "dotted with white clouds. The cat assumes a naturally relaxed posture, "
+    "as if savoring the sea breeze and warm sunlight. A close-up shot "
+    "highlights the feline's intricate details and the refreshing "
+    "atmosphere of the seaside."
+)
+
+DEFAULT_I2V_IMAGE_URL = (
+    "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
+)
+
+IMAGE_CACHE_DIR = (
+    Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
+    / "wan21"
+)
+"""User-writable cache for on-the-fly I2V first-frame downloads."""
+
+
+def _resolve_image_path(image_path: str | Path) -> Path:
+    """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
+
+    ``http(s)://`` strings are atomically fetched into
+    :data:`IMAGE_CACHE_DIR` and validated as decodable images before
+    being published; local paths pass through unchanged.
+    """
+    if isinstance(image_path, Path):
+        return image_path
+    if not image_path.startswith(("http://", "https://")):
+        return Path(image_path)
+
+    return download_to_cache(
+        image_path,
+        cache_dir=IMAGE_CACHE_DIR,
+        validator=lambda p: media.read_image(str(p)),
+    )
+
+
 @dataclass(kw_only=True)
 class Wan21T2VRunnerConfig(RunnerConfig):
     """Runner config for the Wan 2.1 T2V variant.
@@ -52,12 +100,10 @@ class Wan21T2VRunnerConfig(RunnerConfig):
 
     _target: type = field(default_factory=lambda: Wan21T2VRunner)
 
-    prompt: str | Path = (
-        Path(__file__).resolve().parents[1] / "assets" / "prompt_t2v.txt"
-    )
+    prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
     txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to assets/prompt_t2v.txt."""
+    Defaults to :data:`DEFAULT_T2V_PROMPT`."""
 
     pixel_height: int = 480
     """Output video pixel height."""
@@ -79,16 +125,15 @@ class Wan21I2VRunnerConfig(Wan21T2VRunnerConfig):
 
     _target: type = field(default_factory=lambda: Wan21I2VRunner)
 
-    image_path: Path = Path(__file__).resolve().parents[1] / "assets" / "image_i2v.jpg"
-    """Path to the first-frame RGB image. Defaults to the bundled
-    assets/image_i2v.jpg; override with --image-path /path/to/frame.png."""
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    """Path to the first-frame RGB image, or an ``http(s)://`` URL that
+    will be downloaded on first use into :data:`IMAGE_CACHE_DIR`.
+    Defaults to :data:`DEFAULT_I2V_IMAGE_URL`."""
 
-    prompt: str | Path = (
-        Path(__file__).resolve().parents[1] / "assets" / "prompt_i2v.txt"
-    )
+    prompt: str | Path = DEFAULT_I2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
     txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to assets/prompt_i2v.txt."""
+    Defaults to :data:`DEFAULT_I2V_PROMPT`."""
 
     pixel_height: int = 832
     """Output video pixel height."""
@@ -202,7 +247,8 @@ class Wan21I2VRunner(Wan21T2VRunner):
         # in shape [T=1, C, H, W] (matches batch_shape=()). Pin to the
         # pipeline's actual device so non-default ``--device`` selections
         # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
-        arr = media.read_image(str(config.image_path))[..., :3]
+        image_path = _resolve_image_path(config.image_path)
+        arr = media.read_image(str(image_path))[..., :3]
         arr = cv2.resize(arr, (config.pixel_width, config.pixel_height))
         tensor = (
             torch.from_numpy(arr).to(device=self.pipeline.device, dtype=torch.bfloat16)

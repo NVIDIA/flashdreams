@@ -15,10 +15,12 @@ developer-guide flow.
 | `causal-forcing-wan2.1-t2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B T2V (`len_t=1`). |
 | `causal-forcing-wan2.1-i2v-1.3b-framewise` | Causal-Forcing framewise Wan 2.1 1.3B I2V (`len_t=1`). |
 
-The I2V slug defaults to the bundled `assets/image.jpg` first frame;
-override with `--image-path /path/to/frame.png`. Causal-Forcing only
-releases a framewise I2V checkpoint, so there is no chunkwise I2V
-counterpart.
+The I2V slug defaults to `DEFAULT_I2V_IMAGE_URL`, which is downloaded
+on first use into `~/.cache/flashdreams/i2v_images/` (honors
+`FLASHDREAMS_CACHE_DIR`) and reused thereafter; override with
+`--image-path /path/to/frame.png` for a local file. Causal-Forcing only
+releases a framewise I2V checkpoint,
+so there is no chunkwise I2V counterpart.
 
 ## Install
 
@@ -59,7 +61,7 @@ uv run flashdreams-run --help
 # Per-runner help: every overridable field is a CLI flag.
 uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise --help
 
-# Single-GPU T2V run with the bundled demo prompt (assets/prompt.txt).
+# Single-GPU T2V run with the inline demo prompt (DEFAULT_T2V_PROMPT).
 uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise --total-blocks 21
 
 # Inline prompt override.
@@ -70,9 +72,10 @@ uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise \
 uv run flashdreams-run causal-forcing-wan2.1-t2v-1.3b-framewise \
     --prompt /path/to/my_prompt.txt --total-blocks 21
 
-# I2V: defaults to the bundled assets/image.jpg first frame; override with
-# --prompt "..." --image-path /path/to/frame.png
-# if you want a different anchor.
+# I2V: defaults to DEFAULT_I2V_PROMPT + DEFAULT_I2V_IMAGE_URL (the latter
+# is downloaded once into ~/.cache/flashdreams/i2v_images/ and reused;
+# honors FLASHDREAMS_CACHE_DIR).
+# Override either with --prompt "..." --image-path /path/to/frame.png.
 uv run flashdreams-run causal-forcing-wan2.1-i2v-1.3b-framewise --total-blocks 21
 ```
 
