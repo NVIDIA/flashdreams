@@ -398,6 +398,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.checkpoint.load</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.io.internal</span><span class="w"> </span><span class="kn">import</span> <span class="n">use_internal_storage</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.compile</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_module</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.cuda_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CUDAGraphWrapper</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -411,10 +412,22 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">StreamingVideoEncoder</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
+<span class="n">_INTERNAL_WAN_VAE_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;lightvae&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth&quot;</span><span class="p">,</span>
     <span class="s2">&quot;vae&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/autoencoders/Wan2.1_VAE.pth&quot;</span><span class="p">,</span>
 <span class="p">}</span>
+
+<span class="n">_PUBLIC_WAN_VAE_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;lightvae&quot;</span><span class="p">:</span> <span class="s2">&quot;https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;vae&quot;</span><span class="p">:</span> <span class="s2">&quot;https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">AVAILABLE_WAN_VAE_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">_INTERNAL_WAN_VAE_CHECKPOINT_PATHS</span>
+    <span class="k">if</span> <span class="n">use_internal_storage</span><span class="p">()</span>
+    <span class="k">else</span> <span class="n">_PUBLIC_WAN_VAE_CHECKPOINT_PATHS</span>
+<span class="p">)</span>
+<span class="sd">&quot;&quot;&quot;Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first.&quot;&quot;&quot;</span>
 
 <span class="n">CACHE_T</span> <span class="o">=</span> <span class="mi">2</span>
 <span class="n">TEMPORAL_WINDOW</span> <span class="o">=</span> <span class="mi">4</span>
