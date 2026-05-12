@@ -108,45 +108,19 @@ __device__ __inline__ void binRasterImpl(void)
                 CR_TIMER_OUT_DEP(BinReadTriHeader, num);
 
                 CR_TIMER_IN(BinCompactSubtri);
-                // cumulative sum of subtriangles within each warp
-                // All threads are converged here, so use full warp mask
-                U32 myIdx = __popc(__ballot_sync(0xFFFFFFFFu, num & 1) & getLaneMaskLt());
-                if (__any_sync(0xFFFFFFFFu, num > 1))
-                {
-                    myIdx += __popc(__ballot_sync(0xFFFFFFFFu, num & 2) & getLaneMaskLt()) * 2;
-                    myIdx += __popc(__ballot_sync(0xFFFFFFFFu, num & 4) & getLaneMaskLt()) * 4;
-                }
-                // Only thread 31 writes - it has the warp total (Volta+ fix)
-                if (threadIdx.x == 31)
-                    s_broadcast[threadIdx.y + 16] = myIdx + num;
+                // cumulative sum of subtriangles within each warp; defined in cuda/BinRasterScans.cuh.
+                U32 myIdx = binRasterPerLanePrefix3Bit(num, &s_broadcast[threadIdx.y + 16]);
                 __syncthreads();
 
-                // cumulative sum of per-warp subtriangle counts
+                // cumulative sum of per-warp subtriangle counts; defined in cuda/BinRasterScans.cuh.
                 if (thrInBlock < CR_BIN_WARPS)
                 {
                     volatile U32* ptr = &s_broadcast[thrInBlock + 16];
-                    U32 val = *ptr;
-                    #if (CR_BIN_WARPS > 1)
-                        val += ptr[-1]; *ptr = val;
-                    #endif
-                    #if (CR_BIN_WARPS > 2)
-                        val += ptr[-2]; *ptr = val;
-                    #endif
-                    #if (CR_BIN_WARPS > 4)
-                        val += ptr[-4]; *ptr = val;
-                    #endif
-                    #if (CR_BIN_WARPS > 8)
-                        val += ptr[-8]; *ptr = val;
-                    #endif
-                    #if (CR_BIN_WARPS > 16)
-                        val += ptr[-16]; *ptr = val;
-                    #endif
+                    binRasterPerWarpInclusiveScan(ptr, thrInBlock, bufCount, &s_bufCount);
 
                     // initially assume that we consume everything
                     if (thrInBlock == 0)
                         s_batchPos = batchPos + CR_BIN_WARPS * 32;
-                    if (thrInBlock == CR_BIN_WARPS - 1)
-                        s_bufCount = bufCount + val;
                 }
                 __syncthreads();
 

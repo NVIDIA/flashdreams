@@ -2,22 +2,6 @@
 
 These tests pin small, risky porting assumptions that are easier to verify
 directly than through the broad API contract suite.
-
-Known limitation: most of the warp-arbitration tests in this file currently
-exercise hand-written copies of the production patterns rather than the
-production code itself. They are specification tests -- they pin what the
-pattern should compute and pin the lane-gate choice -- but they do NOT
-defend against regressions in the production source. See the TODO blocks at
-the top of `tests/cuda/rop_lane_mask_invariant.cu` and
-`tests/cuda/bin_raster_arbitration_invariants.cu` for the planned fix
-(extracting the patterns into shared __device__ inline helpers that both
-the production code and the tests include). End-to-end regression coverage
-for the production paths currently falls on the API-level tests in
-`test_cudaraster_api.py`.
-
-The `test_clipped_*` tests below DO exercise production code -- they go
-through the real rasterizer pipeline -- and are not affected by this
-limitation.
 """
 
 from pathlib import Path
@@ -36,6 +20,8 @@ from test_cudaraster_api import (
     _to_indices,
     _to_vertices,
 )
+
+ROOT = Path(__file__).resolve().parents[1] / "ludus_renderer" / "_cpp" / "cudaraster"
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +42,9 @@ def rop_lane_mask_helper() -> object:
     return torch.utils.cpp_extension.load(
         name="cudaraster_rop_lane_mask_invariant",
         sources=[str(helper_src)],
-        extra_cuda_cflags=["-lineinfo"],
+        extra_include_paths=[str(ROOT), str(ROOT / "framework")],
+        extra_cflags=["-DFW_DO_NOT_OVERRIDE_NEW_DELETE"],
+        extra_cuda_cflags=["-DFW_DO_NOT_OVERRIDE_NEW_DELETE", "-lineinfo"],
         with_cuda=True,
         verbose=True,
     )
@@ -69,7 +57,9 @@ def bin_raster_arbitration_helper() -> object:
     return torch.utils.cpp_extension.load(
         name="cudaraster_bin_raster_arbitration_invariants",
         sources=[str(helper_src)],
-        extra_cuda_cflags=["-lineinfo"],
+        extra_include_paths=[str(ROOT), str(ROOT / "framework")],
+        extra_cflags=["-DFW_DO_NOT_OVERRIDE_NEW_DELETE"],
+        extra_cuda_cflags=["-DFW_DO_NOT_OVERRIDE_NEW_DELETE", "-lineinfo"],
         with_cuda=True,
         verbose=True,
     )
@@ -78,18 +68,16 @@ def bin_raster_arbitration_helper() -> object:
 @pytest.mark.gpu
 def test_rop_lane_mask_replacement_matches_upstream_arbitration_order(rop_lane_mask_helper: object) -> None:
     values = list(rop_lane_mask_helper.run_rop_lane_mask_invariant())
-    assert len(values) == 128
+    assert len(values) == 64
 
     cases = [
         ("reverse", 0, lambda lane: (1 << lane) - 1),
-        ("forward", 64, lambda lane: (0xFFFFFFFF ^ ((1 << (lane + 1)) - 1)) & 0xFFFFFFFF),
+        ("forward", 32, lambda lane: (0xFFFFFFFF ^ ((1 << (lane + 1)) - 1)) & 0xFFFFFFFF),
     ]
     for label, offset, expected_for_lane in cases:
-        ordered = [int(v) for v in values[offset : offset + 32]]
-        replacement = [int(v) for v in values[offset + 32 : offset + 64]]
+        replacement = [int(v) for v in values[offset : offset + 32]]
         expected = [expected_for_lane(lane) for lane in range(32)]
 
-        assert ordered == expected, label
         assert replacement == expected, label
         # The fine raster only requires that __popc(mask) is a permutation of
         # [0, 31] across the warp -- it is used as a unique per-lane index into

@@ -323,30 +323,7 @@ __device__ __inline__ volatile const U32& scan32_total(volatile U32* temp)
 
 //------------------------------------------------------------------------
 
-template <class BlendShaderClass, U32 RenderModeFlags>
-__device__ __inline__ U32 determineROPLaneMask() // mask of lanes that should process an earlier fragment than this lane
-{
-    bool reverseLanes = true;
-    if ((RenderModeFlags & RenderModeFlag_EnableDepth) == 0)
-    {
-        BlendShaderClass bs;
-        if (!bs.needsDst())
-            reverseLanes = false;
-    }
-
-    // Volta+ replacement for upstream busy-wait on shared memory write arbitration.
-    // Empirical Volta+ trace of the original loop with reverseLanes=true returned
-    // bits 0..threadIdx-1 set, i.e. %lanemask_lt. By the same XOR-sequence algebra
-    // (initial mask ~0u, toggled by bits 0..threadIdx), reverseLanes=false produces
-    // bits threadIdx+1..31 set, i.e. %lanemask_gt. Both are valid permutations:
-    // __popc gives a unique rank in [0,31] across the warp, as required.
-    U32 mask;
-    if (reverseLanes)
-        asm("mov.u32 %0, %%lanemask_lt;" : "=r"(mask));
-    else
-        asm("mov.u32 %0, %%lanemask_gt;" : "=r"(mask));
-    return mask;
-}
+// determineROPLaneMask is defined in cuda/RopLaneMask.cuh.
 
 template <U32 RenderModeFlags>
 __device__ __inline__ S32 findBit(U64 mask, int idx)

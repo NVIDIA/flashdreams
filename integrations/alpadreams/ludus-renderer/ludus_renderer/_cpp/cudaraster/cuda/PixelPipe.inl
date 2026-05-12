@@ -29,6 +29,13 @@
 #include "PrivateDefs.hpp"
 #include "Util.inl"
 
+// Stage helpers extracted into self-contained headers and shared with the unit
+// tests in tests/cuda/. Included here at file scope so their `namespace FW { }`
+// blocks resolve to the top-level FW namespace, not nested inside the FW block
+// opened below for the stage include-fragments.
+#include "BinRasterScans.cuh"
+#include "RopLaneMask.cuh"
+
 // Pipeline state variables (c_crParams, g_crAtomics, c_profLaunchIdx,
 // c_profData) are defined at global scope in the kernel translation unit
 // (CudaRasterKernels.cu) before this file is included. Kernel sources below
