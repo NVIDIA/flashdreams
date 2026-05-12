@@ -29,7 +29,7 @@ cd ${REPO_DIR} && \
 export PYTHONPATH=${REPO_DIR}/integrations/artifixer:${REPO_DIR}/flashdreams:${DREAMFIX_REPO_ROOT}:\${PYTHONPATH:-} && \
 export DREAMFIX_REPO_ROOT='${DREAMFIX_REPO_ROOT}' && \
 python3 -m pip install --user pytest loguru einops boto3 tyro 2>&1 | tail -3 && \
-python3 -m pytest -v integrations/artifixer/tests/test_prope_parity.py integrations/artifixer/tests/test_patches.py integrations/artifixer/tests/test_latent_mix.py integrations/artifixer/tests/test_smoke.py::test_compute_kv_neighbor_and_cache_init"
+python3 -m pytest -v integrations/artifixer/tests/test_prope_parity.py integrations/artifixer/tests/test_patches.py integrations/artifixer/tests/test_latent_mix.py integrations/artifixer/tests/test_state_dict_transform.py integrations/artifixer/tests/test_smoke.py::test_compute_kv_neighbor_and_cache_init"
 
 echo "[slurm] command: ${COMMAND}"
 
