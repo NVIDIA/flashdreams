@@ -70,7 +70,7 @@ IMAGE_CACHE_DIR = Path(__file__).resolve().parents[1] / "assets"
 def _resolve_image_path(image_path: str | Path) -> Path:
     """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
 
-    ``http(s)://`` strings are fetched into :data:`_IMAGE_CACHE_DIR` under
+    ``http(s)://`` strings are fetched into :data:`IMAGE_CACHE_DIR` under
     the URL's basename and skipped on subsequent calls. Local paths pass
     through unchanged.
     """
@@ -125,7 +125,7 @@ class Wan21I2VRunnerConfig(Wan21T2VRunnerConfig):
 
     image_path: str | Path = DEFAULT_I2V_IMAGE_URL
     """Path to the first-frame RGB image, or an ``http(s)://`` URL that
-    will be downloaded on first use into :data:`_IMAGE_CACHE_DIR`.
+    will be downloaded on first use into :data:`IMAGE_CACHE_DIR`.
     Defaults to :data:`DEFAULT_I2V_IMAGE_URL`."""
 
     prompt: str | Path = DEFAULT_I2V_PROMPT

@@ -56,14 +56,14 @@ Each script also has its own `--help` (slurm) or top-of-file usage block
 ## Container image caching (slurm only)
 
 `run_tests_slurm.sh` does a one-time `enroot import` on the login node and
-stores the resulting `.sqsh` under `${FLASHDREAMS_IMAGE_CACHE_DIR}` (defaults to
+stores the resulting `.sqsh` under `${FLASHDREAMSIMAGE_CACHE_DIR}` (defaults to
 `${HOME}/.cache/flashdreams/containers`). Subsequent runs pass that local file
 straight to `--container-image=...`, so they skip the multi-minute
 docker→sqsh conversion that pyxis would otherwise repeat inside every job.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FLASHDREAMS_IMAGE_CACHE_DIR` | `${FLASHDREAMS_CACHE_DIR}/containers` | Where cached `.sqsh` files live. |
+| `FLASHDREAMSIMAGE_CACHE_DIR` | `${FLASHDREAMS_CACHE_DIR}/containers` | Where cached `.sqsh` files live. |
 
 To force a re-import (e.g. after the upstream tag is re-pushed):
 

@@ -69,7 +69,7 @@ assets so all demo data lives in one place."""
 def _resolve_image_path(image_path: str | Path) -> Path:
     """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
 
-    ``http(s)://`` strings are fetched into :data:`_IMAGE_CACHE_DIR`
+    ``http(s)://`` strings are fetched into :data:`IMAGE_CACHE_DIR`
     under the URL's basename and skipped on subsequent calls. Local
     paths pass through unchanged.
     """
