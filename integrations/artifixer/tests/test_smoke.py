@@ -104,3 +104,64 @@ def test_artifixer_hyperparams_match_dreamfix_stage3() -> None:
     assert scfg.num_inference_steps == 4, "ArtiFixer DMD uses 4-step inference"
     assert scfg.shift == 5.0, "ArtiFixer FlowMatchScheduler uses shift=5"
     assert tcfg.guidance_scale == 1.0, "ArtiFixer KV-cache pipeline does not use CFG"
+
+
+def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
+    """Phase 2.1: ArtifixerBlock instances carry opacity + camera MLPs."""
+    import torch
+    from artifixer.network import ArtifixerBlock, artifixer_embedding_dims
+
+    opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
+    block = ArtifixerBlock(
+        dim=1536,
+        ffn_dim=8960,
+        num_heads=12,
+        opacity_embedding_dim=opacity_dim,
+        camera_embedding_dim=camera_dim,
+    )
+
+    assert isinstance(block.opacity_embedding, torch.nn.Linear)
+    assert isinstance(block.camera_embedding, torch.nn.Linear)
+    assert block.opacity_embedding.weight.shape == (1536, opacity_dim)
+    assert block.camera_embedding.weight.shape == (1536, camera_dim)
+
+    # Zero-init contract: the wrapped block is a no-op extension of base
+    # Wan behavior. Same invariant as dreamfix transformer.py L637-651.
+    assert torch.all(block.opacity_embedding.weight == 0)
+    assert torch.all(block.opacity_embedding.bias == 0)
+    assert torch.all(block.camera_embedding.weight == 0)
+    assert torch.all(block.camera_embedding.bias == 0)
+
+
+def test_artifixer_recipe_uses_artifixer_network() -> None:
+    """Phase 2.1: the shipped recipe wires up ArtifixerDiTNetwork."""
+    from artifixer.network import ArtifixerDiTNetwork1pt3BConfig
+
+    cfg = RUNNER_CONFIGS["artifixer-dmd-wan2.1-t2v-1.3b"]
+    network_cfg = cfg.pipeline.diffusion_model.transformer.network
+    assert isinstance(network_cfg, ArtifixerDiTNetwork1pt3BConfig), (
+        f"recipe network is {type(network_cfg).__name__}, expected ArtifixerDiTNetwork1pt3BConfig"
+    )
+
+
+def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
+    """Phase 2.1: the state_dict transform pads vanilla-Wan checkpoints."""
+    import torch
+    from artifixer.checkpoint import zero_pad_artifixer_keys
+    from artifixer.network import artifixer_embedding_dims
+
+    transform = zero_pad_artifixer_keys(
+        num_layers=2, dim=1536, patch_size=(1, 2, 2), dtype=torch.bfloat16
+    )
+    padded = transform({"unrelated.weight": torch.zeros(8)})
+
+    opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
+    for layer in range(2):
+        prefix = f"blocks.{layer}."
+        assert padded[prefix + "opacity_embedding.weight"].shape == (1536, opacity_dim)
+        assert padded[prefix + "opacity_embedding.bias"].shape == (1536,)
+        assert padded[prefix + "camera_embedding.weight"].shape == (1536, camera_dim)
+        assert padded[prefix + "camera_embedding.bias"].shape == (1536,)
+        assert padded[prefix + "opacity_embedding.weight"].dtype == torch.bfloat16
+    # Untouched keys pass through.
+    assert "unrelated.weight" in padded

@@ -17,19 +17,26 @@
 
 ArtiFixer is a reconstruction-enhanced T2V model built on Wan 2.1 1.3B that
 adds (a) per-block opacity and Plucker-camera-ray MLPs, (b) neighbor cross-
-attention with PRoPE, and (c) opacity-weighted latent mixing. This file
-ships the Phase 1 *recipe scaffold*: it wires up the runner / pipeline /
-scheduler with the ArtiFixer hyperparameters (4-step flow-matching with
-``shift=5``, chunked AR with ``len_t=7``, ``window_size_t=21``,
-``sink_size_t=7``) but loads vanilla Wan 2.1 1.3B base weights from HF.
+attention with PRoPE, and (c) opacity-weighted latent mixing.
 
-Later commits replace the base ``Wan21TransformerConfig`` with an
-``ArtifixerWanTransformerConfig`` carrying the architecture extensions and
-the merged distilled-DMD safetensors.
+Phase 2.1: the network now uses :class:`ArtifixerDiTNetwork` whose blocks
+carry the opacity + camera-ray MLPs (zero-initialized so behavior matches
+vanilla Wan when ``opacity_extra`` / ``camera_extra`` are not provided).
+The recipe still loads vanilla Wan 2.1 1.3B base weights from HuggingFace;
+:func:`zero_pad_artifixer_keys` pads the state dict so strict-mode load
+succeeds.
+
+Later commits add the neighbor cross-attention third KV bank (Phase 2.2),
+PRoPE (Phase 2.3), the opacity-weighted latent mixing pipeline (Phase 3),
+and the ``state_dict_transform`` for the merged ArtiFixer DMD safetensors
+(Phase 5).
 """
 
 from __future__ import annotations
 
+import torch
+from artifixer.checkpoint import zero_pad_artifixer_keys
+from artifixer.network import ArtifixerDiTNetwork1pt3BConfig
 from artifixer.runner import ArtifixerDmdT2VRunnerConfig
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
@@ -37,7 +44,6 @@ from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.wan import (
     Wan21TransformerConfig,
-    WanDiTNetwork1pt3BConfig,
     WanInferencePipelineConfig,
     WanVAEDecoderConfig,
 )
@@ -65,6 +71,11 @@ BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH = (
 )
 
 
+_BASE_NETWORK_CONFIG = ArtifixerDiTNetwork1pt3BConfig(
+    patch_embedding_type="conv3d",
+)
+_BASE_TRANSFORMER_DTYPE = torch.bfloat16
+
 PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = WanInferencePipelineConfig(
     recipe_name="artifixer-dmd-wan2.1-t2v-1.3b",
     enable_sync_and_profile=True,
@@ -73,11 +84,15 @@ PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = WanInferencePipelineConfig(
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=Wan21TransformerConfig(
-            network=WanDiTNetwork1pt3BConfig(
-                patch_embedding_type="conv3d",
-            ),
+            network=_BASE_NETWORK_CONFIG,
+            dtype=_BASE_TRANSFORMER_DTYPE,
             checkpoint_path=BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH,
-            state_dict_transform=None,
+            state_dict_transform=zero_pad_artifixer_keys(
+                num_layers=_BASE_NETWORK_CONFIG.num_layers,
+                dim=_BASE_NETWORK_CONFIG.dim,
+                patch_size=_BASE_NETWORK_CONFIG.patch_size,
+                dtype=_BASE_TRANSFORMER_DTYPE,
+            ),
             batch_shape=(),
             len_t=ARTIFIXER_LEN_T,
             guidance_scale=1.0,

@@ -14,11 +14,7 @@ REPO_DIR="$(git -C "${PWD}" rev-parse --show-toplevel)"
 cd "${REPO_DIR}"
 
 echo "[static-check] py_compile artifixer sources"
-for f in \
-    integrations/artifixer/artifixer/__init__.py \
-    integrations/artifixer/artifixer/config.py \
-    integrations/artifixer/artifixer/runner.py \
-    integrations/artifixer/tests/test_smoke.py; do
+for f in $(find integrations/artifixer -name '*.py' -not -path '*/__pycache__/*'); do
     python3 -m py_compile "$f"
 done
 
@@ -57,11 +53,8 @@ import_re = re.compile(
     r"from\s+(flashdreams\.[\w.]+)\s+import\s+(?:\(\s*([\s\S]*?)\s*\)|([^\n]+))",
 )
 flashdreams_files = list(Path("flashdreams").rglob("*.py"))
-for source_path in (
-    "integrations/artifixer/artifixer/config.py",
-    "integrations/artifixer/artifixer/runner.py",
-):
-    src = Path(source_path).read_text()
+for source_path in sorted(Path("integrations/artifixer/artifixer").rglob("*.py")):
+    src = source_path.read_text()
     for module, paren_blob, inline_blob in import_re.findall(src):
         names_blob = paren_blob or inline_blob
         for name in re.split(r"[,\s]+", names_blob):
