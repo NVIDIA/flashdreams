@@ -123,8 +123,9 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
     @torch.no_grad()
     def initialize_cache(  # type: ignore[override]
         self,
-        text: list[str],
+        text: list[str] | None = None,
         *,
+        text_embeddings: Tensor | None = None,
         condition_latent: Tensor,
         opacity: Tensor,
         camera_rays: Tensor,
@@ -139,7 +140,13 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
         """Build a per-rollout cache and push static state into the network.
 
         Args:
-            text: One prompt per batch element.
+            text: One prompt per batch element. Mutually exclusive with
+                ``text_embeddings``: pass either the raw strings (we run
+                UMT5 internally) or the pre-encoded UMT5 embeddings (the
+                dreamfix-backed driver in :mod:`model_eval` passes them
+                directly).
+            text_embeddings: Pre-encoded UMT5 prompt embeddings
+                ``[B, L, D]``. Skips the in-pipeline UMT5 forward when set.
             condition_latent: VAE-encoded reconstruction-rendered RGB,
                 ``[B, in_dim, T_lat, Hl, Wl]`` -- the caller (Phase 4
                 driver) handles VAE encoding so this pipeline does not
@@ -167,9 +174,21 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             f"condition_latent width {condition_latent.shape[-1]} != "
             f"argument width {width}"
         )
+        assert (text is None) ^ (text_embeddings is None), (
+            "Pass exactly one of ``text`` (raw prompts) or "
+            "``text_embeddings`` (pre-encoded UMT5 output)."
+        )
 
         # 1. Base text / image cross-attn cache (image=None for ArtiFixer).
-        base_cache = super().initialize_cache(text=text, height=height, width=width)
+        if text is not None:
+            base_cache = super().initialize_cache(
+                text=text, height=height, width=width
+            )
+        else:
+            assert text_embeddings is not None
+            base_cache = self._initialize_cache_from_text_embeddings(
+                text_embeddings=text_embeddings, height=height, width=width
+            )
 
         # 2. Neighbor wiring. We patchify the neighbor latent through the
         #    network's ``patch_embedding`` so the cross-attention's
@@ -227,6 +246,40 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             Ks=Ks,
             neighbor_w2cs=neighbor_w2cs,
             neighbor_Ks=neighbor_Ks,
+        )
+
+    def _initialize_cache_from_text_embeddings(
+        self,
+        *,
+        text_embeddings: Tensor,
+        height: int,
+        width: int,
+    ) -> WanInferencePipelineCache:
+        """Build the base cache when prompts are pre-encoded.
+
+        Mirrors :meth:`WanInferencePipeline.initialize_cache` minus the UMT5
+        forward / negative-prompt encoding / I2V-image plumbing -- the
+        dreamfix driver already has the encoded prompts and never uses
+        I2V images. CFG is disabled per the dreamfix ``ArtifixerKvCachePipeline``
+        contract (negative_prompt is ignored), so we don't build
+        ``negative_text_embeddings`` even if guidance_scale > 1.
+        """
+        parent_cache = super(
+            WanInferencePipeline, self
+        ).initialize_cache(
+            transformer_context={
+                "height": height,
+                "width": width,
+                "text_embeddings": text_embeddings,
+                "negative_text_embeddings": None,
+                "image_embeddings": None,
+            },
+        )
+        return WanInferencePipelineCache(
+            transformer_cache=parent_cache.transformer_cache,
+            encoder_cache=parent_cache.encoder_cache,
+            decoder_cache=parent_cache.decoder_cache,
+            image=None,
         )
 
     def _encode_neighbor_context(self, neighbor_latent: Tensor) -> Tensor:
