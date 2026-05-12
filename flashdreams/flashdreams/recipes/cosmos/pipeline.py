@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified Wan inference pipeline (Wan 2.1 / Wan 2.2, T2V and I2V)."""
+"""Cosmos-Predict2 T2V inference pipeline."""
 
 from __future__ import annotations
 
@@ -25,22 +25,23 @@ from torch import Tensor
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.encoder import StreamingVideoEncoder
+from flashdreams.infra.encoder.text.cosmos_reason1 import (
+    CosmosReason1TextEncoder,
+    CosmosReason1TextEncoderConfig,
+)
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
-from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderCache
-from flashdreams.recipes.wan.autoencoder.vae import WanVAECache
-from flashdreams.recipes.wan.transformer.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.cosmos.transformer import (
     CosmosTransformerCache,
     CosmosTransformerConfig,
 )
-from flashdreams.infra.encoder.text.cosmos_reason1 import (
-    CosmosReason1TextEncoder,
-    CosmosReason1TextEncoderConfig,
-)
+from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrlEncoderCache
+from flashdreams.recipes.wan.autoencoder.vae import WanVAECache
+from flashdreams.recipes.wan.transformer.constants import NEGATIVE_PROMPT
+
 
 @dataclass(kw_only=True)
 class CosmosInferencePipelineCache(
@@ -50,20 +51,20 @@ class CosmosInferencePipelineCache(
         WanVAECache,
     ]
 ):
-    """Per-rollout state for the Wan pipeline.
+    """Per-rollout state for the Cosmos pipeline.
 
     Adds the I2V first-frame pixels on top of the inherited caches. Pixel-to-
     latent encoding happens per AR step inside the encoder, not here.
     """
 
     image: Tensor | None = None
-    """First-frame pixels ``[*batch_shape, 1, 3, H, W]`` in ``[-1, 1]``;
+    """First-frame pixels ``[..., 1, 3, H, W]`` in ``[-1, 1]``;
     ``None`` for T2V."""
 
 
 @dataclass(kw_only=True)
 class CosmosInferencePipelineConfig(StreamInferencePipelineConfig):
-    """Config for the Wan inference pipeline.
+    """Config for the Cosmos inference pipeline.
 
     T2V vs I2V is selected by the inherited ``encoder`` slot: ``None`` for
     T2V, an I2V control-encoder config for I2V.
@@ -73,8 +74,10 @@ class CosmosInferencePipelineConfig(StreamInferencePipelineConfig):
         default_factory=lambda: CosmosInferencePipeline
     )
 
-    text_encoder: CosmosReason1TextEncoderConfig = field(default_factory=CosmosReason1TextEncoderConfig)
-    """UMT5 text encoder run once per rollout."""
+    text_encoder: CosmosReason1TextEncoderConfig = field(
+        default_factory=CosmosReason1TextEncoderConfig
+    )
+    """Cosmos-Reason1 text encoder run once per rollout."""
 
 
 class CosmosInferencePipeline(
@@ -84,15 +87,15 @@ class CosmosInferencePipeline(
         WanVAECache,
     ]
 ):
-    """Wan 2.1 / 2.2 inference pipeline, T2V and I2V.
+    """Cosmos-Predict2 inference pipeline.
 
-    T2V and I2V share the same rollout loop; the difference is whether you
-    pass an ``image`` to ``initialize_cache``. The pipeline config's
-    ``encoder`` slot must agree (``None`` for T2V, an I2V config for I2V).
+    Currently only T2V is wired; the rollout loop is shared with the wan
+    recipes for forward compatibility. The pipeline config's ``encoder``
+    slot must agree with the prompt set (``None`` for T2V).
 
     Examples:
 
-        pipeline: WanInferencePipeline = ...
+        pipeline: CosmosInferencePipeline = ...
 
         # T2V: latent (height, width) are required (the pipeline has no
         # image to derive them from). Convert from a target pixel size
@@ -105,13 +108,6 @@ class CosmosInferencePipeline(
         pipeline.finalize(0, cache)
         chunk = pipeline.generate(1, cache)
         pipeline.finalize(1, cache)  # optional for the last rollout
-
-        # I2V: pass ``image=first_frame``. ``height`` / ``width`` are
-        # derived from the image and the decoder's spatial compression
-        # ratio; passing them is optional (and cross-checked when set).
-        i2v_cache = pipeline.initialize_cache(
-            text=["A cat surfing."], image=first_frame
-        )
     """
 
     text_encoder: CosmosReason1TextEncoder
@@ -122,7 +118,7 @@ class CosmosInferencePipeline(
 
     @property
     def _transformer_config(self) -> CosmosTransformerConfig:
-        # Narrow the base transformer config to the Wan-specific union so
+        # Narrow the base transformer config to ``CosmosTransformerConfig`` so
         # ``guidance_scale`` / ``len_t`` are visible to the type checker.
         cfg = self.diffusion_model.transformer.config
         assert isinstance(cfg, CosmosTransformerConfig)
@@ -142,7 +138,7 @@ class CosmosInferencePipeline(
         Args:
             text: One prompt per batch element. Length must match the
                 transformer's ``batch_shape``.
-            image: First-frame pixels of shape ``[*batch_shape, 1, 3, H, W]``
+            image: First-frame pixels of shape ``[..., 1, 3, H, W]``
                 in ``[-1, 1]``. Required for I2V (``self.encoder`` is set),
                 forbidden for T2V. ``H`` / ``W`` must equal
                 ``height * decoder.spatial_compression_ratio`` and likewise
@@ -158,7 +154,7 @@ class CosmosInferencePipeline(
         assert len(text) > 0, "text must be non-empty"
         n = len(text)
 
-        text_embeddings = self.text_encoder(text)  # [B, L, D]
+        text_embeddings = self.text_encoder(text)  # [..., L, D]
 
         guidance_scale = self._transformer_config.guidance_scale
         if guidance_scale > 1.0:
@@ -272,7 +268,7 @@ class CosmosInferencePipeline(
             cache: Per-rollout cache from ``initialize_cache``.
 
         Returns:
-            Decoded video of shape ``[*batch_shape, T, C, H, W]`` in ``[-1, 1]``.
+            Decoded video of shape ``[..., T, C, H, W]`` in ``[-1, 1]``.
         """
         input: Tensor | None = None
         if cache.image is not None:

@@ -300,8 +300,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         Args:
             height: Pre-patchify latent height (post-VAE).
             width: Pre-patchify latent width (post-VAE).
-            text_embeddings: ``[B, L, D]`` text embeddings.
-            image_embeddings: ``[B, 1, C, H, W]`` first-frame VAE latent.
+            text_embeddings: ``[..., L, D]`` text embeddings.
+            image_embeddings: ``[..., 1, C, H, W]`` first-frame VAE latent.
                 ``H``/``W`` must equal ``height``/``width``.
         """
         # Stash the per-rollout spatial layout. ``latent_shape``,
@@ -351,15 +351,24 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         #     f"image_embeddings spatial dims ({H}, {W}) must match "
         #     f"(height, width) = ({height}, {width})."
         # )
-        H = height
-        W = width
-        B = text_embeddings.shape[0]
         mask_first_block = torch.zeros(
-            B, cfg.len_t, 1, H, W, device=self.device, dtype=cfg.dtype
+            *cfg.batch_shape,
+            cfg.len_t,
+            1,
+            height,
+            width,
+            device=self.device,
+            dtype=cfg.dtype,
         )
-        mask_first_block[:, :1, :, :, :] = 1.0
+        mask_first_block[..., :1, :, :, :] = 1.0
         mask_other_blocks = torch.zeros(
-            B, cfg.len_t, 1, H, W, device=self.device, dtype=cfg.dtype
+            *cfg.batch_shape,
+            cfg.len_t,
+            1,
+            height,
+            width,
+            device=self.device,
+            dtype=cfg.dtype,
         )
 
         # # Pad first-frame image latent along T (zeros for steady state).
@@ -500,26 +509,30 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             print("Skipping KV cache finalize")
 
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
-        # x expected to be [B, T, C, H, W]
-        assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
+        """Patchify and CP-split a video-shaped tensor ``[..., T, C, H, W]``.
+
+        Returns the post-patchify, post-CP-split layout ``[..., L/cp, D]``.
+        """
         return self.network.patchify_and_maybe_split_cp(
             x,
             process_groups=[self._cp_group],
             cp_dims=[-2],
-        )  # [B, L, D]
+        )
 
     def unpatchify_and_maybe_gather_cp(self, x: Tensor) -> Tensor:
+        """Inverse of :meth:`patchify_and_maybe_split_cp`.
+
+        Expects ``[..., L/cp, D]`` and returns ``[..., T, C, H, W]``.
+        """
         assert self._output_height is not None and self._output_width is not None, (
             "unpatchify_and_maybe_gather_cp requires an initialized rollout; "
             "call initialize_autoregressive_cache(..., height=..., width=...) first."
         )
         _, kh, kw = self.config.network.patch_size
-        # x expected to be [B, L, D]
-        assert x.ndim == 3, f"x must be a 3D tensor, but got shape {x.shape}"
         return self.network.unpatchify_and_maybe_gather_cp(
             pH=self._output_height // kh,
             pW=self._output_width // kw,
             x=x,
             process_groups=[self._cp_group],
             cp_dims=[-2],
-        )  # [B, T, C, H, W]
+        )

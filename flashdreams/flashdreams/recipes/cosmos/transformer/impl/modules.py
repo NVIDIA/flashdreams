@@ -205,26 +205,19 @@ class FinalLayer(nn.Module):
         """Apply final layer with adaptive layer normalization.
 
         Args:
-            x: Input tensor of shape (B, ..., D).
-            emb: Conditioning embedding of shape (B, D).
-            adaln_lora: Optional LoRA tensor of shape (B, 3 * D).
+            x: Input tensor of shape ``[..., L, D]``.
+            emb: Conditioning embedding of shape ``[..., D]``.
+            adaln_lora: Optional LoRA tensor of shape ``[..., 3 * D]``.
 
         Returns:
-            Output tensor of shape (B, ..., D') where D' = patch_dim.
+            Output tensor of shape ``[..., L, patch_dim]``.
         """
-        batch_size, *ellipsis_dims, hidden_dim = x.shape
-        assert emb.shape == (batch_size, hidden_dim)
-
-        emb = emb.reshape(batch_size, *([1] * len(ellipsis_dims)), hidden_dim)
+        # Insert the per-token broadcast slot: [..., D] -> [..., 1, D].
+        emb = emb.unsqueeze(-2)
 
         if self.use_adaln_lora:
-            assert adaln_lora is not None and adaln_lora.shape == (
-                batch_size,
-                3 * hidden_dim,
-            )
-            adaln_lora = adaln_lora.reshape(
-                batch_size, *([1] * len(ellipsis_dims)), 3 * hidden_dim
-            )
+            assert adaln_lora is not None
+            adaln_lora = adaln_lora.unsqueeze(-2)
             modulation = (
                 self.adaln_modulation(emb) + adaln_lora[..., : 2 * self.hidden_size]
             )
@@ -442,7 +435,7 @@ class CrossAttention(MultiHeadAttention):
 
     def initialize_cache(
         self,
-        context: Tensor,  # [B, L, D]
+        context: Tensor,  # [..., L, D]
     ) -> BlockKVCache:
         """Initialize cross-attention cache from the provided context."""
         cache = self.compute_kv(context)
@@ -543,7 +536,6 @@ class Block(nn.Module):
                 nn.SiLU(), nn.Linear(x_dim, 3 * x_dim, bias=False)
             )
 
-
     def set_context_parallel_group(
         self,
         cp_group: ProcessGroup | None,
@@ -562,20 +554,19 @@ class Block(nn.Module):
         window_size: int,
         sink_size: int,
         # cross-attention
-        context: Tensor,  # [B, L, D]
+        context: Tensor,  # [..., L, D]
     ) -> BlockCache:
         """Initialize per-branch caches for this transformer block."""
-        device = context.device
-        dtype = context.dtype
-        batch_size = context.shape[0]
+        batch_shape = context.shape[:-2]
+        batch_size = math.prod(batch_shape)
         return BlockCache(
             self_attn=self.self_attn.initialize_cache(
                 batch_size,
                 chunk_size,
                 window_size,
                 sink_size,
-                device=device,
-                dtype=dtype,
+                device=context.device,
+                dtype=context.dtype,
             ),
             cross_attn=self.cross_attn.initialize_cache(context),
         )
@@ -591,27 +582,22 @@ class Block(nn.Module):
         """Run the full block update for one denoising step.
 
         Args:
-            x: Input tensor with shape [B, L, D].
-            emb: Timestep embedding with shape [B, D].
+            x: Input tensor with shape ``[..., L, D]``.
+            emb: Timestep embedding with shape ``[..., D]``.
             cache: KV cache container for this block.
-            rope_freqs: RoPE frequencies with shape [L, 1, 1, D].
-            adaln_lora: Optional AdaLN LoRA embedding with shape [B, 3D].
+            rope_freqs: RoPE frequencies with shape ``[L, 1, 1, D]``.
+            adaln_lora: Optional AdaLN LoRA embedding with shape ``[..., 3 * D]``.
 
         Returns:
             Updated hidden states with the same shape as ``x``.
         """
-        assert x.ndim == 3, "x must be a 3D tensor"
-        B, L, D = x.shape
-
-        # Reshape embeddings to be broadcastable with x.
-        emb = emb.reshape(B, 1, D)
-
-        # Compute AdaLN modulation
+        # Insert the per-token broadcast slot: [..., D] -> [..., 1, D].
+        emb = emb.unsqueeze(-2)
         if self.use_adaln_lora:
             assert adaln_lora is not None, (
                 "adaln_lora is required when use_adaln_lora is True"
             )
-            adaln_lora = adaln_lora.reshape(B, 1, 3 * D)
+            adaln_lora = adaln_lora.unsqueeze(-2)
             shift_self, scale_self, gate_self = (
                 self.adaln_modulation_self_attn(emb) + adaln_lora
             ).chunk(3, dim=-1)
@@ -638,7 +624,7 @@ class Block(nn.Module):
             normed_x,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
-        ).reshape_as(normed_x)
+        )
         x = x + gate_self * attn_out
 
         # Cross-attention
@@ -646,7 +632,7 @@ class Block(nn.Module):
         cross_out = self.cross_attn(
             normed_x,
             kv_cache=cache.cross_attn,
-        ).reshape_as(normed_x)
+        )
         x = x + gate_cross * cross_out
 
         # MLP

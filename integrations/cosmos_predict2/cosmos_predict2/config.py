@@ -48,7 +48,7 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
             network=CosmosDiTNetworkConfig(),
             checkpoint_path=CHECKPOINT_PATH_T2V_2B,
             state_dict_transform=state_dict_transform,
-            batch_shape=(1,),
+            batch_shape=(),
             len_t=24,
             window_size_t=24,
             guidance_scale=7.0,
@@ -70,8 +70,5 @@ RUNNER_COSMOS2_T2V_2B_720P = Cosmos2T2VRunnerConfig(
 
 
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
-    cfg.runner_name: cfg
-    for cfg in (
-        RUNNER_COSMOS2_T2V_2B_720P,
-    )
+    cfg.runner_name: cfg for cfg in (RUNNER_COSMOS2_T2V_2B_720P,)
 }

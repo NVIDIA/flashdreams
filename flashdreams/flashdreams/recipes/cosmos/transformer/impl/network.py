@@ -40,7 +40,6 @@ from .modules import (
     Timesteps,
 )
 
-
 # Cosmos-Predict2 training-side checkpoints wrap the network in a ``net``
 # attribute, prefixing every key with ``net.``. Strip that prefix to land
 # in the bare ``CosmosDiTNetwork.state_dict()`` layout.
@@ -321,18 +320,23 @@ class CosmosDiTNetwork(nn.Module):
 
     def patchify_and_maybe_split_cp(
         self,
-        x: Tensor,  # [B, T, C, H, W]
+        x: Tensor,  # [..., T, C, H, W]
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
     ) -> Tensor:
         """Patchify and optionally CP-split the input video tensor.
 
-        ``b (t kt) c (h kh) (w kw) -> b (t h w) (c kt kh kw)``.
+        The patchify pattern is
+        ``... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)``.
 
         Returns:
-            Patched tensor with shape ``[B, L, D]``.
+            Patched tensor with shape ``[..., L, D]`` where
+            ``L = T * H * W / (kt * kh * kw)``.
         """
-        assert x.ndim == 5, f"x must be a 5D tensor, but got shape {x.shape}"
+        assert x.ndim >= 4, (
+            f"x must have at least 4 trailing dims (T, C, H, W) "
+            f"plus zero-or-more leading batch dims, but got shape {x.shape}"
+        )
 
         x = rearrange(
             x,
@@ -344,7 +348,7 @@ class CosmosDiTNetwork(nn.Module):
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
-                "Context parallel dimensions and process groups must be provided"
+                "Context parallel dimensions and process groups must be provided "
                 "and the number of dimensions must match the number of process groups"
             )
             for cp_dim, process_group in zip(cp_dims, process_groups):
@@ -359,22 +363,23 @@ class CosmosDiTNetwork(nn.Module):
         self,
         pH: int,
         pW: int,
-        x: Tensor,  # [B, T, HW, D] or [B, L, D]
+        x: Tensor,  # [..., L, D]
         process_groups: list[ProcessGroup | None] | None = None,
         cp_dims: list[int | None] | None = None,
     ) -> Tensor:
         """Unpatchify and optionally CP-gather the tensor back to video shape.
 
-        ``b (t h w) (c kt kh kw) -> b (t kt) c (h kh) (w kw)``.
+        The unpatchify pattern is
+        ``... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)``.
 
         Returns:
-            Unpatched tensor with shape ``[B, T, C, H, W]``.
+            Unpatched tensor with shape ``[..., T, C, H, W]``.
         """
-        assert x.ndim == 3, f"x must be a 3D tensor, but got shape {x.shape}"
+        assert x.ndim >= 2, f"x must be a 2D or higher tensor, but got shape {x.shape}"
 
         if process_groups is not None:
             assert cp_dims is not None and len(cp_dims) == len(process_groups), (
-                "Context parallel dimensions and process groups must be provided"
+                "Context parallel dimensions and process groups must be provided "
                 "and the number of dimensions must match the number of process groups"
             )
             for cp_dim, process_group in zip(cp_dims, process_groups):
@@ -386,14 +391,14 @@ class CosmosDiTNetwork(nn.Module):
 
         x = rearrange(
             x,
-            "b (t h w) (c kt kh kw) -> b (t kt) c (h kh) (w kw)",
+            "... (t h w) (c kt kh kw) -> ... (t kt) c (h kh) (w kw)",
             h=pH,
             w=pW,
             kt=self.patch_temporal,
             kh=self.patch_spatial,
             kw=self.patch_spatial,
         )
-        return x  # [B, T, C, H, W]
+        return x  # [..., T, C, H, W]
 
     def initialize_cache(
         self,
@@ -424,21 +429,27 @@ class CosmosDiTNetwork(nn.Module):
         x: Tensor,
         timesteps: Tensor,
         cache: CosmosDiTNetworkCache,
-        rope_freqs: Tensor, 
+        rope_freqs: Tensor,
         current_chunk_idx: int = 0,
         eager_mode: bool = True,
     ) -> Tensor:
-        """Run the DiT forward, dispatching to training or inference mode.
+        """Run one denoising forward pass.
 
         Args:
-            x: Patchified video tokens of shape ``[B, L, D]``.
-            timesteps: Scalar timestep ``[1]`` or per-sample ``[B]``.
-            rope_freqs: RoPE cosine/sine embeddings of shape ``[L, 1, 1, D]``.
-            cache: Per-block autoregressive cache produced by :meth:`initialize_cache`.
+            x: Patchified video tokens of shape ``[..., L, D_in]``;
+                layout ``"... (t h w) (c kt kh kw)"``.
+            timesteps: Scalar timestep tensor of shape ``()``.
+            rope_freqs: RoPE cosine/sine embeddings of shape
+                ``[L, 1, 1, head_dim // 2]``.
+            cache: Per-block autoregressive cache produced by
+                :meth:`initialize_cache`.
             current_chunk_idx: Current chunk index in autoregressive inference.
             eager_mode: ``True`` runs cache pre/post-update inside the forward;
-                ``False`` expects the caller to drive ``before_update`` / ``after_update``
-                outside the (graph-captured) network.
+                ``False`` expects the caller to drive ``before_update`` /
+                ``after_update`` outside the (graph-captured) network.
+
+        Returns:
+            Network output, shape ``[..., L, prod(patch_size) * out_channels]``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint"
@@ -448,19 +459,22 @@ class CosmosDiTNetwork(nn.Module):
             f"timesteps must be a scalar tensor, got shape {tuple(timesteps.shape)}"
         )
         timesteps = timesteps * self.config.timestep_scale
+        batch_shape = x.shape[:-2]
 
         # Patch embedding
         x = self.x_embedder(x)
 
-        # Time embedding. ``timesteps`` is scalar; broadcast the resulting
-        # embedding to the leading batch dim so downstream blocks/final
-        # layer (which expect ``[B, D]`` and ``[B, 3D]``) work uniformly.
+        # Time embedding. ``timesteps`` is scalar so the embedder returns
+        # ``[D]`` and (optionally) ``[3 * D]`` tensors. Broadcast them up to
+        # the leading batch shape so downstream blocks / final layer (which
+        # expect ``[..., D]`` and ``[..., 3 * D]``) work uniformly.
         t_emb, adaln_lora = self.t_embedder(timesteps)
         t_emb = self.t_embedding_norm(t_emb)
-        B = x.shape[0]
-        t_emb = t_emb.expand(B, -1)
+        t_emb = torch.broadcast_to(t_emb, batch_shape + (t_emb.shape[-1],))
         if adaln_lora is not None:
-            adaln_lora = adaln_lora.expand(B, -1)
+            adaln_lora = torch.broadcast_to(
+                adaln_lora, batch_shape + (adaln_lora.shape[-1],)
+            )
 
         # In non-eager mode the caller drives ``before_update``/``after_update``
         # outside the (graph-captured) network forward.

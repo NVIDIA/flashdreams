@@ -130,7 +130,7 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = config.output_dir / f"{config.runner_name}.mp4"
-        canvas = rearrange(generated, "1 t c h w -> t h w c")
+        canvas = rearrange(generated, "t c h w -> t h w c")
 
         arr = (canvas.float().numpy() + 1.0) / 2.0
         arr = (arr * 255).clip(0, 255).astype("uint8")
