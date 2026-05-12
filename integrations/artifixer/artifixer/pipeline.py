@@ -451,7 +451,13 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             vae_scale_factor_spatial=vae_s,
             is_first_chunk=is_first,
         )
-        latent = transformer.patchify_and_maybe_split_cp(latent_unpatched)
+        # FlashDreams ``patchify_and_maybe_split_cp`` expects ``(B, T, C, H, W)``
+        # (pattern ``... (t kt) c (h kh) (w kw)``), but dreamfix's VAE encoder
+        # (and therefore ``cache.condition_latent`` / ``latent_unpatched``) is
+        # in diffusers convention ``(B, C, T, H, W)``. Permute before patchify.
+        latent = transformer.patchify_and_maybe_split_cp(
+            latent_unpatched.permute(0, 2, 1, 3, 4)
+        )
 
         # 4-step DMD denoise with prepare_latents renoise. Mirrors
         # ``ArtifixerKvCachePipeline.generate_samples_from_batch`` L238-L264:
@@ -490,7 +496,11 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
                     vae_scale_factor_spatial=vae_s,
                     is_first_chunk=is_first,
                 )
-                fresh_mix = transformer.patchify_and_maybe_split_cp(fresh_mix_unpatched)
+                # Same permute as the initial mix (see above): (B, C, T, H, W)
+                # -> (B, T, C, H, W) before patchify.
+                fresh_mix = transformer.patchify_and_maybe_split_cp(
+                    fresh_mix_unpatched.permute(0, 2, 1, 3, 4)
+                )
                 latent = ((1.0 - sigma_next) * clean + sigma_next * fresh_mix).to(
                     input_dtype
                 )
