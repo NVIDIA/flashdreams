@@ -108,10 +108,14 @@ def _ensure_hf_single_view_example_data_synced(
 
     subdir = f"data/single_view/{uuid}"
     api = HfApi()
-    files = api.list_repo_files(repo_id=EXAMPLE_DATA_HF_REPO, repo_type="dataset")
-    hdmap_candidates = [
-        f for f in files if f.startswith(subdir + "/") and f.endswith("_hdmap.mp4")
-    ]
+    entries = api.list_repo_tree(
+        repo_id=EXAMPLE_DATA_HF_REPO,
+        repo_type="dataset",
+        path_in_repo=subdir,
+        recursive=False,
+    )
+    files = [entry.path for entry in entries if getattr(entry, "type", None) == "file"]
+    hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
     if not hdmap_candidates:
         raise FileNotFoundError(
             f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
