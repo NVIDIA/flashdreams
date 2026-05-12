@@ -32,6 +32,7 @@
 #include "gui/Image.hpp"
 #include "gpu/Buffer.hpp"
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 
 using namespace CR;
@@ -287,6 +288,8 @@ static cudaTextureObject_t createLinearTexture(CUdeviceptr ptr, size_t bytes, cu
 bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
 {
     m_ranges = ranges;
+    // TODO(port): peel - wire depth peeling through to the active rasterizer
+    // path. See PORT_NOTES.md and the xfail-marked test_depth_peeling_* tests.
     m_peelEnabled = peel;
 
     // Compute viewport-derived dimensions
@@ -345,8 +348,8 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
     {
         // Compute buffer sizes (with slack for overflows)
         int maxSubtrisSlack = 4096;
-        int maxBinSegsSlack = 64;
-        int maxTileSegsSlack = 64;
+        int maxBinSegsSlack = 256;
+        int maxTileSegsSlack = 4096;
         int roundSize = CR_BIN_STREAMS_SIZE * 32;
         int minBatches = 16;
         int maxRounds = 32;
@@ -359,56 +362,6 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         int targetTileSegs = (int)FW::min(conservativeTileSegs, (S64)(1 << 20));
         m_maxTileSegs = FW::max(m_maxTileSegs, FW::max(m_numTiles, targetTileSegs) + maxTileSegsSlack);
 
-        // Allocate intermediate buffers
-        m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
-        m_triHeader->resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
-        m_triData->resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
-
-        m_binFirstSeg->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-        m_binTotal->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-        m_binSegData->resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
-        m_binSegNext->resizeDiscard(m_maxBinSegs * sizeof(S32));
-        m_binSegCount->resizeDiscard(m_maxBinSegs * sizeof(S32));
-
-        m_activeTiles->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-        m_tileFirstSeg->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-        m_tileSegData->resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
-        m_tileSegNext->resizeDiscard(m_maxTileSegs * sizeof(S32));
-        m_tileSegCount->resizeDiscard(m_maxTileSegs * sizeof(S32));
-
-        // Get buffer pointers (discard previous contents)
-        CUdeviceptr ptrTriSubtris = m_triSubtris->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTriHeader = m_triHeader->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTriData = m_triData->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrBinFirstSeg = m_binFirstSeg->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrBinTotal = m_binTotal->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrBinSegData = m_binSegData->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrBinSegNext = m_binSegNext->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrBinSegCount = m_binSegCount->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrActiveTiles = m_activeTiles->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTileFirstSeg = m_tileFirstSeg->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTileSegData = m_tileSegData->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTileSegNext = m_tileSegNext->getMutableCudaPtrDiscard();
-        CUdeviceptr ptrTileSegCount = m_tileSegCount->getMutableCudaPtrDiscard();
-
-        // Create texture objects for vertex buffer and intermediate buffers
-        // Note: using ShadedVertexBase (16 bytes = 1 float4) since the pixel pipe uses TriIdShader
-        // which doesn't need vertex colors, only clip positions
-        cudaTextureObject_t texVertex = createLinearTexture(
-            (CUdeviceptr)m_vertexBufferRaw,
-            m_numVertices * sizeof(ShadedVertexBase),
-            cudaCreateChannelDesc<float4>());
-
-        cudaTextureObject_t texTriHeader = createLinearTexture(
-            ptrTriHeader,
-            m_maxSubtris * sizeof(CRTriangleHeader),
-            cudaCreateChannelDesc<uint4>());
-
-        cudaTextureObject_t texTriData = createLinearTexture(
-            ptrTriData,
-            m_maxSubtris * sizeof(CRTriangleData),
-            cudaCreateChannelDesc<uint4>());
-
         // Build CRParams
         CRParams params;
         memset(&params, 0, sizeof(params));
@@ -418,9 +371,6 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         params.numTrisDraw = m_numTris;
         params.vertexBuffer = (CUdeviceptr)m_vertexBufferRaw;
         params.indexBuffer = (CUdeviceptr)m_indexBufferRaw;
-        params.t_vertexBuffer = texVertex;
-        params.t_triHeader = texTriHeader;
-        params.t_triData = texTriData;
         params.s_colorBuffer = m_colorSurfaceObj;
         params.s_depthBuffer = m_depthSurfaceObj;
         params.tiebreakerColors = (CUdeviceptr)m_tiebreakerColors;
@@ -450,62 +400,156 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         params.clearColor = m_clearColor;
         params.clearDepth = m_clearDepth;
 
-        params.maxSubtris = m_maxSubtris;
-        params.triSubtris = ptrTriSubtris;
-        params.triHeader = ptrTriHeader;
-        params.triData = ptrTriData;
-
-        params.maxBinSegs = m_maxBinSegs;
-        params.binFirstSeg = ptrBinFirstSeg;
-        params.binTotal = ptrBinTotal;
-        params.binSegData = ptrBinSegData;
-        params.binSegNext = ptrBinSegNext;
-        params.binSegCount = ptrBinSegCount;
-
-        params.maxTileSegs = m_maxTileSegs;
-        params.activeTiles = ptrActiveTiles;
-        params.tileFirstSeg = ptrTileFirstSeg;
-        params.tileSegData = ptrTileSegData;
-        params.tileSegNext = ptrTileSegNext;
-        params.tileSegCount = ptrTileSegCount;
-
-        auto launchRange = [&](int firstTri, int numTrisDraw, int surfaceOffsetY)
+        auto launchRange = [&](int firstTri, int numTrisDraw, int surfaceOffsetY) -> bool
         {
             params.firstTri = max(0, min(firstTri, m_numTris));
             params.numTrisDraw = max(0, min(numTrisDraw, m_numTris - params.firstTri));
             if (params.numTrisDraw <= 0)
-                return;
+                return true;
 
-            params.surfaceOffsetX = m_viewportOffsetX;
-            params.surfaceOffsetY = m_viewportOffsetY + surfaceOffsetY;
+            for (;;)
+            {
+                if (m_maxSubtris > CR_MAXSUBTRIS_SIZE)
+                {
+                    fprintf(stderr,
+                            "CudaRaster: CR_MAXSUBTRIS_SIZE exceeded "
+                            "(maxSubtris=%d, limit=%d)\n",
+                            m_maxSubtris, CR_MAXSUBTRIS_SIZE);
+                    return false;
+                }
 
-            // Upload params and initialize atomics. Atomics still use the full
-            // triangle count because clipped subtriangles allocate after the
-            // original dense triangle range.
-            crUploadParams(params, stream);
-            crInitAtomics(m_numTris, stream);
+                // Allocate intermediate buffers.
+                m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
+                m_triHeader->resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
+                m_triData->resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
 
-            // Launch pipeline stages
-            crLaunchSetup(params.numTrisDraw, stream);
-            crLaunchBin(stream);
-            crLaunchCoarse(m_numSMs, stream);
-            crLaunchFine(m_numSMs, m_numFineWarps, stream);
+                m_binFirstSeg->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
+                m_binTotal->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
+                m_binSegData->resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
+                m_binSegNext->resizeDiscard(m_maxBinSegs * sizeof(S32));
+                m_binSegCount->resizeDiscard(m_maxBinSegs * sizeof(S32));
+
+                m_activeTiles->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
+                m_tileFirstSeg->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
+                m_tileSegData->resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
+                m_tileSegNext->resizeDiscard(m_maxTileSegs * sizeof(S32));
+                m_tileSegCount->resizeDiscard(m_maxTileSegs * sizeof(S32));
+
+                // Get buffer pointers (discard previous contents).
+                CUdeviceptr ptrTriSubtris = m_triSubtris->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTriHeader = m_triHeader->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTriData = m_triData->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrBinFirstSeg = m_binFirstSeg->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrBinTotal = m_binTotal->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrBinSegData = m_binSegData->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrBinSegNext = m_binSegNext->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrBinSegCount = m_binSegCount->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrActiveTiles = m_activeTiles->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTileFirstSeg = m_tileFirstSeg->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTileSegData = m_tileSegData->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTileSegNext = m_tileSegNext->getMutableCudaPtrDiscard();
+                CUdeviceptr ptrTileSegCount = m_tileSegCount->getMutableCudaPtrDiscard();
+
+                // Create texture objects for vertex buffer and intermediate
+                // buffers. Using ShadedVertexBase (16 bytes = 1 float4) because
+                // the active pixel pipe uses TriIdShader, which does not need
+                // vertex colors, only clip positions.
+                cudaTextureObject_t texVertex = createLinearTexture(
+                    (CUdeviceptr)m_vertexBufferRaw,
+                    m_numVertices * sizeof(ShadedVertexBase),
+                    cudaCreateChannelDesc<float4>());
+
+                cudaTextureObject_t texTriHeader = createLinearTexture(
+                    ptrTriHeader,
+                    m_maxSubtris * sizeof(CRTriangleHeader),
+                    cudaCreateChannelDesc<uint4>());
+
+                cudaTextureObject_t texTriData = createLinearTexture(
+                    ptrTriData,
+                    m_maxSubtris * sizeof(CRTriangleData),
+                    cudaCreateChannelDesc<uint4>());
+
+                params.t_vertexBuffer = texVertex;
+                params.t_triHeader = texTriHeader;
+                params.t_triData = texTriData;
+
+                params.maxSubtris = m_maxSubtris;
+                params.triSubtris = ptrTriSubtris;
+                params.triHeader = ptrTriHeader;
+                params.triData = ptrTriData;
+
+                params.maxBinSegs = m_maxBinSegs;
+                params.binFirstSeg = ptrBinFirstSeg;
+                params.binTotal = ptrBinTotal;
+                params.binSegData = ptrBinSegData;
+                params.binSegNext = ptrBinSegNext;
+                params.binSegCount = ptrBinSegCount;
+
+                params.maxTileSegs = m_maxTileSegs;
+                params.activeTiles = ptrActiveTiles;
+                params.tileFirstSeg = ptrTileFirstSeg;
+                params.tileSegData = ptrTileSegData;
+                params.tileSegNext = ptrTileSegNext;
+                params.tileSegCount = ptrTileSegCount;
+
+                params.surfaceOffsetX = m_viewportOffsetX;
+                params.surfaceOffsetY = m_viewportOffsetY + surfaceOffsetY;
+
+                // Upload params and initialize atomics. Atomics still use the full
+                // triangle count because clipped subtriangles allocate after the
+                // original dense triangle range.
+                crUploadParams(params, stream);
+                crInitAtomics(m_numTris, stream);
+
+                crLaunchSetup(params.numTrisDraw, stream);
+                crLaunchBin(stream);
+                crLaunchCoarse(m_numSMs, stream);
+                crLaunchFine(m_numSMs, m_numFineWarps, stream);
+
+                CRAtomics atomics;
+                memset(&atomics, 0, sizeof(atomics));
+                crReadAtomics(&atomics, stream);
+                cudaStreamSynchronize(stream);
+
+                if (texVertex) cudaDestroyTextureObject(texVertex);
+                if (texTriHeader) cudaDestroyTextureObject(texTriHeader);
+                if (texTriData) cudaDestroyTextureObject(texTriData);
+
+                if (atomics.numSubtris <= m_maxSubtris &&
+                    atomics.numBinSegs <= m_maxBinSegs &&
+                    atomics.numTileSegs <= m_maxTileSegs)
+                    return true;
+
+                if (atomics.numSubtris > CR_MAXSUBTRIS_SIZE)
+                {
+                    fprintf(stderr,
+                            "CudaRaster: CR_MAXSUBTRIS_SIZE exceeded "
+                            "(numSubtris=%d, numBinSegs=%d, numTileSegs=%d, "
+                            "maxSubtris=%d, maxBinSegs=%d, maxTileSegs=%d, limit=%d)\n",
+                            atomics.numSubtris, atomics.numBinSegs, atomics.numTileSegs,
+                            m_maxSubtris, m_maxBinSegs, m_maxTileSegs, CR_MAXSUBTRIS_SIZE);
+                    return false;
+                }
+
+                m_maxSubtris = FW::max(m_maxSubtris, atomics.numSubtris + maxSubtrisSlack);
+                m_maxBinSegs = FW::max(m_maxBinSegs, atomics.numBinSegs + maxBinSegsSlack);
+                m_maxTileSegs = FW::max(m_maxTileSegs, atomics.numTileSegs + maxTileSegsSlack);
+            }
         };
 
         if (m_ranges)
         {
             for (int imageIdx = 0; imageIdx < m_numImages; ++imageIdx)
-                launchRange(m_ranges[imageIdx * 2 + 0], m_ranges[imageIdx * 2 + 1], imageIdx * m_height);
+            {
+                if (!launchRange(m_ranges[imageIdx * 2 + 0], m_ranges[imageIdx * 2 + 1], imageIdx * m_height))
+                    return false;
+            }
         }
         else
         {
-            launchRange(0, m_numTris, 0);
+            if (!launchRange(0, m_numTris, 0))
+                return false;
         }
-
-        // Cleanup texture objects
-        if (texVertex) cudaDestroyTextureObject(texVertex);
-        if (texTriHeader) cudaDestroyTextureObject(texTriHeader);
-        if (texTriData) cudaDestroyTextureObject(texTriData);
     }
 
     // Copy from surfaces to linear memory for readback

@@ -91,6 +91,9 @@ def _get_plugin(gl=False):
 
         source_files = [
             "../_cpp/common/common.cpp",
+            # TODO(port): gl-path - the GL backend references source files
+            # that are not present in this cleanroom CudaRaster port. See
+            # ludus_renderer/_cpp/cudaraster/PORT_NOTES.md before re-enabling.
             "../_cpp/common/glutil.cpp",
             "../_cpp/render/ludus_gl.cpp",
             "../_cpp/render/ludus_timestamped_gl.cpp",

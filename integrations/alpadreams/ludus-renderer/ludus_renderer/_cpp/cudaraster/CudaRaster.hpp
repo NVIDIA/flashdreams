@@ -82,6 +82,8 @@ public:
     int                     getNumImages             (void) const;
 
 private:
+    // TODO(port): profiling - expose upstream statistics/timing through the
+    // new public API or remove after the Phase 2 audit. See PORT_NOTES.md.
     struct Stats // Statistics for the previous call to drawTriangles().
     {
         FW::F32             setupTime;  // Seconds spent in TriangleSetup.
@@ -90,6 +92,8 @@ private:
         FW::F32             fineTime;   // Seconds spent in FineRaster.
     };
 
+    // TODO(port): debug-params - decide how upstream debug controls map to
+    // the raw-pointer/cudaStream_t API. See PORT_NOTES.md.
     struct DebugParams // Host-side emulation of individual stages, for debugging purposes.
     {
         bool                emulateTriangleSetup;
@@ -108,6 +112,8 @@ private:
 
 private:
     // Legacy upstream entry points kept private while public API is migrated.
+    // TODO(port): audit these in Phase 2; 1:1 ports can be deleted, while
+    // unported capabilities should keep targeted TODOs. See PORT_NOTES.md.
     void                    setSurfaces             (FW::CudaSurface* color, FW::CudaSurface* depth);
     void                    deferredClear           (const FW::Vec4f& color, FW::F32 depth);
     void                    setPixelPipe            (FW::CudaModule* module, const FW::String& name);
@@ -128,6 +134,8 @@ private:
                                                      const FW::Vec2f& b0, const FW::Vec2f& b1, const FW::Vec2f& b2,
                                                      const FW::Vec3i& vidx);
 
+    // TODO(port): emulation - host-side reference stage emulation is not
+    // currently invoked by the active draw path. See PORT_NOTES.md.
     void                    emulateTriangleSetup    (void);
     void                    emulateBinRaster        (void);
     void                    emulateCoarseRaster     (void);

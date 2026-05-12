@@ -1,11 +1,10 @@
 # CUDA Rasterizer Port Notes
 
-This directory is a port of the HPG-2011 NVIDIA CUDA rasterizer, by way of the
-nvdiffrast fork. It has been adapted to act as the GL-free backend for the
-ludus renderer. Most of the tile-level pipeline (triangle setup, bin raster,
-coarse raster, fine raster) is upstream code; the host wrapper, the
-viewport/multi-image plumbing, and the deterministic tiebreaker are local
-deviations.
+This directory is a port of the HPG-2011 NVIDIA CUDA rasterizer. It has been
+adapted to act as the GL-free backend for the ludus renderer. Most of the
+tile-level pipeline (triangle setup, bin raster, coarse raster, fine raster) is
+upstream code; the host wrapper, the viewport/multi-image plumbing, and the
+deterministic tiebreaker are local deviations.
 
 These notes capture the non-obvious design decisions that aren't visible
 from the diff alone — primarily for whoever next has to debug a corrupted
@@ -198,3 +197,88 @@ Two upstream code paths are unreachable in this build but kept verbatim:
   `crClearSurfaces` instead. The kernel branches stay in case we ever
   want a tile-local clear, but they're untested and would also need
   triIdx-buffer clearing wired in if revived.
+
+## Active Surface
+
+The active draw entry point is:
+
+```cpp
+bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
+```
+
+It supports single-image and per-image range draws. It now ports upstream's
+retry-and-grow behavior for internal rasterizer queues. If the subtriangle
+count exceeds `CR_MAXSUBTRIS_SIZE`, the method returns `false` so callers can
+handle the irrecoverable overflow without crashing the process.
+
+## Incomplete Work
+
+Each item below has an in-code `TODO(port)` cross-reference.
+
+- `TODO(port): peel` - Depth peeling is not wired through the active draw path.
+  The `peel` argument currently records `m_peelEnabled` but does not affect the
+  launched kernels. The positive-contract `test_depth_peeling_*` tests stay
+  `xfail(strict=True)` so a future port shows up as an xpass; their paired
+  `*_currently_crashes_with_cuda700` markers stay as plain tests until the
+  failure mode actually changes.
+- `TODO(port): profiling` - Upstream `getStats()` and `getProfilingInfo()`
+  still exist in the legacy host code, including CUevent-based per-stage timing
+  and profile-counter readback, but they are not exposed through the active API.
+- `TODO(port): emulation` - Upstream host-side stage emulation
+  (`emulateTriangleSetup`, `emulateBinRaster`, `emulateCoarseRaster`,
+  `emulateFineRaster`, plus helpers) is not invoked by the active draw path.
+  Keep it available for future CPU-vs-GPU stage debugging until the Phase 2
+  audit decides whether to remove or expose it.
+- `TODO(port): debug-params` - Upstream `setDebugParams(...)` and
+  `DebugParams` are not exposed through the active API.
+- `TODO(port): gl-path` - The non-CUDA GL plugin path in
+  `ludus_renderer/_ops/_plugin.py` references source files that are not present
+  in this branch, including `glutil.cpp`, `ludus_gl.cpp`,
+  `torch_bindings_gl.cpp`, and `torch_rasterize_gl.cpp`.
+
+## Pending Phase 2 Audit
+
+Do not delete inactive legacy host code until it has been audited. For each
+item, decide whether the active code is a faithful 1:1 port of the same
+semantics. Confirmed 1:1 ports can be deleted; unported capabilities should stay
+with targeted TODOs.
+
+Audit inventory:
+
+- `void drawTriangles(void)`
+- `launchStages(...)`
+- `emulateTriangleSetup`, `emulateBinRaster`, `emulateCoarseRaster`,
+  `emulateFineRaster`
+- `setupTriangle` and `setupPleq`
+- `getStats()` and `getProfilingInfo()`
+- `setDebugParams(...)`
+- Five `#if 0` FW-typed setters
+- Dead or legacy state in `CudaRaster.hpp`, including FW surfaces, profiling
+  members, `Stats`, and `DebugParams`
+
+## Addressed Divergences
+
+- The active draw path uses upstream slack values for queue growth:
+  `4096 / 256 / 4096` for subtriangles, bin segments, and tile segments.
+- The active draw path ports upstream retry-and-grow handling after the setup,
+  bin, coarse, and fine stages.
+- The active draw path no longer reports unconditional success when the
+  internal queue hard cap is exceeded.
+
+## New Integration Features
+
+These are intentional integration features that upstream CudaRaster did not
+have:
+
+- `cudaStream_t` draw execution.
+- Per-image `ranges` for multi-image rasterization.
+- `cudaSurfaceObject_t` targets so CudaRaster can render into PyTorch-owned
+  buffers.
+- Deterministic tiebreaker controls used by the cleanroom contract tests.
+
+## Test Pointers
+
+The cleanroom public API contract lives in
+`integrations/alpadreams/ludus-renderer/tests/test_cudaraster_api.py`. Its
+module docstring describes the marker conventions and remaining validation
+gaps.

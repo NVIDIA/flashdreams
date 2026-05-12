@@ -2197,15 +2197,29 @@ void ludusCudaRender(
 
         int tilesX = (crWidth  + maxVp - 1) / maxVp;
         int tilesY = (crHeight + maxVp - 1) / maxVp;
+        bool rasterOk = true;
 
         for (int ty = 0; ty < tilesY; ty++) {
             for (int tx = 0; tx < tilesX; tx++) {
                 int vpW = (tx < tilesX - 1) ? maxVp : (crWidth  - tx * maxVp);
                 int vpH = (ty < tilesY - 1) ? maxVp : (crHeight - ty * maxVp);
                 s.cr->setViewport(vpW, vpH, tx * maxVp, ty * maxVp);
-                s.cr->drawTriangles(nullptr, false, stream);
+                if (!s.cr->drawTriangles(nullptr, false, stream)) {
+                    fprintf(stderr,
+                            "[LudusCuda] cam %d tile (%d,%d): CudaRaster overflow; zeroing camera output\n",
+                            camIdx, tx, ty);
+                    CUDA_CHECK(cudaMemsetAsync(
+                        outputPtr + (size_t)camIdx * height * width * 4, 0,
+                        (size_t)width * height * 4, stream));
+                    rasterOk = false;
+                    break;
+                }
             }
+            if (!rasterOk)
+                break;
         }
+        if (!rasterOk)
+            continue;
 
         // === Fragment pass (barycentric interpolation) ===
         const uint32_t* crColor = (const uint32_t*)s.cr->getColorBuffer();
@@ -2397,14 +2411,28 @@ void ludusCudaRenderTimestamped(
 
         int tilesX = (crWidth  + maxVp - 1) / maxVp;
         int tilesY = (crHeight + maxVp - 1) / maxVp;
+        bool rasterOk = true;
         for (int ty = 0; ty < tilesY; ty++) {
             for (int tx = 0; tx < tilesX; tx++) {
                 int vpW = (tx < tilesX - 1) ? maxVp : (crWidth  - tx * maxVp);
                 int vpH = (ty < tilesY - 1) ? maxVp : (crHeight - ty * maxVp);
                 s.cr->setViewport(vpW, vpH, tx * maxVp, ty * maxVp);
-                s.cr->drawTriangles(nullptr, false, stream);
+                if (!s.cr->drawTriangles(nullptr, false, stream)) {
+                    fprintf(stderr,
+                            "[LudusCudaTS] cam %d tile (%d,%d): CudaRaster overflow; zeroing camera output\n",
+                            camIdx, tx, ty);
+                    CUDA_CHECK(cudaMemsetAsync(
+                        outputPtr + (size_t)camIdx * height * width * 4, 0,
+                        (size_t)width * height * 4, stream));
+                    rasterOk = false;
+                    break;
+                }
             }
+            if (!rasterOk)
+                break;
         }
+        if (!rasterOk)
+            continue;
 
         // Fragment pass (barycentric interpolation)
         const uint32_t* crColor = (const uint32_t*)s.cr->getColorBuffer();

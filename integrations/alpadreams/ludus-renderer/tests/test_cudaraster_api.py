@@ -1686,17 +1686,11 @@ _OVERFLOW_SCRIPT = textwrap.dedent(
 
 
 @pytest.mark.gpu
-@pytest.mark.xfail(
-    strict=True,
-    reason="known-broken in current impl: overflow path crashes instead of returning False",
-)
 def test_draw_triangles_returns_false_when_internal_subtri_queue_overflows(
     cudaraster_plugin: Any,
 ) -> None:
     # POSITIVE CONTRACT: when the internal subtri queue overflows,
-    # draw_triangles must return False rather than crashing the process. xfail
-    # today; xpasses when the impl handles overflow gracefully. See paired
-    # marker test_overflow_currently_crashes_with_cuda700 below.
+    # draw_triangles must return False rather than crashing the process.
     result = subprocess.run(
         [sys.executable, "-c", _OVERFLOW_SCRIPT],
         check=False,
@@ -1704,34 +1698,6 @@ def test_draw_triangles_returns_false_when_internal_subtri_queue_overflows(
         text=True,
     )
     assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.gpu
-def test_overflow_currently_crashes_with_cuda700(cudaraster_plugin: Any) -> None:
-    # CURRENT-IMPL FAILURE-MODE MARKER. Pinned crash signature for the overflow
-    # scenario so any change in the failure mode is loud during cleanroom
-    # development.
-    # Paired positive contract test:
-    #   test_draw_triangles_returns_false_when_internal_subtri_queue_overflows
-    #   (xfail strict=True; xpasses when overflow handling is fixed).
-    #
-    # When this test fails on a cleanroom replacement:
-    #   - Different error string: investigate the new failure mode.
-    #   - No crash: overflow now returns False as contracted. Confirm the
-    #     paired contract test xpasses, then DELETE both this marker and
-    #     the xfail.
-    result = subprocess.run(
-        [sys.executable, "-c", _OVERFLOW_SCRIPT],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode != 0, (
-        "overflow no longer crashes; positive contract should now pass"
-    )
-    assert _CURRENT_PEEL_CRASH_STDERR in result.stderr, (
-        f"overflow now fails with a different error:\n{result.stderr}"
-    )
 
 
 # -----------------------------------------------------------------------------
