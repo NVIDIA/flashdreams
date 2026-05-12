@@ -36,11 +36,28 @@ from __future__ import annotations
 
 from typing import Any
 
-import torch
 from artifixer.network.cross_attn import ArtifixerCrossAttention
 from torch import Tensor, nn
+from torch.nn import functional as F
 
 from flashdreams.recipes.wan.transformer.impl.modules import Block, BlockCache
+
+
+def _layer_norm_fp32(x: Tensor, norm: nn.LayerNorm) -> Tensor:
+    """Run ``norm`` with fp32 input AND fp32 weight/bias, then cast back.
+
+    Mirrors diffusers' ``FP32LayerNorm`` which the dreamfix ``WanTransformerBlock``
+    norms use under the hood: regardless of the surrounding bf16 cast, the
+    norm itself accumulates in fp32 to keep the mean/std numerically stable.
+    Plain ``nn.LayerNorm(elementwise_affine=True)`` on the FD side stores
+    weight/bias in the model dtype (bf16 after ``.to(bf16)``), so calling
+    it with an fp32 input raises ``expected scalar type Float but found
+    BFloat16``. The work-around is to call ``F.layer_norm`` directly with
+    promoted parameters.
+    """
+    weight = norm.weight.float() if norm.weight is not None else None
+    bias = norm.bias.float() if norm.bias is not None else None
+    return F.layer_norm(x.float(), norm.normalized_shape, weight, bias, norm.eps)
 
 
 class ArtifixerBlock(Block):
@@ -120,9 +137,40 @@ class ArtifixerBlock(Block):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        e_chunks = (self.modulation + e).chunk(6, dim=-2)
+        # Mirror dreamfix ``ArtifixerTransformerBlock.forward`` (transformer.py
+        # L727, L763, L787, L790, L810, L814) and promote the per-block
+        # AdaLN modulation, RMS-norms, and residual adds to fp32 before
+        # casting back to the input dtype. The base ``Block.forward`` keeps
+        # everything in ``x.dtype`` (typically bf16) which is fine in
+        # isolation, but with 30 blocks each contributing ~1 dB of bf16
+        # noise the cross-backend PSNR drifts from 51 dB at block 0 down to
+        # 28 dB at block 29 (see ``scripts/parity_harness.py --capture_blocks``).
+        # The fp32 promotion below mirrors the dreamfix reference exactly:
+        #
+        #   * modulation chunking: ``(scale_shift_table + temb).float().chunk(6)``
+        #   * self-attn pre-norm + AdaLN
+        #   * self-attn residual (x + attn * gate)
+        #   * cross-attn pre-norm
+        #   * FFN pre-norm + AdaLN
+        #   * FFN residual (x + ffn.float() * gate) -- note dreamfix also
+        #     promotes ``ff_output`` to fp32 inside the residual (L814).
+        #
+        # Cost: a handful of extra casts per block. Parity gain: closes
+        # the per-block drift so the cross-backend per-call PSNR stays
+        # >50 dB through all 30 layers. Note FD's bf16-throughout path
+        # remains the default; this override only kicks in when the
+        # ``ArtifixerBlock`` subclass is used (i.e. the artifixer recipe).
+        e_chunks = (self.modulation.float() + e.float()).chunk(6, dim=-2)
+        x_dtype = x.dtype
 
-        y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
+        # ``norm1`` / ``norm2`` in the base Wan ``Block`` are
+        # ``elementwise_affine=False`` (no weight/bias) so calling them
+        # with an fp32 input "just works" -- they return fp32. ``norm3``
+        # has ``elementwise_affine=True`` and stores its weight/bias in the
+        # model dtype, so we route through ``_layer_norm_fp32`` to also
+        # promote the weight/bias to fp32 (matches diffusers'
+        # FP32LayerNorm which dreamfix's WanTransformerBlock norms use).
+        y = (self.norm1(x.float()) * (1 + e_chunks[1]) + e_chunks[0]).to(x_dtype)
         if opacity_extra is not None:
             y = y + self.opacity_embedding(opacity_extra)
         if camera_extra is not None:
@@ -132,16 +180,20 @@ class ArtifixerBlock(Block):
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
         )
-        x = x + (y * e_chunks[2])
+        x = (x.float() + y * e_chunks[2]).to(x_dtype)
 
+        # Cross-attn pre-norm in fp32 (mirrors dreamfix norm2 promotion at L790).
+        # The post-cross-attn residual is NOT promoted in dreamfix (L807) so
+        # we keep that in the input dtype here too.
         x = x + self.cross_attn(
-            self.norm3(x),
+            _layer_norm_fp32(x, self.norm3).to(x_dtype),
             kv_cache=cache.cross_attn,
             prope_src=prope_src,
             prope_tgt=prope_tgt,
             ignore_neighbors=ignore_neighbors,
         )
-        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
+        y = (self.norm2(x.float()) * (1 + e_chunks[4]) + e_chunks[3]).to(x_dtype)
         y = self.ffn(y)
-        x = x + (y * e_chunks[5])
+        # FFN residual with ff_output also promoted (matches dreamfix L814).
+        x = (x.float() + y.float() * e_chunks[5]).to(x_dtype)
         return x
