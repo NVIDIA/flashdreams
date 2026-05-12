@@ -135,7 +135,7 @@ String String::trim(void) const
 {
 	int len = getLength();
 	int idx = -1;
-	
+
 	for (int i=0; i < len; i++)
 	{
 		if (!isspace(m_chars[i]))
@@ -144,10 +144,10 @@ String String::trim(void) const
 			break;
 		}
 	}
-	
+
 	if (idx == -1)
 		return "";
-	
+
 	for (int i=len-1; i >= 0; i--)
 		if (!isspace(m_chars[i]))
 			return substring(idx, i+1);

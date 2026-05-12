@@ -989,7 +989,7 @@ static unsigned getTreeInflateDynamic(HuffmanTree* tree_ll, HuffmanTree* tree_d,
   while(!error)
   {
     /*read the code length codes out of 3 * (amount of code length codes) bits*/
-    
+
     if(!uivector_resize(&bitlen_cl, NUM_CODE_LENGTH_CODES)) ERROR_BREAK(9911);
 
     for(i = 0; i < NUM_CODE_LENGTH_CODES; i++)
@@ -1140,7 +1140,7 @@ static unsigned inflateHuffmanBlock(ucvector* out, const unsigned char* in, size
       unsigned code_d, distance;
       unsigned numextrabits_l, numextrabits_d; /*extra bits for length and distance*/
       size_t start, forward, backward, length;
-      
+
       /*part 1: get length base*/
       length = LENGTHBASE[code_ll - FIRST_LENGTH_CODE_INDEX];
 
@@ -1260,7 +1260,7 @@ static unsigned LodePNG_inflate(ucvector* out, const unsigned char* in, size_t i
 
     if(error) return error;
   }
-  
+
   /*Only now we know the true size of out, resize it to that*/
   if(!ucvector_resize(out, pos)) error = 9916; /*alloc fail*/
 
@@ -1507,14 +1507,14 @@ static unsigned encodeLZ77(uivector* out, const unsigned char* in, size_t insize
       hash = getHash(in, insize, pos, hash_num_characters);
       v = (uivector*)vector_get(&table, hash);
       if(!push_circular(v, &tablepos2.data[hash], pos, hashWindow, 1)) ERROR_BREAK(9920 /*alloc fail*/);
-      
+
       if(hash == 0)
       {
         initialZeros = countInitialZeros(in, insize, pos);
         if(!push_circular(&initialZerosTable, &tablepos2.data[hash], initialZeros, hashWindow, 0))
           ERROR_BREAK(9920 /*alloc fail*/);
       }
-      
+
       while(v->data[tablepos1.data[hash]] < pos - max_offset)
       {
         /*it now points to the first value in the table for which the index is
@@ -1562,7 +1562,7 @@ static unsigned encodeLZ77(uivector* out, const unsigned char* in, size_t insize
           if(current_length == MAX_SUPPORTED_DEFLATE_LENGTH) break;
         }
       }
-      
+
       /**encode it as length/distance pair or literal value**/
       if(length < 3) /*only lengths of 3 or higher are supported as length/distance pair*/
       {
@@ -1580,7 +1580,7 @@ static unsigned encodeLZ77(uivector* out, const unsigned char* in, size_t insize
           t2p = &tablepos2.data[local_hash];
           v = (uivector*)vector_get(&table, local_hash);
           if(!push_circular(v, t2p, pos, hashWindow, 1)) ERROR_BREAK(9920 /*alloc fail*/);
-          
+
           if(local_hash == 0)
           {
             initialZeros = countInitialZeros(in, insize, pos);
@@ -1708,7 +1708,7 @@ static unsigned deflateDynamic(ucvector* out, const unsigned char* data, size_t 
   of code lengths "cl". The code lenghts used to describe this third tree are
   the code length code lengths ("clcl").
   */
-  
+
   /*The lz77 encoded data, represented with integers since there will also be length and distance codes in it*/
   uivector lz77_encoded;
   HuffmanTree tree_ll; /*tree for lit,len values*/
@@ -1726,7 +1726,7 @@ static unsigned deflateDynamic(ucvector* out, const unsigned char* data, size_t 
 
   /*
   Due to the huffman compression of huffman tree representations ("two levels"), there are some anologies:
-  bitlen_lld is to tree_cl what data is to tree_ll and tree_d. 
+  bitlen_lld is to tree_cl what data is to tree_ll and tree_d.
   bitlen_lld_e is to bitlen_lld what lz77_encoded is to data.
   bitlen_cl is to bitlen_lld_e what bitlen_lld is to lz77_encoded.
   */
@@ -1867,7 +1867,7 @@ static unsigned deflateDynamic(ucvector* out, const unsigned char* data, size_t 
 
     /*
     Write everything into the output
-    
+
     After the BFINAL and BTYPE, the dynamic block consists out of the following:
     - 5 bits HLIT, 5 bits HDIST, 4 bits HCLEN
     - (HCLEN+4)*3 bits code lengths of code length alphabet
@@ -3260,7 +3260,7 @@ unsigned LodePNG_convert(unsigned char* out, const unsigned char* in, LodePNG_In
   size_t numpixels = w * h; /*amount of pixels*/
   unsigned bytes = LodePNG_InfoColor_getBpp(infoOut) / 8; /*bytes per pixel in the output image*/
   unsigned alpha = LodePNG_InfoColor_isAlphaType(infoOut); /*use 8-bit alpha channel*/
-  
+
   /*cases where in and out already have the same format*/
   if(LodePNG_InfoColor_equal(infoIn, infoOut))
   {
@@ -5259,7 +5259,7 @@ const char* LodePNG_error_text(unsigned code)
      all the pixels of the image, given the color depth and image dimensions. Something that doesn't
      happen in a normal, well encoded, PNG image.*/
     case 22: return "end of out buffer memory reached while inflating";
-    
+
     case 23: return "end of in buffer memory reached while inflating";
     case 24: return "invalid FCHECK in zlib header";
     case 25: return "invalid compression method in zlib header";
@@ -5300,7 +5300,7 @@ const char* LodePNG_error_text(unsigned code)
     tree will have more leaves than symbols after generating it out of the
     given lenghts. They call this an oversubscribed dynamic bit lengths tree in zlib.*/
     case 55: return "jumped past tree while generating huffman tree";
-    
+
     case 56: return "given output image colorType or bitDepth not supported for color conversion";
     case 57: return "invalid CRC encountered (checking CRC can be disabled)";
     case 58: return "invalid ADLER32 encountered (checking ADLER32 can be disabled)";
@@ -5311,7 +5311,7 @@ const char* LodePNG_error_text(unsigned code)
     case 62: return "conversion from RGB to greyscale not supported";
     case 63: return "length of a chunk too long, max allowed for PNG is 2147483647 bytes per chunk"; /*(2^31-1)*/
     /*this would result in the inability of a deflated block to ever contain an end code. It must be at least 1.*/
-    case 64: return "the length of the END symbol 256 in the Huffman tree is 0"; 
+    case 64: return "the length of the END symbol 256 in the Huffman tree is 0";
     case 66: return "the length of a text chunk keyword given to the encoder is longer than the maximum of 79 bytes";
     case 67: return "the length of a text chunk keyword given to the encoder is smaller than the minimum of 1 byte";
     case 68: return "tried to encode a PLTE chunk with a palette that has less than 1 or more than 256 colors";

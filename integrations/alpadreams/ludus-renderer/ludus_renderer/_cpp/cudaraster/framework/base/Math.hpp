@@ -659,7 +659,7 @@ public:
     template <class V> FW_CUDA_FUNC Mat3f(const MatrixBase<F32, 3, V>& v) { set(v); }
     template <class V> FW_CUDA_FUNC Mat3f& operator=(const MatrixBase<F32, 3, V>& v) { set(v); return *this; }
 
-#if !FW_CUDA 
+#if !FW_CUDA
 	static			Mat3f			rotation	(const Vec3f& axis, F32 angle);		// Rotation of "angle" radians around "axis". Axis must be unit!
 #endif
 
@@ -735,7 +735,7 @@ public:
 
     FW_CUDA_FUNC    operator        Mat3f       (void) const                { Mat3f r; for (int i = 0; i < 3 * 3; i++) r.set(i, (F32)get(i)); return r; }
 
-#if !FW_CUDA 
+#if !FW_CUDA
 	static			Mat3d			rotation	(const Vec3d& axis, F64 angle);		// Rotation of "angle" radians around "axis". Axis must be unit!
 #endif
 

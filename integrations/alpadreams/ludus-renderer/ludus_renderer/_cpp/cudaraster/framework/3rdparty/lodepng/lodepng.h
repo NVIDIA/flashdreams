@@ -466,7 +466,7 @@ typedef struct LodePNG_IText /*international text*/
 {
   /*Don't allocate these text buffers yourself. Use the init/cleanup functions
   correctly and use LodePNG_IText_add and LodePNG_IText_clear.*/
-  
+
   /*the amount of international texts in this PNG*/
   size_t num;
   /*the English keyword of the text chunk (e.g. "Comment")*/

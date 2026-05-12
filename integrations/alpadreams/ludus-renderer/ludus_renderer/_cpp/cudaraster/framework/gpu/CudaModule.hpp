@@ -50,7 +50,7 @@ public:
 
     Buffer&             getGlobal           (const String& name);
     void                updateGlobals       (bool async = false, CUstream stream = NULL); // copy to the device if modified
-    
+
     CUtexref            getTexRef           (const String& name);
     void                setTexRefMode       (CUtexref texRef, bool wrap = true, bool bilinear = true, bool normalizedCoords = true, bool readAsInt = false);
     void                setTexRef           (const String& name, Buffer& buf, CUarray_format format, int numComponents);

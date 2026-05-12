@@ -228,15 +228,14 @@ How to interpret a failing test during cleanroom development
 * A plain test fails -> investigate normally.
 """
 
-from dataclasses import dataclass
 import subprocess
 import sys
 import textwrap
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
 import torch
-
 from ludus_renderer._ops._plugin import _get_plugin
 
 
@@ -282,7 +281,9 @@ def _pack_rgba_unsigned(r: int, g: int, b: int, a: int) -> int:
     return int((r | (g << 8) | (b << 16) | (a << 24)) & 0xFFFFFFFF)
 
 
-def _ndc_to_pixel(width: int, height: int, x_ndc: float, y_ndc: float) -> tuple[int, int]:
+def _ndc_to_pixel(
+    width: int, height: int, x_ndc: float, y_ndc: float
+) -> tuple[int, int]:
     x = int((x_ndc + 1.0) * 0.5 * width)
     y = int((y_ndc + 1.0) * 0.5 * height)
     x = max(0, min(width - 1, x))
@@ -294,7 +295,9 @@ def _pixel(color: np.ndarray, x: int, y_bottom: int) -> int:
     return int(color[y_bottom, x])
 
 
-def _ring_band_triangles(outer: float, inner: float, z: float) -> tuple[list[tuple[float, float, float, float]], list[tuple[int, int, int]]]:
+def _ring_band_triangles(
+    outer: float, inner: float, z: float
+) -> tuple[list[tuple[float, float, float, float]], list[tuple[int, int, int]]]:
     vertices = [
         (-outer, -outer, z, 1.0),
         (outer, -outer, z, 1.0),
@@ -306,10 +309,14 @@ def _ring_band_triangles(outer: float, inner: float, z: float) -> tuple[list[tup
         (-inner, inner, z, 1.0),
     ]
     indices = [
-        (0, 1, 5), (0, 5, 4),  # bottom band
-        (1, 2, 6), (1, 6, 5),  # right band
-        (2, 3, 7), (2, 7, 6),  # top band
-        (3, 0, 4), (3, 4, 7),  # left band
+        (0, 1, 5),
+        (0, 5, 4),  # bottom band
+        (1, 2, 6),
+        (1, 6, 5),  # right band
+        (2, 3, 7),
+        (2, 7, 6),  # top band
+        (3, 0, 4),
+        (3, 4, 7),  # left band
     ]
     return vertices, indices
 
@@ -352,7 +359,9 @@ def _is_clearly_inside(
     margin: float,
 ) -> bool:
     # Half-space tests with a margin to stay away from triangle boundaries.
-    def edge(u: tuple[float, float], v: tuple[float, float], w: tuple[float, float]) -> float:
+    def edge(
+        u: tuple[float, float], v: tuple[float, float], w: tuple[float, float]
+    ) -> float:
         return (w[0] - u[0]) * (v[1] - u[1]) - (w[1] - u[1]) * (v[0] - u[0])
 
     e0 = edge(a, b, p)
@@ -364,7 +373,9 @@ def _is_clearly_inside(
 
 
 def _interior_and_exterior_pixels(
-    width: int, height: int, triangle: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    width: int,
+    height: int,
+    triangle: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
 ) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     a, b, c = triangle
     interior: list[tuple[int, int]] = []
@@ -378,8 +389,16 @@ def _interior_and_exterior_pixels(
                 interior.append((x, y))
             else:
                 # Keep exterior points far enough from the triangle bbox to avoid edge ambiguity.
-                if abs(px - a[0]) > 0.2 and abs(px - b[0]) > 0.2 and abs(px - c[0]) > 0.2:
-                    if abs(py - a[1]) > 0.2 and abs(py - b[1]) > 0.2 and abs(py - c[1]) > 0.2:
+                if (
+                    abs(px - a[0]) > 0.2
+                    and abs(px - b[0]) > 0.2
+                    and abs(px - c[0]) > 0.2
+                ):
+                    if (
+                        abs(py - a[1]) > 0.2
+                        and abs(py - b[1]) > 0.2
+                        and abs(py - c[1]) > 0.2
+                    ):
                         exterior.append((x, y))
     return interior, exterior
 
@@ -405,7 +424,12 @@ class CudaRasterHarness:
         self._width = width
         self._height = height
 
-    def upload(self, vertices: torch.Tensor, indices: torch.Tensor, colors: torch.Tensor | None = None) -> None:
+    def upload(
+        self,
+        vertices: torch.Tensor,
+        indices: torch.Tensor,
+        colors: torch.Tensor | None = None,
+    ) -> None:
         self._wrapper.set_vertex_buffer(vertices)
         self._wrapper.set_index_buffer(indices)
         if colors is not None:
@@ -428,7 +452,9 @@ class CudaRasterHarness:
         self._wrapper.set_render_mode_flags(flags)
         # Depth peeling requires peel buffers allocated under the mode flags.
         if (flags & int(self._plugin.CR_RENDER_MODE_ENABLE_DEPTH_PEELING)) != 0:
-            self._wrapper.set_buffer_size(self._width, self._height, self._wrapper.get_num_images())
+            self._wrapper.set_buffer_size(
+                self._width, self._height, self._wrapper.get_num_images()
+            )
         self._wrapper.set_deterministic_tiebreaker(deterministic_tiebreaker)
         if clear_color is not None:
             self._wrapper.deferred_clear(clear_color)
@@ -470,7 +496,9 @@ def harness(cudaraster_plugin: object) -> CudaRasterHarness:
 @pytest.mark.gpu
 def test_basic_triangle_interior_exterior(harness: CudaRasterHarness) -> None:
     width, height = 64, 64
-    vertices = _to_vertices([(-0.5, -0.5, 0.0, 1.0), (0.5, -0.5, 0.0, 1.0), (0.0, 0.5, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.5, -0.5, 0.0, 1.0), (0.5, -0.5, 0.0, 1.0), (0.0, 0.5, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
 
     harness.configure(width, height)
@@ -490,7 +518,9 @@ def test_basic_triangle_interior_exterior(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_output_buffer_is_bottom_up_y_and_left_to_right_x(harness: CudaRasterHarness) -> None:
+def test_output_buffer_is_bottom_up_y_and_left_to_right_x(
+    harness: CudaRasterHarness,
+) -> None:
     # Pins the cudaraster output buffer's coordinate convention. This is the
     # contract that ludus_cuda.cu's fragmentKernel relies on: it computes
     # `cr_py = (height - 1) - py` (line 1869) and reconstructs barycentrics
@@ -502,7 +532,9 @@ def test_output_buffer_is_bottom_up_y_and_left_to_right_x(harness: CudaRasterHar
     # rather than producing confusing failures all over the suite.
     width, height = 64, 64
 
-    upper = _to_vertices([(-0.3, 0.2, 0.0, 1.0), (0.3, 0.2, 0.0, 1.0), (0.0, 0.8, 0.0, 1.0)])
+    upper = _to_vertices(
+        [(-0.3, 0.2, 0.0, 1.0), (0.3, 0.2, 0.0, 1.0), (0.0, 0.8, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(width, height)
     harness.upload(upper, indices)
@@ -512,20 +544,26 @@ def test_output_buffer_is_bottom_up_y_and_left_to_right_x(harness: CudaRasterHar
     coverage_top_half = int(np.count_nonzero(color_upper[height // 2 :, :]))
     coverage_bot_half = int(np.count_nonzero(color_upper[: height // 2, :]))
     assert upper_rows > 0, "triangle in upper-NDC half must produce coverage"
-    assert coverage_top_half > 0, "NDC y > 0 must land in the upper-row half (bottom-up Y)"
+    assert coverage_top_half > 0, (
+        "NDC y > 0 must land in the upper-row half (bottom-up Y)"
+    )
     assert coverage_bot_half == 0, (
         f"NDC y > 0 leaked into lower-row half ({coverage_bot_half} px); "
         "cleanroom may have flipped to top-down Y, breaking fragmentKernel's cr_py mapping"
     )
 
-    right = _to_vertices([(0.2, -0.3, 0.0, 1.0), (0.8, -0.3, 0.0, 1.0), (0.5, 0.3, 0.0, 1.0)])
+    right = _to_vertices(
+        [(0.2, -0.3, 0.0, 1.0), (0.8, -0.3, 0.0, 1.0), (0.5, 0.3, 0.0, 1.0)]
+    )
     harness.configure(width, height)
     harness.upload(right, indices)
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
     color_right = harness.read().color
     coverage_right_half = int(np.count_nonzero(color_right[:, width // 2 :]))
     coverage_left_half = int(np.count_nonzero(color_right[:, : width // 2]))
-    assert coverage_right_half > 0, "NDC x > 0 must land in the right-column half (left-to-right X)"
+    assert coverage_right_half > 0, (
+        "NDC x > 0 must land in the right-column half (left-to-right X)"
+    )
     assert coverage_left_half == 0, (
         f"NDC x > 0 leaked into left-column half ({coverage_left_half} px); cleanroom may have flipped X"
     )
@@ -533,7 +571,9 @@ def test_output_buffer_is_bottom_up_y_and_left_to_right_x(harness: CudaRasterHar
 
 @pytest.mark.gpu
 def test_full_screen_triangle_fills_all_pixels(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-4.0, -4.0, 0.0, 1.0), (4.0, -4.0, 0.0, 1.0), (0.0, 6.0, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-4.0, -4.0, 0.0, 1.0), (4.0, -4.0, 0.0, 1.0), (0.0, 6.0, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(48, 40)
     harness.upload(vertices, indices)
@@ -544,7 +584,9 @@ def test_full_screen_triangle_fills_all_pixels(harness: CudaRasterHarness) -> No
 
 @pytest.mark.gpu
 def test_offscreen_triangle_renders_background_only(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(1.5, 0.0, 0.0, 1.0), (2.0, 0.5, 0.0, 1.0), (1.8, -0.5, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(1.5, 0.0, 0.0, 1.0), (2.0, 0.5, 0.0, 1.0), (1.8, -0.5, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -553,13 +595,23 @@ def test_offscreen_triangle_renders_background_only(harness: CudaRasterHarness) 
 
 
 @pytest.mark.gpu
-def test_non_overlapping_quadrants_have_expected_ids(harness: CudaRasterHarness) -> None:
+def test_non_overlapping_quadrants_have_expected_ids(
+    harness: CudaRasterHarness,
+) -> None:
     vertices = _to_vertices(
         [
-            (-0.9, -0.9, 0.0, 1.0), (-0.55, -0.9, 0.0, 1.0), (-0.72, -0.55, 0.0, 1.0),
-            (0.55, -0.9, 0.0, 1.0), (0.9, -0.9, 0.0, 1.0), (0.72, -0.55, 0.0, 1.0),
-            (-0.9, 0.55, 0.0, 1.0), (-0.55, 0.9, 0.0, 1.0), (-0.72, 0.9, 0.0, 1.0),
-            (0.55, 0.55, 0.0, 1.0), (0.9, 0.55, 0.0, 1.0), (0.72, 0.9, 0.0, 1.0),
+            (-0.9, -0.9, 0.0, 1.0),
+            (-0.55, -0.9, 0.0, 1.0),
+            (-0.72, -0.55, 0.0, 1.0),
+            (0.55, -0.9, 0.0, 1.0),
+            (0.9, -0.9, 0.0, 1.0),
+            (0.72, -0.55, 0.0, 1.0),
+            (-0.9, 0.55, 0.0, 1.0),
+            (-0.55, 0.9, 0.0, 1.0),
+            (-0.72, 0.9, 0.0, 1.0),
+            (0.55, 0.55, 0.0, 1.0),
+            (0.9, 0.55, 0.0, 1.0),
+            (0.72, 0.9, 0.0, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5), (6, 7, 8), (9, 10, 11)])
@@ -567,14 +619,21 @@ def test_non_overlapping_quadrants_have_expected_ids(harness: CudaRasterHarness)
     harness.upload(vertices, indices)
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
     color = harness.read().color
-    for tri_id, point in ((1, (-0.72, -0.72)), (2, (0.72, -0.72)), (3, (-0.72, 0.72)), (4, (0.72, 0.72))):
+    for tri_id, point in (
+        (1, (-0.72, -0.72)),
+        (2, (0.72, -0.72)),
+        (3, (-0.72, 0.72)),
+        (4, (0.72, 0.72)),
+    ):
         x, y = _ndc_to_pixel(64, 64, point[0], point[1])
         assert _pixel(color, x, y) == tri_id
 
 
 @pytest.mark.gpu
 def test_degenerate_triangle_has_no_pixels(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.5, -0.5, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0), (0.5, 0.5, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.5, -0.5, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0), (0.5, 0.5, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -589,13 +648,19 @@ def test_empty_draw_preserves_clear_color(harness: CudaRasterHarness) -> None:
     clear_color = _pack_rgba(0x12, 0x34, 0x56, 0x78)
     harness.configure(32, 32)
     harness.upload(vertices, indices)
-    assert harness.draw(clear_color=clear_color, flags=0, deterministic_tiebreaker=False)
+    assert harness.draw(
+        clear_color=clear_color, flags=0, deterministic_tiebreaker=False
+    )
     assert np.all(harness.read().color == clear_color)
 
 
 @pytest.mark.gpu
-def test_y_up_convention_places_bottom_left_triangle_correctly(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.95, -0.95, 0.0, 1.0), (-0.2, -0.95, 0.0, 1.0), (-0.95, -0.2, 0.0, 1.0)])
+def test_y_up_convention_places_bottom_left_triangle_correctly(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-0.95, -0.95, 0.0, 1.0), (-0.2, -0.95, 0.0, 1.0), (-0.95, -0.2, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -608,9 +673,13 @@ def test_y_up_convention_places_bottom_left_triangle_correctly(harness: CudaRast
 
 
 @pytest.mark.gpu
-def test_perspective_divide_allows_visibility_with_w_two(harness: CudaRasterHarness) -> None:
+def test_perspective_divide_allows_visibility_with_w_two(
+    harness: CudaRasterHarness,
+) -> None:
     # x/w and y/w are in range even though x,y alone are outside.
-    vertices = _to_vertices([(-1.5, -1.5, 0.0, 2.0), (1.5, -1.5, 0.0, 2.0), (0.0, 1.5, 0.0, 2.0)])
+    vertices = _to_vertices(
+        [(-1.5, -1.5, 0.0, 2.0), (1.5, -1.5, 0.0, 2.0), (0.0, 1.5, 0.0, 2.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -619,8 +688,12 @@ def test_perspective_divide_allows_visibility_with_w_two(harness: CudaRasterHarn
 
 
 @pytest.mark.gpu
-def test_ndc_corner_vertex_maps_to_bottom_left_region(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-1.0, -1.0, 0.0, 1.0), (-0.7, -1.0, 0.0, 1.0), (-1.0, -0.7, 0.0, 1.0)])
+def test_ndc_corner_vertex_maps_to_bottom_left_region(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-1.0, -1.0, 0.0, 1.0), (-0.7, -1.0, 0.0, 1.0), (-1.0, -0.7, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -634,8 +707,12 @@ def test_ndc_corner_vertex_maps_to_bottom_left_region(harness: CudaRasterHarness
 def test_depth_front_triangle_wins_overlap(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.5, -0.5, 0.2, 1.0), (0.5, -0.5, 0.2, 1.0), (0.0, 0.5, 0.2, 1.0),
-            (-0.5, -0.5, 0.8, 1.0), (0.5, -0.5, 0.8, 1.0), (0.0, 0.5, 0.8, 1.0),
+            (-0.5, -0.5, 0.2, 1.0),
+            (0.5, -0.5, 0.2, 1.0),
+            (0.0, 0.5, 0.2, 1.0),
+            (-0.5, -0.5, 0.8, 1.0),
+            (0.5, -0.5, 0.8, 1.0),
+            (0.0, 0.5, 0.8, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -647,11 +724,17 @@ def test_depth_front_triangle_wins_overlap(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_depth_partial_occlusion_keeps_visible_back_region(harness: CudaRasterHarness) -> None:
+def test_depth_partial_occlusion_keeps_visible_back_region(
+    harness: CudaRasterHarness,
+) -> None:
     vertices = _to_vertices(
         [
-            (-0.2, -0.2, 0.2, 1.0), (0.2, -0.2, 0.2, 1.0), (0.0, 0.2, 0.2, 1.0),
-            (-0.8, -0.8, 0.8, 1.0), (0.8, -0.8, 0.8, 1.0), (0.0, 0.8, 0.8, 1.0),
+            (-0.2, -0.2, 0.2, 1.0),
+            (0.2, -0.2, 0.2, 1.0),
+            (0.0, 0.2, 0.2, 1.0),
+            (-0.8, -0.8, 0.8, 1.0),
+            (0.8, -0.8, 0.8, 1.0),
+            (0.0, 0.8, 0.8, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -669,9 +752,15 @@ def test_depth_partial_occlusion_keeps_visible_back_region(harness: CudaRasterHa
 def test_depth_three_layers_show_nearest(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.45, -0.45, 0.2, 1.0), (0.45, -0.45, 0.2, 1.0), (0.0, 0.45, 0.2, 1.0),
-            (-0.45, -0.45, 0.5, 1.0), (0.45, -0.45, 0.5, 1.0), (0.0, 0.45, 0.5, 1.0),
-            (-0.45, -0.45, 0.8, 1.0), (0.45, -0.45, 0.8, 1.0), (0.0, 0.45, 0.8, 1.0),
+            (-0.45, -0.45, 0.2, 1.0),
+            (0.45, -0.45, 0.2, 1.0),
+            (0.0, 0.45, 0.2, 1.0),
+            (-0.45, -0.45, 0.5, 1.0),
+            (0.45, -0.45, 0.5, 1.0),
+            (0.0, 0.45, 0.5, 1.0),
+            (-0.45, -0.45, 0.8, 1.0),
+            (0.45, -0.45, 0.8, 1.0),
+            (0.0, 0.45, 0.8, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5), (6, 7, 8)])
@@ -684,8 +773,16 @@ def test_depth_three_layers_show_nearest(harness: CudaRasterHarness) -> None:
 
 @pytest.mark.gpu
 @pytest.mark.parametrize("z_value", [-0.99, 0.99])
-def test_depth_clip_boundaries_just_inside_are_visible(harness: CudaRasterHarness, z_value: float) -> None:
-    vertices = _to_vertices([(-0.3, -0.3, z_value, 1.0), (0.3, -0.3, z_value, 1.0), (0.0, 0.3, z_value, 1.0)])
+def test_depth_clip_boundaries_just_inside_are_visible(
+    harness: CudaRasterHarness, z_value: float
+) -> None:
+    vertices = _to_vertices(
+        [
+            (-0.3, -0.3, z_value, 1.0),
+            (0.3, -0.3, z_value, 1.0),
+            (0.0, 0.3, z_value, 1.0),
+        ]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -697,8 +794,12 @@ def test_depth_clip_boundaries_just_inside_are_visible(harness: CudaRasterHarnes
 def test_zfight_without_tiebreaker_is_consistent(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.4, -0.4, 0.3, 1.0), (0.4, -0.4, 0.3, 1.0), (0.0, 0.4, 0.3, 1.0),
-            (-0.4, -0.4, 0.3, 1.0), (0.4, -0.4, 0.3, 1.0), (0.0, 0.4, 0.3, 1.0),
+            (-0.4, -0.4, 0.3, 1.0),
+            (0.4, -0.4, 0.3, 1.0),
+            (0.0, 0.4, 0.3, 1.0),
+            (-0.4, -0.4, 0.3, 1.0),
+            (0.4, -0.4, 0.3, 1.0),
+            (0.0, 0.4, 0.3, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -718,8 +819,12 @@ def test_zfight_without_tiebreaker_is_consistent(harness: CudaRasterHarness) -> 
 def test_tiebreaker_enabled_is_deterministic(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.35, -0.35, 0.4, 1.0), (0.35, -0.35, 0.4, 1.0), (0.0, 0.35, 0.4, 1.0),
-            (-0.35, -0.35, 0.4, 1.0), (0.35, -0.35, 0.4, 1.0), (0.0, 0.35, 0.4, 1.0),
+            (-0.35, -0.35, 0.4, 1.0),
+            (0.35, -0.35, 0.4, 1.0),
+            (0.0, 0.35, 0.4, 1.0),
+            (-0.35, -0.35, 0.4, 1.0),
+            (0.35, -0.35, 0.4, 1.0),
+            (0.0, 0.35, 0.4, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -750,8 +855,12 @@ def test_tiebreaker_uses_colors_not_triangle_order(cudaraster_plugin: object) ->
     height = 64
     vertices = _to_vertices(
         [
-            (-0.3, -0.3, 0.5, 1.0), (0.3, -0.3, 0.5, 1.0), (0.0, 0.3, 0.5, 1.0),
-            (-0.3, -0.3, 0.5, 1.0), (0.3, -0.3, 0.5, 1.0), (0.0, 0.3, 0.5, 1.0),
+            (-0.3, -0.3, 0.5, 1.0),
+            (0.3, -0.3, 0.5, 1.0),
+            (0.0, 0.3, 0.5, 1.0),
+            (-0.3, -0.3, 0.5, 1.0),
+            (0.3, -0.3, 0.5, 1.0),
+            (0.0, 0.3, 0.5, 1.0),
         ]
     )
     colors = torch.tensor(
@@ -787,9 +896,13 @@ def test_tiebreaker_uses_colors_not_triangle_order(cudaraster_plugin: object) ->
 
 
 @pytest.mark.gpu
-def test_backface_culling_ccw_visible(harness: CudaRasterHarness, cudaraster_plugin: object) -> None:
+def test_backface_culling_ccw_visible(
+    harness: CudaRasterHarness, cudaraster_plugin: object
+) -> None:
     flags = int(cudaraster_plugin.CR_RENDER_MODE_ENABLE_BACKFACE_CULLING)
-    vertices = _to_vertices([(-0.6, -0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.6, -0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -798,9 +911,13 @@ def test_backface_culling_ccw_visible(harness: CudaRasterHarness, cudaraster_plu
 
 
 @pytest.mark.gpu
-def test_backface_culling_cw_hidden_when_enabled(harness: CudaRasterHarness, cudaraster_plugin: object) -> None:
+def test_backface_culling_cw_hidden_when_enabled(
+    harness: CudaRasterHarness, cudaraster_plugin: object
+) -> None:
     flags = int(cudaraster_plugin.CR_RENDER_MODE_ENABLE_BACKFACE_CULLING)
-    vertices = _to_vertices([(-0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -810,7 +927,9 @@ def test_backface_culling_cw_hidden_when_enabled(harness: CudaRasterHarness, cud
 
 @pytest.mark.gpu
 def test_backface_culling_cw_visible_when_disabled(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.6, -0.6, 0.0, 1.0), (0.0, 0.6, 0.0, 1.0), (0.6, -0.6, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -820,7 +939,9 @@ def test_backface_culling_cw_visible_when_disabled(harness: CudaRasterHarness) -
 
 @pytest.mark.gpu
 def test_buffer_size_unaligned_renders_correctly(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(100, 100)
     harness.upload(vertices, indices)
@@ -832,32 +953,45 @@ def test_buffer_size_unaligned_renders_correctly(harness: CudaRasterHarness) -> 
     assert _pixel(out.color, cx, cy) == 1
 
 
-def _render_single_view(harness: CudaRasterHarness, vertices: torch.Tensor, indices: torch.Tensor) -> np.ndarray:
+def _render_single_view(
+    harness: CudaRasterHarness, vertices: torch.Tensor, indices: torch.Tensor
+) -> np.ndarray:
     harness.configure(128, 128)
     harness.upload(vertices, indices)
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=True)
     return harness.read().color
 
 
-def _render_tiled_view(harness: CudaRasterHarness, vertices: torch.Tensor, indices: torch.Tensor) -> np.ndarray:
+def _render_tiled_view(
+    harness: CudaRasterHarness, vertices: torch.Tensor, indices: torch.Tensor
+) -> np.ndarray:
     harness.configure(128, 128)
     harness.upload(vertices, indices)
     viewports = [(64, 64, 0, 0), (64, 64, 64, 0), (64, 64, 0, 64), (64, 64, 64, 64)]
-    assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=True, viewports=viewports)
+    assert harness.draw(
+        clear_color=0, flags=0, deterministic_tiebreaker=True, viewports=viewports
+    )
     return harness.read().color
 
 
 @pytest.mark.gpu
-@pytest.mark.xfail(strict=True, reason="known-broken in current impl: tiled render drops tile-boundary pixels")
+@pytest.mark.xfail(
+    strict=True,
+    reason="known-broken in current impl: tiled render drops tile-boundary pixels",
+)
 def test_tiled_render_matches_single_view_interior(cudaraster_plugin: object) -> None:
     # POSITIVE CONTRACT: a 4-tile render and a single-view render of the same
     # geometry must produce identical color buffers. Currently xfail because the
     # current impl drops tile-boundary pixels; see paired marker
     # test_tiled_render_regression_center_pixel_drops_for_reference_triangle.
     # When this xpasses, delete the marker test and remove the xfail.
-    vertices = _to_vertices([(-0.8, -0.8, 0.2, 1.0), (0.8, -0.8, 0.2, 1.0), (0.0, 0.8, 0.2, 1.0)])
+    vertices = _to_vertices(
+        [(-0.8, -0.8, 0.2, 1.0), (0.8, -0.8, 0.2, 1.0), (0.0, 0.8, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
-    single = _render_single_view(CudaRasterHarness(cudaraster_plugin), vertices, indices)
+    single = _render_single_view(
+        CudaRasterHarness(cudaraster_plugin), vertices, indices
+    )
     tiled = _render_tiled_view(CudaRasterHarness(cudaraster_plugin), vertices, indices)
     assert np.array_equal(tiled, single)
 
@@ -880,9 +1014,13 @@ def test_tiled_render_regression_center_pixel_drops_for_reference_triangle(
     #   1. Verify the failure is a behavioral improvement (tiled now matches single).
     #   2. Confirm the paired positive contract test now passes / xpasses loudly.
     #   3. DELETE this marker; the positive contract becomes the source of truth.
-    vertices = _to_vertices([(-0.8, -0.8, 0.2, 1.0), (0.8, -0.8, 0.2, 1.0), (0.0, 0.8, 0.2, 1.0)])
+    vertices = _to_vertices(
+        [(-0.8, -0.8, 0.2, 1.0), (0.8, -0.8, 0.2, 1.0), (0.0, 0.8, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
-    single = _render_single_view(CudaRasterHarness(cudaraster_plugin), vertices, indices)
+    single = _render_single_view(
+        CudaRasterHarness(cudaraster_plugin), vertices, indices
+    )
     tiled = _render_tiled_view(CudaRasterHarness(cudaraster_plugin), vertices, indices)
     sx, sy = _ndc_to_pixel(128, 128, 0.0, 0.0)
     assert _pixel(single, sx, sy) == 1
@@ -891,7 +1029,9 @@ def test_tiled_render_regression_center_pixel_drops_for_reference_triangle(
 
 @pytest.mark.gpu
 def test_viewport_offset_shifts_output(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(128, 128)
     harness.upload(vertices, indices)
@@ -918,11 +1058,15 @@ def test_viewport_offset_shifts_output(harness: CudaRasterHarness) -> None:
 @pytest.mark.gpu
 def test_clear_to_nonzero_sets_background(harness: CudaRasterHarness) -> None:
     clear_color_u32 = _pack_rgba_unsigned(0xDE, 0xAD, 0xBE, 0xEF)
-    vertices = _to_vertices([(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.2, -0.2, 0.0, 1.0), (0.2, -0.2, 0.0, 1.0), (0.0, 0.2, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
-    assert harness.draw(clear_color=clear_color_u32, flags=0, deterministic_tiebreaker=False)
+    assert harness.draw(
+        clear_color=clear_color_u32, flags=0, deterministic_tiebreaker=False
+    )
     color = harness.read().color
     x, y = _ndc_to_pixel(64, 64, 0.0, 0.0)
     assert _pixel(color, x, y) == 1
@@ -931,7 +1075,9 @@ def test_clear_to_nonzero_sets_background(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_clear_to_nonzero_regression_reads_back_as_signed_int32(harness: CudaRasterHarness) -> None:
+def test_clear_to_nonzero_regression_reads_back_as_signed_int32(
+    harness: CudaRasterHarness,
+) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
     # Pinned behavior: the wrapper exposes the color buffer as torch.int32, so
@@ -949,28 +1095,40 @@ def test_clear_to_nonzero_regression_reads_back_as_signed_int32(harness: CudaRas
     clear_color_u32 = _pack_rgba_unsigned(0xDE, 0xAD, 0xBE, 0xEF)
     harness.configure(32, 32)
     harness.upload(_to_vertices([]), _to_indices([]))
-    assert harness.draw(clear_color=clear_color_u32, flags=0, deterministic_tiebreaker=False)
+    assert harness.draw(
+        clear_color=clear_color_u32, flags=0, deterministic_tiebreaker=False
+    )
     color = harness.read().color
 
     assert color.dtype == np.int32
-    assert np.all(color < 0), "every pixel of the cleared buffer must reinterpret as negative int32"
+    assert np.all(color < 0), (
+        "every pixel of the cleared buffer must reinterpret as negative int32"
+    )
     reinterpreted = color.view(np.uint32)
     expected = np.uint32(clear_color_u32)
-    assert np.all(reinterpreted == expected), "clear pixels must all equal the packed RGBA8 clear color"
+    assert np.all(reinterpreted == expected), (
+        "clear pixels must all equal the packed RGBA8 clear color"
+    )
 
     color_again = harness.read().color
-    assert np.array_equal(color, color_again), "consecutive reads of an unchanged buffer must be byte-stable"
+    assert np.array_equal(color, color_again), (
+        "consecutive reads of an unchanged buffer must be byte-stable"
+    )
 
 
 @pytest.mark.gpu
 def test_no_clear_accumulates_previous_draw(harness: CudaRasterHarness) -> None:
     harness.configure(64, 64)
-    vertices_a = _to_vertices([(-0.9, -0.9, 0.0, 1.0), (-0.5, -0.9, 0.0, 1.0), (-0.7, -0.5, 0.0, 1.0)])
+    vertices_a = _to_vertices(
+        [(-0.9, -0.9, 0.0, 1.0), (-0.5, -0.9, 0.0, 1.0), (-0.7, -0.5, 0.0, 1.0)]
+    )
     indices_a = _to_indices([(0, 1, 2)])
     harness.upload(vertices_a, indices_a)
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
 
-    vertices_b = _to_vertices([(0.5, 0.5, 0.0, 1.0), (0.9, 0.5, 0.0, 1.0), (0.7, 0.9, 0.0, 1.0)])
+    vertices_b = _to_vertices(
+        [(0.5, 0.5, 0.0, 1.0), (0.9, 0.5, 0.0, 1.0), (0.7, 0.9, 0.0, 1.0)]
+    )
     indices_b = _to_indices([(0, 1, 2)])
     harness.upload(vertices_b, indices_b)
     assert harness.draw(clear_color=None, flags=0, deterministic_tiebreaker=False)
@@ -983,7 +1141,9 @@ def test_no_clear_accumulates_previous_draw(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_set_buffer_size_zero_is_accepted_and_reports_zero_dims(cudaraster_plugin: object) -> None:
+def test_set_buffer_size_zero_is_accepted_and_reports_zero_dims(
+    cudaraster_plugin: object,
+) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
     # Pinned behavior: set_buffer_size(0, 0, 0) is silently accepted, no
@@ -1011,18 +1171,28 @@ def test_set_buffer_size_zero_is_accepted_and_reports_zero_dims(cudaraster_plugi
 
 
 @pytest.mark.gpu
-def test_tiebreaker_disabled_ignores_uploaded_colors(harness: CudaRasterHarness) -> None:
+def test_tiebreaker_disabled_ignores_uploaded_colors(
+    harness: CudaRasterHarness,
+) -> None:
     vertices = _to_vertices(
         [
-            (-0.4, -0.4, 0.3, 1.0), (0.4, -0.4, 0.3, 1.0), (0.0, 0.4, 0.3, 1.0),
-            (-0.4, -0.4, 0.3, 1.0), (0.4, -0.4, 0.3, 1.0), (0.0, 0.4, 0.3, 1.0),
+            (-0.4, -0.4, 0.3, 1.0),
+            (0.4, -0.4, 0.3, 1.0),
+            (0.0, 0.4, 0.3, 1.0),
+            (-0.4, -0.4, 0.3, 1.0),
+            (0.4, -0.4, 0.3, 1.0),
+            (0.0, 0.4, 0.3, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
     colors = torch.tensor(
         [
-            _pack_rgba(255, 0, 0, 255), _pack_rgba(255, 0, 0, 255), _pack_rgba(255, 0, 0, 255),
-            _pack_rgba(0, 255, 0, 255), _pack_rgba(0, 255, 0, 255), _pack_rgba(0, 255, 0, 255),
+            _pack_rgba(255, 0, 0, 255),
+            _pack_rgba(255, 0, 0, 255),
+            _pack_rgba(255, 0, 0, 255),
+            _pack_rgba(0, 255, 0, 255),
+            _pack_rgba(0, 255, 0, 255),
+            _pack_rgba(0, 255, 0, 255),
         ],
         device="cuda",
         dtype=torch.int32,
@@ -1045,8 +1215,12 @@ def _coplanar_overlap_pair(z: float = 0.3) -> tuple[torch.Tensor, torch.Tensor]:
     return (
         _to_vertices(
             [
-                (-0.4, -0.4, z, 1.0), (0.4, -0.4, z, 1.0), (0.0, 0.4, z, 1.0),
-                (-0.4, -0.4, z, 1.0), (0.4, -0.4, z, 1.0), (0.0, 0.4, z, 1.0),
+                (-0.4, -0.4, z, 1.0),
+                (0.4, -0.4, z, 1.0),
+                (0.0, 0.4, z, 1.0),
+                (-0.4, -0.4, z, 1.0),
+                (0.4, -0.4, z, 1.0),
+                (0.0, 0.4, z, 1.0),
             ]
         ),
         _to_indices([(0, 1, 2), (3, 4, 5)]),
@@ -1123,10 +1297,16 @@ def test_tiebreaker_enabled_zero_color_buffer_is_deterministic(
 
 
 @pytest.mark.gpu
-def test_reupload_vertex_and_index_buffers_replaces_scene_geometry(harness: CudaRasterHarness) -> None:
+def test_reupload_vertex_and_index_buffers_replaces_scene_geometry(
+    harness: CudaRasterHarness,
+) -> None:
     indices = _to_indices([(0, 1, 2)])
-    first_vertices = _to_vertices([(-0.8, -0.8, 0.2, 1.0), (-0.4, -0.8, 0.2, 1.0), (-0.6, -0.4, 0.2, 1.0)])
-    second_vertices = _to_vertices([(0.4, 0.4, 0.2, 1.0), (0.8, 0.4, 0.2, 1.0), (0.6, 0.8, 0.2, 1.0)])
+    first_vertices = _to_vertices(
+        [(-0.8, -0.8, 0.2, 1.0), (-0.4, -0.8, 0.2, 1.0), (-0.6, -0.4, 0.2, 1.0)]
+    )
+    second_vertices = _to_vertices(
+        [(0.4, 0.4, 0.2, 1.0), (0.8, 0.4, 0.2, 1.0), (0.6, 0.8, 0.2, 1.0)]
+    )
     harness.configure(96, 96)
 
     harness.upload(first_vertices, indices)
@@ -1145,8 +1325,12 @@ def test_reupload_vertex_and_index_buffers_replaces_scene_geometry(harness: Cuda
 
 
 @pytest.mark.gpu
-def test_resize_after_draw_produces_consistent_output_in_new_extent(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.4, -0.4, 0.2, 1.0), (0.4, -0.4, 0.2, 1.0), (0.0, 0.4, 0.2, 1.0)])
+def test_resize_after_draw_produces_consistent_output_in_new_extent(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-0.4, -0.4, 0.2, 1.0), (0.4, -0.4, 0.2, 1.0), (0.0, 0.4, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
 
     harness.configure(64, 64)
@@ -1233,14 +1417,18 @@ def test_depth_peeling_two_layers_currently_crashes_with_cuda700(
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0, "two-layer peel no longer crashes; positive contract should now pass"
+    assert result.returncode != 0, (
+        "two-layer peel no longer crashes; positive contract should now pass"
+    )
     assert _CURRENT_PEEL_CRASH_STDERR in result.stderr, (
         f"two-layer peel now fails with a different error:\n{result.stderr}"
     )
 
 
 @pytest.mark.gpu
-def test_multi_image_readback_shape_and_byte_stability(harness: CudaRasterHarness) -> None:
+def test_multi_image_readback_shape_and_byte_stability(
+    harness: CudaRasterHarness,
+) -> None:
     # Contract: with num_images=2 the readback exposes a (2, H, W) tensor for
     # both color and depth, both images report identical buffer dimensions,
     # image 0 contains the rasterized triangle, and consecutive reads of either
@@ -1249,7 +1437,9 @@ def test_multi_image_readback_shape_and_byte_stability(harness: CudaRasterHarnes
     # NB: the current impl does NOT clear image 1 on deferred_clear, so image 1
     # may contain uninitialized GPU memory. Constraints on image 1 *content*
     # belong in test_multi_image_regression_second_image_remains_empty_for_single_draw.
-    vertices = _to_vertices([(-0.3, -0.3, 0.0, 1.0), (0.3, -0.3, 0.0, 1.0), (0.0, 0.3, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-0.3, -0.3, 0.0, 1.0), (0.3, -0.3, 0.0, 1.0), (0.0, 0.3, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64, num_images=2)
     harness.upload(vertices, indices)
@@ -1274,7 +1464,9 @@ def test_multi_image_readback_shape_and_byte_stability(harness: CudaRasterHarnes
 
 
 @pytest.mark.gpu
-def test_get_buffer_dims_report_tile_rounded_allocation(cudaraster_plugin: object) -> None:
+def test_get_buffer_dims_report_tile_rounded_allocation(
+    cudaraster_plugin: object,
+) -> None:
     wrapper = cudaraster_plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     wrapper.set_buffer_size(101, 67, 1)
     assert int(wrapper.get_buffer_width()) == 104
@@ -1310,7 +1502,9 @@ def test_multi_image_regression_second_image_remains_empty_for_single_draw(
     torch.cuda.synchronize()
     image1_pre = wrapper.get_color_buffer()[1, :64, :64].detach().cpu().numpy().copy()
 
-    vertices_t = _to_vertices([(-0.3, -0.3, 0.0, 1.0), (0.3, -0.3, 0.0, 1.0), (0.0, 0.3, 0.0, 1.0)])
+    vertices_t = _to_vertices(
+        [(-0.3, -0.3, 0.0, 1.0), (0.3, -0.3, 0.0, 1.0), (0.0, 0.3, 0.0, 1.0)]
+    )
     indices_t = _to_indices([(0, 1, 2)])
     wrapper.set_vertex_buffer(vertices_t)
     wrapper.set_index_buffer(indices_t)
@@ -1332,7 +1526,9 @@ def test_multi_image_regression_second_image_remains_empty_for_single_draw(
 
 @pytest.mark.gpu
 def test_partial_clip_renders_visible_portion(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(0.5, -0.4, 0.0, 1.0), (2.0, -0.4, 0.0, 1.0), (0.5, 0.6, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(0.5, -0.4, 0.0, 1.0), (2.0, -0.4, 0.0, 1.0), (0.5, 0.6, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1342,7 +1538,9 @@ def test_partial_clip_renders_visible_portion(harness: CudaRasterHarness) -> Non
 
 @pytest.mark.gpu
 def test_vertex_behind_camera_no_crash_no_garbage(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.3, -0.3, 0.2, 1.0), (0.3, -0.3, 0.2, 1.0), (0.0, 0.3, 0.2, -1.0)])
+    vertices = _to_vertices(
+        [(-0.3, -0.3, 0.2, 1.0), (0.3, -0.3, 0.2, 1.0), (0.0, 0.3, 0.2, -1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1353,8 +1551,12 @@ def test_vertex_behind_camera_no_crash_no_garbage(harness: CudaRasterHarness) ->
 
 
 @pytest.mark.gpu
-def test_all_vertices_outside_crossing_center_is_stable(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-2.0, -0.2, 0.0, 1.0), (2.0, -0.2, 0.0, 1.0), (0.0, 2.0, 0.0, 1.0)])
+def test_all_vertices_outside_crossing_center_is_stable(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-2.0, -0.2, 0.0, 1.0), (2.0, -0.2, 0.0, 1.0), (0.0, 2.0, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1367,7 +1569,9 @@ def test_all_vertices_outside_crossing_center_is_stable(harness: CudaRasterHarne
 @pytest.mark.gpu
 def test_subpixel_triangle_has_limited_coverage(harness: CudaRasterHarness) -> None:
     eps = 1.0 / 256.0
-    vertices = _to_vertices([(-eps, -eps, 0.0, 1.0), (eps, -eps, 0.0, 1.0), (0.0, eps, 0.0, 1.0)])
+    vertices = _to_vertices(
+        [(-eps, -eps, 0.0, 1.0), (eps, -eps, 0.0, 1.0), (0.0, eps, 0.0, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1399,7 +1603,9 @@ def test_large_coordinates_stay_stable(harness: CudaRasterHarness) -> None:
 @pytest.mark.gpu
 def test_near_zero_w_no_crash(harness: CudaRasterHarness) -> None:
     w = 1e-6
-    vertices = _to_vertices([(-1e-7, -1e-7, 0.0, w), (1e-7, -1e-7, 0.0, w), (0.0, 1e-7, 0.0, w)])
+    vertices = _to_vertices(
+        [(-1e-7, -1e-7, 0.0, w), (1e-7, -1e-7, 0.0, w), (0.0, 1e-7, 0.0, w)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1410,7 +1616,9 @@ def test_near_zero_w_no_crash(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_large_triangle_count_runs_without_silent_corruption(harness: CudaRasterHarness) -> None:
+def test_large_triangle_count_runs_without_silent_corruption(
+    harness: CudaRasterHarness,
+) -> None:
     # Contract: 100k overlapping coplanar triangles must rasterize cleanly.
     # All covered pixels must report a valid triangle id (1..triangle_count),
     # the last-drawn triangle must win the depth tie at every covered pixel,
@@ -1477,7 +1685,10 @@ _OVERFLOW_SCRIPT = textwrap.dedent(
 
 
 @pytest.mark.gpu
-@pytest.mark.xfail(strict=True, reason="known-broken in current impl: overflow path crashes instead of returning False")
+@pytest.mark.xfail(
+    strict=True,
+    reason="known-broken in current impl: overflow path crashes instead of returning False",
+)
 def test_draw_triangles_returns_false_when_internal_subtri_queue_overflows(
     cudaraster_plugin: object,
 ) -> None:
@@ -1514,7 +1725,9 @@ def test_overflow_currently_crashes_with_cuda700(cudaraster_plugin: object) -> N
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0, "overflow no longer crashes; positive contract should now pass"
+    assert result.returncode != 0, (
+        "overflow no longer crashes; positive contract should now pass"
+    )
     assert _CURRENT_PEEL_CRASH_STDERR in result.stderr, (
         f"overflow now fails with a different error:\n{result.stderr}"
     )
@@ -1528,16 +1741,24 @@ def test_overflow_currently_crashes_with_cuda700(cudaraster_plugin: object) -> N
 def test_ranges_draw_first_triangle_only(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.90, -0.90, 0.3, 1.0), (-0.55, -0.90, 0.3, 1.0), (-0.72, -0.55, 0.3, 1.0),
-            (0.55, -0.90, 0.3, 1.0), (0.90, -0.90, 0.3, 1.0), (0.72, -0.55, 0.3, 1.0),
-            (-0.90, 0.55, 0.3, 1.0), (-0.55, 0.90, 0.3, 1.0), (-0.72, 0.90, 0.3, 1.0),
+            (-0.90, -0.90, 0.3, 1.0),
+            (-0.55, -0.90, 0.3, 1.0),
+            (-0.72, -0.55, 0.3, 1.0),
+            (0.55, -0.90, 0.3, 1.0),
+            (0.90, -0.90, 0.3, 1.0),
+            (0.72, -0.55, 0.3, 1.0),
+            (-0.90, 0.55, 0.3, 1.0),
+            (-0.55, 0.90, 0.3, 1.0),
+            (-0.72, 0.90, 0.3, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5), (6, 7, 8)])
     ranges = _to_ranges([(0, 1)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
-    assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges)
+    assert harness.draw(
+        clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges
+    )
     color = harness.read().color
     p0 = _ndc_to_pixel(64, 64, -0.72, -0.72)
     p1 = _ndc_to_pixel(64, 64, 0.72, -0.72)
@@ -1551,16 +1772,24 @@ def test_ranges_draw_first_triangle_only(harness: CudaRasterHarness) -> None:
 def test_ranges_draw_tail_triangles_only(harness: CudaRasterHarness) -> None:
     vertices = _to_vertices(
         [
-            (-0.90, -0.90, 0.3, 1.0), (-0.55, -0.90, 0.3, 1.0), (-0.72, -0.55, 0.3, 1.0),
-            (0.55, -0.90, 0.3, 1.0), (0.90, -0.90, 0.3, 1.0), (0.72, -0.55, 0.3, 1.0),
-            (-0.90, 0.55, 0.3, 1.0), (-0.55, 0.90, 0.3, 1.0), (-0.72, 0.90, 0.3, 1.0),
+            (-0.90, -0.90, 0.3, 1.0),
+            (-0.55, -0.90, 0.3, 1.0),
+            (-0.72, -0.55, 0.3, 1.0),
+            (0.55, -0.90, 0.3, 1.0),
+            (0.90, -0.90, 0.3, 1.0),
+            (0.72, -0.55, 0.3, 1.0),
+            (-0.90, 0.55, 0.3, 1.0),
+            (-0.55, 0.90, 0.3, 1.0),
+            (-0.72, 0.90, 0.3, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5), (6, 7, 8)])
     ranges = _to_ranges([(1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
-    assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges)
+    assert harness.draw(
+        clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges
+    )
     color = harness.read().color
     p0 = _ndc_to_pixel(64, 64, -0.72, -0.72)
     p1 = _ndc_to_pixel(64, 64, 0.72, -0.72)
@@ -1574,8 +1803,12 @@ def test_ranges_draw_tail_triangles_only(harness: CudaRasterHarness) -> None:
 def test_depth_buffer_near_is_smaller_than_far(harness: CudaRasterHarness) -> None:
     center = _ndc_to_pixel(64, 64, 0.0, -0.1)
 
-    near_vertices = _to_vertices([(-0.4, -0.4, 0.2, 1.0), (0.4, -0.4, 0.2, 1.0), (0.0, 0.4, 0.2, 1.0)])
-    far_vertices = _to_vertices([(-0.4, -0.4, 0.8, 1.0), (0.4, -0.4, 0.8, 1.0), (0.0, 0.4, 0.8, 1.0)])
+    near_vertices = _to_vertices(
+        [(-0.4, -0.4, 0.2, 1.0), (0.4, -0.4, 0.2, 1.0), (0.0, 0.4, 0.2, 1.0)]
+    )
+    far_vertices = _to_vertices(
+        [(-0.4, -0.4, 0.8, 1.0), (0.4, -0.4, 0.8, 1.0), (0.0, 0.4, 0.8, 1.0)]
+    )
     one_tri = _to_indices([(0, 1, 2)])
 
     harness.configure(64, 64)
@@ -1595,8 +1828,12 @@ def test_depth_buffer_near_is_smaller_than_far(harness: CudaRasterHarness) -> No
 
 
 @pytest.mark.gpu
-def test_depth_buffer_background_stays_at_clear_depth(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.3, -0.3, 0.2, 1.0), (0.3, -0.3, 0.2, 1.0), (0.0, 0.3, 0.2, 1.0)])
+def test_depth_buffer_background_stays_at_clear_depth(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-0.3, -0.3, 0.2, 1.0), (0.3, -0.3, 0.2, 1.0), (0.0, 0.3, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(64, 64)
     harness.upload(vertices, indices)
@@ -1715,7 +1952,9 @@ _DEPTH_PEEL_SINGLE_LAYER_SCRIPT = textwrap.dedent(
 
 @pytest.mark.gpu
 @pytest.mark.xfail(strict=True, reason="known-broken in current impl: depth peeling")
-def test_depth_peeling_three_layers_exposes_layers_in_order(cudaraster_plugin: object) -> None:
+def test_depth_peeling_three_layers_exposes_layers_in_order(
+    cudaraster_plugin: object,
+) -> None:
     # POSITIVE CONTRACT: peel passes 1, 2, 3 must reveal triangle ids 1, 2, 3
     # at the center pixel. xfail today; xpasses when peeling is fixed.
     result = subprocess.run(
@@ -1739,7 +1978,9 @@ def test_depth_peeling_three_layers_currently_crashes_with_cuda700(
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0, "three-layer peel no longer crashes; positive contract should now pass"
+    assert result.returncode != 0, (
+        "three-layer peel no longer crashes; positive contract should now pass"
+    )
     assert _CURRENT_PEEL_CRASH_STDERR in result.stderr, (
         f"three-layer peel now fails with a different error:\n{result.stderr}"
     )
@@ -1747,7 +1988,9 @@ def test_depth_peeling_three_layers_currently_crashes_with_cuda700(
 
 @pytest.mark.gpu
 @pytest.mark.xfail(strict=True, reason="known-broken in current impl: depth peeling")
-def test_depth_peeling_single_layer_second_pass_is_empty(cudaraster_plugin: object) -> None:
+def test_depth_peeling_single_layer_second_pass_is_empty(
+    cudaraster_plugin: object,
+) -> None:
     # POSITIVE CONTRACT: peel pass 1 rasterizes the triangle; peel pass 2 has
     # no further layer and must be fully background. xfail today.
     result = subprocess.run(
@@ -1771,7 +2014,9 @@ def test_depth_peeling_single_layer_currently_crashes_with_cuda700(
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0, "single-layer peel no longer crashes; positive contract should now pass"
+    assert result.returncode != 0, (
+        "single-layer peel no longer crashes; positive contract should now pass"
+    )
     assert _CURRENT_PEEL_CRASH_STDERR in result.stderr, (
         f"single-layer peel now fails with a different error:\n{result.stderr}"
     )
@@ -1783,7 +2028,14 @@ def test_depth_peeling_single_layer_currently_crashes_with_cuda700(
 
 @pytest.mark.gpu
 def test_shared_edge_diagonal_split_has_no_holes(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.5, -0.5, 0.2, 1.0), (0.5, -0.5, 0.2, 1.0), (0.5, 0.5, 0.2, 1.0), (-0.5, 0.5, 0.2, 1.0)])
+    vertices = _to_vertices(
+        [
+            (-0.5, -0.5, 0.2, 1.0),
+            (0.5, -0.5, 0.2, 1.0),
+            (0.5, 0.5, 0.2, 1.0),
+            (-0.5, 0.5, 0.2, 1.0),
+        ]
+    )
     indices = _to_indices([(0, 1, 2), (0, 2, 3)])
     harness.configure(96, 96)
     harness.upload(vertices, indices)
@@ -1798,7 +2050,9 @@ def test_shared_edge_diagonal_split_has_no_holes(harness: CudaRasterHarness) -> 
 
 
 @pytest.mark.gpu
-def test_shared_edge_grid_quad_centers_are_all_covered(harness: CudaRasterHarness) -> None:
+def test_shared_edge_grid_quad_centers_are_all_covered(
+    harness: CudaRasterHarness,
+) -> None:
     grid = 10
     x_min, x_max = -0.8, 0.8
     y_min, y_max = -0.8, 0.8
@@ -1813,7 +2067,14 @@ def test_shared_edge_grid_quad_centers_are_all_covered(harness: CudaRasterHarnes
             y0 = y_min + gy * dy
             y1 = y0 + dy
             base = len(verts)
-            verts.extend([(x0, y0, 0.3, 1.0), (x1, y0, 0.3, 1.0), (x1, y1, 0.3, 1.0), (x0, y1, 0.3, 1.0)])
+            verts.extend(
+                [
+                    (x0, y0, 0.3, 1.0),
+                    (x1, y0, 0.3, 1.0),
+                    (x1, y1, 0.3, 1.0),
+                    (x0, y1, 0.3, 1.0),
+                ]
+            )
             tris.append((base + 0, base + 1, base + 2))
             tris.append((base + 0, base + 2, base + 3))
     harness.configure(128, 128)
@@ -1851,7 +2112,9 @@ def test_thin_quad_centerline_is_continuous(harness: CudaRasterHarness) -> None:
 
 
 @pytest.mark.gpu
-def test_polyline_strip_segment_joints_can_crack_without_join_geometry(harness: CudaRasterHarness) -> None:
+def test_polyline_strip_segment_joints_can_crack_without_join_geometry(
+    harness: CudaRasterHarness,
+) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
     # Pinned behavior: stitching independent quad segments end-to-end without
@@ -1883,7 +2146,9 @@ def test_polyline_strip_segment_joints_can_crack_without_join_geometry(harness: 
 
 
 @pytest.mark.gpu
-def test_wireframe_band_edges_render_and_center_stays_clear(harness: CudaRasterHarness) -> None:
+def test_wireframe_band_edges_render_and_center_stays_clear(
+    harness: CudaRasterHarness,
+) -> None:
     verts, tris = _ring_band_triangles(outer=0.8, inner=0.55, z=0.3)
     harness.configure(128, 128)
     harness.upload(_to_vertices(verts), _to_indices(tris))
@@ -1899,14 +2164,18 @@ def test_wireframe_band_edges_render_and_center_stays_clear(harness: CudaRasterH
 
 
 @pytest.mark.gpu
-def test_overlapping_wireframe_bands_use_depth_order(harness: CudaRasterHarness) -> None:
+def test_overlapping_wireframe_bands_use_depth_order(
+    harness: CudaRasterHarness,
+) -> None:
     far_verts, far_tris = _ring_band_triangles(outer=0.72, inner=0.50, z=0.7)
     near_verts, near_tris = _ring_band_triangles(outer=0.72, inner=0.50, z=0.2)
     offset = len(far_verts)
     near_tris_off = [(a + offset, b + offset, c + offset) for a, b, c in near_tris]
 
     harness.configure(128, 128)
-    harness.upload(_to_vertices(far_verts + near_verts), _to_indices(far_tris + near_tris_off))
+    harness.upload(
+        _to_vertices(far_verts + near_verts), _to_indices(far_tris + near_tris_off)
+    )
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
     both = harness.read()
 
@@ -1927,7 +2196,9 @@ def test_hex_dot_all_sector_centroids_are_covered(harness: CudaRasterHarness) ->
     outer: list[tuple[float, float, float, float]] = []
     for i in range(6):
         angle = (np.pi / 3.0) * i
-        outer.append((float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0))
+        outer.append(
+            (float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0)
+        )
     vertices = _to_vertices([center] + outer)
     indices = _to_indices([(0, 1 + i, 1 + ((i + 1) % 6)) for i in range(6)])
 
@@ -1950,7 +2221,9 @@ def test_overlapping_hex_dots_follow_depth_order(harness: CudaRasterHarness) -> 
         out: list[tuple[float, float, float, float]] = [(0.0, 0.0, z, 1.0)]
         for i in range(6):
             angle = (np.pi / 3.0) * i
-            out.append((float(np.cos(angle) * radius), float(np.sin(angle) * radius), z, 1.0))
+            out.append(
+                (float(np.cos(angle) * radius), float(np.sin(angle) * radius), z, 1.0)
+            )
         return out
 
     far_vertices = fan(radius=0.24, z=0.7)
@@ -1959,7 +2232,10 @@ def test_overlapping_hex_dots_follow_depth_order(harness: CudaRasterHarness) -> 
     near_indices = [(7 + 0, 7 + 1 + i, 7 + 1 + ((i + 1) % 6)) for i in range(6)]
 
     harness.configure(128, 128)
-    harness.upload(_to_vertices(far_vertices + near_vertices), _to_indices(far_indices + near_indices))
+    harness.upload(
+        _to_vertices(far_vertices + near_vertices),
+        _to_indices(far_indices + near_indices),
+    )
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
     both = harness.read()
 
@@ -1970,14 +2246,20 @@ def test_overlapping_hex_dots_follow_depth_order(harness: CudaRasterHarness) -> 
 
 
 @pytest.mark.gpu
-def test_single_draw_multi_image_ranges_produce_distinct_outputs(harness: CudaRasterHarness) -> None:
+def test_single_draw_multi_image_ranges_produce_distinct_outputs(
+    harness: CudaRasterHarness,
+) -> None:
     # CudaRaster currently exposes one global viewport per raster instance, not per-image
     # viewport offsets. This test still verifies the single-draw multi-image contract by
     # selecting different triangle ranges for each image in one draw call.
     vertices = _to_vertices(
         [
-            (-0.9, -0.4, 0.25, 1.0), (-0.4, -0.4, 0.25, 1.0), (-0.65, 0.3, 0.25, 1.0),
-            (0.4, -0.4, 0.25, 1.0), (0.9, -0.4, 0.25, 1.0), (0.65, 0.3, 0.25, 1.0),
+            (-0.9, -0.4, 0.25, 1.0),
+            (-0.4, -0.4, 0.25, 1.0),
+            (-0.65, 0.3, 0.25, 1.0),
+            (0.4, -0.4, 0.25, 1.0),
+            (0.9, -0.4, 0.25, 1.0),
+            (0.65, 0.3, 0.25, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -1985,7 +2267,9 @@ def test_single_draw_multi_image_ranges_produce_distinct_outputs(harness: CudaRa
 
     harness.configure(128, 128, num_images=2)
     harness.upload(vertices, indices)
-    assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges)
+    assert harness.draw(
+        clear_color=0, flags=0, deterministic_tiebreaker=False, ranges=ranges
+    )
     img0 = harness.read(0).color
     img1 = harness.read(1).color
 
@@ -1998,10 +2282,16 @@ def test_single_draw_multi_image_ranges_produce_distinct_outputs(harness: CudaRa
 
 
 @pytest.mark.gpu
-def test_second_clear_draw_has_no_stale_pixels_from_first_scene(harness: CudaRasterHarness) -> None:
+def test_second_clear_draw_has_no_stale_pixels_from_first_scene(
+    harness: CudaRasterHarness,
+) -> None:
     harness.configure(96, 96)
-    vertices_a = _to_vertices([(-0.8, -0.8, 0.2, 1.0), (-0.3, -0.8, 0.2, 1.0), (-0.55, -0.3, 0.2, 1.0)])
-    vertices_b = _to_vertices([(0.3, 0.3, 0.2, 1.0), (0.8, 0.3, 0.2, 1.0), (0.55, 0.8, 0.2, 1.0)])
+    vertices_a = _to_vertices(
+        [(-0.8, -0.8, 0.2, 1.0), (-0.3, -0.8, 0.2, 1.0), (-0.55, -0.3, 0.2, 1.0)]
+    )
+    vertices_b = _to_vertices(
+        [(0.3, 0.3, 0.2, 1.0), (0.8, 0.3, 0.2, 1.0), (0.55, 0.8, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
 
     harness.upload(vertices_a, indices)
@@ -2031,7 +2321,13 @@ def test_coplanar_tiling_is_nonzero_and_repeatable(harness: CudaRasterHarness) -
             cx = x_min + ix * dx
             cy = y_min + iy * dy
             base = len(verts)
-            verts.extend([(cx - 0.12, cy - 0.10, 0.4, 1.0), (cx + 0.12, cy - 0.10, 0.4, 1.0), (cx, cy + 0.10, 0.4, 1.0)])
+            verts.extend(
+                [
+                    (cx - 0.12, cy - 0.10, 0.4, 1.0),
+                    (cx + 0.12, cy - 0.10, 0.4, 1.0),
+                    (cx, cy + 0.10, 0.4, 1.0),
+                ]
+            )
             tris.append((base + 0, base + 1, base + 2))
 
     harness.configure(160, 120)
@@ -2039,7 +2335,9 @@ def test_coplanar_tiling_is_nonzero_and_repeatable(harness: CudaRasterHarness) -
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=True)
     first = harness.read().color
     x0, y0 = _ndc_to_pixel(160, 120, x_min - 0.12, y_min - 0.10)
-    x1, y1 = _ndc_to_pixel(160, 120, x_min + (cols - 1) * dx + 0.12, y_min + (rows - 1) * dy + 0.10)
+    x1, y1 = _ndc_to_pixel(
+        160, 120, x_min + (cols - 1) * dx + 0.12, y_min + (rows - 1) * dy + 0.10
+    )
     region = first[y0 : y1 + 1, x0 : x1 + 1]
     coverage_ratio = float(np.count_nonzero(region)) / float(region.size)
     assert coverage_ratio >= 0.15
@@ -2051,11 +2349,17 @@ def test_coplanar_tiling_is_nonzero_and_repeatable(harness: CudaRasterHarness) -
 
 
 @pytest.mark.gpu
-def test_coplanar_overlap_winner_is_stable_with_tiebreaker(harness: CudaRasterHarness) -> None:
+def test_coplanar_overlap_winner_is_stable_with_tiebreaker(
+    harness: CudaRasterHarness,
+) -> None:
     vertices = _to_vertices(
         [
-            (-0.6, -0.4, 0.3, 1.0), (0.6, -0.4, 0.3, 1.0), (0.0, 0.6, 0.3, 1.0),
-            (-0.4, -0.2, 0.3, 1.0), (0.7, -0.2, 0.3, 1.0), (0.1, 0.7, 0.3, 1.0),
+            (-0.6, -0.4, 0.3, 1.0),
+            (0.6, -0.4, 0.3, 1.0),
+            (0.0, 0.6, 0.3, 1.0),
+            (-0.4, -0.2, 0.3, 1.0),
+            (0.7, -0.2, 0.3, 1.0),
+            (0.1, 0.7, 0.3, 1.0),
         ]
     )
     indices = _to_indices([(0, 1, 2), (3, 4, 5)])
@@ -2095,7 +2399,9 @@ def test_fan_topology_center_pixel_is_covered(harness: CudaRasterHarness) -> Non
     vertices: list[tuple[float, float, float, float]] = [(0.0, 0.0, 0.25, 1.0)]
     for i in range(8):
         angle = (2.0 * np.pi * i) / 8.0
-        vertices.append((float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0))
+        vertices.append(
+            (float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0)
+        )
     indices = [(0, 1 + i, 1 + ((i + 1) % 8)) for i in range(8)]
 
     harness.configure(128, 128)
@@ -2107,12 +2413,16 @@ def test_fan_topology_center_pixel_is_covered(harness: CudaRasterHarness) -> Non
 
 
 @pytest.mark.gpu
-def test_fan_wedge_centroids_map_to_expected_triangle_ids(harness: CudaRasterHarness) -> None:
+def test_fan_wedge_centroids_map_to_expected_triangle_ids(
+    harness: CudaRasterHarness,
+) -> None:
     radius = 0.3
     vertices: list[tuple[float, float, float, float]] = [(0.0, 0.0, 0.25, 1.0)]
     for i in range(8):
         angle = (2.0 * np.pi * i) / 8.0
-        vertices.append((float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0))
+        vertices.append(
+            (float(np.cos(angle) * radius), float(np.sin(angle) * radius), 0.25, 1.0)
+        )
     indices = [(0, 1 + i, 1 + ((i + 1) % 8)) for i in range(8)]
 
     harness.configure(128, 128)
@@ -2122,13 +2432,22 @@ def test_fan_wedge_centroids_map_to_expected_triangle_ids(harness: CudaRasterHar
 
     for i in range(8):
         theta = (2.0 * np.pi * i) / 8.0 + (np.pi / 8.0)
-        px, py = _ndc_to_pixel(128, 128, float(np.cos(theta) * radius * 0.5), float(np.sin(theta) * radius * 0.5))
+        px, py = _ndc_to_pixel(
+            128,
+            128,
+            float(np.cos(theta) * radius * 0.5),
+            float(np.sin(theta) * radius * 0.5),
+        )
         assert _pixel(color, px, py) == i + 1
 
 
 @pytest.mark.gpu
-def test_long_thin_axis_aligned_triangle_has_continuous_coverage(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.9, -0.02, 0.2, 1.0), (0.9, -0.02, 0.2, 1.0), (0.0, 0.02, 0.2, 1.0)])
+def test_long_thin_axis_aligned_triangle_has_continuous_coverage(
+    harness: CudaRasterHarness,
+) -> None:
+    vertices = _to_vertices(
+        [(-0.9, -0.02, 0.2, 1.0), (0.9, -0.02, 0.2, 1.0), (0.0, 0.02, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(192, 96)
     harness.upload(vertices, indices)
@@ -2136,7 +2455,13 @@ def test_long_thin_axis_aligned_triangle_has_continuous_coverage(harness: CudaRa
     color = harness.read().color
 
     # Sample interior points using barycentric blends to avoid edge-rule ambiguity.
-    interior_points = [(-0.6, -0.012), (-0.3, -0.008), (0.0, -0.004), (0.3, -0.008), (0.6, -0.012)]
+    interior_points = [
+        (-0.6, -0.012),
+        (-0.3, -0.008),
+        (0.0, -0.004),
+        (0.3, -0.008),
+        (0.6, -0.012),
+    ]
     for x_ndc, y_ndc in interior_points:
         px, py = _ndc_to_pixel(192, 96, x_ndc, y_ndc)
         assert _pixel(color, px, py) != 0
@@ -2144,9 +2469,13 @@ def test_long_thin_axis_aligned_triangle_has_continuous_coverage(harness: CudaRa
 
 
 @pytest.mark.gpu
-def test_long_thin_rotated_triangle_draws_diagonal_band(harness: CudaRasterHarness) -> None:
+def test_long_thin_rotated_triangle_draws_diagonal_band(
+    harness: CudaRasterHarness,
+) -> None:
     tri = ((-0.75, -0.72), (0.72, 0.75), (0.68, 0.79))
-    vertices = _to_vertices([(-0.75, -0.72, 0.2, 1.0), (0.72, 0.75, 0.2, 1.0), (0.68, 0.79, 0.2, 1.0)])
+    vertices = _to_vertices(
+        [(-0.75, -0.72, 0.2, 1.0), (0.72, 0.75, 0.2, 1.0), (0.68, 0.79, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
     harness.configure(160, 160)
     harness.upload(vertices, indices)
@@ -2161,7 +2490,9 @@ def test_long_thin_rotated_triangle_draws_diagonal_band(harness: CudaRasterHarne
 
 
 @pytest.mark.gpu
-def test_subpixel_half_pixel_translation_has_bounded_delta(harness: CudaRasterHarness) -> None:
+def test_subpixel_half_pixel_translation_has_bounded_delta(
+    harness: CudaRasterHarness,
+) -> None:
     # Contract: a one-pixel translation of a triangle perturbs only edge pixels.
     # We assert:
     #   1. Some pixels DID change (the shift was visible).
@@ -2203,7 +2534,9 @@ def test_subpixel_half_pixel_translation_has_bounded_delta(harness: CudaRasterHa
 
 @pytest.mark.gpu
 def test_identical_inputs_produce_repeatable_output(harness: CudaRasterHarness) -> None:
-    vertices = _to_vertices([(-0.5, -0.5, 0.2, 1.0), (0.6, -0.4, 0.2, 1.0), (0.1, 0.6, 0.2, 1.0)])
+    vertices = _to_vertices(
+        [(-0.5, -0.5, 0.2, 1.0), (0.6, -0.4, 0.2, 1.0), (0.1, 0.6, 0.2, 1.0)]
+    )
     indices = _to_indices([(0, 1, 2)])
 
     harness.configure(96, 96)
@@ -2224,7 +2557,9 @@ def test_identical_inputs_produce_repeatable_output(harness: CudaRasterHarness) 
 
 
 @pytest.mark.gpu
-def test_large_distinct_triangle_field_exposes_many_unique_ids(harness: CudaRasterHarness) -> None:
+def test_large_distinct_triangle_field_exposes_many_unique_ids(
+    harness: CudaRasterHarness,
+) -> None:
     grid = 100  # 10k triangles
     x_values = np.linspace(-0.95, 0.95, grid)
     y_values = np.linspace(-0.95, 0.95, grid)
@@ -2236,7 +2571,13 @@ def test_large_distinct_triangle_field_exposes_many_unique_ids(harness: CudaRast
     for y in y_values:
         for x in x_values:
             base = len(vertices)
-            vertices.extend([(float(x - half_w), float(y - half_h), 0.3, 1.0), (float(x + half_w), float(y - half_h), 0.3, 1.0), (float(x), float(y + half_h), 0.3, 1.0)])
+            vertices.extend(
+                [
+                    (float(x - half_w), float(y - half_h), 0.3, 1.0),
+                    (float(x + half_w), float(y - half_h), 0.3, 1.0),
+                    (float(x), float(y + half_h), 0.3, 1.0),
+                ]
+            )
             indices.append((base + 0, base + 1, base + 2))
 
     harness.configure(1024, 1024)
@@ -2249,7 +2590,9 @@ def test_large_distinct_triangle_field_exposes_many_unique_ids(harness: CudaRast
 
 
 @pytest.mark.gpu
-def test_large_distinct_triangle_field_is_repeatable_with_tiebreaker(harness: CudaRasterHarness) -> None:
+def test_large_distinct_triangle_field_is_repeatable_with_tiebreaker(
+    harness: CudaRasterHarness,
+) -> None:
     grid = 100  # 10k triangles
     x_values = np.linspace(-0.95, 0.95, grid)
     y_values = np.linspace(-0.95, 0.95, grid)
@@ -2261,7 +2604,13 @@ def test_large_distinct_triangle_field_is_repeatable_with_tiebreaker(harness: Cu
     for y in y_values:
         for x in x_values:
             base = len(vertices)
-            vertices.extend([(float(x - half_w), float(y - half_h), 0.3, 1.0), (float(x + half_w), float(y - half_h), 0.3, 1.0), (float(x), float(y + half_h), 0.3, 1.0)])
+            vertices.extend(
+                [
+                    (float(x - half_w), float(y - half_h), 0.3, 1.0),
+                    (float(x + half_w), float(y - half_h), 0.3, 1.0),
+                    (float(x), float(y + half_h), 0.3, 1.0),
+                ]
+            )
             indices.append((base + 0, base + 1, base + 2))
 
     verts_t = _to_vertices(vertices)
@@ -2278,9 +2627,19 @@ def test_large_distinct_triangle_field_is_repeatable_with_tiebreaker(harness: Cu
 
 
 @pytest.mark.gpu
-def test_projection_is_invariant_under_uniform_homogeneous_scaling(harness: CudaRasterHarness) -> None:
-    base_vertices = _to_vertices([(-0.4, -0.3, 0.2, 1.0), (0.5, -0.3, 0.2, 1.0), (0.0, 0.5, 0.2, 1.0)])
-    scaled_vertices = _to_vertices([(-400.0, -300.0, 200.0, 1000.0), (500.0, -300.0, 200.0, 1000.0), (0.0, 500.0, 200.0, 1000.0)])
+def test_projection_is_invariant_under_uniform_homogeneous_scaling(
+    harness: CudaRasterHarness,
+) -> None:
+    base_vertices = _to_vertices(
+        [(-0.4, -0.3, 0.2, 1.0), (0.5, -0.3, 0.2, 1.0), (0.0, 0.5, 0.2, 1.0)]
+    )
+    scaled_vertices = _to_vertices(
+        [
+            (-400.0, -300.0, 200.0, 1000.0),
+            (500.0, -300.0, 200.0, 1000.0),
+            (0.0, 500.0, 200.0, 1000.0),
+        ]
+    )
     indices = _to_indices([(0, 1, 2)])
 
     harness.configure(192, 192)
@@ -2320,7 +2679,12 @@ def test_mixed_scale_overlap_respects_depth_order(harness: CudaRasterHarness) ->
     assert _pixel(out.color, cx, cy) == 1
     near_depth = int(out.depth[cy, cx])
 
-    harness.upload(_to_vertices([(-0.4, -0.3, 0.8, 1.0), (0.5, -0.3, 0.8, 1.0), (0.0, 0.5, 0.8, 1.0)]), _to_indices([(0, 1, 2)]))
+    harness.upload(
+        _to_vertices(
+            [(-0.4, -0.3, 0.8, 1.0), (0.5, -0.3, 0.8, 1.0), (0.0, 0.5, 0.8, 1.0)]
+        ),
+        _to_indices([(0, 1, 2)]),
+    )
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
     far_only = harness.read()
     far_depth = int(far_only.depth[cy, cx])

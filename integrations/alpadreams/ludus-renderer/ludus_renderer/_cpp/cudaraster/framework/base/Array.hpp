@@ -747,7 +747,7 @@ template<class T> class Array : public ArrayBase<T,S32>
 {
 public:
 	inline              Array       (void) : ArrayBase<T,S32>() { };
-	inline explicit     Array       (const T& item) : ArrayBase<T,S32>( item ) { };   
+	inline explicit     Array       (const T& item) : ArrayBase<T,S32>( item ) { };
 	inline              Array       (const T* ptr, S32 size) : ArrayBase<T,S32>( ptr, size ) { };
 	inline              Array       (const Array<T>& other) : ArrayBase<T,S32>( other ) { };
 };
@@ -756,7 +756,7 @@ template<class T> class Array64 : public ArrayBase<T,S64>
 {
 public:
 	inline              Array64     (void) : ArrayBase<T,S64>() { };
-	inline explicit     Array64     (const T& item) : ArrayBase<T,S64>( item ) { };   
+	inline explicit     Array64     (const T& item) : ArrayBase<T,S64>( item ) { };
 	inline              Array64     (const T* ptr, S64 size) : ArrayBase<T,S64>( ptr, size ) { };
 	inline              Array64     (const Array64<T>& other) : ArrayBase<T,S64>( other ) { };
 };

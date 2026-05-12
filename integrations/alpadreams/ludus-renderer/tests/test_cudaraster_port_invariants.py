@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 import torch
 import torch.utils.cpp_extension
-
 from ludus_renderer._ops._plugin import _get_plugin
 from test_cudaraster_api import (
     CudaRasterHarness,
@@ -53,7 +52,9 @@ def rop_lane_mask_helper() -> object:
 @pytest.fixture(scope="module")
 def bin_raster_arbitration_helper() -> object:
     _require_cuda()
-    helper_src = Path(__file__).with_name("cuda") / "bin_raster_arbitration_invariants.cu"
+    helper_src = (
+        Path(__file__).with_name("cuda") / "bin_raster_arbitration_invariants.cu"
+    )
     return torch.utils.cpp_extension.load(
         name="cudaraster_bin_raster_arbitration_invariants",
         sources=[str(helper_src)],
@@ -66,13 +67,19 @@ def bin_raster_arbitration_helper() -> object:
 
 
 @pytest.mark.gpu
-def test_rop_lane_mask_replacement_matches_upstream_arbitration_order(rop_lane_mask_helper: object) -> None:
+def test_rop_lane_mask_replacement_matches_upstream_arbitration_order(
+    rop_lane_mask_helper: object,
+) -> None:
     values = list(rop_lane_mask_helper.run_rop_lane_mask_invariant())
     assert len(values) == 64
 
     cases = [
         ("reverse", 0, lambda lane: (1 << lane) - 1),
-        ("forward", 32, lambda lane: (0xFFFFFFFF ^ ((1 << (lane + 1)) - 1)) & 0xFFFFFFFF),
+        (
+            "forward",
+            32,
+            lambda lane: (0xFFFFFFFF ^ ((1 << (lane + 1)) - 1)) & 0xFFFFFFFF,
+        ),
     ]
     for label, offset, expected_for_lane in cases:
         replacement = [int(v) for v in values[offset : offset + 32]]
@@ -82,14 +89,23 @@ def test_rop_lane_mask_replacement_matches_upstream_arbitration_order(rop_lane_m
         # The fine raster only requires that __popc(mask) is a permutation of
         # [0, 31] across the warp -- it is used as a unique per-lane index into
         # a 32-slot scratch buffer.
-        assert sorted(mask.bit_count() for mask in replacement) == list(range(32)), label
+        assert sorted(mask.bit_count() for mask in replacement) == list(range(32)), (
+            label
+        )
 
 
 @pytest.mark.gpu
-def test_clipped_cw_triangle_renders_with_backface_culling_disabled(harness: CudaRasterHarness) -> None:
+def test_clipped_cw_triangle_renders_with_backface_culling_disabled(
+    harness: CudaRasterHarness,
+) -> None:
     vertices = _to_vertices(
         [
-            (1.6, -0.3, 0.2, 1.0),  # v0 is outside +X, forcing the clipped-subtriangle path.
+            (
+                1.6,
+                -0.3,
+                0.2,
+                1.0,
+            ),  # v0 is outside +X, forcing the clipped-subtriangle path.
             (-0.2, -0.5, 0.2, 1.0),
             (-0.2, 0.5, 0.2, 1.0),
         ]
@@ -161,8 +177,12 @@ def test_bin_raster_block_total_lands_inclusive_scan_total(
         running += value
         expected_prefix.append(running)
 
-    assert prefix == expected_prefix, f"{label}: prefix scan diverged from inclusive sum"
-    assert actual_buf == expected_prefix[-1], f"{label}: s_bufCount must equal block total"
+    assert prefix == expected_prefix, (
+        f"{label}: prefix scan diverged from inclusive sum"
+    )
+    assert actual_buf == expected_prefix[-1], (
+        f"{label}: s_bufCount must equal block total"
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -210,7 +230,9 @@ def test_bin_raster_block_total_lands_inclusive_scan_total(
 
 
 @pytest.mark.gpu
-def test_front_occluder_no_back_id_leaks_in_full_footprint(harness: CudaRasterHarness) -> None:
+def test_front_occluder_no_back_id_leaks_in_full_footprint(
+    harness: CudaRasterHarness,
+) -> None:
     # A small front triangle entirely inside a larger back triangle, with the
     # front in front (smaller z). Across the full projected footprint of the
     # front, every covered pixel must report the front's id and the front's
@@ -261,11 +283,15 @@ def test_front_occluder_no_back_id_leaks_in_full_footprint(harness: CudaRasterHa
     # The back's id must still appear somewhere outside the front (otherwise
     # the test isn't actually exercising the overlap path).
     back_visible = (~front_mask) & (combined.color == 1)
-    assert back_visible.any(), "back triangle is supposed to be visible outside the front's footprint"
+    assert back_visible.any(), (
+        "back triangle is supposed to be visible outside the front's footprint"
+    )
 
 
 @pytest.mark.gpu
-def test_dense_overlap_in_single_tile_frontmost_triangle_wins(harness: CudaRasterHarness) -> None:
+def test_dense_overlap_in_single_tile_frontmost_triangle_wins(
+    harness: CudaRasterHarness,
+) -> None:
     # Pack 32 small overlapping triangles into a single 8x8 fine-raster tile,
     # each successively closer (smaller z) than the previous. The frontmost
     # (last-index) triangle wins by depth at every covered pixel inside the
@@ -321,7 +347,9 @@ def test_dense_overlap_in_single_tile_frontmost_triangle_wins(harness: CudaRaste
 
 
 @pytest.mark.gpu
-def test_per_tile_emit_imbalance_does_not_misroute_triangles(harness: CudaRasterHarness) -> None:
+def test_per_tile_emit_imbalance_does_not_misroute_triangles(
+    harness: CudaRasterHarness,
+) -> None:
     # CoarseRaster's tile-emit prefix sum (CoarseRaster.inl L509-L515) is
     # warp-wide and contains explicit per-lane divergent control flow
     # (`if (threadIdx.x >= K)`) between scan steps. This is the most
@@ -402,7 +430,9 @@ def test_per_tile_emit_imbalance_does_not_misroute_triangles(harness: CudaRaster
         center_y = ty * 8 + 4
         actual = _pixel(color, center_x, center_y)
         if actual != expected_id:
-            failures.append(f"light tile ({tx},{ty}) expected {expected_id} got {actual}")
+            failures.append(
+                f"light tile ({tx},{ty}) expected {expected_id} got {actual}"
+            )
 
     heavy_center_x = heavy_tx * 8 + 4
     heavy_center_y = heavy_ty * 8 + 4
@@ -419,7 +449,9 @@ def test_per_tile_emit_imbalance_does_not_misroute_triangles(harness: CudaRaster
 
 
 @pytest.mark.gpu
-def test_clipped_backface_swap_preserves_depth_plane(harness: CudaRasterHarness) -> None:
+def test_clipped_backface_swap_preserves_depth_plane(
+    harness: CudaRasterHarness,
+) -> None:
     # Pins the barycentric tuple swap in TriangleSetup.inl's clipped path.
     # When backface culling is disabled and a clipped triangle comes out
     # backfacing in screen space, p1<->p2, v1<->v2, vidx.y<->vidx.z, rcpW.y<->z,
