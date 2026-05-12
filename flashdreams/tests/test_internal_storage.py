@@ -40,7 +40,9 @@ def test_use_internal_storage_truthy(
     assert internal.use_internal_storage() is True
 
 
-@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "yes", "anything-else"])
+@pytest.mark.parametrize(
+    "value", ["", "0", "false", "no", "off", "yes", "anything-else"]
+)
 def test_use_internal_storage_falsy(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:

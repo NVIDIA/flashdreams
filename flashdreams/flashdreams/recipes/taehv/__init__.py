@@ -23,10 +23,9 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
+from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
-
-from flashdreams.core.io.internal import use_internal_storage
 
 _INTERNAL_TAEHV_CHECKPOINT_PATHS = {
     "lighttae": "s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth",
