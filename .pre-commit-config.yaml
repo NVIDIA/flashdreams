@@ -5,7 +5,8 @@ exclude: |
   (?x)(
     ^agents/|
     /protos/|
-    ^docker/model_specific/cfg_parallel_state\.py$
+    ^docker/model_specific/cfg_parallel_state\.py$|
+    ^integrations/alpadreams/ludus-renderer/
   )
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
