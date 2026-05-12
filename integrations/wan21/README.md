@@ -55,7 +55,7 @@ uv run flashdreams-run --help
 # Per-runner help: every overridable field is a CLI flag.
 uv run flashdreams-run wan21-t2v-1.3b-480p --help
 
-# Single-GPU T2V run with the bundled demo prompt (assets/prompt_t2v.txt).
+# Single-GPU T2V run with the inline demo prompt (DEFAULT_T2V_PROMPT).
 uv run flashdreams-run wan21-t2v-1.3b-480p
 
 # Inline prompt override.
@@ -64,7 +64,9 @@ uv run flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
 # Path override (any .txt; first non-empty line is used as the prompt).
 uv run flashdreams-run wan21-t2v-1.3b-480p --prompt /path/to/my_prompt.txt
 
-# I2V defaults to bundled assets/image_i2v.jpg + assets/prompt_i2v.txt.
+# I2V defaults to DEFAULT_I2V_PROMPT + DEFAULT_I2V_IMAGE_URL (the latter
+# is downloaded once into ~/.cache/flashdreams/wan21/ and reused;
+# honors FLASHDREAMS_CACHE_DIR).
 uv run flashdreams-run wan21-i2v-14b-480p
 
 # I2V override with custom prompt + image.

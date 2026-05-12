@@ -27,7 +27,7 @@
 #
 # Container-image caching:
 #   The first run does `enroot import` on the login node and stores the
-#   resulting .sqsh under FLASHDREAMS_IMAGE_CACHE_DIR. Subsequent runs pass the
+#   resulting .sqsh under FLASHDREAMSIMAGE_CACHE_DIR. Subsequent runs pass the
 #   local .sqsh straight to --container-image, avoiding a multi-minute
 #   docker→sqsh conversion inside every srun. To force a rebuild, either pass
 #   --rebuild-image or `rm` the .sqsh file.
@@ -38,7 +38,7 @@
 #   FLASHDREAMS_HF_CACHE_DIR      (default: ${HOME}/.cache/huggingface)
 #   FLASHDREAMS_CACHE_DIR         (default: ${HOME}/.cache/flashdreams)
 #   FLASHDREAMS_TRITON_CACHE_DIR  (default: ${HOME}/.cache/triton)
-#   FLASHDREAMS_IMAGE_CACHE_DIR   (default: ${FLASHDREAMS_CACHE_DIR}/containers)
+#   FLASHDREAMSIMAGE_CACHE_DIR   (default: ${FLASHDREAMS_CACHE_DIR}/containers)
 #
 # Examples:
 #   # All tests, full node on the batch partition
@@ -116,7 +116,7 @@ UV_CACHE_HOST="${FLASHDREAMS_UV_CACHE_DIR:-${HOME}/.cache/uv}"
 HF_CACHE_HOST="${FLASHDREAMS_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
 FLASHDREAMS_CACHE_HOST="${FLASHDREAMS_CACHE_DIR:-${HOME}/.cache/flashdreams}"
 TRITON_CACHE_HOST="${FLASHDREAMS_TRITON_CACHE_DIR:-${HOME}/.cache/triton}"
-IMAGE_CACHE_DIR="${FLASHDREAMS_IMAGE_CACHE_DIR:-${FLASHDREAMS_CACHE_HOST}/containers}"
+IMAGE_CACHE_DIR="${FLASHDREAMSIMAGE_CACHE_DIR:-${FLASHDREAMS_CACHE_HOST}/containers}"
 mkdir -p "${UV_CACHE_HOST}" "${HF_CACHE_HOST}" "${FLASHDREAMS_CACHE_HOST}" \
     "${TRITON_CACHE_HOST}" "${IMAGE_CACHE_DIR}"
 

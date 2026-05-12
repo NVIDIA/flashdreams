@@ -39,16 +39,29 @@ __all__ = [
 ]
 
 
+DEFAULT_T2V_PROMPT = (
+    "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
+    "neon lights and animated city signs casting vibrant reflections. She "
+    "wears a sleek black leather jacket paired with a flowing red dress and "
+    "black boots, her black purse slung over her shoulder. Sunglasses perched "
+    "on her nose and a bold red lipstick add to her confident, casual "
+    "demeanor. The street is damp and reflective, creating a mirror-like "
+    "effect that enhances the colorful lights and shadows. Pedestrians move "
+    "about, adding to the lively atmosphere. The scene is captured in a "
+    "dynamic medium shot with the woman walking slightly to one side, "
+    "highlighting her graceful strides."
+)
+
+
 @dataclass(kw_only=True)
 class FastvideoCausalWan22T2VRunnerConfig(RunnerConfig):
     """Runner config for the FastVideo CausalWan 2.2 T2V variants."""
 
     _target: type = field(default_factory=lambda: FastvideoCausalWan22T2VRunner)
 
-    prompt: str | Path = Path(__file__).resolve().parents[1] / "assets" / "prompt.txt"
+    prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
-    txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to assets/prompt.txt."""
+    txt file whose first line is read as the prompt (--prompt prompt.txt)."""
 
     total_blocks: int = 60
     """Number of autoregressive chunks to generate before terminating the rollout."""
