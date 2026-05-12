@@ -41,6 +41,7 @@ transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.
 extraPaths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/artifixer",
     "integrations/causal_forcing",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
@@ -59,6 +60,7 @@ python-version = "3.12"
 extra-paths = [
     "flashdreams",
     "integrations/alpadreams",
+    "integrations/artifixer",
     "integrations/causal_forcing",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
