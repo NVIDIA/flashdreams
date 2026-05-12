@@ -138,7 +138,16 @@ srun \
     --container-workdir=$HOME/workspace/flashdreams \
     /bin/bash
 
-# 1. setup credentials in the file `credentials/s3_checkpoint.secret` similarly with I4:
+# 1. huggingface
+export HF_TOKEN=<YOUR-HF-TOKEN>
+export HF_HOME=~/.cache/huggingface              # optional; this is the default
+export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
+
+# 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
+#    Skip for external users. Requires the S3 credentials in step 3.
+export FLASHDREAMS_INTERNAL_STORAGE=1
+
+# 3. (only if step 2 is set, or you run a slug flagged "S3" below) S3 credentials.
 cat > credentials/s3_checkpoint.secret <<EOF
 {
   "aws_access_key_id": "team-sil-videogen",
@@ -148,29 +157,21 @@ cat > credentials/s3_checkpoint.secret <<EOF
 }
 EOF
 
-# 2. setup huggingface
-# - (required) huggingface token
-export HF_TOKEN=<YOUR-HF-TOKEN>
-# - (optional) huggingface cache path
-export HF_HOME=~/.cache/huggingface # default
-
-# 3. (optional) setup where to cache flashdreams checkpoints
-export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # default
-
-# 4. Run inference. Checkpoints + S3 example data are auto-downloaded at first run.
-#    Pass --example-data to lazy-sync the bundled HDMap clips + first frames into
-#    assets/example_data/alpadreams/ and fill the per-camera path tuples.
-# - single view on single GPU (best-perf preset)
+# 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
+#    --example-data fills the per-camera path tuples from a bundled HDMap clip
+#    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
+#    clips at https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view .
+# - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
     --example-data True --total-blocks 20
 
-# - multi view on 4 GPUs
+# - multi view on 4 GPUs (S3: --example-data still pulls multi-view clips from S3)
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
     --example-data True --total-blocks 20
 
-# - diffusion forcing AR model on bundled single-view example data
+# - diffusion forcing AR model (S3: chunk2 diffusion-forcing checkpoint not on HF yet)
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
     --example-data True --total-blocks 12
@@ -178,11 +179,11 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
 
 ## Instructions to run Alpadreams Bidirectional Model
 
-Use the same container, S3 credential, Hugging Face token, and
-`FLASHDREAMS_CACHE_DIR` setup as the Alpadreams inference section above. The
-bidirectional recipe runs the single-view full-block Cosmos2 2B / 720p / HDMap
-checkpoint; the checkpoint is configured in the recipe and downloaded from S3
-on first use.
+Use the same container, Hugging Face token, and `FLASHDREAMS_CACHE_DIR` setup
+as the Alpadreams inference section above. The bidirectional recipe runs the
+single-view full-block Cosmos2 2B / 720p / HDMap checkpoint; that checkpoint
+is still S3-hosted, so the S3 credentials block from step 3 above is required
+for this recipe.
 
 The bidirectional recipe defaults to the checkpoint-trained 48 latent chunks
 (189 decoded frames with the Wan decoder). To shrink the chunk for tighter VRAM
