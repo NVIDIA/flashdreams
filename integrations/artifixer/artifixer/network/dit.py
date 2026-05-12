@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from artifixer.network.block import ArtifixerBlock
+from torch import Tensor
 
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
@@ -98,3 +99,21 @@ class ArtifixerDiTNetwork(WanDiTNetwork):
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
         )
+
+    def initialize_neighbor_kv_caches(self, context: Tensor | None) -> None:
+        """Push neighbor context into every block's cross-attention.
+
+        Call once per rollout, after :meth:`initialize_cache`. ``context=None``
+        clears the per-module caches so subsequent forward passes skip the
+        PRoPE neighbor branch (vanilla T2V behavior).
+
+        Args:
+            context: Neighbor latent context shape
+                ``[..., L_neighbor, dim]``. Same dim as the transformer
+                hidden size; provided by the pipeline after VAE-encoding
+                the neighbor frames and projecting them through
+                ``patch_embedding``.
+        """
+        for block in self.blocks:
+            assert isinstance(block, ArtifixerBlock)
+            block.cross_attn.initialize_neighbor_cache(context)

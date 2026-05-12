@@ -13,32 +13,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cheap import-time checks for the ``artifixer`` plugin."""
+"""Cheap import-time checks for the ``artifixer`` plugin.
+
+Heavy imports (``artifixer.config`` -> ``runner`` -> ``mediapy``; ``flashdreams``)
+are kept *inside* the test functions that need them so that lighter unit
+tests (e.g. ``test_compute_kv_neighbor_and_cache_init``) can run in
+torch-only environments.
+"""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import cast
 
 import pytest
-import tomllib
-from artifixer import config as config_mod
-from artifixer.config import RUNNER_CONFIGS
-
-from flashdreams.infra.runner import RunnerConfig
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
 
+def _runner_configs() -> dict:
+    """Import RUNNER_CONFIGS lazily to avoid pulling in mediapy at collect time."""
+    from artifixer.config import RUNNER_CONFIGS
+
+    return RUNNER_CONFIGS
+
+
 def test_runners_dict_is_non_empty() -> None:
-    assert RUNNER_CONFIGS, "RUNNER_CONFIGS is empty"
+    assert _runner_configs(), "RUNNER_CONFIGS is empty"
 
 
 def test_runner_name_mirrors_pipeline_recipe_name() -> None:
     drifted = {
         slug: (cfg.runner_name, cfg.pipeline.recipe_name)
-        for slug, cfg in RUNNER_CONFIGS.items()
+        for slug, cfg in _runner_configs().items()
         if cfg.runner_name != cfg.pipeline.recipe_name
     }
     assert not drifted, f"runner_name != pipeline.recipe_name: {drifted}"
@@ -46,18 +53,26 @@ def test_runner_name_mirrors_pipeline_recipe_name() -> None:
 
 def test_runners_have_descriptions() -> None:
     empty = [
-        slug for slug, cfg in RUNNER_CONFIGS.items() if not cfg.description.strip()
+        slug for slug, cfg in _runner_configs().items() if not cfg.description.strip()
     ]
     assert not empty, f"runners missing description: {empty}"
 
 
 def test_entry_points_match_module_literals() -> None:
+    import tomllib
+    from typing import cast
+
+    from artifixer import config as config_mod
+
+    from flashdreams.infra.runner import RunnerConfig
+
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     with pyproject.open("rb") as fh:
         meta = tomllib.load(fh)
     entries = meta["project"]["entry-points"][ENTRY_POINT_GROUP]
+    runner_configs = _runner_configs()
     declared_slugs = set(entries)
-    module_slugs = set(RUNNER_CONFIGS)
+    module_slugs = set(runner_configs)
     assert declared_slugs == module_slugs, (
         f"entry-point slugs ({sorted(declared_slugs)}) "
         f"!= module runners ({sorted(module_slugs)})"
@@ -86,15 +101,16 @@ def test_entry_points_discoverable_when_installed() -> None:
     discovered = {ep.name for ep in eps if ep.value.startswith("artifixer.")}
     if not discovered:
         pytest.skip("plugin not installed; run `uv sync` from the repo root first")
-    assert discovered == set(RUNNER_CONFIGS), (
+    runner_configs = _runner_configs()
+    assert discovered == set(runner_configs), (
         f"discovered slugs ({sorted(discovered)}) != "
-        f"plugin runners ({sorted(RUNNER_CONFIGS)})"
+        f"plugin runners ({sorted(runner_configs)})"
     )
 
 
 def test_artifixer_hyperparams_match_dreamfix_stage3() -> None:
     """Sanity check: AR/scheduler knobs match the stage-3 DMD training config."""
-    cfg = RUNNER_CONFIGS["artifixer-dmd-wan2.1-t2v-1.3b"]
+    cfg = _runner_configs()["artifixer-dmd-wan2.1-t2v-1.3b"]
     tcfg = cfg.pipeline.diffusion_model.transformer
     scfg = cfg.pipeline.diffusion_model.scheduler
 
@@ -138,7 +154,7 @@ def test_artifixer_recipe_uses_artifixer_network() -> None:
     """Phase 2.1: the shipped recipe wires up ArtifixerDiTNetwork."""
     from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
 
-    cfg = RUNNER_CONFIGS["artifixer-dmd-wan2.1-t2v-1.3b"]
+    cfg = _runner_configs()["artifixer-dmd-wan2.1-t2v-1.3b"]
     network_cfg = cfg.pipeline.diffusion_model.transformer.network
     assert isinstance(network_cfg, ArtifixerDiTNetwork1pt3BConfig), (
         f"recipe network is {type(network_cfg).__name__}, expected ArtifixerDiTNetwork1pt3BConfig"
@@ -217,3 +233,40 @@ def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
     # transformer.py L687-688.
     assert torch.all(block.cross_attn.add_v_proj.weight == 0)
     assert torch.all(block.cross_attn.add_v_proj.bias == 0)
+
+
+def test_compute_kv_neighbor_and_cache_init() -> None:
+    """Phase 2.4: compute_kv_neighbor builds a static BlockKVCache, and
+    initialize_neighbor_cache toggles the per-module cache attribute.
+    """
+    import torch
+    from artifixer.network.block import ArtifixerBlock
+    from artifixer.network.dit import artifixer_embedding_dims
+
+    opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
+    block = ArtifixerBlock(
+        dim=128,  # tiny for fast test
+        ffn_dim=256,
+        num_heads=4,
+        opacity_embedding_dim=opacity_dim,
+        camera_embedding_dim=camera_dim,
+    )
+    cross_attn = block.cross_attn
+
+    # Starts with no neighbor cache populated.
+    assert cross_attn.neighbor_kv_cache is None
+
+    # Feed a fake neighbor context.
+    context = torch.randn(2, 16, 128)  # (batch, L_neighbor, dim)
+    cache = cross_attn.compute_kv_neighbor(context)
+    assert cache.cached_k().shape == (2, 16, 4, 32)
+    assert cache.cached_v().shape == (2, 16, 4, 32)
+
+    # initialize_neighbor_cache populates the per-module slot.
+    cross_attn.initialize_neighbor_cache(context)
+    assert cross_attn.neighbor_kv_cache is not None
+    assert cross_attn.neighbor_kv_cache.cached_k().shape == (2, 16, 4, 32)
+
+    # Passing None clears it.
+    cross_attn.initialize_neighbor_cache(None)
+    assert cross_attn.neighbor_kv_cache is None

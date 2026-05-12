@@ -34,6 +34,8 @@ top of :class:`Block`:
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from artifixer.network.cross_attn import ArtifixerCrossAttention
 from torch import Tensor, nn
@@ -93,14 +95,26 @@ class ArtifixerBlock(Block):
         rope_freqs: Tensor,
         opacity_extra: Tensor | None = None,
         camera_extra: Tensor | None = None,
+        prope_src: Any = None,
+        prope_tgt: Any = None,
+        ignore_neighbors: bool = False,
     ) -> Tensor:
         """Run one transformer block update with ArtiFixer conditioning.
 
-        ``opacity_extra`` and ``camera_extra`` are added to the AdaLN-normed
-        hidden states before self-attention (matches dreamfix
-        ``ArtifixerTransformerBlock.forward`` L763-767). When both are
-        ``None`` (Phase 1 text-only path), the block is identical to the
-        underlying ``Block``.
+        Extras (Phase 2.1 + 2.4):
+
+          - ``opacity_extra`` / ``camera_extra``: per-token opacity and
+            Plucker-camera-ray features added to the AdaLN-normed hidden
+            states before self-attention (matches dreamfix
+            ``ArtifixerTransformerBlock.forward`` L763-L767).
+          - ``prope_src`` / ``prope_tgt`` / ``ignore_neighbors``: forwarded
+            to :class:`ArtifixerCrossAttention.forward` to drive the PRoPE
+            neighbor branch (matches dreamfix L795-L807). The actual
+            neighbor K/V cache lives on the cross_attn module itself
+            (set via ``cross_attn.initialize_neighbor_cache``).
+
+        When every extra is ``None`` / ``False`` and the cross_attn's
+        neighbor cache is unset, this is identical to :meth:`Block.forward`.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() "
@@ -123,6 +137,9 @@ class ArtifixerBlock(Block):
         x = x + self.cross_attn(
             self.norm3(x),
             kv_cache=cache.cross_attn,
+            prope_src=prope_src,
+            prope_tgt=prope_tgt,
+            ignore_neighbors=ignore_neighbors,
         )
         y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
         y = self.ffn(y)
