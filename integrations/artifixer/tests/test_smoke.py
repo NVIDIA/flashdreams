@@ -145,7 +145,15 @@ def test_artifixer_recipe_uses_artifixer_network() -> None:
 
 
 def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
-    """Phase 2.1: the state_dict transform pads vanilla-Wan checkpoints."""
+    """Phase 2.1/2.2: the state_dict transform pads vanilla-Wan checkpoints.
+
+    Covers all 9 ArtiFixer-only keys per block:
+
+      * opacity_embedding.{weight,bias}
+      * camera_embedding.{weight,bias}
+      * cross_attn.{add_k_proj,add_v_proj}.{weight,bias}
+      * cross_attn.norm_added_k.weight
+    """
     import torch
     from artifixer.checkpoint import zero_pad_artifixer_keys
     from artifixer.network import artifixer_embedding_dims
@@ -162,6 +170,51 @@ def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
         assert padded[prefix + "opacity_embedding.bias"].shape == (1536,)
         assert padded[prefix + "camera_embedding.weight"].shape == (1536, camera_dim)
         assert padded[prefix + "camera_embedding.bias"].shape == (1536,)
+        assert padded[prefix + "cross_attn.add_k_proj.weight"].shape == (1536, 1536)
+        assert padded[prefix + "cross_attn.add_k_proj.bias"].shape == (1536,)
+        assert padded[prefix + "cross_attn.add_v_proj.weight"].shape == (1536, 1536)
+        assert padded[prefix + "cross_attn.add_v_proj.bias"].shape == (1536,)
+        assert padded[prefix + "cross_attn.norm_added_k.weight"].shape == (1536,)
         assert padded[prefix + "opacity_embedding.weight"].dtype == torch.bfloat16
     # Untouched keys pass through.
     assert "unrelated.weight" in padded
+    # We pre-allocate exactly 9 keys per layer plus the untouched key.
+    assert len(padded) == 9 * 2 + 1
+
+
+def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
+    """Phase 2.2: ArtifixerBlock's cross_attn carries the neighbor branch."""
+    import torch
+    from artifixer.network import (
+        ArtifixerBlock,
+        ArtifixerCrossAttention,
+        artifixer_embedding_dims,
+    )
+
+    opacity_dim, camera_dim = artifixer_embedding_dims((1, 2, 2))
+    block = ArtifixerBlock(
+        dim=1536,
+        ffn_dim=8960,
+        num_heads=12,
+        opacity_embedding_dim=opacity_dim,
+        camera_embedding_dim=camera_dim,
+    )
+
+    assert isinstance(block.cross_attn, ArtifixerCrossAttention), (
+        f"cross_attn is {type(block.cross_attn).__name__}, expected ArtifixerCrossAttention"
+    )
+    for name, expected_shape in (
+        ("add_k_proj.weight", (1536, 1536)),
+        ("add_k_proj.bias", (1536,)),
+        ("add_v_proj.weight", (1536, 1536)),
+        ("add_v_proj.bias", (1536,)),
+        ("norm_added_k.weight", (1536,)),
+    ):
+        param = block.cross_attn.get_parameter(name)
+        assert param.shape == expected_shape, f"cross_attn.{name} shape {param.shape}"
+
+    # Phase 2.2 zero-init contract: add_v_proj is the gate that keeps the
+    # neighbor branch contribution zero at load time, matching dreamfix
+    # transformer.py L687-688.
+    assert torch.all(block.cross_attn.add_v_proj.weight == 0)
+    assert torch.all(block.cross_attn.add_v_proj.bias == 0)

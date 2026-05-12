@@ -39,18 +39,6 @@ from torch import Tensor
 
 from artifixer.network.dit import artifixer_embedding_dims
 
-# Suffixes of the keys that the dreamfix ``ArtifixerTransformerBlock`` adds
-# per transformer block. Phase 2.1 covers the opacity + camera MLPs; Phase
-# 2.2 will add ``attn2.add_k_proj``, ``attn2.add_v_proj``,
-# ``attn2.norm_added_k`` to this list.
-_PHASE2_1_PER_BLOCK_SUFFIXES: tuple[str, ...] = (
-    "opacity_embedding.weight",
-    "opacity_embedding.bias",
-    "camera_embedding.weight",
-    "camera_embedding.bias",
-)
-
-
 def zero_pad_artifixer_keys(
     *,
     num_layers: int,
@@ -65,6 +53,17 @@ def zero_pad_artifixer_keys(
     missing the ArtiFixer extensions, so :meth:`load_state_dict` in strict
     mode would error. We pre-add zero tensors so loading succeeds and the
     runtime behavior is unchanged versus vanilla Wan.
+
+    Per block, the transform adds 9 keys (mirroring the 270 ArtiFixer-only
+    keys identified by ``dreamfix/scripts/dump_artifixer_param_names.py``):
+
+      * Phase 2.1 — opacity + camera MLPs (4 keys per block):
+        ``opacity_embedding.{weight,bias}`` shape (dim, opacity_dim) / (dim,)
+        ``camera_embedding.{weight,bias}``  shape (dim, camera_dim)  / (dim,)
+      * Phase 2.2 — neighbor cross-attention (5 keys per block):
+        ``cross_attn.add_k_proj.{weight,bias}``    shape (dim, dim) / (dim,)
+        ``cross_attn.add_v_proj.{weight,bias}``    shape (dim, dim) / (dim,)
+        ``cross_attn.norm_added_k.weight``         shape (dim,)
 
     Args:
         num_layers: Number of transformer blocks (1.3B Wan: 30).
@@ -81,6 +80,11 @@ def zero_pad_artifixer_keys(
         shapes[prefix + "opacity_embedding.bias"] = (dim,)
         shapes[prefix + "camera_embedding.weight"] = (dim, camera_dim)
         shapes[prefix + "camera_embedding.bias"] = (dim,)
+        shapes[prefix + "cross_attn.add_k_proj.weight"] = (dim, dim)
+        shapes[prefix + "cross_attn.add_k_proj.bias"] = (dim,)
+        shapes[prefix + "cross_attn.add_v_proj.weight"] = (dim, dim)
+        shapes[prefix + "cross_attn.add_v_proj.bias"] = (dim,)
+        shapes[prefix + "cross_attn.norm_added_k.weight"] = (dim,)
 
     def transform(state_dict: dict[str, Tensor]) -> dict[str, Tensor]:
         out = dict(state_dict)

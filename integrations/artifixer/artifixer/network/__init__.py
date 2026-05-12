@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from artifixer.network.block import ArtifixerBlock
+from artifixer.network.cross_attn import ArtifixerCrossAttention
 from artifixer.network.dit import (
     ArtifixerDiTNetwork,
     ArtifixerDiTNetwork1pt3BConfig,
@@ -23,6 +24,7 @@ from artifixer.network.dit import (
 
 __all__ = [
     "ArtifixerBlock",
+    "ArtifixerCrossAttention",
     "ArtifixerDiTNetwork",
     "ArtifixerDiTNetwork1pt3BConfig",
     "ArtifixerDiTNetworkConfig",

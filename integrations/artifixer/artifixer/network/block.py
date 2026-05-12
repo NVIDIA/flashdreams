@@ -13,19 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ArtiFixer transformer block with opacity + camera-ray conditioning MLPs.
+"""ArtiFixer transformer block with opacity + camera + neighbor extensions.
 
 Mirrors ``ArtifixerTransformerBlock`` in the dreamfix reference
-(``model_training/net/transformer.py`` L617-L767). Two ``nn.Linear`` heads
-project per-token opacity and Plucker-camera-ray features into the
-transformer hidden size, and their outputs are added to the AdaLN-normed
-hidden states **before** self-attention. Both heads are zero-initialized so
-loading a vanilla Wan checkpoint leaves the block behavior unchanged.
+(``model_training/net/transformer.py`` L617-L767). Per-block extensions on
+top of :class:`Block`:
+
+  * **Phase 2.1** — opacity + camera-ray MLPs. Two ``nn.Linear`` heads
+    project per-token opacity and Plucker-camera-ray features into the
+    transformer hidden size; their outputs are added to the AdaLN-normed
+    hidden states *before* self-attention. Both heads are zero-initialized.
+
+  * **Phase 2.2** — ``cross_attn`` is replaced with
+    :class:`ArtifixerCrossAttention`, which carries ``add_k_proj`` /
+    ``add_v_proj`` / ``norm_added_k`` and a separate ``attn_op_neighbor``
+    RingAttention op for a future neighbor-frame KV branch. The forward
+    path is unchanged (parent ``CrossAttention.forward`` is called); the
+    pipeline-level neighbor wiring lands in Phase 3.
 """
 
 from __future__ import annotations
 
 import torch
+from artifixer.network.cross_attn import ArtifixerCrossAttention
 from torch import Tensor, nn
 
 from flashdreams.recipes.wan.transformer.impl.modules import Block, BlockCache
@@ -52,6 +62,17 @@ class ArtifixerBlock(Block):
             cross_attn_norm=cross_attn_norm,
             eps=eps,
             i2v=i2v,
+        )
+
+        # Replace the inherited cross_attn with the ArtiFixer variant that
+        # also carries add_k_proj / add_v_proj / norm_added_k for the
+        # future neighbor-frame KV branch (Phase 3 wiring).
+        self.cross_attn = ArtifixerCrossAttention(
+            query_dim=dim,
+            n_heads=num_heads,
+            head_dim=dim // num_heads,
+            i2v=i2v,
+            eps=eps,
         )
 
         self.opacity_embedding = nn.Linear(opacity_embedding_dim, dim, bias=True)
