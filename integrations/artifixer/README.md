@@ -21,15 +21,18 @@ plugin ports it to FlashDreams' faster Wan stack (RingAttention, cuDNN,
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 1 | Recipe scaffold + AR/scheduler knobs match dreamfix stage-3 DMD | this commit |
-| 2 | Per-block opacity + camera MLPs, neighbor cross-attn, PRoPE | upcoming |
-| 3 | Opacity-weighted latent mixing + self-forcing renoise loop | upcoming |
+| 1 | Recipe scaffold + AR/scheduler knobs match dreamfix stage-3 DMD | done |
+| 2 | Per-block opacity + camera MLPs, neighbor cross-attn, PRoPE (parity-tested vs dreamfix) | done |
+| 3 | Opacity-weighted latent mixing + self-forcing renoise loop | done |
 | 4 | dreamfix-format conditioning surface (rgb_rendered, opacity, neighbors) | upcoming |
-| 5 | `state_dict_transform` for the merged ArtiFixer DMD safetensors | upcoming |
+| 5 | `state_dict_transform` for the merged ArtiFixer DMD safetensors | done |
 
-Phase 1 loads vanilla Wan 2.1 1.3B base weights from HuggingFace, so the
-output is a plain T2V video. The recipe is wired up but the ArtiFixer
-architectural extensions land in later commits.
+By default the recipe loads the merged ArtiFixer DMD safetensors from
+`ARTIFIXER_DMD_CHECKPOINT_PATH` (defaults to a `/lustre` path that
+matches the dreamfix repo's `merged_checkpoints/`); set
+`ARTIFIXER_USE_BASE_WAN_WEIGHTS=1` to fall back to vanilla Wan 2.1 1.3B
+HuggingFace weights (useful for smoke-testing the recipe wiring before
+the merged safetensors are available).
 
 ## Shipped slugs
 

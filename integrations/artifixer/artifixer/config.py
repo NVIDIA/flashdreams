@@ -34,8 +34,13 @@ and the ``state_dict_transform`` for the merged ArtiFixer DMD safetensors
 
 from __future__ import annotations
 
+import os
+
 import torch
-from artifixer.checkpoint import zero_pad_artifixer_keys
+from artifixer.checkpoint import (
+    artifixer_dmd_state_dict_transform,
+    zero_pad_artifixer_keys,
+)
 from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
 from artifixer.pipeline import ArtifixerInferencePipelineConfig
 from artifixer.runner import ArtifixerDmdT2VRunnerConfig
@@ -61,9 +66,21 @@ ARTIFIXER_SINK_SIZE_T = 7
 ARTIFIXER_NUM_INFERENCE_STEPS = 4
 ARTIFIXER_TIMESTEP_SHIFT = 5.0
 
-# Phase 1: load vanilla Wan 2.1 1.3B base weights from HF. Phase 5 replaces
-# this with the merged ArtiFixer DMD safetensors plus a state_dict_transform
-# that remaps diffusers naming and absorbs the ArtiFixer-only keys.
+# Phase 5b default: load the merged ArtiFixer DMD safetensors produced by
+# ``dreamfix/scripts/merge_dcp_to_safetensors.py``. The path is overridable
+# via ``ARTIFIXER_DMD_CHECKPOINT_PATH`` so deployments outside the original
+# /lustre layout don't have to fork the recipe.
+ARTIFIXER_DMD_CHECKPOINT_PATH = os.environ.get(
+    "ARTIFIXER_DMD_CHECKPOINT_PATH",
+    "/lustre/fsw/portfolios/nvr/users/rdelutio/code/dreamfix/"
+    "merged_checkpoints/artifixer_dmd_1p3b_s3_2000/model.safetensors",
+)
+
+# Pre-Phase-5b fallback: vanilla Wan 2.1 1.3B base weights from HF, paired
+# with ``zero_pad_artifixer_keys`` so ``load_state_dict`` succeeds in strict
+# mode (the ArtiFixer extension paths sit at zero until trained weights
+# are loaded). Useful for smoke-testing the recipe wiring when the merged
+# safetensors are unavailable; flip ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1``.
 BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
 )
@@ -73,6 +90,19 @@ _BASE_NETWORK_CONFIG = ArtifixerDiTNetwork1pt3BConfig(
     patch_embedding_type="conv3d",
 )
 _BASE_TRANSFORMER_DTYPE = torch.bfloat16
+
+_USE_BASE_WAN_WEIGHTS = os.environ.get("ARTIFIXER_USE_BASE_WAN_WEIGHTS") == "1"
+if _USE_BASE_WAN_WEIGHTS:
+    _CHECKPOINT_PATH = BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH
+    _STATE_DICT_TRANSFORM = zero_pad_artifixer_keys(
+        num_layers=_BASE_NETWORK_CONFIG.num_layers,
+        dim=_BASE_NETWORK_CONFIG.dim,
+        patch_size=_BASE_NETWORK_CONFIG.patch_size,
+        dtype=_BASE_TRANSFORMER_DTYPE,
+    )
+else:
+    _CHECKPOINT_PATH = ARTIFIXER_DMD_CHECKPOINT_PATH
+    _STATE_DICT_TRANSFORM = artifixer_dmd_state_dict_transform
 
 PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = ArtifixerInferencePipelineConfig(
     recipe_name="artifixer-dmd-wan2.1-t2v-1.3b",
@@ -84,13 +114,8 @@ PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = ArtifixerInferencePipelineConfig(
         transformer=ArtifixerWanTransformerConfig(
             network=_BASE_NETWORK_CONFIG,
             dtype=_BASE_TRANSFORMER_DTYPE,
-            checkpoint_path=BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH,
-            state_dict_transform=zero_pad_artifixer_keys(
-                num_layers=_BASE_NETWORK_CONFIG.num_layers,
-                dim=_BASE_NETWORK_CONFIG.dim,
-                patch_size=_BASE_NETWORK_CONFIG.patch_size,
-                dtype=_BASE_TRANSFORMER_DTYPE,
-            ),
+            checkpoint_path=_CHECKPOINT_PATH,
+            state_dict_transform=_STATE_DICT_TRANSFORM,
             batch_shape=(),
             len_t=ARTIFIXER_LEN_T,
             guidance_scale=1.0,
