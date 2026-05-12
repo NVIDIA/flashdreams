@@ -48,9 +48,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import torch
-from artifixer.transformer import ArtifixerWanTransformer
+from artifixer.latent_mix import opacity_weighted_latent_mix
+from artifixer.network.patches import patchify_camera_rays, patchify_opacity
+from artifixer.transformer import ArtifixerCtrl, ArtifixerWanTransformer
 from torch import Tensor
 
+from flashdreams.infra.diffusion.model import DiffusionModel
+from flashdreams.infra.diffusion.scheduler.fm import FlowMatchScheduler
 from flashdreams.recipes.wan.pipeline import (
     WanInferencePipeline,
     WanInferencePipelineCache,
@@ -240,6 +244,230 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
         network = transformer.network
         patched = network.patch_embedding(neighbor_latent)
         return patched.flatten(2).transpose(1, 2)
+
+    def _chunk_frame_ranges(
+        self, autoregressive_index: int, len_t: int, vae_t: int
+    ) -> tuple[int, int, int, int]:
+        """Return ``(lat_start, lat_end, input_start, input_end)`` for this AR chunk.
+
+        Mirrors the dreamfix bookkeeping in
+        ``kv_cache_pipeline.generate_samples_from_batch`` L201-L204:
+
+          - first chunk covers ``1 + vae_t * (len_t - 1)`` input frames
+            (the Wan VAE 1+4 layout has one latent frame at the boundary
+            covering one input frame);
+          - subsequent chunks cover ``vae_t * len_t`` input frames each.
+        """
+        lat_start = autoregressive_index * len_t
+        lat_end = lat_start + len_t
+        first_chunk_inputs = 1 + vae_t * (len_t - 1)
+        if autoregressive_index == 0:
+            input_start = 0
+            input_end = first_chunk_inputs
+        else:
+            input_start = first_chunk_inputs + (autoregressive_index - 1) * vae_t * len_t
+            input_end = input_start + vae_t * len_t
+        return lat_start, lat_end, input_start, input_end
+
+    def _build_ctrl(
+        self,
+        *,
+        chunk_opacity: Tensor,
+        chunk_camera_rays: Tensor,
+        chunk_post_patch_t: int,
+        frame_offset: int,
+        vae_t: int,
+        vae_s: int,
+        patch_size: tuple[int, int, int],
+    ) -> ArtifixerCtrl:
+        """Patchify the per-chunk opacity / camera_rays for ``ArtifixerCtrl``."""
+        return ArtifixerCtrl(
+            opacity_extra=patchify_opacity(
+                chunk_opacity,
+                vae_scale_factor_temporal=vae_t,
+                vae_scale_factor_spatial=vae_s,
+                patch_size=patch_size,
+                frame_offset=frame_offset,
+            ),
+            camera_extra=patchify_camera_rays(
+                chunk_camera_rays,
+                hidden_post_patch_t=chunk_post_patch_t,
+                vae_scale_factor_temporal=vae_t,
+                vae_scale_factor_spatial=vae_s,
+                patch_size=patch_size,
+                frame_offset=frame_offset,
+            ),
+            ignore_neighbors=False,
+        )
+
+    @torch.no_grad()
+    def generate(  # type: ignore[override]
+        self,
+        autoregressive_index: int,
+        cache: ArtifixerInferencePipelineCache,
+    ) -> Tensor:
+        """Generate one decoded video chunk for AR step ``autoregressive_index``.
+
+        Custom denoise loop (bypasses ``DiffusionModel.generate``) so we can
+        renoise each step toward a fresh ``opacity_weighted_latent_mix`` of
+        the condition + new noise (matches dreamfix
+        ``kv_cache_pipeline.generate_samples_from_batch`` L211-L264).
+
+        Steps:
+          1. Slice the chunk's frame range out of the full-rollout cache.
+          2. Update the source-side PRoPE ``apply_fns`` with the chunk's
+             target cameras.
+          3. Build the ``ArtifixerCtrl`` payload (patchified opacity +
+             camera-ray features).
+          4. Run the 4-step DMD denoise loop with prepare_latents renoise.
+          5. Stash a ``FinalState`` on the cache so the standard
+             ``WanInferencePipeline.finalize`` path closes the AR cache.
+          6. Decode and return the chunk.
+        """
+        assert cache.condition_latent is not None, "initialize_cache must be called first"
+        assert cache.opacity is not None
+        assert cache.camera_rays is not None
+        assert cache.w2cs is not None
+        assert cache.Ks is not None
+
+        transformer = self.diffusion_model.transformer
+        assert isinstance(transformer, ArtifixerWanTransformer)
+        scheduler = self.diffusion_model.scheduler
+        assert isinstance(scheduler, FlowMatchScheduler), (
+            f"ArtiFixer pipeline requires a FlowMatchScheduler, got "
+            f"{type(scheduler).__name__}"
+        )
+
+        tcfg = transformer.config
+        len_t = tcfg.len_t
+        kt, kh, kw = tcfg.network.patch_size
+        # Wan VAE scale factors. The decoder owns the public name.
+        vae_t = self.decoder.temporal_compression_ratio if self.decoder is not None else 4
+        vae_s = self.decoder.spatial_compression_ratio if self.decoder is not None else 8
+
+        lat_start, lat_end, input_start, input_end = self._chunk_frame_ranges(
+            autoregressive_index, len_t, vae_t
+        )
+        chunk_condition = cache.condition_latent[..., lat_start:lat_end, :, :]
+        chunk_opacity = cache.opacity[..., input_start:input_end, :, :]
+        chunk_w2cs = cache.w2cs[..., lat_start:lat_end, :, :]
+        chunk_Ks = cache.Ks[..., lat_start:lat_end, :, :]
+        # camera_rays may be at the latent rate or input rate; slice the
+        # axis we're indexing on with the latent rate first, then fall back.
+        if cache.camera_rays.shape[1] == cache.condition_latent.shape[2]:
+            chunk_camera_rays = cache.camera_rays[:, lat_start:lat_end]
+        else:
+            chunk_camera_rays = cache.camera_rays[:, input_start:input_end]
+
+        # Update the per-AR-chunk PRoPE source cameras (neighbor side was
+        # set once at initialize_cache; it is static across AR steps).
+        transformer.prope_cross_attn_src._precompute_and_cache_apply_fns(
+            chunk_w2cs, chunk_Ks
+        )
+
+        # Build the ArtifixerCtrl payload (patchified opacity / camera).
+        chunk_post_patch_t = (lat_end - lat_start) // kt
+        ctrl = self._build_ctrl(
+            chunk_opacity=chunk_opacity,
+            chunk_camera_rays=chunk_camera_rays,
+            chunk_post_patch_t=chunk_post_patch_t,
+            frame_offset=lat_start,
+            vae_t=vae_t,
+            vae_s=vae_s,
+            patch_size=tcfg.network.patch_size,
+        )
+
+        # Start the AR cache for this chunk (mirrors DiffusionModel.generate L165).
+        cache.transformer_cache.start(autoregressive_index)
+
+        # Initial mix: condition * opacity_lat + noise * (1 - opacity_lat).
+        # We work in unpatchified latent space, then patchify before
+        # feeding into ``predict_flow``.
+        initial_noise = torch.randn(
+            chunk_condition.shape,
+            device=self.device,
+            dtype=self.diffusion_model.dtype,
+            generator=self.diffusion_model.rng,
+        )
+        is_first = autoregressive_index == 0
+        latent_unpatched = opacity_weighted_latent_mix(
+            condition=chunk_condition,
+            opacity=chunk_opacity,
+            noise=initial_noise,
+            vae_scale_factor_temporal=vae_t,
+            vae_scale_factor_spatial=vae_s,
+            is_first_chunk=is_first,
+        )
+        latent = transformer.patchify_and_maybe_split_cp(latent_unpatched)
+
+        # 4-step DMD denoise with prepare_latents renoise. Mirrors
+        # ``ArtifixerKvCachePipeline.generate_samples_from_batch`` L238-L264:
+        # at every non-exit step we replace the next-iteration ``noisy``
+        # with a fresh ``opacity_weighted_latent_mix(...)``, not the base
+        # FlowMatchScheduler.sample's ``clean``.
+        sigmas = scheduler.denoising_sigmas
+        timesteps = scheduler.denoising_step_list
+        n_steps = timesteps.shape[0]
+        input_dtype = latent.dtype
+        clean: Tensor | None = None
+
+        for i in range(n_steps):
+            sigma = sigmas[i]
+            timestep = timesteps[i].to(dtype=input_dtype)
+            flow = transformer.predict_flow(
+                noisy_latent=latent,
+                timestep=timestep,
+                cache=cache.transformer_cache,
+                input=ctrl,
+            )
+            clean = latent - sigma * flow
+            if i + 1 < n_steps:
+                sigma_next = sigmas[i + 1]
+                fresh_noise = torch.randn(
+                    chunk_condition.shape,
+                    device=self.device,
+                    dtype=self.diffusion_model.dtype,
+                    generator=self.diffusion_model.rng,
+                )
+                fresh_mix_unpatched = opacity_weighted_latent_mix(
+                    condition=chunk_condition,
+                    opacity=chunk_opacity,
+                    noise=fresh_noise,
+                    vae_scale_factor_temporal=vae_t,
+                    vae_scale_factor_spatial=vae_s,
+                    is_first_chunk=is_first,
+                )
+                fresh_mix = transformer.patchify_and_maybe_split_cp(fresh_mix_unpatched)
+                latent = ((1.0 - sigma_next) * clean + sigma_next * fresh_mix).to(
+                    input_dtype
+                )
+
+        assert clean is not None, "denoise loop produced no clean estimate"
+        clean = transformer.postprocess_clean_latent(
+            clean_latent=clean,
+            cache=cache.transformer_cache,
+            input=None,  # I2V stamp not used by ArtiFixer
+        )
+
+        # Stash a FinalState on the cache so the inherited ``finalize`` path
+        # (WanInferencePipeline.finalize -> DiffusionModel.finalize) closes
+        # the AR cache.
+        final_state = DiffusionModel.FinalState(
+            clean_latent=clean,
+            autoregressive_index=autoregressive_index,
+            cache=cache.transformer_cache,
+            input=ctrl,
+        )
+        cache.final_state = final_state
+        cache.autoregressive_index = autoregressive_index
+
+        clean_unpatched = transformer.unpatchify_and_maybe_gather_cp(clean)
+
+        if self.decoder is None:
+            return clean_unpatched
+        return self.decoder(
+            clean_unpatched, autoregressive_index, cache.decoder_cache
+        )
 
 
 __all__ = [
