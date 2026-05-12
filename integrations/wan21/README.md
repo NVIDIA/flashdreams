@@ -65,7 +65,8 @@ uv run flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
 uv run flashdreams-run wan21-t2v-1.3b-480p --prompt /path/to/my_prompt.txt
 
 # I2V defaults to DEFAULT_I2V_PROMPT + DEFAULT_I2V_IMAGE_URL (the latter
-# is downloaded once into integrations/wan21/assets/ and reused).
+# is downloaded once into ~/.cache/flashdreams/wan21/ and reused;
+# honors FLASHDREAMS_CACHE_DIR).
 uv run flashdreams-run wan21-i2v-14b-480p
 
 # I2V override with custom prompt + image.

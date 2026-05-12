@@ -18,10 +18,9 @@
 from __future__ import annotations
 
 import json
-import urllib.request
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import cv2
 import mediapy as media
@@ -29,6 +28,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan import (
@@ -61,30 +61,30 @@ DEFAULT_I2V_IMAGE_URL = (
     "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
 )
 
-IMAGE_CACHE_DIR = Path(__file__).resolve().parents[1] / "assets"
-"""Plugin-local image cache. Downloads land next to the bundled prompt
-assets so all demo data lives in one place."""
+IMAGE_CACHE_DIR = (
+    Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
+    / "self_forcing"
+)
+"""User-writable cache for on-the-fly I2V first-frame downloads."""
 
 
 def _resolve_image_path(image_path: str | Path) -> Path:
     """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
 
-    ``http(s)://`` strings are fetched into :data:`IMAGE_CACHE_DIR`
-    under the URL's basename and skipped on subsequent calls. Local
-    paths pass through unchanged.
+    ``http(s)://`` strings are atomically fetched into
+    :data:`IMAGE_CACHE_DIR` and validated as decodable images before
+    being published; local paths pass through unchanged.
     """
     if isinstance(image_path, Path):
         return image_path
     if not image_path.startswith(("http://", "https://")):
         return Path(image_path)
 
-    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    filename = Path(urlsplit(image_path).path).name or "downloaded_image.jpg"
-    local_path = IMAGE_CACHE_DIR / filename
-    if not local_path.exists():
-        logger.info(f"Downloading I2V first frame: {image_path} -> {local_path}")
-        urllib.request.urlretrieve(image_path, local_path)
-    return local_path
+    return download_to_cache(
+        image_path,
+        cache_dir=IMAGE_CACHE_DIR,
+        validator=lambda p: media.read_image(str(p)),
+    )
 
 
 @dataclass(kw_only=True)
