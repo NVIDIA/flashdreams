@@ -232,6 +232,7 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pytest
@@ -412,7 +413,7 @@ class RasterRun:
 
 
 class CudaRasterHarness:
-    def __init__(self, plugin_module: object) -> None:
+    def __init__(self, plugin_module: Any) -> None:
         _require_cuda()
         self._plugin = plugin_module
         self._wrapper = self._plugin.CudaRasterTestWrapper(torch.cuda.current_device())
@@ -483,13 +484,13 @@ class CudaRasterHarness:
 
 
 @pytest.fixture(scope="module")
-def cudaraster_plugin() -> object:
+def cudaraster_plugin() -> Any:
     _require_cuda()
     return _get_plugin(gl=False)
 
 
 @pytest.fixture
-def harness(cudaraster_plugin: object) -> CudaRasterHarness:
+def harness(cudaraster_plugin: Any) -> CudaRasterHarness:
     return CudaRasterHarness(cudaraster_plugin)
 
 
@@ -850,7 +851,7 @@ def test_tiebreaker_enabled_is_deterministic(harness: CudaRasterHarness) -> None
 
 
 @pytest.mark.gpu
-def test_tiebreaker_uses_colors_not_triangle_order(cudaraster_plugin: object) -> None:
+def test_tiebreaker_uses_colors_not_triangle_order(cudaraster_plugin: Any) -> None:
     width = 64
     height = 64
     vertices = _to_vertices(
@@ -897,7 +898,7 @@ def test_tiebreaker_uses_colors_not_triangle_order(cudaraster_plugin: object) ->
 
 @pytest.mark.gpu
 def test_backface_culling_ccw_visible(
-    harness: CudaRasterHarness, cudaraster_plugin: object
+    harness: CudaRasterHarness, cudaraster_plugin: Any
 ) -> None:
     flags = int(cudaraster_plugin.CR_RENDER_MODE_ENABLE_BACKFACE_CULLING)
     vertices = _to_vertices(
@@ -912,7 +913,7 @@ def test_backface_culling_ccw_visible(
 
 @pytest.mark.gpu
 def test_backface_culling_cw_hidden_when_enabled(
-    harness: CudaRasterHarness, cudaraster_plugin: object
+    harness: CudaRasterHarness, cudaraster_plugin: Any
 ) -> None:
     flags = int(cudaraster_plugin.CR_RENDER_MODE_ENABLE_BACKFACE_CULLING)
     vertices = _to_vertices(
@@ -979,7 +980,7 @@ def _render_tiled_view(
     strict=True,
     reason="known-broken in current impl: tiled render drops tile-boundary pixels",
 )
-def test_tiled_render_matches_single_view_interior(cudaraster_plugin: object) -> None:
+def test_tiled_render_matches_single_view_interior(cudaraster_plugin: Any) -> None:
     # POSITIVE CONTRACT: a 4-tile render and a single-view render of the same
     # geometry must produce identical color buffers. Currently xfail because the
     # current impl drops tile-boundary pixels; see paired marker
@@ -998,7 +999,7 @@ def test_tiled_render_matches_single_view_interior(cudaraster_plugin: object) ->
 
 @pytest.mark.gpu
 def test_tiled_render_regression_center_pixel_drops_for_reference_triangle(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
@@ -1142,7 +1143,7 @@ def test_no_clear_accumulates_previous_draw(harness: CudaRasterHarness) -> None:
 
 @pytest.mark.gpu
 def test_set_buffer_size_zero_is_accepted_and_reports_zero_dims(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
@@ -1229,7 +1230,7 @@ def _coplanar_overlap_pair(z: float = 0.3) -> tuple[torch.Tensor, torch.Tensor]:
 
 @pytest.mark.gpu
 def test_tiebreaker_enabled_without_color_buffer_is_deterministic(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # Intent (real contract): when the deterministic tiebreaker is enabled but
     # no tiebreaker color buffer was ever uploaded, the impl must still produce
@@ -1263,7 +1264,7 @@ def test_tiebreaker_enabled_without_color_buffer_is_deterministic(
 
 @pytest.mark.gpu
 def test_tiebreaker_enabled_zero_color_buffer_is_deterministic(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # Intent (real contract): with the deterministic tiebreaker enabled and an
     # all-zero color buffer, every per-vertex tiebreaker color is identical so
@@ -1389,7 +1390,7 @@ _DEPTH_PEEL_TWO_LAYER_SCRIPT = textwrap.dedent(
 @pytest.mark.gpu
 @pytest.mark.xfail(strict=True, reason="known-broken in current impl: depth peeling")
 def test_depth_peeling_two_layers_exposes_back_layer_on_second_pass(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # POSITIVE CONTRACT: with two overlapping triangles at different depths,
     # peel pass 1 must show the near triangle at the center pixel, and peel
@@ -1407,7 +1408,7 @@ def test_depth_peeling_two_layers_exposes_back_layer_on_second_pass(
 
 @pytest.mark.gpu
 def test_depth_peeling_two_layers_currently_crashes_with_cuda700(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL FAILURE-MODE MARKER. See the depth-peel header comment for
     # the contract pairing. Pinned crash signature for the two-layer scenario.
@@ -1465,7 +1466,7 @@ def test_multi_image_readback_shape_and_byte_stability(
 
 @pytest.mark.gpu
 def test_get_buffer_dims_report_tile_rounded_allocation(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     wrapper = cudaraster_plugin.CudaRasterTestWrapper(torch.cuda.current_device())
     wrapper.set_buffer_size(101, 67, 1)
@@ -1476,7 +1477,7 @@ def test_get_buffer_dims_report_tile_rounded_allocation(
 
 @pytest.mark.gpu
 def test_multi_image_regression_second_image_remains_empty_for_single_draw(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL REGRESSION MARKER -- read before changing this test.
     #
@@ -1690,7 +1691,7 @@ _OVERFLOW_SCRIPT = textwrap.dedent(
     reason="known-broken in current impl: overflow path crashes instead of returning False",
 )
 def test_draw_triangles_returns_false_when_internal_subtri_queue_overflows(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # POSITIVE CONTRACT: when the internal subtri queue overflows,
     # draw_triangles must return False rather than crashing the process. xfail
@@ -1706,7 +1707,7 @@ def test_draw_triangles_returns_false_when_internal_subtri_queue_overflows(
 
 
 @pytest.mark.gpu
-def test_overflow_currently_crashes_with_cuda700(cudaraster_plugin: object) -> None:
+def test_overflow_currently_crashes_with_cuda700(cudaraster_plugin: Any) -> None:
     # CURRENT-IMPL FAILURE-MODE MARKER. Pinned crash signature for the overflow
     # scenario so any change in the failure mode is loud during cleanroom
     # development.
@@ -1953,7 +1954,7 @@ _DEPTH_PEEL_SINGLE_LAYER_SCRIPT = textwrap.dedent(
 @pytest.mark.gpu
 @pytest.mark.xfail(strict=True, reason="known-broken in current impl: depth peeling")
 def test_depth_peeling_three_layers_exposes_layers_in_order(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # POSITIVE CONTRACT: peel passes 1, 2, 3 must reveal triangle ids 1, 2, 3
     # at the center pixel. xfail today; xpasses when peeling is fixed.
@@ -1968,7 +1969,7 @@ def test_depth_peeling_three_layers_exposes_layers_in_order(
 
 @pytest.mark.gpu
 def test_depth_peeling_three_layers_currently_crashes_with_cuda700(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL FAILURE-MODE MARKER. See the header comment above for the
     # contract pairing. Asserts the exact crash signature so any change is loud.
@@ -1989,7 +1990,7 @@ def test_depth_peeling_three_layers_currently_crashes_with_cuda700(
 @pytest.mark.gpu
 @pytest.mark.xfail(strict=True, reason="known-broken in current impl: depth peeling")
 def test_depth_peeling_single_layer_second_pass_is_empty(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # POSITIVE CONTRACT: peel pass 1 rasterizes the triangle; peel pass 2 has
     # no further layer and must be fully background. xfail today.
@@ -2004,7 +2005,7 @@ def test_depth_peeling_single_layer_second_pass_is_empty(
 
 @pytest.mark.gpu
 def test_depth_peeling_single_layer_currently_crashes_with_cuda700(
-    cudaraster_plugin: object,
+    cudaraster_plugin: Any,
 ) -> None:
     # CURRENT-IMPL FAILURE-MODE MARKER. Pinned crash signature for the single-
     # layer peel scenario. Loud whenever the failure mode changes.

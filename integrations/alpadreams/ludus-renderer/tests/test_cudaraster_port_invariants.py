@@ -5,6 +5,7 @@ directly than through the broad API contract suite.
 """
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -24,18 +25,18 @@ ROOT = Path(__file__).resolve().parents[1] / "ludus_renderer" / "_cpp" / "cudara
 
 
 @pytest.fixture(scope="module")
-def cudaraster_plugin() -> object:
+def cudaraster_plugin() -> Any:
     _require_cuda()
     return _get_plugin(gl=False)
 
 
 @pytest.fixture
-def harness(cudaraster_plugin: object) -> CudaRasterHarness:
+def harness(cudaraster_plugin: Any) -> CudaRasterHarness:
     return CudaRasterHarness(cudaraster_plugin)
 
 
 @pytest.fixture(scope="module")
-def rop_lane_mask_helper() -> object:
+def rop_lane_mask_helper() -> Any:
     _require_cuda()
     helper_src = Path(__file__).with_name("cuda") / "rop_lane_mask_invariant.cu"
     return torch.utils.cpp_extension.load(
@@ -50,7 +51,7 @@ def rop_lane_mask_helper() -> object:
 
 
 @pytest.fixture(scope="module")
-def bin_raster_arbitration_helper() -> object:
+def bin_raster_arbitration_helper() -> Any:
     _require_cuda()
     helper_src = (
         Path(__file__).with_name("cuda") / "bin_raster_arbitration_invariants.cu"
@@ -68,7 +69,7 @@ def bin_raster_arbitration_helper() -> object:
 
 @pytest.mark.gpu
 def test_rop_lane_mask_replacement_matches_upstream_arbitration_order(
-    rop_lane_mask_helper: object,
+    rop_lane_mask_helper: Any,
 ) -> None:
     values = list(rop_lane_mask_helper.run_rop_lane_mask_invariant())
     assert len(values) == 64
@@ -135,7 +136,7 @@ def test_clipped_cw_triangle_renders_with_backface_culling_disabled(
     ],
 )
 def test_bin_raster_warp_total_broadcast_lands_warp_total(
-    bin_raster_arbitration_helper: object, label: str, nums: list[int]
+    bin_raster_arbitration_helper: Any, label: str, nums: list[int]
 ) -> None:
     # Pins BinRaster.inl Fix A: only lane 31 may write `s_broadcast[warpId+16]`
     # with `myIdx + num`. With this gate, the broadcast slot must equal the
@@ -159,7 +160,7 @@ def test_bin_raster_warp_total_broadcast_lands_warp_total(
     ],
 )
 def test_bin_raster_block_total_lands_inclusive_scan_total(
-    bin_raster_arbitration_helper: object, label: str, totals: list[int]
+    bin_raster_arbitration_helper: Any, label: str, totals: list[int]
 ) -> None:
     # Pins BinRaster.inl Fix B: only lane (CR_BIN_WARPS - 1) may write
     # `s_bufCount = bufCount + val`. With this gate, the broadcast slot must

@@ -14,7 +14,7 @@ def pytest_collection_modifyitems(
     try:
         import torch
     except ModuleNotFoundError:
-        torch = None
+        torch = None  # type: ignore[ty:invalid-assignment]
 
     has_cuda = torch is not None and torch.cuda.is_available()
     if has_cuda:
