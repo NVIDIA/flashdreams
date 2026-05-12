@@ -96,9 +96,9 @@ def test_alpadreams_paths_at_current_env() -> None:
     from flashdreams.recipes.alpadreams import config
 
     # Mirrored chunk2 -> HF; unmirrored slugs fall through to s3.
-    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-        "1view-vae-chunk2"
-    ].startswith("https://huggingface.co/")
-    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-        "1view-vae-chunk3"
-    ].startswith("s3://")
+    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["1view-vae-chunk2"].startswith(
+        "https://huggingface.co/"
+    )
+    assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["1view-vae-chunk3"].startswith(
+        "s3://"
+    )
