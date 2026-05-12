@@ -37,13 +37,14 @@ from __future__ import annotations
 import torch
 from artifixer.checkpoint import zero_pad_artifixer_keys
 from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
+from artifixer.pipeline import ArtifixerInferencePipelineConfig
 from artifixer.runner import ArtifixerDmdT2VRunnerConfig
 from artifixer.transformer import ArtifixerWanTransformerConfig
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.wan import WanInferencePipelineConfig, WanVAEDecoderConfig
+from flashdreams.recipes.wan import WanVAEDecoderConfig
 
 # Mirrors the dreamfix stage-3 run config (see
 # wandb/.../run-*/files/config.yaml in
@@ -73,7 +74,7 @@ _BASE_NETWORK_CONFIG = ArtifixerDiTNetwork1pt3BConfig(
 )
 _BASE_TRANSFORMER_DTYPE = torch.bfloat16
 
-PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = WanInferencePipelineConfig(
+PIPELINE_ARTIFIXER_DMD_T2V_1PT3B = ArtifixerInferencePipelineConfig(
     recipe_name="artifixer-dmd-wan2.1-t2v-1.3b",
     enable_sync_and_profile=True,
     encoder=None,
