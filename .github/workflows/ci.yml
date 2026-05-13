@@ -114,8 +114,9 @@ jobs:
         run: uv build --wheel --package flashdreams
 
       - name: Publish to Test PyPI
-        # --check-url queries the index before uploading and silently skips
-        # files whose version already exists (equivalent to twine --skip-existing).
+        # --check-url skips uploads when the exact same file already exists
+        # on the index. CI is the sole publisher so hashes will always match
+        # for repeated builds of the same version.
         run: >
           uv publish
           --publish-url https://test.pypi.org/legacy/

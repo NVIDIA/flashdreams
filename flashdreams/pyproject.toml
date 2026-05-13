@@ -20,8 +20,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams"
 dynamic = ["version"]
-description = "Flash video simulation pipeline"
-readme = "README.md"
+description = "High-performance streaming video diffusion framework with pluggable model backends"
+readme = "PYPI_README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "boto3>=1.35",
@@ -61,6 +62,11 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+
+[project.urls]
+Homepage = "https://github.com/NVIDIA/flashdreams"
+Repository = "https://github.com/NVIDIA/flashdreams"
+"Bug Tracker" = "https://github.com/NVIDIA/flashdreams/issues"
 
 [project.optional-dependencies]
 dev = [
