@@ -17,22 +17,26 @@ The reference implementation lives in the
 plugin ports it to FlashDreams' faster Wan stack (RingAttention, cuDNN,
 `torch.compile`, CUDA graphs).
 
-## Status
+## Components
 
-| Phase | Scope | Status |
-| --- | --- | --- |
-| 1 | Recipe scaffold + AR/scheduler knobs match dreamfix stage-3 DMD | done |
-| 2 | Per-block opacity + camera MLPs, neighbor cross-attn, PRoPE (parity-tested vs dreamfix) | done |
-| 3 | Opacity-weighted latent mixing + self-forcing renoise loop | done |
-| 4 | dreamfix-format conditioning surface (rgb_rendered, opacity, neighbors) | upcoming |
-| 5 | `state_dict_transform` for the merged ArtiFixer DMD safetensors | done |
+| Component | Description |
+| --- | --- |
+| Recipe scaffold | AR rollout + 4-step DMD scheduler knobs match the dreamfix stage-3 run config. |
+| Per-block conditioning | Opacity + camera-ray MLPs, neighbor cross-attention, and PRoPE — parity-tested against dreamfix. |
+| Pipeline | Opacity-weighted latent mixing + self-forcing renoise loop inside `ArtifixerInferencePipeline.generate`. |
+| dreamfix-compatible surface | `initialize_cache` accepts pre-encoded UMT5 prompts + VAE-encoded condition / neighbor latents so the dreamfix-side driver (`model_eval/flashdreams_backend.py`) can feed it directly. |
+| Checkpoint loader | `state_dict_transform` for the merged ArtiFixer DMD safetensors produced by `dreamfix/scripts/merge_dcp_to_safetensors.py`. |
 
-By default the recipe loads the merged ArtiFixer DMD safetensors from
-`ARTIFIXER_DMD_CHECKPOINT_PATH` (defaults to a `/lustre` path that
-matches the dreamfix repo's `merged_checkpoints/`); set
-`ARTIFIXER_USE_BASE_WAN_WEIGHTS=1` to fall back to vanilla Wan 2.1 1.3B
-HuggingFace weights (useful for smoke-testing the recipe wiring before
-the merged safetensors are available).
+Cross-backend parity (captured single-scene `final_video`): **51.34 dB**
+PSNR vs the dreamfix-native `ArtifixerKvCachePipeline` after the
+fp32 AdaLN/norm/residual promotion and the no-op `finalize_kv_cache`
+override on the FlashDreams transformer.
+
+Set `ARTIFIXER_DMD_CHECKPOINT_PATH` to point at the merged ArtiFixer
+DMD safetensors; alternatively set `ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`
+to fall back to vanilla Wan 2.1 1.3B HuggingFace weights (useful for
+smoke-testing the recipe wiring before the merged safetensors are
+available).
 
 ## Shipped slugs
 

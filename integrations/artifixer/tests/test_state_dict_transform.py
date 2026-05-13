@@ -31,6 +31,7 @@ verify zero missing / unexpected keys.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -40,19 +41,27 @@ from artifixer.checkpoint import (
     artifixer_dmd_state_dict_transform,
 )
 
-AUDIT_PATH = Path(
-    "/lustre/fsw/portfolios/nvr/users/rdelutio/code/dreamfix/"
-    "merged_checkpoints/artifixer_dmd_1p3b_s3_2000/param_audit.json"
-)
+
+def _audit_path() -> Path | None:
+    raw = os.environ.get("ARTIFIXER_PARAM_AUDIT_PATH")
+    return Path(raw) if raw else None
 
 
 def _load_audit() -> dict[str, dict]:
-    if not AUDIT_PATH.exists():
+    audit_path = _audit_path()
+    if audit_path is None:
         pytest.skip(
-            f"param audit JSON not found at {AUDIT_PATH}; run "
+            "ARTIFIXER_PARAM_AUDIT_PATH is unset. Point it at the "
+            "param_audit.json produced by "
+            "``dreamfix/scripts/dump_artifixer_param_names.py`` to "
+            "exercise the full-merged-checkpoint path."
+        )
+    if not audit_path.exists():
+        pytest.skip(
+            f"param audit JSON not found at {audit_path}; run "
             f"dreamfix/scripts/dump_artifixer_param_names.py first"
         )
-    return json.loads(AUDIT_PATH.read_text())
+    return json.loads(audit_path.read_text())
 
 
 def _synthetic_state_dict(audit: dict[str, dict]) -> dict[str, torch.Tensor]:

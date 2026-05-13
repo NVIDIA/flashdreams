@@ -154,10 +154,10 @@ def zero_pad_artifixer_keys(
     Per block, the transform adds 9 keys (mirroring the 270 ArtiFixer-only
     keys identified by ``dreamfix/scripts/dump_artifixer_param_names.py``):
 
-      * Phase 2.1 — opacity + camera MLPs (4 keys per block):
+      * Opacity + camera MLPs (4 keys per block):
         ``opacity_embedding.{weight,bias}`` shape (dim, opacity_dim) / (dim,)
         ``camera_embedding.{weight,bias}``  shape (dim, camera_dim)  / (dim,)
-      * Phase 2.2 — neighbor cross-attention (5 keys per block):
+      * Neighbor cross-attention (5 keys per block):
         ``cross_attn.add_k_proj.{weight,bias}``    shape (dim, dim) / (dim,)
         ``cross_attn.add_v_proj.{weight,bias}``    shape (dim, dim) / (dim,)
         ``cross_attn.norm_added_k.weight``         shape (dim,)

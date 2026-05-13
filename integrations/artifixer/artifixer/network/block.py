@@ -19,17 +19,18 @@ Mirrors ``ArtifixerTransformerBlock`` in the dreamfix reference
 (``model_training/net/transformer.py`` L617-L767). Per-block extensions on
 top of :class:`Block`:
 
-  * **Phase 2.1** — opacity + camera-ray MLPs. Two ``nn.Linear`` heads
-    project per-token opacity and Plucker-camera-ray features into the
+  * **Opacity + camera-ray MLPs.** Two ``nn.Linear`` heads project
+    per-token opacity and Plucker-camera-ray features into the
     transformer hidden size; their outputs are added to the AdaLN-normed
-    hidden states *before* self-attention. Both heads are zero-initialized.
+    hidden states *before* self-attention. Both heads are zero-initialized
+    so the wrapped block is a no-op extension of base Wan behavior at
+    load time.
 
-  * **Phase 2.2** — ``cross_attn`` is replaced with
-    :class:`ArtifixerCrossAttention`, which carries ``add_k_proj`` /
-    ``add_v_proj`` / ``norm_added_k`` and a separate ``attn_op_neighbor``
-    RingAttention op for a future neighbor-frame KV branch. The forward
-    path is unchanged (parent ``CrossAttention.forward`` is called); the
-    pipeline-level neighbor wiring lands in Phase 3.
+  * **Neighbor cross-attention.** ``cross_attn`` is :class:`ArtifixerCrossAttention`,
+    which carries ``add_k_proj`` / ``add_v_proj`` / ``norm_added_k`` and a
+    separate ``attn_op_neighbor`` attention op for the neighbor-frame KV
+    branch. When the neighbor cache is unset / PRoPE modules are absent
+    the forward path is identical to ``CrossAttention.forward``.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ class ArtifixerBlock(Block):
 
         # Replace the inherited cross_attn with the ArtiFixer variant that
         # also carries add_k_proj / add_v_proj / norm_added_k for the
-        # future neighbor-frame KV branch (Phase 3 wiring).
+        # neighbor-frame KV branch.
         self.cross_attn = ArtifixerCrossAttention(
             query_dim=dim,
             n_heads=num_heads,
@@ -118,7 +119,7 @@ class ArtifixerBlock(Block):
     ) -> Tensor:
         """Run one transformer block update with ArtiFixer conditioning.
 
-        Extras (Phase 2.1 + 2.4):
+        Extras:
 
           - ``opacity_extra`` / ``camera_extra``: per-token opacity and
             Plucker-camera-ray features added to the AdaLN-normed hidden

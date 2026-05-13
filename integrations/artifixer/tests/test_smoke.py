@@ -123,7 +123,7 @@ def test_artifixer_hyperparams_match_dreamfix_stage3() -> None:
 
 
 def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
-    """Phase 2.1: ArtifixerBlock instances carry opacity + camera MLPs."""
+    """ArtifixerBlock instances carry opacity + camera MLPs."""
     import torch
     from artifixer.network.block import ArtifixerBlock
     from artifixer.network.dit import artifixer_embedding_dims
@@ -151,7 +151,7 @@ def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
 
 
 def test_artifixer_recipe_uses_artifixer_network() -> None:
-    """Phase 2.1: the shipped recipe wires up ArtifixerDiTNetwork."""
+    """The shipped recipe wires up ArtifixerDiTNetwork."""
     from artifixer.network.dit import ArtifixerDiTNetwork1pt3BConfig
 
     cfg = _runner_configs()["artifixer-dmd-wan2.1-t2v-1.3b"]
@@ -162,7 +162,7 @@ def test_artifixer_recipe_uses_artifixer_network() -> None:
 
 
 def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
-    """Phase 2.1/2.2: the state_dict transform pads vanilla-Wan checkpoints.
+    """The state_dict transform pads vanilla-Wan checkpoints.
 
     Covers all 9 ArtiFixer-only keys per block:
 
@@ -200,7 +200,7 @@ def test_zero_pad_state_dict_transform_fills_missing_keys() -> None:
 
 
 def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
-    """Phase 2.2: ArtifixerBlock's cross_attn carries the neighbor branch."""
+    """ArtifixerBlock's cross_attn carries the neighbor branch."""
     import torch
     from artifixer.network.block import ArtifixerBlock
     from artifixer.network.cross_attn import ArtifixerCrossAttention
@@ -228,15 +228,15 @@ def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
         param = block.cross_attn.get_parameter(name)
         assert param.shape == expected_shape, f"cross_attn.{name} shape {param.shape}"
 
-    # Phase 2.2 zero-init contract: add_v_proj is the gate that keeps the
-    # neighbor branch contribution zero at load time, matching dreamfix
+    # Zero-init contract: add_v_proj is the gate that keeps the neighbor
+    # branch contribution zero at load time, matching dreamfix
     # transformer.py L687-688.
     assert torch.all(block.cross_attn.add_v_proj.weight == 0)
     assert torch.all(block.cross_attn.add_v_proj.bias == 0)
 
 
 def test_compute_kv_neighbor_and_cache_init() -> None:
-    """Phase 2.4: compute_kv_neighbor builds a static BlockKVCache, and
+    """compute_kv_neighbor builds a static BlockKVCache, and
     initialize_neighbor_cache toggles the per-module cache attribute.
     """
     import torch

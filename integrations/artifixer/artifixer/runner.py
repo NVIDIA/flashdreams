@@ -15,12 +15,17 @@
 
 """ArtiFixer DMD-distilled streaming T2V runner.
 
-Phase 1 scaffold: this runner is a stripped clone of
-``SelfForcingT2VRunner`` and accepts a single text prompt. Phase 3/4 will
-introduce the ArtiFixer-specific conditioning surface (``rgb_rendered``,
-``opacity``, neighbor frames, camera matrices) by accepting a path to a
-dreamfix-format input bundle (e.g. an HDF5 reconstruction file plus a
-caption file).
+Text-only runner: a stripped clone of ``SelfForcingT2VRunner`` that
+accepts a single text prompt. Used for smoke-testing the recipe wiring
+and the ``flashdreams-run`` CLI entry point.
+
+The full ArtiFixer-specific conditioning surface (``rgb_rendered``,
+``opacity``, neighbor frames, camera matrices) is wired in through the
+:class:`ArtifixerInferencePipeline.initialize_cache` / ``generate``
+path; the dreamfix-side driver in
+``dreamfix/model_eval/flashdreams_backend.py`` is the production entry
+point that feeds those conditioning tensors. This runner stays
+text-only as a lightweight harness.
 """
 
 from __future__ import annotations
@@ -68,7 +73,7 @@ class ArtifixerDmdT2VRunnerConfig(RunnerConfig):
 
 
 class ArtifixerDmdT2VRunner(Runner[ArtifixerDmdT2VRunnerConfig, WanInferencePipeline]):
-    """ArtiFixer DMD streaming T2V driver (Phase 1: text-only scaffold)."""
+    """ArtiFixer DMD streaming T2V driver (text-only smoke runner)."""
 
     config: ArtifixerDmdT2VRunnerConfig
 

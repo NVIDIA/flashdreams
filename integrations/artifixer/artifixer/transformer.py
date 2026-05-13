@@ -27,9 +27,9 @@ Subclasses :class:`Wan21Transformer` so the recipe can:
     target-camera PRoPE precompute) into ``predict_flow`` ->
     ``WanDiTNetwork.forward`` via an :class:`ArtifixerCtrl` payload.
 
-The pipeline (Phase 3.5) owns the per-chunk slicing + patchification +
-PRoPE precompute updates and packages them into an ``ArtifixerCtrl``
-that flows through ``DiffusionModel.generate(input=ctrl)``.
+The pipeline owns the per-chunk slicing + patchification + PRoPE
+precompute updates and packages them into an ``ArtifixerCtrl`` that
+flows through ``DiffusionModel.generate(input=ctrl)``.
 """
 
 from __future__ import annotations
@@ -52,9 +52,9 @@ class ArtifixerCtrl:
     All tensors are already sliced to the current chunk's frame range; the
     patchifiable ones are also already passed through
     :func:`artifixer.network.patches.patchify_opacity` /
-    :func:`patchify_camera_rays`. The pipeline owns this preparation
-    (Phase 3.5); the transformer's ``predict_flow`` reads from here and
-    forwards into ``network_extra_kwargs``.
+    :func:`patchify_camera_rays`. The pipeline owns this preparation; the
+    transformer's ``predict_flow`` reads from here and forwards into
+    ``network_extra_kwargs``.
 
     The cross-attention "neighbor" KV bank is *not* carried here -- it is
     set once per rollout on every block's cross-attention module via

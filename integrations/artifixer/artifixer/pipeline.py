@@ -20,27 +20,26 @@ conditioning surface: full-rollout opacity, Plucker camera rays, target
 camera w2c/Ks, optional VAE-encoded neighbor frames + neighbor camera
 matrices.
 
-Phase 3.5a (this commit) lands the cache + ``initialize_cache``:
+``initialize_cache``:
 
   - VAE-encoded condition latent and neighbor latent arrive pre-computed
-    from the caller (the dreamfix-side driver in Phase 4) so this
-    pipeline does not need its own VAE encoder.
-  - On ``initialize_cache`` we:
-      1. Run the base ``WanInferencePipeline.initialize_cache`` (text
-         encoder + text K/V build) with ``image=None``.
-      2. Project the neighbor latent through ``patch_embedding`` to get
-         the per-token neighbor context, then push it into every block's
-         :class:`ArtifixerCrossAttention.neighbor_kv_cache` via
-         ``ArtifixerDiTNetwork.initialize_neighbor_kv_caches``.
-      3. Update the patches_x/patches_y RoPE coefficients on both PRoPE
-         modules and precompute the neighbor-side ``apply_fns`` (the
-         neighbor cameras are static across AR steps).
-      4. Stash the full-rollout opacity / camera_rays / w2cs / Ks on the
-         cache for the per-AR ``generate`` slicing (Phase 3.5b).
+    from the caller (the dreamfix-side driver in
+    ``model_eval/flashdreams_backend.py``) so this pipeline does not
+    need its own VAE encoder.
+  - Runs the base ``WanInferencePipeline.initialize_cache`` (text
+    encoder + text K/V build) with ``image=None``.
+  - Projects the neighbor latent through ``patch_embedding`` to get the
+    per-token neighbor context, then pushes it into every block's
+    :class:`ArtifixerCrossAttention.neighbor_kv_cache` via
+    ``ArtifixerDiTNetwork.initialize_neighbor_kv_caches``.
+  - Updates the patches_x/patches_y RoPE coefficients on both PRoPE
+    modules and precomputes the neighbor-side ``apply_fns`` (the
+    neighbor cameras are static across AR steps).
+  - Stashes the full-rollout opacity / camera_rays / w2cs / Ks on the
+    cache for the per-AR ``generate`` slicing.
 
-Phase 3.5b adds ``generate``: per-AR-chunk PRoPE-src precompute,
-opacity-weighted latent mix, manual denoise loop with prepare_latents
-renoise, and decode.
+``generate`` runs per-AR-chunk PRoPE-src precompute, opacity-weighted
+latent mix, manual denoise loop with prepare_latents renoise, and decode.
 """
 
 from __future__ import annotations
@@ -148,9 +147,8 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             text_embeddings: Pre-encoded UMT5 prompt embeddings
                 ``[B, L, D]``. Skips the in-pipeline UMT5 forward when set.
             condition_latent: VAE-encoded reconstruction-rendered RGB,
-                ``[B, in_dim, T_lat, Hl, Wl]`` -- the caller (Phase 4
-                driver) handles VAE encoding so this pipeline does not
-                need its own encoder.
+                ``[B, in_dim, T_lat, Hl, Wl]`` -- the caller handles VAE
+                encoding so this pipeline does not need its own encoder.
             opacity: Per-pixel alpha at input resolution
                 ``[B, T_input, H, W]``.
             camera_rays: Plucker rays

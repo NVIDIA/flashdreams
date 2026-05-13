@@ -19,17 +19,16 @@ ArtiFixer is a reconstruction-enhanced T2V model built on Wan 2.1 1.3B that
 adds (a) per-block opacity and Plucker-camera-ray MLPs, (b) neighbor cross-
 attention with PRoPE, and (c) opacity-weighted latent mixing.
 
-Phase 2.1: the network now uses :class:`ArtifixerDiTNetwork` whose blocks
-carry the opacity + camera-ray MLPs (zero-initialized so behavior matches
-vanilla Wan when ``opacity_extra`` / ``camera_extra`` are not provided).
-The recipe still loads vanilla Wan 2.1 1.3B base weights from HuggingFace;
-:func:`zero_pad_artifixer_keys` pads the state dict so strict-mode load
-succeeds.
+The network is :class:`ArtifixerDiTNetwork` whose blocks carry the
+opacity + camera-ray MLPs (zero-initialized so behavior matches vanilla
+Wan when ``opacity_extra`` / ``camera_extra`` are not provided).
 
-Later commits add the neighbor cross-attention third KV bank (Phase 2.2),
-PRoPE (Phase 2.3), the opacity-weighted latent mixing pipeline (Phase 3),
-and the ``state_dict_transform`` for the merged ArtiFixer DMD safetensors
-(Phase 5).
+By default the recipe loads the merged ArtiFixer DMD safetensors via
+:func:`artifixer_dmd_state_dict_transform`; set
+``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall back to vanilla Wan 2.1
+1.3B base weights, in which case :func:`zero_pad_artifixer_keys` pads
+the state dict (opacity / camera / neighbor cross-attn keys) so the
+strict-mode load succeeds.
 """
 
 from __future__ import annotations
@@ -66,21 +65,21 @@ ARTIFIXER_SINK_SIZE_T = 7
 ARTIFIXER_NUM_INFERENCE_STEPS = 4
 ARTIFIXER_TIMESTEP_SHIFT = 5.0
 
-# Phase 5b default: load the merged ArtiFixer DMD safetensors produced by
-# ``dreamfix/scripts/merge_dcp_to_safetensors.py``. The path is overridable
-# via ``ARTIFIXER_DMD_CHECKPOINT_PATH`` so deployments outside the original
-# /lustre layout don't have to fork the recipe.
-ARTIFIXER_DMD_CHECKPOINT_PATH = os.environ.get(
-    "ARTIFIXER_DMD_CHECKPOINT_PATH",
-    "/lustre/fsw/portfolios/nvr/users/rdelutio/code/dreamfix/"
-    "merged_checkpoints/artifixer_dmd_1p3b_s3_2000/model.safetensors",
+# Default: load the merged ArtiFixer DMD safetensors produced by
+# ``dreamfix/scripts/merge_dcp_to_safetensors.py``. There is no committed
+# default location, since the merged file is large and lives outside the
+# repo; users MUST set ``ARTIFIXER_DMD_CHECKPOINT_PATH`` to the merged
+# safetensors path, or set ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall
+# back to vanilla Wan 2.1 1.3B HuggingFace weights.
+ARTIFIXER_DMD_CHECKPOINT_PATH: str | None = os.environ.get(
+    "ARTIFIXER_DMD_CHECKPOINT_PATH"
 )
 
-# Pre-Phase-5b fallback: vanilla Wan 2.1 1.3B base weights from HF, paired
-# with ``zero_pad_artifixer_keys`` so ``load_state_dict`` succeeds in strict
+# Fallback: vanilla Wan 2.1 1.3B base weights from HF, paired with
+# ``zero_pad_artifixer_keys`` so ``load_state_dict`` succeeds in strict
 # mode (the ArtiFixer extension paths sit at zero until trained weights
-# are loaded). Useful for smoke-testing the recipe wiring when the merged
-# safetensors are unavailable; flip ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1``.
+# are loaded). Useful for smoke-testing the recipe wiring when the
+# merged safetensors are unavailable; flip ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1``.
 BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors"
 )
@@ -93,7 +92,7 @@ _BASE_TRANSFORMER_DTYPE = torch.bfloat16
 
 _USE_BASE_WAN_WEIGHTS = os.environ.get("ARTIFIXER_USE_BASE_WAN_WEIGHTS") == "1"
 if _USE_BASE_WAN_WEIGHTS:
-    _CHECKPOINT_PATH = BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH
+    _CHECKPOINT_PATH: str = BASE_WAN_T2V_1PT3B_CHECKPOINT_PATH
     _STATE_DICT_TRANSFORM = zero_pad_artifixer_keys(
         num_layers=_BASE_NETWORK_CONFIG.num_layers,
         dim=_BASE_NETWORK_CONFIG.dim,
@@ -101,6 +100,15 @@ if _USE_BASE_WAN_WEIGHTS:
         dtype=_BASE_TRANSFORMER_DTYPE,
     )
 else:
+    if ARTIFIXER_DMD_CHECKPOINT_PATH is None:
+        raise RuntimeError(
+            "ArtiFixer recipe requires a checkpoint path. Set "
+            "``ARTIFIXER_DMD_CHECKPOINT_PATH`` to the merged DMD "
+            "safetensors produced by "
+            "``dreamfix/scripts/merge_dcp_to_safetensors.py``, or set "
+            "``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall back to "
+            "vanilla Wan 2.1 1.3B base weights."
+        )
     _CHECKPOINT_PATH = ARTIFIXER_DMD_CHECKPOINT_PATH
     _STATE_DICT_TRANSFORM = artifixer_dmd_state_dict_transform
 
@@ -145,7 +153,7 @@ RUNNER_ARTIFIXER_DMD_T2V_1PT3B = ArtifixerDmdT2VRunnerConfig(
     runner_name=PIPELINE_ARTIFIXER_DMD_T2V_1PT3B.recipe_name,
     description=(
         "ArtiFixer reconstruction-enhanced T2V (Wan 2.1 1.3B + opacity/camera/neighbor "
-        "extensions, 4-step DMD). Phase 1 scaffold: loads vanilla Wan base weights."
+        "extensions, 4-step DMD)."
     ),
     pipeline=PIPELINE_ARTIFIXER_DMD_T2V_1PT3B,
 )

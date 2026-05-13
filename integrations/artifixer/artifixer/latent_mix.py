@@ -25,7 +25,7 @@ per-AR-chunk mix::
 where ``opacity_lat`` is the per-pixel opacity max-pooled from the input
 resolution down to the VAE latent grid. The mix is the *only* place
 opacity influences the inference path before the network forward: the
-per-block ``opacity_embedding`` MLPs (Phase 2.1) feed the opacity into
+per-block ``opacity_embedding`` MLPs feed the opacity into
 attention through a separate channel.
 
 The helper is shape-checked and self-contained -- callers supply the noise

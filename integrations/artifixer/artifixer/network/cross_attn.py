@@ -29,9 +29,9 @@ diffusers ``WanAttention`` extension used in dreamfix
     branch)
 
 ``forward`` accepts optional ``neighbor_kv_cache`` + ``prope_src`` /
-``prope_tgt`` modules. When all three are ``None`` (Phase 1 text-only
-path), the call is identical to ``CrossAttention.forward``. Otherwise
-the neighbor branch runs::
+``prope_tgt`` modules. When all three are ``None`` (text-only path),
+the call is identical to ``CrossAttention.forward``. Otherwise the
+neighbor branch runs::
 
     q_pr = prope_src._apply_to_q(q)
     k_pr = prope_tgt._apply_to_kv(k_neighbor)
@@ -69,7 +69,7 @@ class ArtifixerCrossAttention(CrossAttention):
         # Parameter names match dreamfix (WanAttention.add_k_proj /
         # add_v_proj / norm_added_k) so loading a merged ArtiFixer DMD
         # checkpoint only needs the diffusers ``attn2 -> cross_attn``
-        # regex remap (added in Phase 5), not a per-key rename.
+        # regex remap, not a per-key rename.
         self.add_k_proj = nn.Linear(self.context_dim, self.inner_dim, bias=True)
         self.add_v_proj = nn.Linear(self.context_dim, self.inner_dim, bias=True)
         self.norm_added_k = nn.RMSNorm(self.inner_dim, eps=self.eps)
@@ -117,7 +117,7 @@ class ArtifixerCrossAttention(CrossAttention):
         """Build and store the static neighbor KV cache for this module.
 
         Call once per rollout. ``context=None`` clears the cache so the
-        forward path skips the neighbor branch (Phase 1 / 2 text-only).
+        forward path skips the neighbor branch (text-only mode).
         """
         self.neighbor_kv_cache = (
             None if context is None else self.compute_kv_neighbor(context)
