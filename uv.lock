@@ -16,6 +16,7 @@ members = [
     "flash-lingbot",
     "flashdreams",
     "flashdreams-causal-forcing",
+    "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
@@ -713,6 +714,28 @@ requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-cosmos-predict2"
+version = "0.1.0"
+source = { editable = "integrations/cosmos_predict2" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "mediapy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]

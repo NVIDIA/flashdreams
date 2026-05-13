@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.o
+*.a
+*.lib
+*.dll
+*.dylib
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Generated outputs
+_images/
+
+# Test data (large files)
+example_data/
+
+# CUDA compilation
+*.cubin
+*.fatbin
+*.ptx
+
+# Logs
+*.log
+_output/
+_tmp/
+notes/

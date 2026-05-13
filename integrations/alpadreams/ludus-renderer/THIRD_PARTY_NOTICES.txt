@@ -1,0 +1,19 @@
+Ludus Renderer - Third-Party Notices
+=====================================
+
+This project is distributed under the Apache License, Version 2.0
+(see the LICENSE file at the root of this repository).
+
+The Ludus Renderer source tree, as currently distributed in this branch,
+does not bundle or redistribute any third-party open source software.
+
+Third-party libraries that Ludus Renderer dynamically links against or
+depends on at install time (e.g. PyTorch, NumPy, Pandas, SciPy, PyArrow,
+Pillow, ImageIO, CUDA Toolkit runtime libraries, nvJPEG, EGL, ffmpeg)
+are obtained from their upstream distributions and remain governed by
+their own respective licenses. They are not redistributed here.
+
+If third-party source code is added to this tree in the future, the
+corresponding upstream license text and attribution will be recorded in
+this file and a copy of the upstream LICENSE file will be retained
+alongside the vendored sources.
