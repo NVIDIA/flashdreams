@@ -67,15 +67,20 @@ jobs:
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
       - name: Verify GPU availability
         run: |
           echo "Verifying GPU access..."
           nvidia-smi
 
-      - name: Run world model diffusion
+      - name: Run GPU unit tests
         run: |
-          echo "Running world model diffusion workloads..."
-          # Add your world model diffusion commands here
+          uv run --no-sync pytest -m ci_gpu --run-manual -v
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after lint passes.

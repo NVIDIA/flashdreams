@@ -200,8 +200,11 @@ _CUDA_REQUIRED = pytest.mark.skipif(
     reason="template recipe uses RingAttention which requires CUDA.",
 )
 
+_CI_GPU = pytest.mark.ci_gpu
+
 
 @_CUDA_REQUIRED
+@_CI_GPU
 @pytest.mark.parametrize("seed", [0, 42])
 def test_template_bidirectional(seed: int) -> None:
     """``TEMPLATE_OFFLINE`` runs a single AR step end-to-end."""
@@ -244,6 +247,7 @@ def test_template_bidirectional(seed: int) -> None:
 
 
 @_CUDA_REQUIRED
+@_CI_GPU
 def test_template_no_control() -> None:
     """Rollout with no encoder + ``input=None`` skips the control bias.
 
@@ -314,6 +318,7 @@ def test_template_no_control() -> None:
 
 
 @_CUDA_REQUIRED
+@_CI_GPU
 def test_template_streaming_cfg() -> None:
     """``TEMPLATE_AUTOREGRESSIVE`` runs multi-step AR with CFG on."""
     config = _with_cfg(_autoregressive(seed=0), guidance_scale=2.0)
@@ -356,6 +361,7 @@ def test_template_streaming_cfg() -> None:
 
 
 @_CUDA_REQUIRED
+@_CI_GPU
 def test_template_cfg_rejects_missing_negative_context() -> None:
     """CFG on without negative context must fail at cache build time."""
     config = _with_cfg(_autoregressive(seed=0), guidance_scale=2.0)
@@ -378,6 +384,7 @@ def test_template_cfg_rejects_missing_negative_context() -> None:
 
 
 @_CUDA_REQUIRED
+@_CI_GPU
 def test_template_latent_shape_respects_cp_size() -> None:
     """``latent_shape`` reflects the per-rollout, per-rank ``L`` partition.
 
@@ -427,6 +434,7 @@ def _with_cfg(
     not torch.cuda.is_available(),
     reason="torch.compile + CUDAGraphWrapper equivalence requires CUDA.",
 )
+@_CI_GPU
 def test_template_compile_and_cudagraph_equivalence() -> None:
     """Eager vs ``torch.compile`` + ``CUDAGraphWrapper`` agree numerically.
 
@@ -610,6 +618,7 @@ def _cp_one_predict_flow(
     return cat_outputs_cp(flow_local, seq_dim=1, cp_group=transformer._cp_group)
 
 
+@_CI_GPU
 def test_template_cp_equivalence() -> None:
     """Non-distributed vs ``cp_size=world_size`` produce the same global output.
 
