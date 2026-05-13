@@ -85,7 +85,10 @@ jobs:
 
       - name: Run GPU unit tests
         run: |
-          uv run --no-sync pytest -m ci_gpu -v
+          uv run --no-sync pytest -m ci_gpu -v \
+            --import-mode=importlib \
+            -c flashdreams/pyproject.toml \
+            flashdreams/tests/
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after lint passes.
