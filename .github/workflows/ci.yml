@@ -71,7 +71,12 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: |
+          # transformer-engine-torch is source-only and requires the CUDA
+          # toolkit (nvcc) to compile.  Skip it -- tests that need TE will
+          # gracefully skip via @_requires_te / skipif guards.
+          uv sync --extra dev \
+            --no-install-package transformer-engine-torch
 
       - name: Verify GPU availability
         run: |
