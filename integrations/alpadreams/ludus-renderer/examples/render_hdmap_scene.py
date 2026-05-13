@@ -70,9 +70,15 @@ def _get_gpu_decoder_flag(args):
 
 def _create_context(args, device):
     """Create the rendering context."""
-    from ludus_renderer.torch import LudusTimestampedContext
-    print("Render backend: OpenGL (GL_NV_mesh_shader)")
-    ctx = LudusTimestampedContext(device=device)
+    use_cuda = getattr(args, 'cuda', False)
+    if use_cuda:
+        from ludus_renderer.torch import LudusCudaTimestampedContext
+        print("Render backend: CUDA software rasterizer (CudaRaster)")
+        ctx = LudusCudaTimestampedContext(device=device)
+    else:
+        from ludus_renderer.torch import LudusTimestampedContext
+        print("Render backend: OpenGL (GL_NV_mesh_shader)")
+        ctx = LudusTimestampedContext(device=device)
     msaa = getattr(args, 'msaa', 0)
     if msaa > 0:
         ctx.set_msaa_samples(msaa)
@@ -983,6 +989,8 @@ def main():
                         help='MSAA sample count (0=disabled, 4=4x antialiasing)')
     parser.add_argument('--loader', type=str, default='gpu', choices=['gpu', 'cpu'],
                         help='Scene loader: gpu (GPU-native parquet, default) or cpu (PyArrow)')
+    parser.add_argument('--cuda', action='store_true',
+                        help='Use CUDA software rasterizer instead of OpenGL mesh shaders')
     
     args = parser.parse_args()
     

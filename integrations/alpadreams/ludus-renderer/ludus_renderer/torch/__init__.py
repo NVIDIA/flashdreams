@@ -25,40 +25,42 @@ This module re-exports the same symbols for backward compatibility:
 
 # Re-export from _ops for backward compatibility
 from .._ops import (
+    CAMERA_TYPE_BEV,
+    CAMERA_TYPE_REGULAR,
+    CUBE_FLAG_WIREFRAME,
+    PRIM_CROSSWALK,
+    PRIM_EGO_OBSTACLE,
+    PRIM_EGO_TRAJECTORY,
+    PRIM_LANE_LINE,
+    PRIM_OBSTACLE,
+    # Constants
+    PRIM_ROAD_BOUNDARY,
+    PRIM_STATIC_OBSTACLE,
+    PRIM_TYPE_COUNT,
+    CapStyle,
+    Cube,
+    CubePool,
+    FThetaCamera,
+    LudusCudaTimestampedContext,
     # Contexts
     LudusGLContext,
     LudusTimestampedContext,
-    ludus_render,
+    ObstaclePool,
+    Polygon,
     # Primitives
     Polyline,
-    Polygon,
-    Cube,
-    FThetaCamera,
-    CapStyle,
+    TimestampedPolygonPool,
     # Timestamped pools
     TimestampedPolylinePool,
-    TimestampedPolygonPool,
-    CubePool,
-    ObstaclePool,
     TimestampedScene,
-    # Constants
-    PRIM_ROAD_BOUNDARY,
-    PRIM_LANE_LINE,
-    PRIM_CROSSWALK,
-    PRIM_STATIC_OBSTACLE,
-    PRIM_EGO_TRAJECTORY,
-    PRIM_OBSTACLE,
-    PRIM_EGO_OBSTACLE,
-    PRIM_TYPE_COUNT,
-    CAMERA_TYPE_REGULAR,
-    CAMERA_TYPE_BEV,
-    CUBE_FLAG_WIREFRAME,
+    ludus_render,
 )
 
 __all__ = [
     # Core
     "LudusGLContext",
     "LudusTimestampedContext",
+    "LudusCudaTimestampedContext",
     "ludus_render",
     # Primitives
     "Polyline",

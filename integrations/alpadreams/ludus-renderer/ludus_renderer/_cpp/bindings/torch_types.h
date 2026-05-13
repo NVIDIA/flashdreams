@@ -14,12 +14,14 @@
 // limitations under the License.
 
 #include "torch_common.inl"
+#include <optional>
 
 //------------------------------------------------------------------------
 // Forward declarations.
 
 class LudusGLState;
 class LudusTimestampedState;
+struct LudusCudaState;
 
 //------------------------------------------------------------------------
 // Python Ludus GL state wrapper (mesh shader-based f-theta rendering).
@@ -50,10 +52,10 @@ public:
 
     void setContext             (void);
     void releaseContext         (void);
-    
+
     // Scene management
-    int uploadScene             (torch::Tensor scene_desc, 
-                                 torch::Tensor polyline_pools, 
+    int uploadScene             (torch::Tensor scene_desc,
+                                 torch::Tensor polyline_pools,
                                  torch::Tensor polygon_pools,
                                  torch::Tensor obstacle_pools,
                                  int max_obstacles_in_pool,
@@ -94,6 +96,59 @@ public:
     LudusTimestampedState*      pState;
     bool                        automatic;
     int                         cudaDeviceIdx;
+};
+
+//------------------------------------------------------------------------
+// Python Ludus CUDA state wrapper (fully CUDA-based rendering, no OpenGL).
+
+class LudusCudaStateWrapper
+{
+public:
+    LudusCudaStateWrapper       (int cudaDeviceIdx);
+    ~LudusCudaStateWrapper      (void);
+
+    void setLineWidths          (float polyline_regular, float polyline_bev,
+                                 float ego_traj_regular, float ego_traj_bev,
+                                 float wireframe);
+    void setResolutionScale     (float scale);
+    void setDepthScaling        (float enabled);
+    void setCullRadius          (float radius);
+    void setMaxTessellationLevels(int polyline, int polygon, int cube);
+    void uploadColorPalette     (torch::Tensor colors);
+    void setMsaaSamples         (int samples);
+
+    LudusCudaState*             pState;
+    int                         cudaDeviceIdx;
+};
+
+//------------------------------------------------------------------------
+// Python CudaRaster API test wrapper.
+
+class CudaRasterTestWrapper
+{
+public:
+    CudaRasterTestWrapper       (int cudaDeviceIdx);
+    ~CudaRasterTestWrapper      (void);
+
+    void setBufferSize          (int width, int height, int numImages);
+    void setViewport            (int width, int height, int offsetX, int offsetY);
+    void setRenderModeFlags     (unsigned int flags);
+    void deferredClear          (unsigned int clearColor);
+    void setVertexBuffer        (torch::Tensor vertices);
+    void setIndexBuffer         (torch::Tensor indices);
+    void setTiebreakerColorBuffer(torch::Tensor colors);
+    void setDeterministicTiebreaker(bool enable);
+    bool drawTriangles          (std::optional<torch::Tensor> ranges, bool peel);
+    void swapDepthAndPeel       (void);
+    torch::Tensor getColorBuffer(void);
+    torch::Tensor getDepthBuffer(void);
+    int getBufferWidth          (void) const;
+    int getBufferHeight         (void) const;
+    int getNumImages            (void) const;
+
+private:
+    class Impl;
+    Impl*                       m_impl;
 };
 
 //------------------------------------------------------------------------

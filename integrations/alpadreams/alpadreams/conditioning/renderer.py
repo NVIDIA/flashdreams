@@ -37,7 +37,7 @@ from ludus_renderer.render_utils import (
     SceneAdapter,
 )
 from ludus_renderer.torch import (
-    LudusTimestampedContext,
+    LudusCudaTimestampedContext,
 )
 from ludus_renderer.torch.ops import (
     CAMERA_TYPE_REGULAR,
@@ -116,8 +116,11 @@ class LudusRenderer:
             "FLU coordinate system is expected for LudusRenderer"
         )
 
-        # Create context
-        self.ctx = LudusTimestampedContext(device=self.device)
+        # Create context -- use the CUDA software rasterizer (no OpenGL/EGL
+        # dependency).  The GL backend (LudusTimestampedContext) requires an
+        # EGL stack and GL_NV_mesh_shader support; the CUDA backend works on
+        # any CUDA-capable GPU.
+        self.ctx = LudusCudaTimestampedContext(device=self.device)
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)
         self.ctx.set_max_tessellation_levels(cube=0)
@@ -234,7 +237,7 @@ class LudusRenderer:
 
     def cleanup(self) -> None:
         """Cleanup the renderer."""
-        # LudusTimestampedContext handles cleanup in its destructor
+        # LudusCudaTimestampedContext handles cleanup in its destructor
         pass
 
 

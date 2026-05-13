@@ -6,12 +6,12 @@ GPU-native F-theta mesh shader rendering for autonomous vehicle simulation.
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
 - **Mesh Shader Rendering**: High-performance GPU rendering using NVIDIA mesh shaders
+- **CUDA Software Rasterizer**: GL-free rendering backend — no OpenGL/EGL/display dependencies required
 - **Timestamped Rendering**: Efficient temporal queries for simulation playback
 - **Adaptive Tessellation**: Automatic subdivision based on distortion error
-- **MSAA**: 4x hardware antialiasing
-- **CUDA-GL Interop**: Direct GPU memory sharing between rendering and compute
+- **MSAA**: 4x antialiasing via hardware MSAA (GL) or 2x supersampling (CUDA)
 - **Mirror Augmentation**: Extend scenes by tiling reflected copies for longer driving sequences
-- **GPU Spatial Culling**: Per-element AABB/sphere culling in task shaders for large scenes
+- **GPU Spatial Culling**: Per-element AABB/sphere culling for large scenes
 
 ## Primitives
 
@@ -21,8 +21,15 @@ GPU-native F-theta mesh shader rendering for autonomous vehicle simulation.
 
 ## Requirements
 
+**GL backend:**
 - NVIDIA GPU with mesh shader support (Turing or later)
 - OpenGL 4.6 with EGL
+
+**CUDA backend:**
+- NVIDIA GPU (Turing or later)
+- No OpenGL/EGL/display dependencies
+
+**Common:**
 - CUDA 11+
 - Python 3.10+
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
@@ -42,8 +49,13 @@ Dependencies installed:
 ## Usage
 
 ```python
+# GL backend
 from ludus_renderer import LudusTimestampedContext
 ctx = LudusTimestampedContext(device="cuda")
+
+# CUDA backend (no GL required)
+from ludus_renderer import LudusCudaTimestampedContext
+ctx = LudusCudaTimestampedContext(device="cuda")
 ```
 
 ## Examples
@@ -68,11 +80,15 @@ uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --s
 # Render specific camera with JPEG output
 uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --camera camera:front:wide:120fov --output-format jpg
 
+# Use CUDA backend (no GL/EGL needed)
+uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --cuda
+
 # Enable 4x antialiasing
-uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --msaa 4
+uv run python examples/render_hdmap_scene.py --scene example_data/test_hdmap --sequence --cuda --msaa 4
 ```
 
 **Key options:**
+- `--cuda`: Use CUDA software rasterizer backend instead of OpenGL
 - `--msaa N`: MSAA sample count (`0` = disabled, `4` = 4x antialiasing)
 - `--camera NAME`: Render from a specific scene camera (use `--list-cameras` to see available)
 - `--all-cameras`: Render from all available cameras in the scene
@@ -142,23 +158,8 @@ uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --i
 uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --multicam
 ```
 
-## License
-
-This project is licensed under the Apache License, Version 2.0. See the
-[LICENSE](LICENSE) file for the full license text.
-
-## Contributing
+# Contributing
 
 Contributions are welcome, thank you. This project only accepts contributions under the
 Apache License, Version 2.0. All contributions must be signed off in accordance with the
 [Developer Certificate of Origin (DCO)](CONTRIBUTING).
-
-Sign off your commits by adding a `Signed-off-by` line to each commit message
-(`git commit -s`):
-
-```
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-Third-party attributions for any code bundled in this repository are listed in
-[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

@@ -1,19 +1,30 @@
-Ludus Renderer - Third-Party Notices
-=====================================
+This project includes third-party software:
 
-This project is distributed under the Apache License, Version 2.0
-(see the LICENSE file at the root of this repository).
+Name: cudaraster
+Source path: ludus_renderer/_cpp/cudaraster
+License: BSD-3-Clause-style
 
-The Ludus Renderer source tree, as currently distributed in this branch,
-does not bundle or redistribute any third-party open source software.
+Copyright (c) 2009-2026, NVIDIA Corporation
+All rights reserved.
 
-Third-party libraries that Ludus Renderer dynamically links against or
-depends on at install time (e.g. PyTorch, NumPy, Pandas, SciPy, PyArrow,
-Pillow, ImageIO, CUDA Toolkit runtime libraries, nvJPEG, EGL, ffmpeg)
-are obtained from their upstream distributions and remain governed by
-their own respective licenses. They are not redistributed here.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of NVIDIA Corporation nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
 
-If third-party source code is added to this tree in the future, the
-corresponding upstream license text and attribution will be recorded in
-this file and a copy of the upstream LICENSE file will be retained
-alongside the vendored sources.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
