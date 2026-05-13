@@ -85,7 +85,7 @@ jobs:
 
       - name: Run GPU unit tests
         run: |
-          uv run --no-sync pytest -m ci_gpu --include-manual -v
+          uv run --no-sync pytest -m ci_gpu -v
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after lint passes.
