@@ -43,12 +43,6 @@ dependencies = [
 
     "torch>=2.11",
     "torchvision>=0.22",
-    # transformer-engine has no Windows wheels (manylinux only). Gate it on
-    # Linux so `uv sync` works on Windows hosts; the FlashDreams Linux CI /
-    # NGC container path resolves it normally. The pure-PyTorch RoPE
-    # fallback in flashdreams/core/attention/rope.py keeps the runtime
-    # path Windows-clean.
-    "transformer-engine[pytorch,core-cu13]>=2.12; sys_platform != 'win32'",
     # ``torch.compile`` lowers conv/elementwise kernels through Inductor +
     # Triton. On Windows the upstream PyPI ``triton`` package is Linux-only,
     # so without ``triton-windows`` Inductor crashes deep inside its
@@ -73,6 +67,11 @@ dev = [
     "pytest>=8.0",
     "mediapy>=1.1",
     "pytest-manual-marker",
+    # Transformer Engine is the parity / perf reference for the
+    # in-house RoPE Triton kernel (see ``tests/test_rope_kernel.py``
+    # and ``tests/perf_rope.py``). No runtime code imports it; gate
+    # on Linux because there are no Windows wheels.
+    "transformer-engine[pytorch,core-cu13]>=2.12; sys_platform != 'win32'",
 ]
 # Legacy alias kept around so the lock file resolves identically to
 # main; the canonical extra is ``runners`` (same package set).

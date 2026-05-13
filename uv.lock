@@ -636,7 +636,6 @@ dependencies = [
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
     { name = "torchvision", version = "0.26.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
     { name = "tqdm" },
-    { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
     { name = "transformers" },
     { name = "triton-windows", marker = "sys_platform == 'win32'" },
     { name = "tyro" },
@@ -647,6 +646,7 @@ dev = [
     { name = "mediapy" },
     { name = "pytest" },
     { name = "pytest-manual-marker" },
+    { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
 ]
 examples = [
     { name = "mediapy" },
@@ -686,7 +686,7 @@ requires-dist = [
     { name = "torchvision", marker = "sys_platform == 'win32'", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.22", index = "https://download.pytorch.org/whl/cu130" },
     { name = "tqdm", specifier = ">=4.60" },
-    { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32'", specifier = ">=2.12" },
+    { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
     { name = "transformers", specifier = "==4.57.6" },
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
     { name = "tyro", specifier = ">=0.8" },

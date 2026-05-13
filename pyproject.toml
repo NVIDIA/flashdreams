@@ -79,8 +79,10 @@ exclude = [
 invalid-method-override = "ignore"
 
 [tool.ty.analysis]
-# These packages have no type stubs or are unavailable in CI; treat imports as Any
-replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**"]
+# These packages have no useful type stubs (Triton kernels rewrite their
+# call signatures via ``@triton.jit``) or are unavailable in CI; treat
+# imports as Any.
+replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**", "triton.**"]
 
 [dependency-groups]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]

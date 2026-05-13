@@ -26,66 +26,8 @@ from torch import Tensor
 from torch.distributed import ProcessGroup
 from torch.distributed.tensor.device_mesh import DeviceMesh
 
+from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
 from flashdreams.core.distributed.context_parallel import split_inputs_cp
-
-try:
-    from transformer_engine.pytorch.attention.rope import (
-        apply_rotary_pos_emb,  # type: ignore[import-untyped]
-    )
-except (ImportError, OSError):
-    try:
-        from transformer_engine.pytorch.attention import (
-            apply_rotary_pos_emb,  # type: ignore[import-untyped]
-        )
-    except (ImportError, OSError):
-        from loguru import logger
-
-        logger.info(
-            "transformer_engine is unavailable; using pure PyTorch RoPE fallback."
-        )
-
-        def _rotate_half(x: Tensor, interleaved: bool = False) -> Tensor:
-            if interleaved:
-                even = x[..., 0::2]
-                odd = x[..., 1::2]
-                return torch.stack((-odd, even), dim=-1).flatten(-2)
-
-            x1 = x[..., : x.shape[-1] // 2]
-            x2 = x[..., x.shape[-1] // 2 :]
-            return torch.cat((-x2, x1), dim=-1)
-
-        def _expand_freqs(freqs: Tensor, rotary_dim: int, interleaved: bool) -> Tensor:
-            if freqs.shape[-1] == rotary_dim:
-                return freqs
-            if freqs.shape[-1] * 2 == rotary_dim:
-                if interleaved:
-                    return freqs.repeat_interleave(2, dim=-1)
-                return torch.cat((freqs, freqs), dim=-1)
-            raise ValueError(
-                f"RoPE frequency width {freqs.shape[-1]} is incompatible with "
-                f"input rotary dimension {rotary_dim}."
-            )
-
-        def apply_rotary_pos_emb(
-            t: Tensor,
-            freqs: Tensor,
-            tensor_format: str = "bshd",
-            fused: bool = True,
-            interleaved: bool = False,
-        ) -> Tensor:
-            del fused
-            if tensor_format != "bshd":
-                raise NotImplementedError(
-                    "Pure PyTorch RoPE fallback currently supports tensor_format='bshd' only."
-                )
-
-            # TE consumes frequency tensors in [S, 1, 1, D] layout for bshd
-            # inputs. Move S behind B so it broadcasts over [B, S, H, D].
-            rope = _expand_freqs(freqs, t.shape[-1], interleaved).permute(1, 0, 2, 3)
-            cos = torch.cos(rope).to(dtype=t.dtype)
-            sin = torch.sin(rope).to(dtype=t.dtype)
-            return t * cos + _rotate_half(t, interleaved) * sin
-
 
 T = TypeVar("T")
 
@@ -271,15 +213,19 @@ class RotaryPositionEmbedding3D:
 
 
 def apply_rope_freqs(x: Tensor, freqs: Tensor, interleaved: bool = False) -> Tensor:
-    """Apply RoPE frequencies to the input tensor.
+    """Apply RoPE frequencies to ``x`` in place via the fused Triton kernel.
+
+    Writes back in place because every call site passes a freshly
+    materialised Q or K — there is no autograd graph to preserve.
 
     Args:
-        x: Input tensor of shape ``[B, S, H, D]``.
-        freqs: RoPE frequencies of shape ``[S, 1, 1, D // 2]``.
+        x: Input tensor of shape ``[B, S, H, D]``; rotated in place.
+        freqs: RoPE frequencies of shape ``[S, 1, 1, D]`` as emitted by
+            :meth:`RotaryPositionEmbedding3D.shift_t`.
+        interleaved: If ``True``, rotate the pair ``(2k, 2k+1)``; else
+            rotate ``(d, d + D/2)``.
 
     Returns:
-        Output tensor of shape ``[B, S, H, D]``.
+        Rotated tensor of shape ``[B, S, H, D]``, sharing storage with ``x``.
     """
-    return apply_rotary_pos_emb(
-        x, freqs, tensor_format="bshd", fused=True, interleaved=interleaved
-    )
+    return apply_rotary_pos_emb(x, freqs, interleaved=interleaved, inplace=True)
