@@ -42,6 +42,12 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
+      - id: sync-version
+        name: sync package versions
+        entry: uv run .github/scripts/sync_version.py
+        language: system
+        files: '(pyproject\.toml|_version\.py)$'
+        pass_filenames: false
       - id: ty
         name: ty type check
         entry: ty check

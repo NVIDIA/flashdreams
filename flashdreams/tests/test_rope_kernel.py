@@ -58,6 +58,10 @@ _requires_te = pytest.mark.skipif(
     not _TE_AVAILABLE, reason="transformer_engine not available"
 )
 
+# All tests in this module require CUDA; the cuda_device fixture skips
+# if unavailable.  ci_gpu opts them into the GPU CI runner.
+pytestmark = pytest.mark.ci_gpu
+
 
 def _te_reference(x: Tensor, freqs: Tensor, interleaved: bool) -> Tensor:
     """Run TE's fused RoPE for use as the parity / perf reference."""

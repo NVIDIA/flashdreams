@@ -19,9 +19,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams"
-version = "0.1.0"
-description = "Flash video simulation pipeline"
-readme = "README.md"
+dynamic = ["version"]
+description = "High-performance streaming video diffusion framework with pluggable model backends"
+readme = "PYPI_README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "boto3>=1.35",
@@ -62,6 +63,11 @@ dependencies = [
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
 
+[project.urls]
+Homepage = "https://github.com/NVIDIA/flashdreams"
+Repository = "https://github.com/NVIDIA/flashdreams"
+"Bug Tracker" = "https://github.com/NVIDIA/flashdreams/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -89,6 +95,12 @@ runners = [
     "opencv-python-headless",
     "scipy>=1.11",
 ]
+
+[tool.setuptools.dynamic]
+# Resolve version from _version.py (not __init__.py) so setuptools never
+# imports the full package at build time -- avoids triggering transitive
+# imports of heavy dependencies like torch / transformer-engine.
+version = {attr = "flashdreams._version.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["flashdreams*"]
@@ -118,5 +130,6 @@ torchvision = [
 addopts = "--import-mode=importlib"
 markers = [
     "manual: requires GPU and/or network access (opt-in only)",
+    "ci_gpu: GPU test safe to run in CI on RTX Pro 6000 runners",
     "slow: long-running test",
 ]

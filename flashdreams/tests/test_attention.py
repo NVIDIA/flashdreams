@@ -22,6 +22,7 @@ Multi-GPU test can be run with:
 
 import os
 
+import pytest
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
@@ -30,6 +31,7 @@ from torch.distributed.tensor import Shard, distribute_tensor
 from flashdreams.core.attention import NativeAttention, RingAttention
 
 
+@pytest.mark.ci_gpu
 def test_attention():
     # Run multi gpu test with
     # PYTHONPATH=. torchrun --nproc_per_node=2 -m pytest ...
