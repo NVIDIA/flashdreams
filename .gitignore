@@ -124,6 +124,7 @@ compile_commands.json
 outputs/
 data_local/
 credentials/*.secret
+slurm-logs/
 
 CLAUDE.md
 AGENTS.md
