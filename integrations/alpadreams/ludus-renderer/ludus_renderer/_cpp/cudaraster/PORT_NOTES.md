@@ -124,9 +124,10 @@ We support partial-viewport draws (offset within the framebuffer), so
 `CRParams::surfaceOffsetX/Y` are added in at every tile-load and tile-write
 in `fineRasterImpl_SingleSample` (and the dead MSAA path for consistency).
 
-`crClearSurfaces` was extended to take `offsetX`/`offsetY` so the host-side
-clear can target only the active viewport rect rather than the entire
-backing surface — necessary because multi-image renders share one surface.
+`crClearSurfaces` accepts `offsetX`/`offsetY`, but the active deferred-clear
+path clears the whole backing surface (`m_width` by `m_height * m_numImages`)
+at offset `(0, 0)`. Viewport offsets only bias rasterizer writes. That keeps
+multi-tile draws from inheriting stale pixels outside the first tile.
 
 ### Multi-image / sub-range draws
 
@@ -182,6 +183,91 @@ short-circuits the 32-lane `__shfl_sync` scan in the typical
 one-fragment-per-pixel case, which is the dominant pattern under
 production fragment distributions.
 
+## `__activemask()` Audit (Reviewer #4)
+
+The current port still uses `__activemask()` as the mask argument to several
+Volta+ `_sync` intrinsics. `__activemask()` is a scheduler snapshot: it says
+which lanes happen to be co-issued at that instruction, not which lanes the
+algorithm intends to participate. It avoids referencing inactive lanes, but it
+can make divergent-loop behavior depend on scheduler timing.
+
+Future cleanup should use one of these patterns at every `_sync` intrinsic:
+
+1. Full-warp convergence asserted by control flow: use `0xFFFFFFFFu`, with a
+   comment naming the convergence point.
+2. Predicate-derived participation: compute
+   `unsigned mask = __ballot_sync(0xFFFFFFFFu, hasWork)` at a converged point,
+   then use `mask` for later `_sync` calls inside the `hasWork` path.
+3. Loop-arrival mask: derive the mask before entering a divergent loop, then
+   either re-converge with `__syncwarp(mask)` inside the body or use atomics
+   when subgroups may arrive separately.
+
+Checklist for the audit:
+
+- `BinRaster.inl`: per-warp prefix-sum scan sites around the 113/117 block are
+  pattern 1 candidates.
+- `BinRaster.inl`: sites around 221, 233, 241, 246, 258, 266, 321, and 346 are
+  predicate-derived-work candidates and should be classified under pattern 2
+  before changing masks.
+- `CoarseRaster.inl`: sites around 308, 339, 400, and 496 are pattern 1
+  candidates if the surrounding `__syncthreads()` still proves full-warp
+  convergence.
+- `CoarseRaster.inl`: the Case B inner-loop ballot around 411 is a pattern 3
+  site. The current atomic write combines partial subgroups, but the mask
+  should still come from algorithmic loop-arrival intent.
+- `CoarseRaster.inl`: sites around 785 and 820 should be classified during the
+  same audit; both currently inherit `__activemask()` behavior from upstream
+  scan/write helpers.
+- `FineRaster.inl`: sites around 178, 514, 866, and 869 are pattern 1
+  candidates if their scopes remain converged.
+- `FineRaster.inl`: ROP-path sites around 657, 688, 1006, and 1037 are
+  predicate-derived-work candidates.
+- `FineRaster.inl`: sites around 714, 745, 936, 939, 1076, and 1107 should be
+  classified with the same ROP/scan mask audit.
+- `FineRaster.inl`: `executeROP_SingleSample` now also uses
+  `U32 activeMask = __activemask()` and derives `__match_any_sync` /
+  `__ballot_sync` masks from it. Audit those together with the ROP sites.
+- `Util.hpp`: delete `singleLane()` or replace it with a helper that accepts an
+  explicit participation mask. "Single lane" is only meaningful relative to a
+  known group of participating lanes.
+
+## Depth Peeling Not Implemented
+
+The public API still exposes depth-peeling controls, but the active GL-free
+draw path does not implement depth peeling end-to-end:
+
+- `setRenderModeFlags(RenderModeFlag_EnableDepthPeeling)` records the flag on
+  the host, but `CudaRasterKernels.cu` instantiates only the default pipe with
+  `FW::RenderModeFlag_EnableDepth`. The runtime flag bit never reaches a
+  depth-peeling kernel.
+- `drawTriangles(..., peel=true, ...)` stores `m_peelEnabled`; the active
+  launch path does not use it to select a different pipe or surface.
+- `swapDepthAndPeel()` swaps only the linear readback pointers. It does not
+  swap `m_depthSurfaceObj`, `m_depthArray`, or `m_peelArray`.
+- No active kernel writes to `m_peelArray`.
+
+A complete future implementation needs at least a depth-peel pipe
+instantiation, host-side selection of the peel pipe when `peel=true`,
+surface-object/array ownership that makes `swapDepthAndPeel()` meaningful, and
+ROP writes that populate the peel buffer. The positive-contract
+`test_depth_peeling_*` tests stay `xfail(strict=True)`, and their paired
+`*_currently_crashes_with_cuda700` markers stay plain tests until the failure
+mode changes.
+
+## Multi-Image Without Ranges
+
+The active multi-image contract is range-driven. When `ranges != nullptr`,
+`CudaRaster::drawTriangles` launches once per image and shifts each launch by
+`imageIdx * m_height` in `surfaceOffsetY`.
+
+When `ranges == nullptr`, the active path launches once and renders image 0
+only. That matches the pinned
+`test_multi_image_regression_second_image_remains_empty_for_single_draw`
+behavior. A future all-images-without-ranges contract should choose one of
+these semantics explicitly: replicate image 0 to every image, clear every image
+but render only image 0, or reject `numImages > 1 && ranges == nullptr` with a
+clear error.
+
 ### Dead paths still in the source
 
 Two upstream code paths are unreachable in this build but kept verbatim:
@@ -216,11 +302,12 @@ handle the irrecoverable overflow without crashing the process.
 Each item below has an in-code `TODO(port)` cross-reference.
 
 - `TODO(port): peel` - Depth peeling is not wired through the active draw path.
-  The `peel` argument currently records `m_peelEnabled` but does not affect the
-  launched kernels. The positive-contract `test_depth_peeling_*` tests stay
-  `xfail(strict=True)` so a future port shows up as an xpass; their paired
-  `*_currently_crashes_with_cuda700` markers stay as plain tests until the
-  failure mode actually changes.
+  See "Depth Peeling Not Implemented" above.
+- `TODO(port): activemask` - `_sync` intrinsic masks still need a site-by-site
+  audit. See "`__activemask()` Audit (Reviewer #4)" above.
+- `TODO(port): multi-image-without-ranges` - multi-image draws are range-driven;
+  without `ranges`, only image 0 is rendered. See "Multi-Image Without Ranges"
+  above.
 - `TODO(port): profiling` - Upstream `getStats()` and `getProfilingInfo()`
   still exist in the legacy host code, including CUevent-based per-stage timing
   and profile-counter readback, but they are not exposed through the active API.

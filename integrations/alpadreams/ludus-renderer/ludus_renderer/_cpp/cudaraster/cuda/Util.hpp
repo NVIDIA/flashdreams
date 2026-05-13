@@ -91,6 +91,7 @@ __device__ __inline__ U32   getLaneMaskLe           (void)                  { U3
 __device__ __inline__ U32   getLaneMaskGt           (void)                  { U32 r; asm("mov.u32 %0, %lanemask_gt;" : "=r"(r)); return r; }
 __device__ __inline__ U32   getLaneMaskGe           (void)                  { U32 r; asm("mov.u32 %0, %lanemask_ge;" : "=r"(r)); return r; }
 __device__ __inline__ int   findLeadingOne          (U32 v)                 { U32 r; asm("bfind.u32 %0, %1;" : "=r"(r) : "r"(v)); return r; }
+// PORT_NOTES.md: activemask audit tracks this helper for removal.
 __device__ __inline__ bool  singleLane              (void)                  { return ((__ballot_sync(__activemask(), true) & getLaneMaskLt()) == 0); }
 
 __device__ __inline__ void  add_add_carry           (U32& rlo, U32 alo, U32 blo, U32& rhi, U32 ahi, U32 bhi) { U64 r = combineLoHi(alo, ahi) + combineLoHi(blo, bhi); rlo = getLo(r); rhi = getHi(r); }

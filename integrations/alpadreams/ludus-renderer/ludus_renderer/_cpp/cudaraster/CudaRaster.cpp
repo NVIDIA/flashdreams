@@ -307,26 +307,13 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
     m_samplesLog2 = 0;
     m_numSamples = 1;
 
-    // Clear the target viewport surfaces if deferred clear is pending
+    // Clear the whole backing surface before viewport-scoped draws.
     if (m_deferredClear && m_colorSurfaceObj && m_depthSurfaceObj)
     {
-        if (m_ranges)
-        {
-            for (int imageIdx = 0; imageIdx < m_numImages; ++imageIdx)
-            {
-                crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
-                                vpWidth, vpHeight,
-                                m_viewportOffsetX, m_viewportOffsetY + imageIdx * m_height,
-                                m_clearColor, m_clearDepth, stream);
-            }
-        }
-        else
-        {
-            crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
-                            vpWidth, vpHeight,
-                            m_viewportOffsetX, m_viewportOffsetY,
-                            m_clearColor, m_clearDepth, stream);
-        }
+        crClearSurfaces(m_colorSurfaceObj, m_depthSurfaceObj,
+                        m_width, m_height * m_numImages,
+                        0, 0,
+                        m_clearColor, m_clearDepth, stream);
         // Reset the deterministic-tiebreaker triangle-index buffer to -1
         // (no resident fragment) for every cell. The kernel's pre-ROP zkill
         // path reads this value, so it must be in a known state at the start
@@ -547,6 +534,7 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
         }
         else
         {
+            // PORT_NOTES.md: multi-image draws without ranges intentionally render image 0 only.
             if (!launchRange(0, m_numTris, 0))
                 return false;
         }
@@ -569,6 +557,7 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
 
 void CudaRaster::swapDepthAndPeel(void)
 {
+    // PORT_NOTES.md: depth peeling is not wired through the active rasterizer path.
     uint32_t* tmp = m_depthBufferRaw;
     m_depthBufferRaw = m_peelBufferRaw;
     m_peelBufferRaw = tmp;

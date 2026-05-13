@@ -45,6 +45,7 @@ public:
 
 }
 
+// PORT_NOTES.md: depth peeling needs a separate pipe instantiation before this flag can work.
 // Pixel pipe using only ShadedVertexBase (4 floats) and outputting triangle IDs
 CR_DEFINE_PIXEL_PIPE(
     crDefaultPipe,
