@@ -108,7 +108,7 @@ def test_entry_points_discoverable_when_installed() -> None:
     )
 
 
-def test_artifixer_hyperparams_match_dreamfix_stage3() -> None:
+def test_artifixer_hyperparams_match_reference_stage3() -> None:
     """Sanity check: AR/scheduler knobs match the stage-3 DMD training config."""
     cfg = _runner_configs()["artifixer-dmd-wan2.1-t2v-1.3b"]
     tcfg = cfg.pipeline.diffusion_model.transformer
@@ -143,7 +143,7 @@ def test_artifixer_block_has_opacity_and_camera_mlps() -> None:
     assert block.camera_embedding.weight.shape == (1536, camera_dim)
 
     # Zero-init contract: the wrapped block is a no-op extension of base
-    # Wan behavior. Same invariant as dreamfix transformer.py L637-651.
+    # Wan behavior. Same invariant as the ArtiFixer reference.
     assert torch.all(block.opacity_embedding.weight == 0)
     assert torch.all(block.opacity_embedding.bias == 0)
     assert torch.all(block.camera_embedding.weight == 0)
@@ -229,8 +229,8 @@ def test_artifixer_block_has_neighbor_cross_attn_projections() -> None:
         assert param.shape == expected_shape, f"cross_attn.{name} shape {param.shape}"
 
     # Zero-init contract: add_v_proj is the gate that keeps the neighbor
-    # branch contribution zero at load time, matching dreamfix
-    # transformer.py L687-688.
+    # branch contribution zero at load time, matching the ArtiFixer
+    # reference.
     assert torch.all(block.cross_attn.add_v_proj.weight == 0)
     assert torch.all(block.cross_attn.add_v_proj.bias == 0)
 

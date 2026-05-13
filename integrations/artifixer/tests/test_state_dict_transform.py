@@ -15,11 +15,13 @@
 
 """Key-naming tests for the merged-DMD state_dict transform.
 
-CPU-only; uses the ``param_audit.json`` produced by
-``dreamfix/scripts/dump_artifixer_param_names.py`` to assert that
+CPU-only; uses a ``param_audit.json`` listing every key in the merged
+ArtiFixer DMD safetensors to assert that
 :func:`artifixer_dmd_state_dict_transform` rewrites the merged
 diffusers-format keys into names that we expect to find on the
-flashdreams ``ArtifixerDiTNetwork.state_dict()``.
+flashdreams ``ArtifixerDiTNetwork.state_dict()``. Provide the audit
+JSON path via ``ARTIFIXER_PARAM_AUDIT_PATH``; the test is skipped if
+unset.
 
 These tests do *not* load the actual safetensors. They synthesize the
 expected key set from the audit JSON and run it through the transform.
@@ -52,14 +54,14 @@ def _load_audit() -> dict[str, dict]:
     if audit_path is None:
         pytest.skip(
             "ARTIFIXER_PARAM_AUDIT_PATH is unset. Point it at the "
-            "param_audit.json produced by "
-            "``dreamfix/scripts/dump_artifixer_param_names.py`` to "
-            "exercise the full-merged-checkpoint path."
+            "param_audit.json listing every key in the merged "
+            "ArtiFixer DMD safetensors to exercise the full-merged-"
+            "checkpoint path."
         )
     if not audit_path.exists():
         pytest.skip(
-            f"param audit JSON not found at {audit_path}; run "
-            f"dreamfix/scripts/dump_artifixer_param_names.py first"
+            f"param audit JSON not found at {audit_path}; generate it "
+            f"from the merged ArtiFixer DMD safetensors first."
         )
     return json.loads(audit_path.read_text())
 
@@ -110,8 +112,8 @@ def test_transform_preserves_opacity_and_camera_keys_unchanged() -> None:
     """ArtiFixer-only keys without ``attn2`` prefix pass through unchanged.
 
     ``opacity_embedding`` and ``camera_embedding`` are registered directly
-    on :class:`ArtifixerBlock` (no nested wrapper), so their dreamfix names
-    match the flashdreams names verbatim.
+    on :class:`ArtifixerBlock` (no nested wrapper), so their reference
+    names match the flashdreams names verbatim.
     """
     sd = {
         "blocks.0.opacity_embedding.weight": torch.zeros(1536, 1024),

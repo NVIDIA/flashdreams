@@ -23,12 +23,12 @@
 
 """PRoPE attention with precomputed RoPE coefficients.
 
-Verbatim port of dreamfix ``model_training/net/prope.py`` (matching paper
-"Cameras as Relative Positional Encoding", arXiv 2507.10496). The math is
-unchanged; the only difference is that ``invert_SE3`` is inlined here so
-this module is self-contained.
+Port of the ArtiFixer reference's PRoPE attention module, matching the
+paper "Cameras as Relative Positional Encoding" (arXiv 2507.10496). The
+math is unchanged; the only difference vs the reference is that
+``invert_SE3`` is inlined here so this module is self-contained.
 
-Usage for cross-attention follows the upstream docstring::
+Usage for cross-attention::
 
     attn_src = PropeDotProductAttention(...)
     attn_tgt = PropeDotProductAttention(...)
@@ -40,7 +40,7 @@ Usage for cross-attention follows the upstream docstring::
     o_src = F.scaled_dot_product_attention(q_src, k_tgt, v_tgt, **kwargs)
     o_src = attn_src._apply_to_o(o_src)
 
-A numerical-parity unit test against the dreamfix reference lives at
+A numerical-parity unit test against the ArtiFixer reference lives at
 ``integrations/artifixer/tests/test_prope_parity.py``.
 """
 
@@ -295,8 +295,8 @@ def _invert_K(Ks: torch.Tensor) -> torch.Tensor:
 def _invert_SE3(transforms: torch.Tensor) -> torch.Tensor:
     """Invert a 4x4 SE(3) matrix.
 
-    Mirrors ``dreamfix/model_training/utils/pose_utils.invert_SE3`` so this
-    module has no cross-repo dependencies.
+    Inlined from the reference's ``pose_utils.invert_SE3`` so this module
+    has no cross-repo dependencies.
     """
     assert transforms.shape[-2:] == (4, 4)
     Rinv = transforms[..., :3, :3].transpose(-1, -2)

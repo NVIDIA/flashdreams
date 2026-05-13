@@ -17,9 +17,7 @@
 
 Adds a third KV pathway (parallel to text and optional I2V image) for
 attending over VAE-encoded neighbor frames. Module naming mirrors the
-diffusers ``WanAttention`` extension used in dreamfix
-(``model_training/net/transformer.py`` L670-L699 + the
-``ArtifixerCrossAttnProcessor`` at L833-L940 that drives the forward):
+diffusers ``WanAttention`` extension in the ArtiFixer reference:
 
   - ``add_k_proj`` / ``add_v_proj`` — Linear projections from latent
     neighbor context to K / V
@@ -40,8 +38,8 @@ neighbor branch runs::
     out  = out_text [+ out_img]  + (0 if ignore_neighbors else 1) * o_n
 
 PRoPE math runs at fp32 with a ``.float() / .to(query.dtype)`` round
-trip (matching dreamfix L893-L916), since
-``_rope_precompute_coeffs`` does an int64 -> fp32 promotion internally.
+trip (matching the reference), since ``_rope_precompute_coeffs`` does
+an int64 -> fp32 promotion internally.
 """
 
 from __future__ import annotations
@@ -66,19 +64,19 @@ class ArtifixerCrossAttention(CrossAttention):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        # Parameter names match dreamfix (WanAttention.add_k_proj /
-        # add_v_proj / norm_added_k) so loading a merged ArtiFixer DMD
-        # checkpoint only needs the diffusers ``attn2 -> cross_attn``
-        # regex remap, not a per-key rename.
+        # Parameter names match the ArtiFixer reference's WanAttention
+        # (``add_k_proj`` / ``add_v_proj`` / ``norm_added_k``) so loading
+        # a merged ArtiFixer DMD checkpoint only needs the diffusers
+        # ``attn2 -> cross_attn`` regex remap, not a per-key rename.
         self.add_k_proj = nn.Linear(self.context_dim, self.inner_dim, bias=True)
         self.add_v_proj = nn.Linear(self.context_dim, self.inner_dim, bias=True)
         self.norm_added_k = nn.RMSNorm(self.inner_dim, eps=self.eps)
 
-        # Zero-init add_v_proj only (matches dreamfix transformer.py
-        # L687-L688). Because attention is softmax(Q K^T) @ V, V=0 forces
-        # the neighbor branch contribution to zero at load time even if
-        # add_k_proj is non-zero, so the wrapped block is a no-op
-        # extension of base Wan behavior.
+        # Zero-init add_v_proj only (matches the ArtiFixer reference).
+        # Because attention is softmax(Q K^T) @ V, V=0 forces the neighbor
+        # branch contribution to zero at load time even if add_k_proj is
+        # non-zero, so the wrapped block is a no-op extension of base Wan
+        # behavior.
         nn.init.zeros_(self.add_v_proj.weight)
         nn.init.zeros_(self.add_v_proj.bias)
 
@@ -148,8 +146,8 @@ class ArtifixerCrossAttention(CrossAttention):
             prope_tgt: PRoPE module for the neighbor cameras (transforms
                 k, v on read).
             ignore_neighbors: If ``True``, zero out the neighbor contribution.
-                Matches the diffusion-forcing CFG dropout knob in dreamfix
-                (transformer.py L936).
+                Matches the diffusion-forcing CFG dropout knob in the
+                ArtiFixer reference.
         """
         neighbor_kv_cache = self.neighbor_kv_cache
         batch_shape = x.shape[:-2]
@@ -177,8 +175,8 @@ class ArtifixerCrossAttention(CrossAttention):
             q_dtype = q.dtype
 
             # PRoPE expects (B, H, L, D); attn ops use (B, L, H, D) (bshd).
-            # Run PRoPE math at fp32 with a dtype round-trip to mirror
-            # dreamfix transformer.py L893-L916.
+            # Run PRoPE math at fp32 with a dtype round-trip to mirror the
+            # ArtiFixer reference.
             q_pr = (
                 prope_src._apply_to_q(q.transpose(1, 2).float())
                 .transpose(1, 2)

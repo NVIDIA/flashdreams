@@ -15,10 +15,9 @@
 
 """Opacity-weighted latent mixing of noise + VAE-encoded reconstruction.
 
-Mirrors ``ArtifixerPipelineBase.prepare_latents`` at
-``dreamfix/model_training/pipeline/pipeline_base.py`` L98-L122. The pipeline
-replaces the base ``DiffusionModel.generate`` initial-noise sample with a
-per-AR-chunk mix::
+Mirrors the ArtiFixer reference's ``ArtifixerPipelineBase.prepare_latents``.
+The pipeline replaces the base ``DiffusionModel.generate`` initial-noise
+sample with a per-AR-chunk mix::
 
     latents = condition * opacity_lat + noise * (1 - opacity_lat)
 
@@ -47,7 +46,7 @@ def opacity_weighted_latent_mix(
     vae_scale_factor_spatial: int,
     is_first_chunk: bool,
 ) -> Tensor:
-    """Compute the dreamfix opacity-weighted latent mix for one AR chunk.
+    """Compute the ArtiFixer opacity-weighted latent mix for one AR chunk.
 
     Args:
         condition: VAE-encoded reconstruction-rendered RGB, shape
@@ -62,7 +61,7 @@ def opacity_weighted_latent_mix(
             by 3 copies to absorb the Wan VAE's ``1 + 4`` temporal layout
             (one latent frame covers one input frame on the boundary, every
             other latent frame covers four). Mirrors the
-            ``is_first_chunk`` branch in dreamfix.
+            ``is_first_chunk`` branch in the ArtiFixer reference.
 
     Returns:
         Mixed latent, same shape as ``condition``.

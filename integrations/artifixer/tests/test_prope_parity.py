@@ -16,19 +16,21 @@
 """Numerical parity test for the ported PRoPE attention module.
 
 Compares :class:`artifixer.network.prope.PropeDotProductAttention` against
-the dreamfix reference at ``model_training/net/prope.py``. When dreamfix is
-not importable (the CI image only ships flashdreams), the test is split:
+the ArtiFixer reference's ``model_training/net/prope.py``. When the
+reference is not importable (CI images typically only ship flashdreams),
+the test is split:
 
   * ``test_prope_internal_consistency`` runs against an inline copy of the
     upstream math — i.e. tests that ``apply_to_o(apply_to_q(q) ...)`` round
     trips correctly for the identity camera case. Always runs.
 
-  * ``test_prope_matches_dreamfix_reference`` is skipped unless
-    ``model_training.net.prope`` can be imported (set
-    ``DREAMFIX_REPO_ROOT`` to its repo root to enable).
+  * ``test_prope_matches_reference`` is skipped unless
+    ``model_training.net.prope`` from the ArtiFixer reference is on
+    ``sys.path``. Set ``ARTIFIXER_REFERENCE_REPO_ROOT`` to its checkout
+    root to enable.
 
 The intent is to catch any regression in the verbatim port the moment a
-GPU + dreamfix env is available, while still exercising the math today.
+GPU + reference env is available, while still exercising the math today.
 """
 
 from __future__ import annotations
@@ -49,11 +51,12 @@ def _deterministic_torch() -> None:
 
     Note: PRoPE's ``_rope_precompute_coeffs`` performs an implicit int64->fp32
     promotion (``torch.arange(...) / num_freqs``), so the RoPE coefficients
-    are always at fp32 precision regardless of the input dtype. The dreamfix
-    reference has the same property. Tests therefore run at fp32 with fp32-
-    appropriate tolerances rather than fp64. dreamfix's ``_lift_K`` also
-    hard-codes float32 output (no ``dtype=`` in ``torch.zeros``), so any
-    cross-implementation comparison must use fp32 inputs.
+    are always at fp32 precision regardless of the input dtype. The
+    reference has the same property. Tests therefore run at fp32 with
+    fp32-appropriate tolerances rather than fp64. The reference's
+    ``_lift_K`` also hard-codes float32 output (no ``dtype=`` in
+    ``torch.zeros``), so any cross-implementation comparison must use
+    fp32 inputs.
     """
     torch.manual_seed(0)
 
@@ -143,9 +146,9 @@ def test_prope_apply_to_q_changes_input_for_nontrivial_cameras() -> None:
     assert diff > 1e-3, f"expected non-trivial PRoPE transform, got max abs diff {diff}"
 
 
-def _try_import_dreamfix_reference() -> object | None:
-    """Return dreamfix's PropeDotProductAttention if importable."""
-    repo_root = os.environ.get("DREAMFIX_REPO_ROOT")
+def _try_import_reference() -> object | None:
+    """Return the ArtiFixer reference's PropeDotProductAttention if importable."""
+    repo_root = os.environ.get("ARTIFIXER_REFERENCE_REPO_ROOT")
     if repo_root and Path(repo_root).is_dir() and repo_root not in sys.path:
         sys.path.insert(0, repo_root)
     try:
@@ -156,25 +159,25 @@ def _try_import_dreamfix_reference() -> object | None:
 
 
 @pytest.mark.skipif(
-    _try_import_dreamfix_reference() is None,
+    _try_import_reference() is None,
     reason=(
-        "dreamfix not importable. Set DREAMFIX_REPO_ROOT to the dreamfix "
-        "checkout, or run from an env that already has it on sys.path."
+        "ArtiFixer reference not importable. Set "
+        "ARTIFIXER_REFERENCE_REPO_ROOT to the reference checkout, or run "
+        "from an env that already has it on sys.path."
     ),
 )
-def test_prope_matches_dreamfix_reference() -> None:
-    """Numerical parity vs dreamfix at fp32.
+def test_prope_matches_reference() -> None:
+    """Numerical parity vs the ArtiFixer reference at fp32.
 
     Asserts ``apply_to_q``, ``apply_to_kv``, ``apply_to_o`` produce
     bit-identical outputs to the reference within fp32 round-off.
 
-    Inputs are fp32 because dreamfix's ``_lift_K`` hard-codes float32
+    Inputs are fp32 because the reference's ``_lift_K`` hard-codes float32
     output (no ``dtype=`` in ``torch.zeros``), so feeding fp64 viewmats
-    crashes its einsum. Our port carries the dreamfix dtype bug fix
-    (passes ``dtype=Ks.dtype``), making it slightly more dtype-robust;
-    at fp32 the two are bit-identical.
+    crashes its einsum. Our port passes ``dtype=Ks.dtype``, making it
+    slightly more dtype-robust; at fp32 the two are bit-identical.
     """
-    RefPRoPE = _try_import_dreamfix_reference()
+    RefPRoPE = _try_import_reference()
     assert RefPRoPE is not None
 
     inp = _build_inputs()

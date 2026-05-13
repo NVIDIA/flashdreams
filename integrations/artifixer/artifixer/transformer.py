@@ -71,14 +71,14 @@ class ArtifixerCtrl:
     ``[*batch_shape, L, camera_embedding_dim]``."""
 
     ignore_neighbors: bool = False
-    """Diffusion-forcing CFG-dropout knob (matches dreamfix L936). Inference
-    leaves this ``False``; training-time DMD distillation may toggle it."""
+    """Diffusion-forcing CFG-dropout knob. Inference leaves this ``False``;
+    training-time DMD distillation may toggle it."""
 
     _is_patchified: bool = True
     """Sentinel for ``Wan21Transformer.patchify_and_maybe_split_cp``:
     ``opacity_extra`` and ``camera_extra`` arrive already patchified, so the
     pipeline-level ``patchify_and_maybe_split_cp(input)`` dispatch in
-    ``DiffusionModel.generate`` (base.py L163-164) is a no-op for us."""
+    ``DiffusionModel.generate`` is a no-op for us."""
 
 
 @dataclass(kw_only=True)
@@ -114,7 +114,7 @@ class ArtifixerWanTransformer(Wan21Transformer):
             freq_scale=config.prope_freq_scale,
         )
 
-        # Match the dreamfix dtype convention.
+        # Match the configured transformer dtype.
         self.prope_cross_attn_src = self.prope_cross_attn_src.to(dtype=config.dtype)
         self.prope_cross_attn_tgt = self.prope_cross_attn_tgt.to(dtype=config.dtype)
 
@@ -133,9 +133,9 @@ class ArtifixerWanTransformer(Wan21Transformer):
         ``**network_extra_kwargs`` unpack lands them as
         ``WanDiTNetwork.forward(... block_extra_kwargs=...)`` -- a single
         kwarg, *not* individual ones. ``WanDiTNetwork.forward`` then forwards
-        each entry to every block as keyword args via ``**block_extra_kwargs``
-        (network.py L438-449), where :class:`ArtifixerBlock.forward` accepts
-        ``opacity_extra`` / ``camera_extra`` / ``prope_src`` / ``prope_tgt`` /
+        each entry to every block as keyword args via ``**block_extra_kwargs``,
+        where :class:`ArtifixerBlock.forward` accepts ``opacity_extra`` /
+        ``camera_extra`` / ``prope_src`` / ``prope_tgt`` /
         ``ignore_neighbors`` directly.
 
         The PRoPE source/target modules are bound at construction time, but
@@ -171,26 +171,25 @@ class ArtifixerWanTransformer(Wan21Transformer):
         )
 
     def finalize_kv_cache(self, *args: Any, **kwargs: Any) -> None:
-        """No-op: artifixer (dreamfix reference) does not finalize the KV cache.
+        """No-op: the ArtiFixer reference does not finalize the KV cache.
 
-        The dreamfix ``ArtifixerKvCachePipeline.generate_samples_from_batch``
-        advances its KV cache *in-place* during the regular denoise forwards
-        and never runs an extra "finalization" forward at AR-chunk
-        boundaries. The FlashDreams default ``finalize_kv_cache`` runs one
-        more ``predict_flow`` at the context-noise timestep to advance the
-        cache; that extra forward writes a *different* KV state than
-        dreamfix's last in-loop forward, which empirically opens a ~7-9 dB
-        cross-backend PSNR gap at the start of every AR chunk past chunk 0
-        (calls 4, 8 in ``scripts/parity_harness.py``'s per-step diff).
+        The ArtiFixer reference kv-cache pipeline advances its KV cache
+        *in-place* during the regular denoise forwards and never runs an
+        extra "finalization" forward at AR-chunk boundaries. The
+        flashdreams default ``finalize_kv_cache`` runs one more
+        ``predict_flow`` at the context-noise timestep to advance the
+        cache; for ArtiFixer that extra forward writes a *different* KV
+        state than the reference's last in-loop forward, which empirically
+        opens a ~7-9 dB cross-backend PSNR gap at the start of every AR
+        chunk past chunk 0.
 
-        Skipping the extra forward here aligns FlashDreams' KV-cache
-        semantics with the dreamfix reference: the cache going into AR
-        chunk ``N+1`` is the one written by the final denoise step of AR
-        chunk ``N``, identical to what dreamfix uses. ``cache.finalize`` is
-        still called by ``DiffusionModel.finalize`` after this (the
-        bookkeeping that increments ``autoregressive_index``), so the
-        rollout state advances correctly -- only the redundant predict is
-        suppressed.
+        Skipping the extra forward here aligns this pipeline's KV-cache
+        semantics with the reference: the cache going into AR chunk
+        ``N+1`` is the one written by the final denoise step of AR chunk
+        ``N``. ``cache.finalize`` is still called by
+        ``DiffusionModel.finalize`` after this (the bookkeeping that
+        increments ``autoregressive_index``), so the rollout state
+        advances correctly -- only the redundant predict is suppressed.
         """
         del args, kwargs  # intentionally no-op; see docstring
 

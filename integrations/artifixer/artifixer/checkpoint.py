@@ -13,26 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""State-dict transforms for loading ArtiFixer checkpoints into FlashDreams.
+"""State-dict transforms for loading ArtiFixer checkpoints into flashdreams.
 
 Two source layouts are supported:
 
-  * **Vanilla Wan 2.1 1.3B** from ``Wan-AI/Wan2.1-T2V-1.3B`` -- the
-    transform :func:`zero_pad_artifixer_keys` zero-pads the ArtiFixer-only
-    keys so ``load_state_dict`` succeeds in strict mode. Zero-padding
-    matches dreamfix's initialization in
-    ``ArtifixerTransformerBlock.__init__`` L637-651 and produces a
+  * **Vanilla Wan 2.1 1.3B** from ``Wan-AI/Wan2.1-T2V-1.3B`` --
+    :func:`zero_pad_artifixer_keys` zero-pads the ArtiFixer-only keys so
+    ``load_state_dict`` succeeds in strict mode. Zero-padding matches the
+    ArtiFixer reference's per-block initialization and produces a
     behaviorally-identical-to-Wan model (the ArtiFixer extension paths
     are zero-gated until trained weights are loaded).
 
-  * **Merged ArtiFixer DMD safetensors** produced by
-    ``dreamfix/scripts/merge_dcp_to_safetensors.py``. Built by
+  * **Merged ArtiFixer DMD safetensors** (consolidated from a sharded
+    FSDP training checkpoint). Built by
     :func:`artifixer_dmd_state_dict_transform`, which applies the
     HuggingFace diffusers -> WanDiTNetwork regex remap (same as
     ``fastvideo_causal_wan22.config.state_dict_transform``) plus the
     ArtiFixer ``attn2 -> cross_attn`` step that picks up
     ``add_k_proj`` / ``add_v_proj`` / ``norm_added_k``. The 270
-    ArtiFixer-only keys map cleanly onto our new
+    ArtiFixer-only keys map cleanly onto the
     ``ArtifixerBlock`` / ``ArtifixerCrossAttention`` submodules without
     further per-key renames.
 """
@@ -118,11 +117,9 @@ def artifixer_dmd_state_dict_transform(
 ) -> dict[str, Tensor]:
     """Remap a merged ArtiFixer DMD safetensors state_dict onto WanDiTNetwork.
 
-    The merged safetensors produced by
-    ``dreamfix/scripts/merge_dcp_to_safetensors.py`` carries the HF
-    diffusers ``WanTransformer3DModel`` naming (e.g.
-    ``blocks.X.attn1.to_q.weight``) plus 270 ArtiFixer-only keys with
-    the ``attn2`` cross-attention prefix
+    The merged safetensors carries HF diffusers ``WanTransformer3DModel``
+    naming (e.g. ``blocks.X.attn1.to_q.weight``) plus 270 ArtiFixer-only
+    keys with the ``attn2`` cross-attention prefix
     (``blocks.X.attn2.add_k_proj.weight``) and 60 keys without prefix
     (``blocks.X.opacity_embedding.weight``,
     ``blocks.X.camera_embedding.weight``).
@@ -151,8 +148,8 @@ def zero_pad_artifixer_keys(
     mode would error. We pre-add zero tensors so loading succeeds and the
     runtime behavior is unchanged versus vanilla Wan.
 
-    Per block, the transform adds 9 keys (mirroring the 270 ArtiFixer-only
-    keys identified by ``dreamfix/scripts/dump_artifixer_param_names.py``):
+    Per block, the transform adds 9 keys (mirroring the 270
+    ArtiFixer-only keys in the merged DMD safetensors):
 
       * Opacity + camera MLPs (4 keys per block):
         ``opacity_embedding.{weight,bias}`` shape (dim, opacity_dim) / (dim,)

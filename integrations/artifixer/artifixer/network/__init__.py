@@ -20,5 +20,5 @@
 #   from artifixer.network.block import ArtifixerBlock
 #   from artifixer.network.prope import PropeDotProductAttention
 #
-# Mirrors dreamfix's ``model_training/net/__init__.py`` (also empty) so the
-# PRoPE module is testable with only ``torch`` installed.
+# Keeps the PRoPE module importable / testable with only ``torch``
+# installed (no flashdreams runtime required).

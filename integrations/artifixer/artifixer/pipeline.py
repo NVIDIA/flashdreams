@@ -23,9 +23,7 @@ matrices.
 ``initialize_cache``:
 
   - VAE-encoded condition latent and neighbor latent arrive pre-computed
-    from the caller (the dreamfix-side driver in
-    ``model_eval/flashdreams_backend.py``) so this pipeline does not
-    need its own VAE encoder.
+    from the caller so this pipeline does not need its own VAE encoder.
   - Runs the base ``WanInferencePipeline.initialize_cache`` (text
     encoder + text K/V build) with ``image=None``.
   - Projects the neighbor latent through ``patch_embedding`` to get the
@@ -142,8 +140,7 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             text: One prompt per batch element. Mutually exclusive with
                 ``text_embeddings``: pass either the raw strings (we run
                 UMT5 internally) or the pre-encoded UMT5 embeddings (the
-                dreamfix-backed driver in :mod:`model_eval` passes them
-                directly).
+                external driver may pass them directly).
             text_embeddings: Pre-encoded UMT5 prompt embeddings
                 ``[B, L, D]``. Skips the in-pipeline UMT5 forward when set.
             condition_latent: VAE-encoded reconstruction-rendered RGB,
@@ -256,11 +253,10 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
         """Build the base cache when prompts are pre-encoded.
 
         Mirrors :meth:`WanInferencePipeline.initialize_cache` minus the UMT5
-        forward / negative-prompt encoding / I2V-image plumbing -- the
-        dreamfix driver already has the encoded prompts and never uses
-        I2V images. CFG is disabled per the dreamfix ``ArtifixerKvCachePipeline``
-        contract (negative_prompt is ignored), so we don't build
-        ``negative_text_embeddings`` even if guidance_scale > 1.
+        forward / negative-prompt encoding / I2V-image plumbing. CFG is
+        disabled per the ArtiFixer reference's kv-cache pipeline contract
+        (``negative_prompt`` is ignored), so we don't build
+        ``negative_text_embeddings`` even if ``guidance_scale > 1``.
         """
         parent_cache = super(
             WanInferencePipeline, self
@@ -283,7 +279,7 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
     def _encode_neighbor_context(self, neighbor_latent: Tensor) -> Tensor:
         """Run ``patch_embedding`` over neighbor latents and flatten to tokens.
 
-        Mirrors dreamfix ``ArtifixerTransformer.forward`` L361-L362::
+        Mirrors the ArtiFixer reference's neighbor projection::
 
             neighbor_hidden_states = self.patch_embedding(neighbor_hidden_states)
             neighbor_hidden_states = neighbor_hidden_states.flatten(2).transpose(1, 2)
@@ -301,8 +297,8 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
     ) -> tuple[int, int, int, int]:
         """Return ``(lat_start, lat_end, input_start, input_end)`` for this AR chunk.
 
-        Mirrors the dreamfix bookkeeping in
-        ``kv_cache_pipeline.generate_samples_from_batch`` L201-L204:
+        Mirrors the per-chunk bookkeeping of the ArtiFixer reference kv-cache
+        pipeline:
 
           - first chunk covers ``1 + vae_t * (len_t - 1)`` input frames
             (the Wan VAE 1+4 layout has one latent frame at the boundary
@@ -361,8 +357,8 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
 
         Custom denoise loop (bypasses ``DiffusionModel.generate``) so we can
         renoise each step toward a fresh ``opacity_weighted_latent_mix`` of
-        the condition + new noise (matches dreamfix
-        ``kv_cache_pipeline.generate_samples_from_batch`` L211-L264).
+        the condition + new noise (matches the ArtiFixer reference's
+        kv-cache rollout).
 
         Steps:
           1. Slice the chunk's frame range out of the full-rollout cache.
@@ -428,7 +424,7 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             patch_size=tcfg.network.patch_size,
         )
 
-        # Start the AR cache for this chunk (mirrors DiffusionModel.generate L165).
+        # Start the AR cache for this chunk (mirrors DiffusionModel.generate).
         cache.transformer_cache.start(autoregressive_index)
 
         # Initial mix: condition * opacity_lat + noise * (1 - opacity_lat).
@@ -449,18 +445,19 @@ class ArtifixerInferencePipeline(WanInferencePipeline):
             vae_scale_factor_spatial=vae_s,
             is_first_chunk=is_first,
         )
-        # FlashDreams ``patchify_and_maybe_split_cp`` expects ``(B, T, C, H, W)``
-        # (pattern ``... (t kt) c (h kh) (w kw)``), but dreamfix's VAE encoder
-        # (and therefore ``cache.condition_latent`` / ``latent_unpatched``) is
-        # in diffusers convention ``(B, C, T, H, W)``. Permute before patchify.
+        # ``patchify_and_maybe_split_cp`` expects ``(B, T, C, H, W)`` (einops
+        # pattern ``... (t kt) c (h kh) (w kw)``), but a diffusers-convention
+        # VAE encoder emits ``(B, C, T, H, W)`` and we keep that convention
+        # for ``cache.condition_latent`` / ``latent_unpatched``. Permute
+        # before patchify.
         latent = transformer.patchify_and_maybe_split_cp(
             latent_unpatched.permute(0, 2, 1, 3, 4)
         )
 
-        # 4-step DMD denoise with prepare_latents renoise. Mirrors
-        # ``ArtifixerKvCachePipeline.generate_samples_from_batch`` L238-L264:
-        # at every non-exit step we replace the next-iteration ``noisy``
-        # with a fresh ``opacity_weighted_latent_mix(...)``, not the base
+        # 4-step DMD denoise with prepare_latents renoise. Matches the
+        # ArtiFixer reference: at every non-exit step we replace the
+        # next-iteration ``noisy`` with a fresh
+        # ``opacity_weighted_latent_mix(...)`` rather than the base
         # FlowMatchScheduler.sample's ``clean``.
         sigmas = scheduler.denoising_sigmas
         timesteps = scheduler.denoising_step_list

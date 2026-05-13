@@ -50,9 +50,7 @@ from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.wan import WanVAEDecoderConfig
 
-# Mirrors the dreamfix stage-3 run config (see
-# wandb/.../run-*/files/config.yaml in
-# artifixer-runs/artifixer-s3-dmd-1p3b-from-s2-10000-s1-15000-128g):
+# Mirrors the ArtiFixer DMD stage-3 1.3B training config:
 #   model_id = Wan-AI/Wan2.1-T2V-1.3B-Diffusers
 #   frames_per_block = 7           -> len_t
 #   local_attn_size = 21           -> window_size_t
@@ -65,12 +63,13 @@ ARTIFIXER_SINK_SIZE_T = 7
 ARTIFIXER_NUM_INFERENCE_STEPS = 4
 ARTIFIXER_TIMESTEP_SHIFT = 5.0
 
-# Default: load the merged ArtiFixer DMD safetensors produced by
-# ``dreamfix/scripts/merge_dcp_to_safetensors.py``. There is no committed
-# default location, since the merged file is large and lives outside the
-# repo; users MUST set ``ARTIFIXER_DMD_CHECKPOINT_PATH`` to the merged
-# safetensors path, or set ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall
-# back to vanilla Wan 2.1 1.3B HuggingFace weights.
+# Default: load the merged ArtiFixer DMD safetensors (a consolidated
+# single-file checkpoint built from the sharded FSDP training output).
+# There is no committed default location, since the merged file is large
+# and lives outside the repo; users MUST set
+# ``ARTIFIXER_DMD_CHECKPOINT_PATH`` to the merged safetensors path, or
+# set ``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall back to vanilla Wan
+# 2.1 1.3B HuggingFace weights.
 ARTIFIXER_DMD_CHECKPOINT_PATH: str | None = os.environ.get(
     "ARTIFIXER_DMD_CHECKPOINT_PATH"
 )
@@ -104,8 +103,7 @@ else:
         raise RuntimeError(
             "ArtiFixer recipe requires a checkpoint path. Set "
             "``ARTIFIXER_DMD_CHECKPOINT_PATH`` to the merged DMD "
-            "safetensors produced by "
-            "``dreamfix/scripts/merge_dcp_to_safetensors.py``, or set "
+            "safetensors file, or set "
             "``ARTIFIXER_USE_BASE_WAN_WEIGHTS=1`` to fall back to "
             "vanilla Wan 2.1 1.3B base weights."
         )

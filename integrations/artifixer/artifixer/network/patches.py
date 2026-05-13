@@ -15,7 +15,7 @@
 
 """Patchification of opacity / Plucker camera-ray conditioning tensors.
 
-Mirrors ``ArtifixerTransformer.forward`` L309-L341 in dreamfix:
+Mirrors the ArtiFixer reference's per-chunk patchification:
 
   * opacity (B, T, H, W) -> opacity_extra_patches (B, L, opacity_embedding_dim)
   * camera_rays (B, T, H, W, 6) -> camera_extra_patches (B, L, camera_embedding_dim)
@@ -54,7 +54,7 @@ def patchify_opacity(
         patch_size: Network ``patch_size``, ``(kt, kh, kw)``.
         frame_offset: Logical start of this chunk in latent-time tokens.
             When ``0`` we pad the first frame by 3 copies to account for the
-            Wan VAE's ``1 + 4`` temporal layout (mirrors dreamfix L309-L311).
+Wan VAE's ``1 + 4`` temporal layout (mirrors the reference).
 
     Returns:
         ``(B, L, opacity_embedding_dim)`` where
@@ -87,10 +87,10 @@ def patchify_camera_rays(
 ) -> Tensor:
     """Rearrange per-pixel Plucker rays into per-token features.
 
-    Handles dreamfix's branch on whether ``camera_rays``' temporal axis is
-    already at the latent rate (``camera_rays.shape[1] == hidden_post_patch_t``)
-    or at the input rate (needs the VAE ``1 + 4`` left-pad on the first AR
-    chunk).
+    Handles the reference's branch on whether ``camera_rays``' temporal
+    axis is already at the latent rate
+    (``camera_rays.shape[1] == hidden_post_patch_t``) or at the input rate
+    (needs the VAE ``1 + 4`` left-pad on the first AR chunk).
 
     Args:
         camera_rays: ``(B, T, H, W, 6)`` Plucker rays.

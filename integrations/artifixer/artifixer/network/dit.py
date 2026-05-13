@@ -28,9 +28,8 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetworkConfig,
 )
 
-# Wan2.1 VAE downsampling factors. Identical for T2V-1.3B and T2V-14B and
-# what the dreamfix reference (``ArtifixerTransformer.__init__`` L228-237)
-# uses to compute the per-block opacity / camera input dims.
+# Wan2.1 VAE downsampling factors. Identical for T2V-1.3B and T2V-14B.
+# Used to compute the per-block opacity / camera input dims.
 WAN_VAE_SCALE_FACTOR_SPATIAL = 8
 WAN_VAE_SCALE_FACTOR_TEMPORAL = 4
 
@@ -41,8 +40,6 @@ def artifixer_embedding_dims(
     vae_scale_factor_temporal: int = WAN_VAE_SCALE_FACTOR_TEMPORAL,
 ) -> tuple[int, int]:
     """Compute (opacity_embedding_dim, camera_embedding_dim) for ArtiFixer.
-
-    Mirrors ``ArtifixerTransformer.__init__`` L228-237.
 
       opacity_embedding_dim = vae_t * vae_s * ph * vae_s * pw
       camera_embedding_dim  = vae_s * ph * vae_s * pw * 6   (6 = Plucker channels)
@@ -79,7 +76,7 @@ class ArtifixerDiTNetworkConfig(WanDiTNetworkConfig):
 
 @dataclass
 class ArtifixerDiTNetwork1pt3BConfig(WanDiTNetwork1pt3BConfig):
-    """ArtiFixer 1.3B variant (matches dreamfix stage-3 model size)."""
+    """ArtiFixer 1.3B variant (matches the ArtiFixer reference model size)."""
 
     _target: type = field(default_factory=lambda: ArtifixerDiTNetwork)
 

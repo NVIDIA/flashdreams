@@ -22,10 +22,8 @@ and the ``flashdreams-run`` CLI entry point.
 The full ArtiFixer-specific conditioning surface (``rgb_rendered``,
 ``opacity``, neighbor frames, camera matrices) is wired in through the
 :class:`ArtifixerInferencePipeline.initialize_cache` / ``generate``
-path; the dreamfix-side driver in
-``dreamfix/model_eval/flashdreams_backend.py`` is the production entry
-point that feeds those conditioning tensors. This runner stays
-text-only as a lightweight harness.
+path; production drivers call those directly with conditioning tensors.
+This runner stays text-only as a lightweight harness.
 """
 
 from __future__ import annotations
@@ -63,9 +61,9 @@ class ArtifixerDmdT2VRunnerConfig(RunnerConfig):
     whose first non-empty line is read as the prompt."""
 
     total_blocks: int = 3
-    """Number of autoregressive chunks to generate. Matches dreamfix's
-    ``num_frames=81`` / ``frames_per_block=7`` (21 latent frames / 7 = 3
-    chunks for the Wan VAE temporal stride of 4)."""
+    """Number of autoregressive chunks to generate. Matches the ArtiFixer
+    reference (``num_frames=81`` / ``frames_per_block=7``, i.e. 21 latent
+    frames / 7 = 3 chunks at the Wan VAE temporal stride of 4)."""
 
     pixel_height: int = 480
     pixel_width: int = 832

@@ -15,9 +15,8 @@
 
 """ArtiFixer transformer block with opacity + camera + neighbor extensions.
 
-Mirrors ``ArtifixerTransformerBlock`` in the dreamfix reference
-(``model_training/net/transformer.py`` L617-L767). Per-block extensions on
-top of :class:`Block`:
+Mirrors ``ArtifixerTransformerBlock`` in the ArtiFixer reference
+implementation. Per-block extensions on top of :class:`Block`:
 
   * **Opacity + camera-ray MLPs.** Two ``nn.Linear`` heads project
     per-token opacity and Plucker-camera-ray features into the
@@ -47,14 +46,15 @@ from flashdreams.recipes.wan.transformer.impl.modules import Block, BlockCache
 def _layer_norm_fp32(x: Tensor, norm: nn.LayerNorm) -> Tensor:
     """Run ``norm`` with fp32 input AND fp32 weight/bias, then cast back.
 
-    Mirrors diffusers' ``FP32LayerNorm`` which the dreamfix ``WanTransformerBlock``
-    norms use under the hood: regardless of the surrounding bf16 cast, the
-    norm itself accumulates in fp32 to keep the mean/std numerically stable.
-    Plain ``nn.LayerNorm(elementwise_affine=True)`` on the FD side stores
-    weight/bias in the model dtype (bf16 after ``.to(bf16)``), so calling
-    it with an fp32 input raises ``expected scalar type Float but found
-    BFloat16``. The work-around is to call ``F.layer_norm`` directly with
-    promoted parameters.
+    Mirrors diffusers' ``FP32LayerNorm`` which the reference
+    ``WanTransformerBlock`` norms use under the hood: regardless of the
+    surrounding bf16 cast, the norm itself accumulates in fp32 to keep
+    the mean/std numerically stable. Plain
+    ``nn.LayerNorm(elementwise_affine=True)`` stores weight/bias in the
+    model dtype (bf16 after ``.to(bf16)``), so calling it with an fp32
+    input raises ``expected scalar type Float but found BFloat16``. The
+    work-around is to call ``F.layer_norm`` directly with promoted
+    parameters.
     """
     weight = norm.weight.float() if norm.weight is not None else None
     bias = norm.bias.float() if norm.bias is not None else None
@@ -99,7 +99,7 @@ class ArtifixerBlock(Block):
         self.camera_embedding = nn.Linear(camera_embedding_dim, dim, bias=True)
 
         # Zero-init so the wrapped block is a no-op extension of base Wan
-        # behavior at load time. Matches dreamfix transformer.py L637-651.
+        # behavior at load time.
         nn.init.zeros_(self.opacity_embedding.weight)
         nn.init.zeros_(self.opacity_embedding.bias)
         nn.init.zeros_(self.camera_embedding.weight)
@@ -123,13 +123,12 @@ class ArtifixerBlock(Block):
 
           - ``opacity_extra`` / ``camera_extra``: per-token opacity and
             Plucker-camera-ray features added to the AdaLN-normed hidden
-            states before self-attention (matches dreamfix
-            ``ArtifixerTransformerBlock.forward`` L763-L767).
+            states before self-attention.
           - ``prope_src`` / ``prope_tgt`` / ``ignore_neighbors``: forwarded
             to :class:`ArtifixerCrossAttention.forward` to drive the PRoPE
-            neighbor branch (matches dreamfix L795-L807). The actual
-            neighbor K/V cache lives on the cross_attn module itself
-            (set via ``cross_attn.initialize_neighbor_cache``).
+            neighbor branch. The actual neighbor K/V cache lives on the
+            cross_attn module itself (set via
+            ``cross_attn.initialize_neighbor_cache``).
 
         When every extra is ``None`` / ``False`` and the cross_attn's
         neighbor cache is unset, this is identical to :meth:`Block.forward`.
@@ -138,29 +137,28 @@ class ArtifixerBlock(Block):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        # Mirror dreamfix ``ArtifixerTransformerBlock.forward`` (transformer.py
-        # L727, L763, L787, L790, L810, L814) and promote the per-block
-        # AdaLN modulation, RMS-norms, and residual adds to fp32 before
-        # casting back to the input dtype. The base ``Block.forward`` keeps
-        # everything in ``x.dtype`` (typically bf16) which is fine in
-        # isolation, but with 30 blocks each contributing ~1 dB of bf16
-        # noise the cross-backend PSNR drifts from 51 dB at block 0 down to
-        # 28 dB at block 29 (see ``scripts/parity_harness.py --capture_blocks``).
-        # The fp32 promotion below mirrors the dreamfix reference exactly:
+        # Mirror the ArtiFixer reference's ``ArtifixerTransformerBlock.forward``
+        # and promote the per-block AdaLN modulation, RMS-norms, and residual
+        # adds to fp32 before casting back to the input dtype. The base
+        # ``Block.forward`` keeps everything in ``x.dtype`` (typically bf16)
+        # which is fine in isolation, but with 30 blocks each contributing
+        # ~1 dB of bf16 noise the cross-backend PSNR drifts from 51 dB at
+        # block 0 down to 28 dB at block 29. The fp32 promotion below
+        # mirrors the reference:
         #
         #   * modulation chunking: ``(scale_shift_table + temb).float().chunk(6)``
         #   * self-attn pre-norm + AdaLN
         #   * self-attn residual (x + attn * gate)
         #   * cross-attn pre-norm
         #   * FFN pre-norm + AdaLN
-        #   * FFN residual (x + ffn.float() * gate) -- note dreamfix also
-        #     promotes ``ff_output`` to fp32 inside the residual (L814).
+        #   * FFN residual (x + ffn.float() * gate) -- note the reference
+        #     also promotes ``ff_output`` to fp32 inside the residual.
         #
         # Cost: a handful of extra casts per block. Parity gain: closes
         # the per-block drift so the cross-backend per-call PSNR stays
-        # >50 dB through all 30 layers. Note FD's bf16-throughout path
-        # remains the default; this override only kicks in when the
-        # ``ArtifixerBlock`` subclass is used (i.e. the artifixer recipe).
+        # >50 dB through all 30 layers. The flashdreams ``Block``
+        # bf16-throughout path remains the default; this override only
+        # kicks in when ``ArtifixerBlock`` is used (the artifixer recipe).
         e_chunks = (self.modulation.float() + e.float()).chunk(6, dim=-2)
         x_dtype = x.dtype
 
@@ -170,7 +168,7 @@ class ArtifixerBlock(Block):
         # has ``elementwise_affine=True`` and stores its weight/bias in the
         # model dtype, so we route through ``_layer_norm_fp32`` to also
         # promote the weight/bias to fp32 (matches diffusers'
-        # FP32LayerNorm which dreamfix's WanTransformerBlock norms use).
+        # FP32LayerNorm used by the reference ``WanTransformerBlock``).
         y = (self.norm1(x.float()) * (1 + e_chunks[1]) + e_chunks[0]).to(x_dtype)
         if opacity_extra is not None:
             y = y + self.opacity_embedding(opacity_extra)
@@ -183,9 +181,9 @@ class ArtifixerBlock(Block):
         )
         x = (x.float() + y * e_chunks[2]).to(x_dtype)
 
-        # Cross-attn pre-norm in fp32 (mirrors dreamfix norm2 promotion at L790).
-        # The post-cross-attn residual is NOT promoted in dreamfix (L807) so
-        # we keep that in the input dtype here too.
+        # Cross-attn pre-norm in fp32 (mirrors the reference). The
+        # post-cross-attn residual is NOT promoted in the reference so we
+        # keep that in the input dtype here too.
         x = x + self.cross_attn(
             _layer_norm_fp32(x, self.norm3).to(x_dtype),
             kv_cache=cache.cross_attn,
@@ -195,6 +193,6 @@ class ArtifixerBlock(Block):
         )
         y = (self.norm2(x.float()) * (1 + e_chunks[4]) + e_chunks[3]).to(x_dtype)
         y = self.ffn(y)
-        # FFN residual with ff_output also promoted (matches dreamfix L814).
+        # FFN residual with ff_output also promoted (matches the reference).
         x = (x.float() + y.float() * e_chunks[5]).to(x_dtype)
         return x

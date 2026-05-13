@@ -88,15 +88,15 @@ def test_patchify_camera_rays_latent_rate_shape() -> None:
 def test_patchify_camera_rays_input_rate_first_chunk_shape() -> None:
     """Input-rate Plucker rays on the first AR chunk get the 1+3 left-pad.
 
-    This branch in dreamfix (transformer.py L330-L340) groups t4 input frames
+    This branch in the ArtiFixer reference groups t4 input frames
     per latent frame, so the per-token feature carries an extra ``vae_t``
     multiplier vs the latent-rate branch:
 
       per_token_dim_input_rate = vae_t * camera_dim_latent_rate
 
-    At inference, camera_rays is always already at the latent rate (see
-    ``model_training/pipeline/kv_cache_pipeline.py`` L213), so this branch
-    is unused. We still cover it for parity with the dreamfix forward.
+    At inference, camera_rays is always already at the latent rate (the
+    consuming driver pre-aligns it), so this branch is unused. We still
+    cover it for parity with the reference forward.
     """
     rays = torch.randn(2, 1, 32, 32, 6)  # 1 input frame
     out = patchify_camera_rays(
