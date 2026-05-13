@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-causal-forcing"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Causal-Forcing chunkwise / framewise streaming T2V + I2V inference for Wan 2.1 1.3B, packaged as a flashdreams plugin."
 readme = "README.md"
 requires-python = ">=3.12"
