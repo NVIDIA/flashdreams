@@ -440,7 +440,7 @@ wheels = [
 
 [[package]]
 name = "lingbot-world-parity-check"
-version = "0.0.0"
+version = "0.1.0a2"
 source = { virtual = "." }
 dependencies = [
     { name = "diffusers" },
