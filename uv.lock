@@ -16,9 +16,11 @@ members = [
     "flash-lingbot",
     "flashdreams",
     "flashdreams-causal-forcing",
+    "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
+    "ludus-renderer",
 ]
 overrides = [{ name = "nvidia-cublas", specifier = ">=13.4" }]
 
@@ -539,12 +541,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ffmpeg"
-version = "1.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f0/cc/3b7408b8ecf7c1d20ad480c3eaed7619857bf1054b690226e906fdf14258/ffmpeg-1.4.tar.gz", hash = "sha256:6931692c890ff21d39938433c2189747815dca0c60ddc7f9bb97f199dba0b5b9", size = 5055, upload-time = "2018-10-08T07:50:05.748Z" }
-
-[[package]]
 name = "filelock"
 version = "3.29.0"
 source = { registry = "https://pypi.org/simple" }
@@ -561,6 +557,7 @@ dependencies = [
     { name = "flashdreams" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
+    { name = "imageio" },
     { name = "ludus-renderer" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
@@ -578,7 +575,8 @@ requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
-    { name = "ludus-renderer", specifier = "==0.5.0+cuda", index = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple" },
+    { name = "imageio" },
+    { name = "ludus-renderer", editable = "integrations/alpadreams/ludus-renderer" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -636,7 +634,6 @@ dependencies = [
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
     { name = "torchvision", version = "0.26.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
     { name = "tqdm" },
-    { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
     { name = "transformers" },
     { name = "triton-windows", marker = "sys_platform == 'win32'" },
     { name = "tyro" },
@@ -647,6 +644,7 @@ dev = [
     { name = "mediapy" },
     { name = "pytest" },
     { name = "pytest-manual-marker" },
+    { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
 ]
 examples = [
     { name = "mediapy" },
@@ -686,7 +684,7 @@ requires-dist = [
     { name = "torchvision", marker = "sys_platform == 'win32'", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.22", index = "https://download.pytorch.org/whl/cu130" },
     { name = "tqdm", specifier = ">=4.60" },
-    { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32'", specifier = ">=2.12" },
+    { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
     { name = "transformers", specifier = "==4.57.6" },
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
     { name = "tyro", specifier = ">=0.8" },
@@ -713,6 +711,28 @@ requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-cosmos-predict2"
+version = "0.1.0"
+source = { editable = "integrations/cosmos_predict2" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "mediapy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
@@ -981,6 +1001,20 @@ wheels = [
 ]
 
 [[package]]
+name = "imageio-ffmpeg"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/bd/c3343c721f2a1b0c9fc71c1aebf1966a3b7f08c2eea8ed5437a2865611d6/imageio_ffmpeg-0.6.0.tar.gz", hash = "sha256:e2556bed8e005564a9f925bb7afa4002d82770d6b08825078b7697ab88ba1755", size = 25210, upload-time = "2025-01-16T21:34:32.747Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl", hash = "sha256:9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61", size = 24932969, upload-time = "2025-01-16T21:34:20.464Z" },
+    { url = "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742", size = 21113891, upload-time = "2025-01-16T21:34:00.277Z" },
+    { url = "https://files.pythonhosted.org/packages/33/e7/1925bfbc563c39c1d2e82501d8372734a5c725e53ac3b31b4c2d081e895b/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:1d47bebd83d2c5fc770720d211855f208af8a596c82d17730aa51e815cdee6dc", size = 25632706, upload-time = "2025-01-16T21:33:53.475Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/2d/43c8522a2038e9d0e7dbdf3a61195ecc31ca576fb1527a528c877e87d973/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282", size = 29498237, upload-time = "2025-01-16T21:34:13.726Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/13/59da54728351883c3c1d9fca1710ab8eee82c7beba585df8f25ca925f08f/imageio_ffmpeg-0.6.0-py3-none-win32.whl", hash = "sha256:196faa79366b4a82f95c0f4053191d2013f4714a715780f0ad2a68ff37483cc2", size = 19652251, upload-time = "2025-01-16T21:34:06.812Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/c6/fa760e12a2483469e2bf5058c5faff664acf66cadb4df2ad6205b016a73d/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl", hash = "sha256:02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a", size = 31246824, upload-time = "2025-01-16T21:34:28.6Z" },
+]
+
+[[package]]
 name = "imagesize"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1119,14 +1153,12 @@ wheels = [
 
 [[package]]
 name = "ludus-renderer"
-version = "0.5.0+cuda"
-source = { registry = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple" }
+version = "0.9.0"
+source = { editable = "integrations/alpadreams/ludus-renderer" }
 dependencies = [
-    { name = "ffmpeg" },
-    { name = "imageio" },
     { name = "ninja" },
     { name = "numpy" },
-    { name = "opencv-python" },
+    { name = "nvidia-nvcomp-cu12" },
     { name = "pandas" },
     { name = "pillow" },
     { name = "pyarrow" },
@@ -1136,10 +1168,31 @@ dependencies = [
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/files/99403b745029880c011c287903b744ab3dde5400eaf7305af7df8c79f85f97da/ludus_renderer-0.5.0+cuda.tar.gz", hash = "sha256:99403b745029880c011c287903b744ab3dde5400eaf7305af7df8c79f85f97da" }
-wheels = [
-    { url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/files/0f1f32f34ac4d7472bb8b447ed36ec19c8a30e50f7c5568cd1b7fc4bccc2c926/ludus_renderer-0.5.0+cuda-py3-none-any.whl", hash = "sha256:0f1f32f34ac4d7472bb8b447ed36ec19c8a30e50f7c5568cd1b7fc4bccc2c926" },
+
+[package.optional-dependencies]
+dev = [
+    { name = "imageio-ffmpeg" },
+    { name = "opencv-python" },
+    { name = "pytest" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "imageio-ffmpeg", marker = "extra == 'dev'" },
+    { name = "ninja", specifier = ">=1.13.0" },
+    { name = "numpy" },
+    { name = "nvidia-nvcomp-cu12" },
+    { name = "opencv-python", marker = "extra == 'dev'" },
+    { name = "pandas" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "pynvvideocodec" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "scipy" },
+    { name = "setuptools" },
+    { name = "torch", specifier = ">=2.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "markdown-it-py"
@@ -1476,6 +1529,16 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-libnvcomp-cu12"
+version = "5.2.0.13"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/ce/29b900e92a0226372bb109f34d0d9210eafb1afe079cd054b1b51b3fe69e/nvidia_libnvcomp_cu12-5.2.0.13-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:0fa9e5599cc4a3eb140b8e6dc6e297bd4d2db90a21e2877042bdc320430acd06", size = 31900949, upload-time = "2026-04-08T17:24:14.743Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/2a/2b3f41753a0943e6cd34285f896429fe0c7a60150821517d77d4a3b0d06f/nvidia_libnvcomp_cu12-5.2.0.13-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:53fa199e91a0f3530ce713760da23287c204cbcfddb89a11f2c1bb49e24e3c57", size = 32251429, upload-time = "2026-04-08T17:20:53.404Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/14/9d1d468db734be50cb51d01925726c84ec17e5e5e41a51fd6807394cefdf/nvidia_libnvcomp_cu12-5.2.0.13-py3-none-win_amd64.whl", hash = "sha256:06f400eeb4f49c6828813f2bdf56a744f1e3fdef160b072735ba97d4b8a6c445", size = 30448968, upload-time = "2026-04-08T17:26:11.039Z" },
+]
+
+[[package]]
 name = "nvidia-ml-py"
 version = "13.595.45"
 source = { registry = "https://pypi.org/simple" }
@@ -1491,6 +1554,19 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/55/1920646a2e43ffd4fc958536b276197ed740e9e0c54105b4bb3521591fc7/nvidia_nccl_cu13-2.28.9-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:01c873ba1626b54caa12272ed228dc5b2781545e0ae8ba3f432a8ef1c6d78643", size = 196561677, upload-time = "2025-11-18T05:49:03.45Z" },
     { url = "https://files.pythonhosted.org/packages/b0/b4/878fefaad5b2bcc6fcf8d474a25e3e3774bc5133e4b58adff4d0bca238bc/nvidia_nccl_cu13-2.28.9-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:e4553a30f34195f3fa1da02a6da3d6337d28f2003943aa0a3d247bbc25fefc42", size = 196493177, upload-time = "2025-11-18T05:49:17.677Z" },
+]
+
+[[package]]
+name = "nvidia-nvcomp-cu12"
+version = "5.2.0.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-libnvcomp-cu12" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/a6/76464cc820f29fc02d21bc22ba369c53fe73ffe9cd62b94adadd5c6803f6/nvidia_nvcomp_cu12-5.2.0.13-py3-none-manylinux_2_26_aarch64.whl", hash = "sha256:c67cd3ca1089078078c0002d58f60c5783cd1905db346bea86499918bcb7bb2e", size = 3155816, upload-time = "2026-04-08T17:23:10.35Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/75/f9436615f16187d9e6d49c507fb00927d9dfab79ad3daf269a3761fb4c74/nvidia_nvcomp_cu12-5.2.0.13-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c1797b45e041513af8bfc8aad2d727501f15ffbca633a419fd8a8e0ebb7b6a20", size = 3548705, upload-time = "2026-04-08T17:20:28.607Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/2a/0d02110d94d9dbf20f15d6a8ffa783b60ed681e4962342ee9d8e31d90de2/nvidia_nvcomp_cu12-5.2.0.13-py3-none-win_amd64.whl", hash = "sha256:673894e405f8a3a49790a1fe9de2125fb07a200d47faf8810fdecd4c0577dabe", size = 1733336, upload-time = "2026-04-08T17:25:47.265Z" },
 ]
 
 [[package]]

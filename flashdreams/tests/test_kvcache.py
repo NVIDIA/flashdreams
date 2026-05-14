@@ -159,6 +159,7 @@ def test_block_kvcache_matches_baseline(
 @pytest.mark.skipif(
     not torch.cuda.is_available(), reason="CUDA required for cudagraph test"
 )
+@pytest.mark.ci_gpu
 @pytest.mark.parametrize("sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21)])
 def test_block_kvcache_cudagraph_matches_baseline(
     dtype: torch.dtype,

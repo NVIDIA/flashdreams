@@ -64,7 +64,7 @@ class DiffusionModelConfig(InstantiateConfig):
     """Timestep used by ``finalize`` for the AR cache-update forward.
     ``0`` skips ``add_noise``."""
 
-    _noise_in_unpatchified_shape: bool = False
+    noise_in_unpatchified_shape: bool = False
     """Debug-only: draw the initial noise in the unpatchified shape, then
     patchify. Slower than the default patchified path; useful when matching
     another implementation's RNG sequence."""
@@ -164,7 +164,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input = self.transformer.patchify_and_maybe_split_cp(input)
         cache.start(autoregressive_index)
 
-        if self.config._noise_in_unpatchified_shape:
+        if self.config.noise_in_unpatchified_shape:
             # Draw noise at the unpatchified shape so the RNG sequence matches
             # implementations that sample before patchify; ``self.latent_shape``
             # is patchified, so go through ``unpatchify_and_maybe_gather_cp``
@@ -192,7 +192,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             # Round-trip patchify/unpatchify around the network when the
             # scheduler is operating on unpatchified latents; the transformer
             # itself always consumes/emits patchified shapes.
-            if self.config._noise_in_unpatchified_shape:
+            if self.config.noise_in_unpatchified_shape:
                 noisy_latent = self.transformer.patchify_and_maybe_split_cp(
                     noisy_latent
                 )
@@ -204,7 +204,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 input=input,
             )
 
-            if self.config._noise_in_unpatchified_shape:
+            if self.config.noise_in_unpatchified_shape:
                 output = self.transformer.unpatchify_and_maybe_gather_cp(output)
             return output
 
@@ -214,7 +214,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             rng=self.rng,
         )
 
-        if self.config._noise_in_unpatchified_shape:
+        if self.config.noise_in_unpatchified_shape:
             # Scheduler emitted an unpatchified latent; patchify before
             # ``postprocess_clean_latent`` and the cache-update path.
             clean_latent = self.transformer.patchify_and_maybe_split_cp(clean_latent)
@@ -259,7 +259,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             # Round-trip patchify/unpatchify around ``add_noise`` so the
             # scheduler sees the same shape as in ``generate``; the cache
             # update below always consumes a patchified latent.
-            if self.config._noise_in_unpatchified_shape:
+            if self.config.noise_in_unpatchified_shape:
                 clean_latent = self.transformer.unpatchify_and_maybe_gather_cp(
                     final_state.clean_latent
                 )
@@ -268,7 +268,7 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 timestep=timestep,
                 rng=self.rng,
             )
-            if self.config._noise_in_unpatchified_shape:
+            if self.config.noise_in_unpatchified_shape:
                 noisy_latent = self.transformer.patchify_and_maybe_split_cp(
                     noisy_latent
                 )

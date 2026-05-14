@@ -36,11 +36,12 @@ jobs:
           uv sync --only-group docs --only-group docs-ci --python 3.12
           uv pip install --no-deps ./flashdreams
 
-      # Read version from `flashdreams/pyproject.toml` so we can deploy
-      # under `versions/<version>/` on releases (mirrors gsplat's layout).
+      # Read version from `flashdreams/flashdreams/_version.py` (the single
+      # source of truth) so we can deploy under `versions/<version>/` on
+      # releases (mirrors gsplat's layout).
       - name: Get version + subdirectory
         run: |
-          VERSION=$(python -c "import tomllib; print(tomllib.load(open('flashdreams/pyproject.toml','rb'))['project']['version'])")
+          VERSION=$(python -c "import re, pathlib; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('flashdreams/flashdreams/_version.py').read_text()); print(m.group(1))")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "DOCS_SUBDIR=versions/$VERSION" >> $GITHUB_ENV
 
@@ -50,7 +51,7 @@ jobs:
       - name: Override version + subdirectory for main / manual builds
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
-          sed -i 's/^version = ".*"/version = "main"/' flashdreams/pyproject.toml
+          sed -i 's/^__version__ = ".*"/__version__ = "main"/' flashdreams/flashdreams/_version.py
           echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
 
       - name: Sphinx build

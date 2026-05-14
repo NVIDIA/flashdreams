@@ -19,14 +19,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flash-alpadreams"
-version = "0.1.0"
+version = "0.1.0a2"
 description = "Alpadreams inference with flashdreams"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "flashdreams",
     "mediapy>=1.1",
-    "ludus-renderer==0.5.0+cuda",
+    "ludus-renderer",
+    "imageio",
     "grpcio-tools",
     "grpcio",
     "opencv-python-headless",
@@ -35,12 +36,7 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-ludus-renderer = { index = "ludus_renderer_gitlab" }
-
-[[tool.uv.index]]
-name = "ludus_renderer_gitlab"
-url = "https://gitlab-master.nvidia.com/api/v4/projects/265148/packages/pypi/simple"
-explicit = true
+ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
 dev = [

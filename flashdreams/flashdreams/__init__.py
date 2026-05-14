@@ -14,3 +14,7 @@
 # limitations under the License.
 
 """Streaming inference recipes for video diffusion models."""
+
+from flashdreams._version import __version__
+
+__all__ = ["__version__"]
