@@ -35,13 +35,20 @@ Lingbot integration package for `flashdreams` that exposes a minimal WebRTC serv
 From repository root:
 
 ```bash
-uv run --package flash-lingbot python -m lingbot.webrtc.server --host 0.0.0.0 --port 8080 --config_name LingBot-World-Fast
+uv run --package flash-lingbot python -m lingbot.webrtc.server --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-flash
+
+# 4 gpus
+uv run --package flash-lingbot \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+  -m lingbot.webrtc.server \
+  --host 0.0.0.0 --port 8089 \
+  --config_name lingbot-world-fast-flash
 ```
 
 Then open:
 
-- [http://localhost:8080/request_session](http://localhost:8080/request_session)
-- [http://localhost:8080/healthz](http://localhost:8080/healthz) (`runtime_ready` indicates preload completion)
+- [http://localhost:8089/request_session](http://localhost:8089/request_session)
+- [http://localhost:8089/healthz](http://localhost:8089/healthz) (`runtime_ready` indicates preload completion)
 
 ## Test
 

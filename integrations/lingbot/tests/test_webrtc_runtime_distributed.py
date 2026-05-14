@@ -33,10 +33,6 @@ class _FakePipeline:
     def __init__(self, events: list[tuple[Any, ...]]) -> None:
         self.events = events
 
-    def setup(self) -> "_FakePipeline":
-        self.events.append(("setup",))
-        return self
-
     def to(self, *, device: torch.device) -> "_FakePipeline":
         self.events.append(("to", str(device)))
         return self
@@ -68,6 +64,49 @@ class _FakePipeline:
         return {"rank_local_finalize": float(autoregressive_index)}
 
 
+class _FakePipelineConfig:
+    """Minimal stand-in for the ``flashdreams`` pipeline-config object
+    returned by :func:`derive_config`; only implements ``setup`` so the
+    runtime can call ``setup().to(device=...)``.
+    """
+
+    def __init__(
+        self,
+        derive_kwargs: dict[str, Any],
+        events: list[tuple[Any, ...]],
+    ) -> None:
+        self.derive_kwargs = derive_kwargs
+        self.events = events
+
+    def setup(self) -> _FakePipeline:
+        self.events.append(("setup", self.derive_kwargs))
+        return _FakePipeline(self.events)
+
+
+def _patch_pipeline_factory(
+    monkeypatch: pytest.MonkeyPatch,
+    config_name: str,
+    derive_calls: list[dict[str, Any]],
+    pipeline_events: list[tuple[Any, ...]],
+) -> None:
+    """Register a fake entry in ``LINGBOT_WORLD_CONFIGS`` for
+    ``config_name`` and swap :func:`session.derive_config` with a
+    capturing stub that returns a :class:`_FakePipelineConfig`.
+
+    The runtime path under test is::
+
+        derive_config(base_config=LINGBOT_WORLD_CONFIGS[name], ...)
+            .setup().to(device=...)
+    """
+    monkeypatch.setitem(session.LINGBOT_WORLD_CONFIGS, config_name, object())
+
+    def _fake_derive_config(**kwargs: Any) -> _FakePipelineConfig:
+        derive_calls.append(kwargs)
+        return _FakePipelineConfig(kwargs, pipeline_events)
+
+    monkeypatch.setattr(session, "derive_config", _fake_derive_config)
+
+
 def test_initialize_sync_passes_rank_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -77,14 +116,9 @@ def test_initialize_sync_passes_rank_seed(
     monkeypatch.setattr(session.dist, "is_initialized", lambda: True)
     monkeypatch.setattr(session.dist, "get_rank", lambda: 2)
 
-    builder_calls: list[dict[str, Any]] = []
+    derive_calls: list[dict[str, Any]] = []
     pipeline_events: list[tuple[Any, ...]] = []
-
-    def _builder(**kwargs: Any) -> _FakePipeline:
-        builder_calls.append(kwargs)
-        return _FakePipeline(pipeline_events)
-
-    monkeypatch.setitem(session.LINGBOT_WORLD_CONFIG_BUILDERS, "TestLingbot", _builder)
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
 
     runtime = session.LingbotInferenceRuntime(
         config=session.LingbotRuntimeConfig(
@@ -101,13 +135,14 @@ def test_initialize_sync_passes_rank_seed(
 
     runtime._initialize_sync()
 
-    assert builder_calls == [
-        {
-            "compile_network": False,
-            "seed": 12,
-            "enable_sync_and_profile": True,
-        }
-    ]
+    # Under context parallelism the rollout seed must be offset by rank;
+    # that lands inside the ``diffusion_model`` nested dict that the
+    # runtime hands to :func:`derive_config`.
+    assert len(derive_calls) == 1
+    call = derive_calls[0]
+    assert call["enable_sync_and_profile"] is True
+    assert call["diffusion_model"]["seed"] == 12
+    assert call["diffusion_model"]["transformer"]["compile_network"] is False
     assert ("to", "cpu") in pipeline_events
     assert any(event[0] == "initialize_cache" for event in pipeline_events)
 
@@ -120,13 +155,9 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
     _patch_cv2(monkeypatch, height=4, width=4)
     monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
 
-    builder_calls: list[dict[str, Any]] = []
-
-    def _builder(**kwargs: Any) -> _FakePipeline:
-        builder_calls.append(kwargs)
-        return _FakePipeline([])
-
-    monkeypatch.setitem(session.LINGBOT_WORLD_CONFIG_BUILDERS, "TestLingbot", _builder)
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
 
     runtime = session.LingbotInferenceRuntime(
         config=session.LingbotRuntimeConfig(
@@ -142,7 +173,8 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
 
     runtime._initialize_sync()
 
-    assert builder_calls[0]["seed"] == 10
+    # Without context parallelism the base seed is used verbatim.
+    assert derive_calls[0]["diffusion_model"]["seed"] == 10
 
 
 def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
@@ -165,17 +197,10 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
     _write_minimal_assets(tmp_path)
     _patch_cv2(monkeypatch, height=4, width=4)
 
-    builder_calls: list[dict[str, Any]] = []
+    derive_calls: list[dict[str, Any]] = []
     pipeline_events: list[tuple[Any, ...]] = []
-
-    def _builder(**kwargs: Any) -> _FakePipeline:
-        builder_calls.append(kwargs)
-        return _FakePipeline(pipeline_events)
-
-    monkeypatch.setitem(
-        session.LINGBOT_WORLD_CONFIG_BUILDERS,
-        "DistributedTestLingbot",
-        _builder,
+    _patch_pipeline_factory(
+        monkeypatch, "DistributedTestLingbot", derive_calls, pipeline_events
     )
 
     runtime = session.LingbotInferenceRuntime(
@@ -196,7 +221,9 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
         if rank == 0:
             runtime._initialize_sync_all_ranks()
             runtime._reset_rollout_sync_all_ranks()
-            result = runtime._run_action_step_sync_all_ranks([{"event": "step"}])
+            num_frames = runtime.peek_next_chunk_num_frames()
+            per_frame_keys = [frozenset() for _ in range(num_frames)]
+            result = runtime._generate_chunk_sync_all_ranks(per_frame_keys)
             result_shape = tuple(result.video_chunk.shape)
             runtime._close_sync_all_ranks()
             runtime.send_exit_signal()
@@ -209,7 +236,7 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
             summaries,
             {
                 "rank": rank,
-                "builder_calls": builder_calls,
+                "derive_calls": derive_calls,
                 "pipeline_events": pipeline_events,
                 "result_shape": result_shape,
             },
@@ -222,8 +249,10 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
             for summary in summaries:
                 assert summary is not None
                 summary_rank = int(summary["rank"])
-                calls = summary["builder_calls"]
-                assert calls[0]["seed"] == 100 + summary_rank
+                calls = summary["derive_calls"]
+                # Every rank must derive its own pipeline-config with a
+                # seed shifted by rank so the AR-cache RNG stays unique.
+                assert calls[0]["diffusion_model"]["seed"] == 100 + summary_rank
                 events = [event[0] for event in summary["pipeline_events"]]
                 assert "generate" in events
                 assert "finalize" in events
