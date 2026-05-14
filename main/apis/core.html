@@ -380,6 +380,259 @@ process-group utilities that recipes share.</p>
 <h2>Attention<a class="headerlink" href="#attention" title="Link to this heading">#</a></h2>
 <p>The attention package provides the kernels used by the transformer and
 the block-structured KV cache that backs streaming inference.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.core.attention.NativeAttention">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">NativeAttention</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">qkv_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'bhsd'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'bshd'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'bhsd'</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'math'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'efficient'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'cudnn'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'flash'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cudnn'</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/core/attention/native.html#NativeAttention"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.NativeAttention" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a></p>
+<p>Native attention module with configurable QKV layout and SDPA backend.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.NativeAttention.set_context_parallel_group">
+<span class="sig-name descname"><span class="pre">set_context_parallel_group</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">cp_group</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/distributed._dist2.html#torch.distributed._dist2.ProcessGroup" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">ProcessGroup</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/native.html#NativeAttention.set_context_parallel_group"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.NativeAttention.set_context_parallel_group" title="Link to this definition">#</a></dt>
+<dd><p>Enable or disable context parallelism for ring attention.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>cp_group</strong> – Process group for context parallel; use None to disable.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.NativeAttention.is_context_parallel_enabled">
+<span class="sig-name descname"><span class="pre">is_context_parallel_enabled</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/native.html#NativeAttention.is_context_parallel_enabled"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled" title="Link to this definition">#</a></dt>
+<dd><p>Return True if context parallelism is active.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.NativeAttention.context_parallel_size">
+<span class="sig-name descname"><span class="pre">context_parallel_size</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/native.html#NativeAttention.context_parallel_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.NativeAttention.context_parallel_size" title="Link to this definition">#</a></dt>
+<dd><p>Return the context parallel world size, or 1 if disabled.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.NativeAttention.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/native.html#NativeAttention.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.NativeAttention.forward" title="Link to this definition">#</a></dt>
+<dd><p>Run ring attention (or single-rank SDPA when CP is disabled).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>query</strong> – Query tensor in configured <code class="docutils literal notranslate"><span class="pre">qkv_format</span></code>.</p></li>
+<li><p><strong>key</strong> – Key tensor in configured <code class="docutils literal notranslate"><span class="pre">qkv_format</span></code>.</p></li>
+<li><p><strong>value</strong> – Value tensor in configured <code class="docutils literal notranslate"><span class="pre">qkv_format</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Attention output in the same format as inputs.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.core.attention.RingAttention">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">RingAttention</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">qkv_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'bhsd'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'bshd'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'bhsd'</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cudnn'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'flash'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cudnn'</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">convert_to_fp32</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/core/attention/ring.html#RingAttention"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.RingAttention" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.core.attention.NativeAttention" title="flashdreams.core.attention.native.NativeAttention"><code class="xref py py-class docutils literal notranslate"><span class="pre">NativeAttention</span></code></a></p>
+<p>Context-parallel ring attention module with configurable QKV layout and SDPA backend.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">BlockKVCache</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">k_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">v_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">seq_dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">chunk_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">window_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">sink_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">device</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">device(type='cuda')</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float16</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_prev_chunk_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_curr_chunk_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_n_cached</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>KV cache for causal attention with a fixed-size local window and CUDA-graph support.</p>
+<p>Keys and values can have arbitrary shape <code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">total_size,</span> <span class="pre">...]</span></code>; the sequence
+(rolling) dimension is given by <code class="docutils literal notranslate"><span class="pre">seq_dim</span></code> (dimension index, can be negative).
+Layout along that dimension: [sink tokens | local window tokens]. Sink tokens are
+never evicted; the local window rolls left as new chunks are added if full. Chunks are
+non-overlapping: each update adds one chunk of <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code> tokens at the
+next logical position in the full sequence.</p>
+<p>Note: Currently only supports <code class="docutils literal notranslate"><span class="pre">total_size</span></code> (<code class="docutils literal notranslate"><span class="pre">sink_size</span> <span class="pre">+</span> <span class="pre">window_size</span></code>) divisible by <code class="docutils literal notranslate"><span class="pre">chunk_size</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Phases<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>- Filling</strong> – cache not yet full; tokens are written contiguously;
+<code class="docutils literal notranslate"><span class="pre">cached_k()</span></code> / <code class="docutils literal notranslate"><span class="pre">cached_v()</span></code> return only the valid prefix.</p></li>
+<li><p><strong>- Steady-state</strong> – cache full; each new chunk triggers a left-roll of the
+local window and overwrites the rightmost positions;
+<code class="docutils literal notranslate"><span class="pre">cached_k()</span></code> / <code class="docutils literal notranslate"><span class="pre">cached_v()</span></code> return the full buffer.</p></li>
+</ul>
+</dd>
+</dl>
+<p>The argument <code class="docutils literal notranslate"><span class="pre">chunk_idx</span></code> (0, 1, 2, …) is the index of the new chunk in the full
+sequence (not an index into the cache). If <code class="docutils literal notranslate"><span class="pre">chunk_idx</span></code> is greater than
+the previous one, the chunk is appended (or, in steady-state, written after
+the roll). If <code class="docutils literal notranslate"><span class="pre">chunk_idx</span></code> equals the previous one, the same cache positions
+are overwritten.</p>
+<dl class="simple">
+<dt>Per-step usage:</dt><dd><ol class="arabic simple">
+<li><p>before_update(chunk_idx) — prepare (roll local window if steady-state).</p></li>
+<li><p>update(k, v) — write the new chunk’s keys/values into the cache.</p></li>
+<li><p>cached_k() / cached_v() — get cached keys/values for attention.</p></li>
+<li><p>after_update(chunk_idx) — update internal bookkeeping.</p></li>
+</ol>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.k_shape">
+<span class="sig-name descname"><span class="pre">k_shape</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.k_shape" title="Link to this definition">#</a></dt>
+<dd><p>Shape of the keys. Must be the same as the values shape except for the last dimension.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.v_shape">
+<span class="sig-name descname"><span class="pre">v_shape</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.v_shape" title="Link to this definition">#</a></dt>
+<dd><p>Shape of the values. Must be the same as the keys shape except for the last dimension.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.seq_dim">
+<span class="sig-name descname"><span class="pre">seq_dim</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.seq_dim" title="Link to this definition">#</a></dt>
+<dd><p>Sequence dimension that will be rolled. Can be negative.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.chunk_size">
+<span class="sig-name descname"><span class="pre">chunk_size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.chunk_size" title="Link to this definition">#</a></dt>
+<dd><p>Number of tokens processed each time.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.window_size">
+<span class="sig-name descname"><span class="pre">window_size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.window_size" title="Link to this definition">#</a></dt>
+<dd><p>Size of the local attention window (excluding sink tokens).</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.sink_size">
+<span class="sig-name descname"><span class="pre">sink_size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.sink_size" title="Link to this definition">#</a></dt>
+<dd><p>Number of sink tokens at the start of the cache that are never evicted. Defaults to 0.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.device">
+<span class="sig-name descname"><span class="pre">device</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">device</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">device(type='cuda')</span></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.device" title="Link to this definition">#</a></dt>
+<dd><p>Device to store the cache on.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.dtype">
+<span class="sig-name descname"><span class="pre">dtype</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">dtype</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">torch.float16</span></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.dtype" title="Link to this definition">#</a></dt>
+<dd><p>Data type to store the cache in.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.is_steady_state">
+<span class="sig-name descname"><span class="pre">is_steady_state</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.is_steady_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.is_steady_state" title="Link to this definition">#</a></dt>
+<dd><p>Return True if the cache is full (steady-state phase).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.before_update">
+<span class="sig-name descname"><span class="pre">before_update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">chunk_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.before_update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.before_update" title="Link to this definition">#</a></dt>
+<dd><p>Prepare the cache before writing new tokens.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">chunk_idx</span></code> equals the previous chunk index, this is a no-op. Otherwise,
+we expect the <code class="docutils literal notranslate"><span class="pre">chunk_idx</span></code> to be +1 from the previous chunk index. In this case,
+we will roll the local window left if the cache is in steady-state, or no op
+if the cache is in filling phase.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>chunk_idx</strong> – Chunk index of the new chunk in the full sequence.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.update" title="Link to this definition">#</a></dt>
+<dd><p>Write the new chunk’s keys and values into the cache.</p>
+<p>Must be called after <code class="docutils literal notranslate"><span class="pre">before_update()</span></code> and before <code class="docutils literal notranslate"><span class="pre">after_update()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>k</strong> – Keys; shape must match cached keys except at seq_dim, where length must be chunk_size.</p></li>
+<li><p><strong>v</strong> – Values; shape must match cached values except at seq_dim, where length must be chunk_size.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.after_update">
+<span class="sig-name descname"><span class="pre">after_update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">chunk_idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.after_update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.after_update" title="Link to this definition">#</a></dt>
+<dd><p>Finalize bookkeeping after writing new tokens.</p>
+<p>Updates <code class="docutils literal notranslate"><span class="pre">_prev_chunk_idx</span></code> and, in filling phase, <code class="docutils literal notranslate"><span class="pre">_n_cached</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>chunk_idx</strong> – The index of the new chunk in the full sequence.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.cached_k">
+<span class="sig-name descname"><span class="pre">cached_k</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.cached_k"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.cached_k" title="Link to this definition">#</a></dt>
+<dd><p>Return cached keys for attention (valid prefix in filling phase, full buffer in steady-state).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.cached_v">
+<span class="sig-name descname"><span class="pre">cached_v</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git8e57bf1 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.cached_v"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.cached_v" title="Link to this definition">#</a></dt>
+<dd><p>Return cached values for attention (valid prefix in filling phase, full buffer in steady-state).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.reset">
+<span class="sig-name descname"><span class="pre">reset</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.reset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.reset" title="Link to this definition">#</a></dt>
+<dd><p>Reset the cache to its initial empty state.</p>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="distributed">
 <h2>Distributed<a class="headerlink" href="#distributed" title="Link to this heading">#</a></h2>
@@ -464,7 +717,35 @@ the boilerplate at the top of the example launchers.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attention">Attention</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attention">Attention</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.NativeAttention"><code class="docutils literal notranslate"><span class="pre">NativeAttention</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.NativeAttention.set_context_parallel_group"><code class="docutils literal notranslate"><span class="pre">set_context_parallel_group()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled"><code class="docutils literal notranslate"><span class="pre">is_context_parallel_enabled()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.NativeAttention.context_parallel_size"><code class="docutils literal notranslate"><span class="pre">context_parallel_size()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.NativeAttention.forward"><code class="docutils literal notranslate"><span class="pre">forward()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.RingAttention"><code class="docutils literal notranslate"><span class="pre">RingAttention</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache"><code class="docutils literal notranslate"><span class="pre">BlockKVCache</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.k_shape"><code class="docutils literal notranslate"><span class="pre">k_shape</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.v_shape"><code class="docutils literal notranslate"><span class="pre">v_shape</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.seq_dim"><code class="docutils literal notranslate"><span class="pre">seq_dim</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.chunk_size"><code class="docutils literal notranslate"><span class="pre">chunk_size</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.window_size"><code class="docutils literal notranslate"><span class="pre">window_size</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.sink_size"><code class="docutils literal notranslate"><span class="pre">sink_size</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.device"><code class="docutils literal notranslate"><span class="pre">device</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.dtype"><code class="docutils literal notranslate"><span class="pre">dtype</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.is_steady_state"><code class="docutils literal notranslate"><span class="pre">is_steady_state()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.before_update"><code class="docutils literal notranslate"><span class="pre">before_update()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.update"><code class="docutils literal notranslate"><span class="pre">update()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.after_update"><code class="docutils literal notranslate"><span class="pre">after_update()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.cached_k"><code class="docutils literal notranslate"><span class="pre">cached_k()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.cached_v"><code class="docutils literal notranslate"><span class="pre">cached_v()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.reset"><code class="docutils literal notranslate"><span class="pre">reset()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distributed">Distributed</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.init"><code class="docutils literal notranslate"><span class="pre">init()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.distributed.Device"><code class="docutils literal notranslate"><span class="pre">Device</span></code></a><ul class="nav section-nav flex-column">
