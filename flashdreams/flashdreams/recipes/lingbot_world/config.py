@@ -88,8 +88,7 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
         i2v=WanI2VCtrlEncoderConfig(
-            encoder=WanVAEEncoderConfig(
-            ),
+            encoder=WanVAEEncoderConfig(),
         ),
     ),
     decoder=WanVAEDecoderConfig(),
