@@ -400,7 +400,7 @@ def get_available_cameras(scene) -> List[str]:
 def create_camera(width: int, height: int, device: torch.device,
                   bev: bool = False, bev_height: float = 80.0,
                   bev_fov: float = 60.0, scene=None,
-                  camera_name: str = None):
+                  camera_name: str | None = None):
     """Create a camera for rendering.
 
     If *scene* and *camera_name* are provided, returns the scene camera
@@ -442,7 +442,7 @@ def create_camera(width: int, height: int, device: torch.device,
 
 def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
                  width: int, height: int, device: torch.device,
-                 bev_height: float = None,
+                 bev_height: float | None = None,
                  camera_name: str = 'camera:front:wide:120fov',
                  camera_id: int = 0) -> Image.Image:
     """Render a single frame and return as PIL Image.
@@ -481,7 +481,7 @@ def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
 
 
 def compute_camera_poses(scene, timestamps, device: torch.device,
-                         bev_height: float = None,
+                         bev_height: float | None = None,
                          camera_name: str = 'camera:front:wide:120fov') -> Tuple[torch.Tensor, int]:
     """Compute camera poses for all timestamps.
     
@@ -585,7 +585,7 @@ def save_frames(images: np.ndarray, output_dir: str, prefix: str = "frame") -> L
 
 def render_all_frames(ctx, scene, scene_id: int, timestamps, 
                       width: int, height: int, device: torch.device,
-                      bev_height: float = None,
+                      bev_height: float | None = None,
                       camera_name: str = 'camera:front:wide:120fov',
                       verbose: bool = False) -> Tuple[List[Image.Image], Dict]:
     """Render all frames and return as PIL Images with timing info.

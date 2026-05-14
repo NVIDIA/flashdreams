@@ -73,12 +73,12 @@ def print_stats(name: str, times_ms: List[float], n_items: int = 1):
 
 def find_scene_dirs(scenes_dir: str) -> List[str]:
     """Find all scene directories in a folder."""
-    scenes_dir = Path(scenes_dir)
-    if not scenes_dir.exists():
+    scenes_path = Path(scenes_dir)
+    if not scenes_path.exists():
         return []
     
     scene_paths = []
-    for item in scenes_dir.iterdir():
+    for item in scenes_path.iterdir():
         if item.is_dir():
             # Check if it has parquet files
             if list(item.glob("*.parquet")):
@@ -248,7 +248,7 @@ def benchmark_multicam(args):
                    CAMERA_TYPE_BEV if camera_names[cam_idx] == 'BEV' else CAMERA_TYPE_REGULAR)
                   for cam_idx in range(n_cameras)]
         poses = all_camera_poses[:, ts_idx, :, :]
-        _ = ctx.render_batch(queries, poses, resolution=(height, width))
+        _ = ctx.render_batch(queries, poses, resolution=(height, width))  # ty:ignore[invalid-argument-type]
     torch.cuda.synchronize()
     
     # Benchmark: per-timestamp rendering
@@ -271,7 +271,7 @@ def benchmark_multicam(args):
                       for cam_idx in range(n_cameras)]
             poses = all_camera_poses[:, ts_idx, :, :]
             
-            images = ctx.render_batch(queries, poses, resolution=(height, width))
+            images = ctx.render_batch(queries, poses, resolution=(height, width))  # ty:ignore[invalid-argument-type]
             
             torch.cuda.synchronize()
             ts_times.append((time.time() - t0) * 1000)

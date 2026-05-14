@@ -681,7 +681,7 @@ def _clip_polyline_pool(
         psd = sd[poly_start:poly_end]
 
         seg_verts: List[Tensor] = []
-        for vi in range(n_v):
+        for vi in range(int(n_v)):
             on_keep = pk[vi].item()
             if vi > 0:
                 prev_on_keep = pk[vi - 1].item()
@@ -782,8 +782,8 @@ def _clip_polygon_pool(
 
         vert_offset += (ve - vs)
         tri_offset += (ts_end - ts_start)
-        new_vps.append(vert_offset)
-        new_tps.append(tri_offset)
+        new_vps.append(int(vert_offset))
+        new_tps.append(int(tri_offset))
 
     new_vertices = torch.cat(new_verts_list)
     new_triangles = torch.cat(new_tris_list)
@@ -843,7 +843,7 @@ def _clip_cube_pool(
         new_quat_list.append(pool.quaternions[s:e])
         new_track_ts_list.append(pool.track_timestamps_us[s:e])
         track_offset += (e - s)
-        new_cube_ts_ps.append(track_offset)
+        new_cube_ts_ps.append(int(track_offset))
 
     dev = pool.cube_ts_prefix_sum.device
     ki = torch.tensor(keep_indices, dtype=torch.long, device=dev)
@@ -991,11 +991,11 @@ def mirror_augment_scene(
     p0_plane: MirrorPlane = (center_gpu, normal_gpu)
 
     # tile_bwd: reflect original about P0 + time-reverse
-    bwd_ego = _reflect_ego_track(fwd_extended_ego, center_cpu, normal_cpu, t_pivot)
+    bwd_ego = _reflect_ego_track(fwd_extended_ego, center_cpu, normal_cpu, int(t_pivot))
     bwd_pl = [_reflect_polyline_pool(p, center_gpu, normal_gpu) for p in map_polyline_pools]
     bwd_pg = [_reflect_polygon_pool(p, center_gpu, normal_gpu) for p in map_polygon_pools]
     bwd_cb = [
-        _reflect_cube_pool(p, center_gpu, normal_gpu, t_pivot,
+        _reflect_cube_pool(p, center_gpu, normal_gpu, int(t_pivot),
                            time_reverse=(p.prim_type_id == PRIM_OBSTACLE))
         for p in other_cube_pools
     ]
@@ -1061,9 +1061,9 @@ def mirror_augment_scene(
 
         new_pl = [_rigid_transform_polyline_pool(p, theta, pivot, offset) for p in src_pl]
         new_pg = [_rigid_transform_polygon_pool(p, theta, pivot, offset) for p in src_pg]
-        new_cb = [_rigid_transform_cube_pool(p, theta, pivot, offset, time_offset_us)
+        new_cb = [_rigid_transform_cube_pool(p, theta, pivot, offset, int(time_offset_us))
                   for p in src_cb]
-        new_ego = _rigid_transform_ego_track(src_ego, theta, pivot, offset, time_offset_us)
+        new_ego = _rigid_transform_ego_track(src_ego, theta, pivot, offset, int(time_offset_us))
 
         # Boundary plane at junction: position = previous exit, normal = heading vector
         heading_vec = torch.tensor(

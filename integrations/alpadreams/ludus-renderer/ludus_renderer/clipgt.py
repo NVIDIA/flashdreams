@@ -569,7 +569,7 @@ def read_road_boundary(parquet_path: Path) -> List[Tensor]:
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        boundary = row.road_boundary
+        boundary = row.road_boundary  # ty:ignore[unresolved-attribute]
         if "location" in boundary and boundary["location"] is not None:
             pts = _points_to_tensor(boundary["location"])
             if pts is not None and len(pts) > 1:
@@ -764,7 +764,7 @@ def read_crosswalk(parquet_path: Path) -> List[Tensor]:
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        cw = row.crosswalk
+        cw = row.crosswalk  # ty:ignore[unresolved-attribute]
         if "location" in cw and cw["location"] is not None:
             pts = _points_to_tensor(cw["location"])
             if pts is not None and len(pts) > 2:
@@ -780,7 +780,7 @@ def read_road_marking(parquet_path: Path) -> List[Tensor]:
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        rm = row.road_marking
+        rm = row.road_marking  # ty:ignore[unresolved-attribute]
         if "location" in rm and rm["location"] is not None:
             pts = _points_to_tensor(rm["location"])
             if pts is not None and len(pts) > 2:
@@ -796,7 +796,7 @@ def read_wait_line(parquet_path: Path) -> List[Tensor]:
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        wl = row.wait_line
+        wl = row.wait_line  # ty:ignore[unresolved-attribute]
         if "location" in wl and wl["location"] is not None:
             pts = _points_to_tensor(wl["location"])
             if pts is not None and len(pts) >= 2:
@@ -812,7 +812,7 @@ def read_pole(parquet_path: Path) -> List[Tensor]:
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        pole = row.pole
+        pole = row.pole  # ty:ignore[unresolved-attribute]
         if "location" in pole and pole["location"] is not None:
             loc = pole["location"]
             if len(loc) >= 2:
@@ -837,7 +837,7 @@ def read_intersection_area(parquet_path: Path) -> List[Tensor]:
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        area = row.intersection_area
+        area = row.intersection_area  # ty:ignore[unresolved-attribute]
         if "location" in area and area["location"] is not None:
             pts = _points_to_tensor(area["location"])
             if pts is not None and len(pts) > 2:
@@ -853,7 +853,7 @@ def read_road_island(parquet_path: Path) -> List[Tensor]:
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        island = row.road_island
+        island = row.road_island  # ty:ignore[unresolved-attribute]
         if "location" in island and island["location"] is not None:
             pts = _points_to_tensor(island["location"])
             if pts is not None and len(pts) > 2:
@@ -878,7 +878,7 @@ def read_traffic_light(parquet_path: Path) -> CubeData:
     
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        tl = row.traffic_light
+        tl = row.traffic_light  # ty:ignore[unresolved-attribute]
         if "center" in tl and tl["center"] is not None:
             center = [tl["center"]["x"], tl["center"]["y"], tl["center"]["z"]]
             if any(x is None or np.isnan(x) for x in center):
@@ -913,7 +913,7 @@ def read_traffic_sign(parquet_path: Path) -> CubeData:
     
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
-        ts = row.traffic_sign
+        ts = row.traffic_sign  # ty:ignore[unresolved-attribute]
         if "center" in ts and ts["center"] is not None:
             center = [ts["center"]["x"], ts["center"]["y"], ts["center"]["z"]]
             if any(x is None or np.isnan(x) for x in center):
@@ -964,9 +964,9 @@ def read_obstacles(parquet_path: Path) -> List[ObstacleData]:
     raw_data: Dict[str, List[Tuple[int, Dict]]] = defaultdict(list)
 
     for row in df.itertuples():
-        trackline_id = row.obstacle["trackline_id"]
-        timestamp = row.key["timestamp_micros"]
-        raw_data[trackline_id].append((timestamp, row.obstacle))
+        trackline_id = row.obstacle["trackline_id"]  # ty:ignore[unresolved-attribute]
+        timestamp = row.key["timestamp_micros"]  # ty:ignore[unresolved-attribute]
+        raw_data[trackline_id].append((timestamp, row.obstacle))  # ty:ignore[unresolved-attribute]
 
     obstacles = []
     for trackline_id, rows in raw_data.items():
@@ -2481,7 +2481,7 @@ def _flat_polygons_to_pool(
         tri_starts[1:] = triangle_prefix_sum[:-1]
         within_tri = (torch.arange(total_tris, device=device) - tri_starts.repeat_interleave(tri_counts)).int()
         triangles = torch.stack([
-            torch.zeros(total_tris, device=device, dtype=torch.int32),
+            torch.zeros(total_tris, device=device, dtype=torch.int32),  # ty:ignore[no-matching-overload]
             within_tri + 1,
             within_tri + 2,
         ], dim=1)
@@ -2938,12 +2938,12 @@ def load_av2_scene(
                 print(f"  Clipped ego to scene range: {(t1 - t0)/1e6:.1f}s "
                       f"({n_ego} ego poses)")
     else:
-        gpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,
+        gpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,  # ty:ignore[unresolved-attribute]
                                              crosswalk_flat, static_obstacle_flat]
-                  if f is not None and f.timestamps_us.is_cuda]
-        cpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,
+                  if f is not None and f.timestamps_us.is_cuda]  # ty:ignore[unresolved-attribute]
+        cpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,  # ty:ignore[unresolved-attribute]
                                              crosswalk_flat, static_obstacle_flat]
-                  if f is not None and not f.timestamps_us.is_cuda]
+                  if f is not None and not f.timestamps_us.is_cuda]  # ty:ignore[unresolved-attribute]
         for obs in obstacles:
             (gpu_ts if obs.timestamps.is_cuda else cpu_ts).append(obs.timestamps)
 
@@ -3004,13 +3004,13 @@ def load_av2_scene(
                 ))
     else:
         _sorted = _use_gpu
-        pool = _flat_polylines_to_pool(road_boundary_flat, PRIM_ROAD_BOUNDARY, device, pre_sorted=_sorted)
+        pool = _flat_polylines_to_pool(road_boundary_flat, PRIM_ROAD_BOUNDARY, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
         if pool:
             polyline_pools.append(pool)
-        pool = _flat_polylines_to_pool(lane_line_flat, PRIM_LANE_LINE, device, pre_sorted=_sorted)
+        pool = _flat_polylines_to_pool(lane_line_flat, PRIM_LANE_LINE, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
         if pool:
             polyline_pools.append(pool)
-        pool = _flat_polylines_to_pool(static_obstacle_flat, PRIM_STATIC_OBSTACLE, device, pre_sorted=_sorted)
+        pool = _flat_polylines_to_pool(static_obstacle_flat, PRIM_STATIC_OBSTACLE, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
         if pool:
             polyline_pools.append(pool)
 
@@ -3044,7 +3044,7 @@ def load_av2_scene(
                 prim_type_id=PRIM_CROSSWALK,
             ))
     else:
-        pool = _flat_polygons_to_pool(crosswalk_flat, PRIM_CROSSWALK, device)
+        pool = _flat_polygons_to_pool(crosswalk_flat, PRIM_CROSSWALK, device)  # ty:ignore[invalid-argument-type]
         if pool:
             polygon_pools.append(pool)
 

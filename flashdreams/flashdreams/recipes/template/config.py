@@ -105,7 +105,7 @@ TEMPLATE_AUTOREGRESSIVE = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Streaming AR variant: smaller per-chunk ``len_t`` (2) and a larger
 ``window_size_t`` (4 = 2 * len_t) so the KV cache fills over multiple
 AR steps before rolling. CFG still off; patch ``guidance_scale > 1.0``
@@ -123,7 +123,7 @@ TEMPLATE_AUTOREGRESSIVE_COMPILED = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Streaming AR with ``torch.compile`` + ``CUDAGraphWrapper`` enabled on
 the DiT network. The fast deployment path: keep
 ``TEMPLATE_AUTOREGRESSIVE`` as the easy-to-debug default and reach for

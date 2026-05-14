@@ -202,7 +202,7 @@ def render_sequence(args, all_cameras: bool = False):
     # Create and upload cameras
     width, height = args.width, args.height
     
-    all_cameras = []
+    all_cameras: list = []
     for cam_name in camera_names:
         is_bev = (cam_name == 'bev')
         cam = create_camera(width, height, device, bev=is_bev,
@@ -676,6 +676,7 @@ def _render_mp4_ffmpeg(ctx, scene_id, timestamps, all_poses, camera_type_id,
             output_path,
         ]
         ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+        assert ffmpeg_proc.stdin is not None
 
         for i in range(0, n_frames, batch_size):
             end_idx = min(i + batch_size, n_frames)
@@ -844,6 +845,7 @@ def render_overlay_sequence(args):
             '-pix_fmt', 'yuv420p', output_dest
         ]
         ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+        assert ffmpeg_proc.stdin is not None
     else:
         output_dest = os.path.join(output_base, f"overlay_{cam_tag}")
         os.makedirs(output_dest, exist_ok=True)
@@ -916,6 +918,8 @@ def render_overlay_sequence(args):
             for j in range(actual_n):
                 if output_format == 'mp4':
                     bgr = cv2.cvtColor(blended_cpu[j], cv2.COLOR_RGB2BGR)
+                    assert ffmpeg_proc is not None
+                    assert ffmpeg_proc.stdin is not None
                     ffmpeg_proc.stdin.write(bgr.tobytes())
                 elif output_format == 'jpg':
                     path = os.path.join(output_dest, f"frame_{frame_counter:04d}.jpg")
@@ -935,6 +939,7 @@ def render_overlay_sequence(args):
     elapsed = time.time() - t0
     cap.release()
     if ffmpeg_proc is not None:
+        assert ffmpeg_proc.stdin is not None
         ffmpeg_proc.stdin.close()
         ffmpeg_proc.wait()
 

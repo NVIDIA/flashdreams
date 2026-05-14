@@ -153,7 +153,7 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
         encoder=dict(use_compile=True, use_cuda_graph=True),
         decoder=dict(use_compile=True, use_cuda_graph=True),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Performance-tuned variant: enable ``use_compile`` / ``use_cuda_graph``
 on the image encoder, the per-AR-step encoder, and the decoder."""
 
@@ -170,7 +170,7 @@ SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
             use_cuda_graph=True,
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Single-view, chunk2, full Wan VAE for both HDMap encoding and decoding."""
 
 SV_2STEPS_CHUNK3_LOC6_VAE_VAE = cast(
@@ -187,7 +187,7 @@ SV_2STEPS_CHUNK3_LOC6_VAE_VAE = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Single-view, chunk3, full Wan VAE for both HDMap encoding and decoding.
 
 Same chassis as ``SV_2STEPS_CHUNK2_LOC6_VAE_VAE`` but with ``len_t=3``
@@ -212,7 +212,7 @@ SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Single-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder.
 
 Diverges from the chunk2 base on (a) ``additional_concat_ch=192`` for
@@ -237,7 +237,7 @@ MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """4-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder."""
 
 
@@ -308,7 +308,7 @@ SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 """Teacher: alpadreams bidirectional (single-view / 2B / 720p / chunk48 UniPC).
 
 ``len_t == window_size_t == 48`` -> single-AR-step rollout for the
@@ -332,7 +332,7 @@ EXPERIMENT1_BASELINE = cast(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
         recipe_name="alpadreams-experiment1-baseline",
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 EXPERIMENT1_SKIP_FINALIZE_KV_CACHE = cast(
     AlpadreamsPipelineConfig,
@@ -343,7 +343,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE = cast(
             transformer=dict(skip_finalize_kv_cache=True),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350 = cast(
     AlpadreamsPipelineConfig,
@@ -354,7 +354,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350 = cast(
             scheduler=dict(denoising_timesteps=[1000, 350]),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250 = cast(
     AlpadreamsPipelineConfig,
@@ -365,7 +365,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250 = cast(
             scheduler=dict(denoising_timesteps=[1000, 250]),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150 = cast(
     AlpadreamsPipelineConfig,
@@ -376,7 +376,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150 = cast(
             scheduler=dict(denoising_timesteps=[1000, 150]),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = cast(
     AlpadreamsPipelineConfig,
@@ -387,7 +387,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = cast(
             scheduler=dict(denoising_timesteps=[1000, 100]),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 
 
 ALPADREAMS_CONFIGS: dict[str, AlpadreamsPipelineConfig] = {

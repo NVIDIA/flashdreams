@@ -111,7 +111,7 @@ def main():
     cache_dir = args.cache_dir
 
     try:
-        import lmdb as _lmdb
+        import lmdb as _lmdb  # ty:ignore[unresolved-import]
         use_lmdb = not args.no_lmdb
     except ImportError:
         use_lmdb = False

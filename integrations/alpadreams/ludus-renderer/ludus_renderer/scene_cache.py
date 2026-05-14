@@ -58,7 +58,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 import numpy as np
 import torch
@@ -68,7 +68,7 @@ from torch import Tensor
 _log = logging.getLogger(__name__)
 
 try:
-    import lmdb as _lmdb
+    import lmdb as _lmdb  # ty:ignore[unresolved-import]
 except ImportError:
     _lmdb = None
 
@@ -101,7 +101,7 @@ def compute_format_hash() -> str:
         "cube_float_layout=trans3_quat4_scale3_color6",
     ]
     try:
-        from ._ops._ludus_gl import get_struct_sizes
+        from ._ops._ludus_gl import get_struct_sizes  # ty:ignore[unresolved-import]
         sizes = get_struct_sizes()
         for name in sorted(sizes.keys()):
             parts.append(f"sizeof_{name}={sizes[name]}")
@@ -383,7 +383,7 @@ def scene_to_device(scene: ClipgtGpuScene, device: torch.device) -> ClipgtGpuSce
 
     moved_packed = None
     if scene.packed is not None:
-        p = scene.packed
+        p = cast(PackedSceneBuffers, scene.packed)
         moved_packed = PackedSceneBuffers(
             timestamps=_mv(p.timestamps),
             int32_data=_mv(p.int32_data),
@@ -773,7 +773,7 @@ def scene_bytes(scene: ClipgtGpuScene) -> int:
     for v in scene.sensor_to_rig.values():
         total += _tensor_bytes(v)
     if scene.packed is not None:
-        total += packed_bytes(scene.packed)
+        total += packed_bytes(cast(PackedSceneBuffers, scene.packed))
     return total
 
 
@@ -1070,6 +1070,7 @@ class SceneDatabase:
     # -- L3: Disk cache (LMDB primary, per-file fallback) ---------------
 
     def _disk_path(self, key: str) -> Path:
+        assert self._cache_dir is not None
         return _cache_path(self._cache_dir, key)
 
     def _load_from_disk(self, key: str) -> Optional[ClipgtGpuScene]:
