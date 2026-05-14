@@ -62,14 +62,21 @@ class LingbotVideoTrack(MediaStreamTrack):
     ``await put`` blocks once it is full, so the producer is throttled
     to the consumer's drain rate of one frame per ``1/fps`` seconds.
 
-    ``maxsize`` must equal the runtime's per-chunk frame count so the
-    queue holds *exactly* one chunk in flight. With a larger queue the
-    producer would buffer extra latency on top of the design floor; with
-    a smaller queue the producer would block mid-chunk and the
-    consumer-paced backpressure model in :meth:`enqueue_chunk` breaks.
-    The construction site is therefore responsible for reading
-    ``num_frames`` from the runtime and passing it in — there is no
+    ``maxsize`` must equal the runtime's *steady-state* per-chunk
+    frame count so the queue holds *exactly* one chunk in flight in
+    steady state. With a larger queue the producer would buffer extra
+    latency on top of the design floor; with a smaller queue the
+    producer would block mid-chunk and the consumer-paced backpressure
+    model in :meth:`enqueue_chunk` breaks. The construction site is
+    therefore responsible for asking the runtime for the
+    steady-state ``num_frames`` and passing it in — there is no
     sensible default.
+
+    Sizing to the steady-state count (rather than to AR step 0's
+    output) matters: in the lingbot/Wan pipelines AR 0 produces fewer
+    frames than every subsequent step due to causal first-frame
+    padding, so a queue sized to AR 0 would over-backpressure every
+    steady-state chunk and create a once-per-chunk playback stall.
     """
 
     kind = "video"

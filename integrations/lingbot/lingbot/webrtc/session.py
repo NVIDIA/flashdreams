@@ -204,6 +204,33 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Runtime is not initialized.")
         return int(self._pipeline.get_num_output_frames(self.autoregressive_index))
 
+    # Arbitrary index well past the AR-step transient; for the Wan/lingbot
+    # pipelines used here the per-step count is constant for any index
+    # ``>= 1`` (only AR 0 emits fewer frames due to causal first-frame
+    # padding). Picking a large number is a robust way to ask "what is
+    # the steady-state chunk size?" without leaning on the exact
+    # boundary of that transient.
+    _STEADY_STATE_AR_PROBE_INDEX: int = 1000
+
+    def peek_steady_chunk_num_frames(self) -> int:
+        """Return the steady-state per-chunk frame count.
+
+        AR step 0 emits *fewer* frames than every subsequent step
+        because of the decoder's causal first-frame padding (e.g. AR 0
+        → 9 frames vs AR ≥ 1 → 12 frames for the current config). The
+        video track's bounded queue must be sized to the *steady-state*
+        chunk size so that the producer is not forced to block on the
+        very next chunk after the AR-0 transient. Probing at a large AR
+        index returns that steady-state value directly.
+
+        Master-only read with no distributed broadcast.
+        """
+        if self._pipeline is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        return int(
+            self._pipeline.get_num_output_frames(self._STEADY_STATE_AR_PROBE_INDEX)
+        )
+
     @distributed_op(LingbotControlSignal.INITIALIZE)
     def _initialize_sync_all_ranks(self) -> None:
         self._initialize_sync()
@@ -545,11 +572,19 @@ class LingbotWebRTCSessionManager:
             await self._runtime.reset_for_new_session()
 
             peer_connection = RTCPeerConnection()
-            # Bounded queue sized to one chunk: ``put`` blocks once full,
-            # which throttles the producer to the consumer's drain rate.
-            # ``num_frames`` is read after the runtime has been reset so
-            # the pipeline reports the correct chunk size for chunk 0.
-            num_frames = self._runtime.peek_next_chunk_num_frames()
+            # Bounded queue sized to one *steady-state* chunk: ``put``
+            # blocks only when the queue holds a full steady-state chunk
+            # already, which throttles the producer to the consumer's
+            # drain rate.
+            #
+            # Important: AR step 0 emits fewer frames than every
+            # subsequent step (e.g. 9 vs 12 here) due to the decoder's
+            # causal first-frame padding. Sizing the queue to AR 0 would
+            # force the producer to block 3 times on *every* steady-state
+            # chunk, leaving < 1 chunk of buffer at gen-start and
+            # producing a once-per-chunk ~60 ms playback stall. We
+            # therefore size to the steady-state count.
+            num_frames = self._runtime.peek_steady_chunk_num_frames()
             video_track = LingbotVideoTrack(fps=self.fps, maxsize=num_frames)
             peer_connection.addTrack(video_track)
             # Start the resampler's virtual clock at 0; the real anchor
