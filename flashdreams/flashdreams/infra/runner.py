@@ -138,7 +138,7 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
                         diffusion_model=dict(seed=base_seed + self.global_rank),
                     ),
                 ),
-            )
+            )  # ty:ignore[redundant-cast]
         self.config = effective_config
 
         pipeline = self.config.pipeline.setup()

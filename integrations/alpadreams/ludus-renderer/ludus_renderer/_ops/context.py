@@ -343,7 +343,7 @@ class LudusCudaTimestampedContext:
             tri_offset += n_tris
             float_offset += len(aabbs)
 
-        for pool in scene.cube_pools:
+        for pool in scene.cube_pools or []:
             n_global_ts = pool.timestamps_us.shape[0]
             n_cubes = pool.scales.shape[0]
             n_track_poses = pool.translations.shape[0]
@@ -793,7 +793,7 @@ class LudusTimestampedContext:
 
         # Process cube pools
         max_cubes_in_pool = 0
-        for pool in scene.cube_pools:
+        for pool in scene.cube_pools or []:
             n_global_ts = pool.timestamps_us.shape[0]
             n_cubes = pool.scales.shape[0]
             n_track_poses = pool.translations.shape[0]
@@ -835,7 +835,7 @@ class LudusTimestampedContext:
         scene_desc[1] = self._global_polyline_pool_offset
         scene_desc[2] = len(scene.polygon_pools)
         scene_desc[3] = self._global_polygon_pool_offset
-        scene_desc[4] = len(scene.cube_pools)
+        scene_desc[4] = len(scene.cube_pools or [])
         scene_desc[5] = self._global_cube_pool_offset
         scene_desc[12] = 1  # valid flag
 
@@ -910,8 +910,7 @@ class LudusTimestampedContext:
         self._global_float_offset += len(all_floats)
         self._global_polyline_pool_offset += len(scene.polyline_pools)
         self._global_polygon_pool_offset += len(scene.polygon_pools)
-        self._global_cube_pool_offset += len(scene.cube_pools)
-
+        self._global_cube_pool_offset += len(scene.cube_pools or [])
         self._scene_count += 1
         return scene_id
 
@@ -1335,7 +1334,7 @@ class LudusTimestampedContext:
 
     # ========== Streaming Methods ==========
 
-    def set_jpeg_streaming(self, enabled: bool = True, quality: int = None) -> None:  # ty:ignore[invalid-parameter-default]
+    def set_jpeg_streaming(self, enabled: bool = True, quality: int | None = None) -> None:
         """Enable or disable JPEG streaming mode."""
         self._jpeg_streaming_enabled = enabled
         self._stream_frame_count = 0
@@ -1394,7 +1393,7 @@ class LudusTimestampedContext:
         queries_tensor: torch.Tensor,
         camera_poses: torch.Tensor,
         resolution: Tuple[int, int],
-        quality: int = None,  # ty:ignore[invalid-parameter-default]
+        quality: int | None = None,
     ) -> Tuple[int, Optional[Union[torch.Tensor, list]]]:
         """Unified streaming API."""
         staging_idx, has_prev = self.render_batch_to_staging(
@@ -1426,7 +1425,7 @@ class LudusTimestampedContext:
     def get_stream_data(
         self,
         staging_idx: int,
-        quality: int = None,  # ty:ignore[invalid-parameter-default]
+        quality: int | None = None,
     ) -> Optional[Union[torch.Tensor, list]]:
         """Get data from staging buffer in current streaming mode."""
         if self._video_streaming_enabled:
@@ -1451,7 +1450,7 @@ class LudusTimestampedContext:
         self,
         staging_idx: int,
         image_idx: int,
-        quality: int = None,  # ty:ignore[invalid-parameter-default]
+        quality: int | None = None,
     ) -> bytes:
         """Encode a single image from staging buffer to JPEG."""
         q = quality if quality is not None else self._jpeg_quality
@@ -1459,7 +1458,7 @@ class LudusTimestampedContext:
             self.cpp_wrapper, staging_idx, image_idx, q
         )
 
-    def encode_jpeg_batch_staging(self, staging_idx: int, quality: int = None) -> list:  # ty:ignore[invalid-parameter-default]
+    def encode_jpeg_batch_staging(self, staging_idx: int, quality: int | None = None) -> list:
         """Encode all images from staging buffer to JPEG."""
         q = quality if quality is not None else self._jpeg_quality
         return _get_plugin(gl=True).ludus_timestamped_encode_jpeg_batch_staging(
@@ -1503,12 +1502,12 @@ class LudusTimestampedContext:
     def set_video_streaming(
         self,
         output_dir: str,
-        camera_names: List[str] = None,  # ty:ignore[invalid-parameter-default]
+        camera_names: List[str] | None = None,
         codec: str = "h264",
         bitrate: int = 10_000_000,
         fps: int = 30,
         preset: str = "P4",
-        resolution: Tuple[int, int] = None,  # ty:ignore[invalid-parameter-default]
+        resolution: Tuple[int, int] | None = None,
     ) -> bool:
         """Enable video streaming mode."""
         try:
@@ -1588,8 +1587,10 @@ class LudusTimestampedContext:
                 filename = f"{self._video_camera_names[i]}.mp4"
             else:
                 filename = f"cam_{i:02d}.mp4"
-            filepath = os.path.join(self._video_output_dir, filename)  # ty:ignore[no-matching-overload]
+            assert self._video_output_dir is not None
+            filepath = os.path.join(self._video_output_dir, filename)
             self._video_files.append(open(filepath, "wb"))
+
 
         return True
 
@@ -1612,7 +1613,9 @@ class LudusTimestampedContext:
                 filename = f"{self._video_camera_names[i]}.mp4"
             else:
                 filename = f"cam_{i:02d}.mp4"
-            output_paths.append(os.path.join(self._video_output_dir, filename))  # ty:ignore[no-matching-overload]
+            assert self._video_output_dir is not None
+            output_paths.append(os.path.join(self._video_output_dir, filename))
+
 
         self._video_encoders = []
         self._video_files = []

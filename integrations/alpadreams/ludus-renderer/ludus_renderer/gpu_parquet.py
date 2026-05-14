@@ -35,15 +35,18 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 
+import types
+
 import numpy as np
 import pyarrow.parquet as pq
 import torch
 from torch import Tensor
 
+_nvcomp: types.ModuleType | None = None
 try:
-    from nvidia import nvcomp as _nvcomp
+    from nvidia import nvcomp as _nvcomp  # type: ignore[assignment]
 except ImportError:
-    _nvcomp = None
+    pass
 
 # ---------------------------------------------------------------------------
 # JIT-compiled CUDA extension for RLE decode (shared memory, fast path)
@@ -518,7 +521,7 @@ def batch_decompress_pages(
         gpu_buffer[p.data_offset : p.data_offset + p.compressed_size]
         for _, p in non_empty
     ]
-    arrays = _nvcomp.as_arrays(slices)
+    arrays = _nvcomp.as_arrays(slices)  # ty:ignore[unresolved-attribute]
     decoded = codec.decode(arrays)
     decoded_tensors = [torch.as_tensor(d, device=gpu_buffer.device) for d in decoded]
 
@@ -529,7 +532,7 @@ def batch_decompress_pages(
     for i in range(len(result)):
         if result[i] is None:
             result[i] = empty
-    return result
+    return result  # ty:ignore[invalid-return-type]
 
 
 # ---------------------------------------------------------------------------
@@ -1368,7 +1371,7 @@ _prefetch_executor = None
 def _ensure_pinned(buf_idx: int, nbytes: int) -> None:
     """Ensure _pinned_bufs[buf_idx] is at least nbytes large."""
     global _pinned_bufs
-    if _pinned_bufs[buf_idx] is None or _pinned_bufs[buf_idx].size(0) < nbytes:
+    if _pinned_bufs[buf_idx] is None or _pinned_bufs[buf_idx].size(0) < nbytes:  # ty:ignore[unresolved-attribute]
         new_size = max(nbytes, 16 * 1024 * 1024)
         _pinned_bufs[buf_idx] = torch.empty(new_size, dtype=torch.uint8, pin_memory=True)
 
@@ -1378,7 +1381,7 @@ def _read_tar_into(tar_path: str, buf_idx: int) -> Tuple[Tensor, List[TarFileEnt
     import os
     nbytes = os.path.getsize(tar_path)
     _ensure_pinned(buf_idx, nbytes)
-    pinned = _pinned_bufs[buf_idx][:nbytes]
+    pinned = _pinned_bufs[buf_idx][:nbytes]  # ty:ignore[not-subscriptable]
     pin_mv = memoryview(pinned.numpy())
     with open(tar_path, 'rb') as f:
         f.readinto(pin_mv)
@@ -1451,7 +1454,7 @@ def read_tars_to_pinned_buffer(
         total += s
 
     _ensure_pinned(_active_buf, total)
-    pinned = _pinned_bufs[_active_buf][:total]
+    pinned = _pinned_bufs[_active_buf][:total]  # ty:ignore[not-subscriptable]
     pin_np = pinned.numpy()
 
     def _read_one(idx: int) -> Tuple[str, int, List[TarFileEntry]]:
@@ -1643,6 +1646,8 @@ class GpuParquetDecoder:
             zip(tar_offsets, entries_list)
         ):
             entry_map: Dict[str, TarFileEntry] = {}
+            if entries is None:
+                continue
             for e in entries:
                 base = e.name.rsplit("/", 1)[-1] if "/" in e.name else e.name
                 entry_map[base] = e
@@ -1819,7 +1824,7 @@ class GpuParquetDecoder:
                 nc = torch.zeros(n_rows, dtype=torch.int32, device=self.device)
                 nc.scatter_add_(
                     0, rid[nan_mask],
-                    torch.ones(nan_mask.sum(), dtype=torch.int32, device=self.device),
+                    torch.ones(nan_mask.sum(), dtype=torch.int32, device=self.device),  # ty:ignore[no-matching-overload]
                 )
                 valid = valid & (nc == 0)
 

@@ -60,7 +60,7 @@ def benchmark(args):
     print(f"Measure:      {args.iterations} iterations")
     print()
 
-    ctx = LudusTimestampedContext(device=device, interop=args.interop)
+    ctx = LudusTimestampedContext(device=device, interop=args.interop)  # ty:ignore[unknown-argument]
 
     print(f"Loading scene: {args.scene}")
     t0 = time.time()

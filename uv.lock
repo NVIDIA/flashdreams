@@ -551,7 +551,7 @@ wheels = [
 
 [[package]]
 name = "flash-alpadreams"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/alpadreams" }
 dependencies = [
     { name = "flashdreams" },
@@ -587,7 +587,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flash-lingbot"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/lingbot" }
 dependencies = [
     { name = "aiohttp" },
@@ -617,7 +617,6 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams"
-version = "0.1.0"
 source = { editable = "flashdreams" }
 dependencies = [
     { name = "boto3" },
@@ -684,7 +683,7 @@ requires-dist = [
     { name = "torchvision", marker = "sys_platform == 'win32'", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.22", index = "https://download.pytorch.org/whl/cu130" },
     { name = "tqdm", specifier = ">=4.60" },
-    { name = "transformer-engine", extras = ["pytorch", "core-cu13"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
+    { name = "transformer-engine", extras = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
     { name = "transformers", specifier = "==4.57.6" },
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
     { name = "tyro", specifier = ">=0.8" },
@@ -693,7 +692,7 @@ provides-extras = ["dev", "examples", "runners"]
 
 [[package]]
 name = "flashdreams-causal-forcing"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -717,7 +716,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-cosmos-predict2"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
@@ -739,7 +738,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -761,7 +760,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -783,7 +782,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"
-version = "0.1.0"
+version = "0.1.0a2"
 source = { editable = "integrations/wan21" }
 dependencies = [
     { name = "flashdreams" },

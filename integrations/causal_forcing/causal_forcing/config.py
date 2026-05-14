@@ -121,7 +121,7 @@ PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_FRAMEWISE = CausalForcingT2VRunnerConfig(
     runner_name=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE.recipe_name,
     description="Causal-Forcing framewise Wan 2.1 1.3B T2V (len_t=1, Wan VAE).",
@@ -143,7 +143,7 @@ PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
             transformer=dict(stamp_image_latent=True),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 RUNNER_WAN21_I2V_1PT3B_FRAMEWISE = CausalForcingI2VRunnerConfig(
     runner_name=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE.recipe_name,
     description="Causal-Forcing framewise Wan 2.1 1.3B I2V (len_t=1, Wan VAE).",

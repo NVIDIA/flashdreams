@@ -124,7 +124,7 @@ def run(args):
     print(f"Prefetch workers: {args.prefetch_workers}, L1 prefetch: {args.prefetch_l1}")
 
     try:
-        import lmdb
+        import lmdb  # ty:ignore[unresolved-import]
         print(f"LMDB: available")
     except ImportError:
         print(f"LMDB: not installed (using per-file L3 cache)")

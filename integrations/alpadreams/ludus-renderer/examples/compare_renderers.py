@@ -106,7 +106,7 @@ def subsample_to_fps(timestamps: List[int], target_fps: float) -> List[int]:
 def render_wm(scene_path: str, output_dir: Path, frame_indices: List[int],
               width: int, height: int, cameras: Optional[List[str]] = None):
     """Render with wm_render."""
-    import wm_render
+    import wm_render  # ty:ignore[unresolved-import]
     
     print(f"\n{'='*60}")
     print("WM_RENDER")
@@ -384,9 +384,9 @@ def create_comparison_videos(wm_dir: Path, ludus_dir: Path, diff_dir: Path,
         temp_dir.mkdir(exist_ok=True)
         
         for i in range(n_frames):
-            ludus_img = Image.open(ludus_frames[i]).resize((half_w, half_h), Image.LANCZOS)
-            wm_img = Image.open(wm_frames[i]).resize((half_w, half_h), Image.LANCZOS)
-            diff_img = Image.open(diff_frames[i]).resize((half_w, half_h), Image.LANCZOS)
+            ludus_img = Image.open(ludus_frames[i]).resize((half_w, half_h), Image.LANCZOS)  # ty:ignore[unresolved-attribute]
+            wm_img = Image.open(wm_frames[i]).resize((half_w, half_h), Image.LANCZOS)  # ty:ignore[unresolved-attribute]
+            diff_img = Image.open(diff_frames[i]).resize((half_w, half_h), Image.LANCZOS)  # ty:ignore[unresolved-attribute]
             
             def add_label(img, label):
                 draw = ImageDraw.Draw(img)

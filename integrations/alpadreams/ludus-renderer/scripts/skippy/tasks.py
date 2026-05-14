@@ -20,7 +20,7 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-from skippy.task import Task
+from skippy.task import Task  # ty:ignore[unresolved-import]
 
 _DBM_CACHE: dict = {}
 
@@ -40,11 +40,12 @@ class PreprocessSceneCacheTask(Task):
     The manifest file maps each key back to its tar path.
     """
 
-    cache_dir: str = None
-    manifest_path: str = None
-    error_log_dir: str = None
+    cache_dir: str | None = None
+    manifest_path: str | None = None
+    error_log_dir: str | None = None
 
     def _get_error_path(self, item: str) -> Path:
+        assert self.error_log_dir is not None
         return Path(self.error_log_dir) / item[:2] / f"{item}.log"
 
     def is_done(self, item: str) -> bool:
@@ -70,6 +71,7 @@ class PreprocessSceneCacheTask(Task):
             save_scene_to_disk,
         )
 
+        assert self.manifest_path is not None
         tar_path = _lookup_manifest(self.manifest_path, item)
 
         versioned_dir = _resolve_cache_dir(self.cache_dir)

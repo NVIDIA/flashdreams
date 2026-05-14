@@ -75,14 +75,8 @@ extra-paths = [
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
-#
-# `integrations/alpadreams/ludus-renderer` is vendored third-party code — it
-# follows its own upstream lint conventions, not flashdreams'. Imports of
-# `ludus_renderer.*` are already aliased to Any in `[tool.ty.analysis]`, this
-# additionally excludes the source tree itself from being type-checked.
 exclude = [
     "**/protos/*pb2*",
-    "integrations/alpadreams/ludus-renderer/**",
 ]
 
 [tool.ty.rules]
@@ -94,7 +88,7 @@ invalid-method-override = "ignore"
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
 # imports as Any.
-replace-imports-with-any = ["transformer_engine.**", "ludus_renderer.**", "triton.**"]
+replace-imports-with-any = ["transformer_engine.**", "triton.**"]
 
 [dependency-groups]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]

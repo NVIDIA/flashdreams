@@ -41,7 +41,7 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from skippy.pipeline import Pipeline
+from skippy.pipeline import Pipeline  # ty:ignore[unresolved-import]
 
 from scripts.skippy.tasks import PreprocessSceneCacheTask
 
@@ -125,7 +125,7 @@ def main():
     manifest_dir = f"{base}/pipeline_manifests"
     Path(manifest_dir).mkdir(parents=True, exist_ok=True)
 
-    from skippy.time import Time
+    from skippy.time import Time  # ty:ignore[unresolved-import]
     ts = Time.get_now_str()
     manifest_path = f"{manifest_dir}/scene_manifest_{ts}"
 
@@ -158,8 +158,8 @@ def main():
 
     error_log_dir = f"{args.cache_dir}/errors"
     task = PreprocessSceneCacheTask(
-        output_root=args.cache_dir,
-        name="preprocess",
+        output_root=args.cache_dir,  # ty:ignore[unknown-argument]
+        name="preprocess",  # ty:ignore[unknown-argument]
         cache_dir=args.cache_dir,
         manifest_path=manifest_path,
         error_log_dir=error_log_dir,
