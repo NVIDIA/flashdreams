@@ -1,6 +1,6 @@
 [project]
 name = "lingbot-world-parity-check"
-version = "0.0.0"
+version = "0.1.0a2"
 description = "Isolated venv for the Self-Forcing parity-check benchmark."
 # Match flashdreams' supported Python range exactly (it pins 3.12).
 requires-python = ">=3.12,<3.13"

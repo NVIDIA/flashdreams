@@ -322,7 +322,7 @@ export HF_HOME=~/.cache/huggingface # default
 # 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 #    --example-data lazy-syncs the bundled prompt + first-frame + camera arrays
 #    from S3 into assets/example_data/lingbot_world/ and fills the path defaults.
-uv run flashdreams-run \
+uv run python -m torch.distributed.run --nproc_per_node=1 --no-python flashdreams-run \
     lingbot-world-fast --example-data True --total-blocks 21
 ```
 
