@@ -1,4 +1,19 @@
+import sys
+from pathlib import Path
+
 import pytest
+
+# ``test_cudaraster_port_invariants.py`` imports its sibling
+# ``test_cudaraster_api`` as a plain module for shared harness code.
+# Under pytest's default ``--import-mode=prepend`` that worked because
+# pytest auto-prepended each collected test's directory to
+# ``sys.path``; the workspace-root ``pyproject.toml`` now opts every
+# pytest run into ``--import-mode=importlib``, which drops that side
+# effect. Re-add the dir explicitly here so the sibling import keeps
+# resolving without touching the test files themselves.
+_TESTS_DIR = str(Path(__file__).resolve().parent)
+if _TESTS_DIR not in sys.path:
+    sys.path.insert(0, _TESTS_DIR)
 
 
 def pytest_configure(config: pytest.Config) -> None:
