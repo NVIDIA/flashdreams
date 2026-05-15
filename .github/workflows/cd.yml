@@ -1,0 +1,49 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "**"
+  workflow_dispatch:
+
+jobs:
+  hf-readme-inference-assets:
+    name: HF README inference assets
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    permissions:
+      contents: read
+    env:
+      FLASHDREAMS_HF_ACCESS_TEST: "1"
+      FLASHDREAMS_TEST_IMAGE: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566
+      FLASHDREAMS_UV_CACHE_DIR: ~/.cache/flashdreams-hf-access-test/uv
+      FLASHDREAMS_HF_CACHE_DIR: ~/.cache/flashdreams-hf-access-test/huggingface
+      FLASHDREAMS_CACHE_DIR: ~/.cache/flashdreams-hf-access-test/flashdreams
+      FLASHDREAMS_TRITON_CACHE_DIR: ~/.cache/flashdreams-hf-access-test/triton
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore HF verification caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/flashdreams-hf-access-test/uv
+            ~/.cache/flashdreams-hf-access-test/huggingface
+            ~/.cache/flashdreams-hf-access-test/flashdreams
+            ~/.cache/flashdreams-hf-access-test/triton
+          key: flashdreams-hf-access-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            flashdreams-hf-access-${{ runner.os }}-
+
+      - name: Verify HF token is configured
+        run: |
+          test -n "${HF_TOKEN}" || {
+            echo "::error::HF_TOKEN secret is required for CD HF asset verification"
+            exit 1
+          }
+
+      - name: Verify README HF inference assets
+        run: python3 flashdreams/tests/test_readme_hf_inference_assets.py
