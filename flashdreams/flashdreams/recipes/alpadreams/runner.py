@@ -43,11 +43,11 @@ from loguru import logger
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.recipes.alpadreams.hf import omni_dreams_hf_repo, omni_dreams_hf_url
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
     AlpadreamsPipelineCache,
 )
-from flashdreams.recipes.alpadreams.hf import omni_dreams_hf_repo, omni_dreams_hf_url
 from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 
 DEFAULT_VIDEO_HEIGHT = 704
