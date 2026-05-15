@@ -388,6 +388,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -458,7 +459,9 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">WanInferencePipeline</span>
     <span class="p">)</span>
 
-    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">UMT5TextEncoderConfig</span><span class="p">)</span>
+    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="n">UMT5TextEncoderConfig</span>
+    <span class="p">)</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;UMT5 text encoder run once per rollout.&quot;&quot;&quot;</span>
 
     <span class="n">image_encoder</span><span class="p">:</span> <span class="n">CLIPImageEncoderConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -507,12 +510,14 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        )</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoder</span>
+    <span class="n">text_encoder</span><span class="p">:</span> <span class="n">UMT5TextEncoder</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">image_encoder</span><span class="p">:</span> <span class="n">CLIPImageEncoder</span> <span class="o">|</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">WanInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
@@ -557,6 +562,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;text must be non-empty&quot;</span>
         <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
 
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;text_encoder is not set&quot;</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>  <span class="c1"># [B, L, D]</span>
 
         <span class="n">guidance_scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transformer_config</span><span class="o">.</span><span class="n">guidance_scale</span>
@@ -632,6 +638,10 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="s2">&quot;image_embeddings&quot;</span><span class="p">:</span> <span class="n">image_embeddings</span><span class="p">,</span>
             <span class="p">},</span>
         <span class="p">)</span>
+
+        <span class="c1"># For lower VRAM usage, release the oneshot encoders after initialize_cache.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">release_oneshot_encoders</span><span class="p">()</span>
+
         <span class="k">return</span> <span class="n">WanInferencePipelineCache</span><span class="p">(</span>
             <span class="n">transformer_cache</span><span class="o">=</span><span class="n">parent</span><span class="o">.</span><span class="n">transformer_cache</span><span class="p">,</span>
             <span class="n">encoder_cache</span><span class="o">=</span><span class="n">parent</span><span class="o">.</span><span class="n">encoder_cache</span><span class="p">,</span>
@@ -667,6 +677,21 @@ SPDX-License-Identifier: Apache-2.0
             <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
                 <span class="o">*</span><span class="n">batch_shape</span><span class="p">,</span> <span class="n">expected_frames</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span>
             <span class="p">)</span>
+
+<div class="viewcode-block" id="WanInferencePipeline.release_oneshot_encoders">
+<a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.release_oneshot_encoders">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">release_oneshot_encoders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Free the per-rollout text and first-frame image encoders.&quot;&quot;&quot;</span>
+        <span class="c1"># None instead of delattr so initialize_cache&#39;s `is not None` guard</span>
+        <span class="c1"># fires with a useful message rather than an AttributeError.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># nn.Module reference cycles (parent &lt;-&gt; child, hooks) often outlive</span>
+        <span class="c1"># the local refcount drop, so force a GC pass before releasing the</span>
+        <span class="c1"># freed CUDA blocks.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span></div>
+
 
 <div class="viewcode-block" id="WanInferencePipeline.generate">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.generate">[docs]</a>
