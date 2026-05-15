@@ -376,7 +376,7 @@ SPDX-License-Identifier: Apache-2.0
 <h1>AlpaDreams<a class="headerlink" href="#alpadreams" title="Link to this heading">#</a></h1>
 <p>Driving-scene video generation with the Alpadreams recipe (Cosmos DiT +
 HDMap conditioning + I2V mask injection). Driver: the unified
-<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI; checkpoints + S3 example data are auto-downloaded
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI; checkpoints and example data are auto-downloaded
 on first run.</p>
 <p>The runner slug encodes every variant of <code class="xref py py-data docutils literal notranslate"><span class="pre">ALPADREAMS_CONFIGS</span></code>. Pick
 the one matching the camera setup; for example:</p>
@@ -450,16 +450,24 @@ uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </
 </section>
 <section id="credentials">
 <h2>Credentials<a class="headerlink" href="#credentials" title="Link to this heading">#</a></h2>
-<p>Checkpoints are pulled from the team S3 bucket. Drop a JSON file at
-<code class="docutils literal notranslate"><span class="pre">credentials/s3_checkpoint.secret</span></code> with <code class="docutils literal notranslate"><span class="pre">aws_access_key_id</span></code>,
-<code class="docutils literal notranslate"><span class="pre">aws_secret_access_key</span></code>, <code class="docutils literal notranslate"><span class="pre">endpoint_url</span></code>, <code class="docutils literal notranslate"><span class="pre">region_name</span></code> and the
-loader picks it up automatically.</p>
-<p>A HuggingFace token is also required for the encoder weights:</p>
+<p>Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+the <code class="docutils literal notranslate"><span class="pre">nvidia</span></code> Hugging Face org by default (<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> and
+<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-samples</span></code>). Set <code class="docutils literal notranslate"><span class="pre">OMNI_DREAMS_HF_ORG</span></code> before invoking
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> if your token can only access another mirror, such as
+<code class="docutils literal notranslate"><span class="pre">nvidia-omni-dreams-lha</span></code>.</p>
+<p>A Hugging Face token is required for the encoder weights and the selected Omni
+Dreams org:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 <span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">              </span><span class="c1"># optional</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">FLASHDREAMS_CACHE_DIR</span><span class="o">=</span>~/.cache/flashdreams<span class="w"> </span><span class="c1"># optional</span>
+<span class="c1"># export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha</span>
 </pre></div>
 </div>
+<p>Internal S3-backed runs can set <code class="docutils literal notranslate"><span class="pre">FLASHDREAMS_INTERNAL_STORAGE=1</span></code> to switch
+checkpoint and example-data URLs back to <code class="docutils literal notranslate"><span class="pre">s3://flashdreams</span></code>. When using that
+path, drop a JSON file at <code class="docutils literal notranslate"><span class="pre">credentials/s3_checkpoint.secret</span></code> with
+<code class="docutils literal notranslate"><span class="pre">aws_access_key_id</span></code>, <code class="docutils literal notranslate"><span class="pre">aws_secret_access_key</span></code>, <code class="docutils literal notranslate"><span class="pre">endpoint_url</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">region_name</span></code>; the loader picks it up automatically.</p>
 </section>
 </section>
 
