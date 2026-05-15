@@ -20,9 +20,11 @@ Camera-controlled image-to-video with the Lingbot-World recipe.
 Reference:
 `lingbot-world fast inference <https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference>`_.
 
-Driven by the unified ``flashdreams-run`` CLI under the slug
-``lingbot-world-fast`` (Wan VAE) or ``lingbot-world-fast-flash``
-(LightTAE). Pass ``--example-data`` to lazy-sync the bundled prompt +
+Shipped as the out-of-tree ``flashdreams-lingbot`` plugin under
+``integrations/lingbot``. It registers two runner slugs with the
+unified ``flashdreams-run`` CLI: ``lingbot-world-fast`` (Wan VAE) and
+``lingbot-world-fast-flash`` (LightTAE decoder, tighter streaming
+window). Pass ``--example-data`` to lazy-sync the bundled prompt +
 first-frame + camera arrays from S3 into
 ``assets/example_data/lingbot_world/`` and fill the path defaults.
 

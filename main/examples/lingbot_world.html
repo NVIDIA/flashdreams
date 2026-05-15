@@ -377,9 +377,11 @@ SPDX-License-Identifier: Apache-2.0
 <p>Camera-controlled image-to-video with the Lingbot-World recipe.
 Reference:
 <a class="reference external" href="https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference">lingbot-world fast inference</a>.</p>
-<p>Driven by the unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI under the slug
-<code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (Wan VAE) or <code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-flash</span></code>
-(LightTAE). Pass <code class="docutils literal notranslate"><span class="pre">--example-data</span></code> to lazy-sync the bundled prompt +
+<p>Shipped as the out-of-tree <code class="docutils literal notranslate"><span class="pre">flashdreams-lingbot</span></code> plugin under
+<code class="docutils literal notranslate"><span class="pre">integrations/lingbot</span></code>. It registers two runner slugs with the
+unified <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI: <code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (Wan VAE) and
+<code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-flash</span></code> (LightTAE decoder, tighter streaming
+window). Pass <code class="docutils literal notranslate"><span class="pre">--example-data</span></code> to lazy-sync the bundled prompt +
 first-frame + camera arrays from S3 into
 <code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/</span></code> and fill the path defaults.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
