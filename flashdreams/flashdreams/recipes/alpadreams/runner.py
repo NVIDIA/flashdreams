@@ -105,6 +105,7 @@ def _ensure_hf_single_view_example_data_synced(
     from :data:`EXAMPLE_DATA_HF_REPO` (the hdmap filename is per-clip so
     we list the dir first to find it). Returns ``((hdmap,), (first_frame,))``."""
     from huggingface_hub import HfApi, hf_hub_download
+    from huggingface_hub.hf_api import RepoFile
 
     subdir = f"data/single_view/{uuid}"
     api = HfApi()
@@ -114,7 +115,7 @@ def _ensure_hf_single_view_example_data_synced(
         path_in_repo=subdir,
         recursive=False,
     )
-    files = [entry.path for entry in entries if getattr(entry, "type", None) == "file"]
+    files = [entry.path for entry in entries if isinstance(entry, RepoFile)]
     hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
     if not hdmap_candidates:
         raise FileNotFoundError(
