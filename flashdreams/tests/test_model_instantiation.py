@@ -14,13 +14,11 @@
 # limitations under the License.
 
 """
-Manual tests for model instantiation and checkpoint loading.
+Model instantiation and checkpoint loading tests.
 
-These tests require GPU and network access to download model weights.
-Run with: pytest tests/test_model_instantiation.py -v -m manual
-
-To run all tests including manual:
-    pytest tests/test_model_instantiation.py -v
+Tests marked ``ci_gpu`` run on the GPU CI runner automatically.
+Tests marked ``manual`` require large downloads or high VRAM and must
+be invoked explicitly: ``pytest tests/test_model_instantiation.py -v -m manual``
 """
 
 import pytest
@@ -42,7 +40,7 @@ def dtype():
 class TestImageEncoder:
     """Tests for image encoders."""
 
-    @pytest.mark.manual
+    @pytest.mark.ci_gpu
     def test_wan_image_encoder_instantiation(self, device, dtype):
         """Test CLIPImageEncoder can be instantiated and encode images."""
         from flashdreams.infra.encoder.image.clip import CLIPImageEncoderConfig
@@ -60,7 +58,7 @@ class TestImageEncoder:
 class TestTextEncoders:
     """Tests for text encoders."""
 
-    @pytest.mark.manual
+    @pytest.mark.ci_gpu
     def test_wan_text_encoder_instantiation(self, device):
         """Test UMT5TextEncoder can be instantiated and encode text."""
         from flashdreams.infra.encoder.text.umt5 import UMT5TextEncoderConfig
@@ -75,7 +73,10 @@ class TestTextEncoders:
 
     @pytest.mark.manual
     def test_cosmos_reason1_text_encoder_instantiation(self, device):
-        """Test CosmosReason1TextEncoder can be instantiated and encode text."""
+        """Test CosmosReason1TextEncoder can be instantiated and encode text.
+
+        Kept as manual: ~20-32 GB VRAM, causes OOM on shared CI runners.
+        """
         from flashdreams.infra.encoder.text.cosmos_reason1 import (
             CosmosReason1TextEncoderConfig,
         )
@@ -94,7 +95,7 @@ class TestTextEncoders:
 class TestVideoVAE:
     """Tests for video VAE models."""
 
-    @pytest.mark.manual
+    @pytest.mark.ci_gpu
     def test_pixel_shuffle_vae_instantiation(self, device):
         """Test PixelShuffleVAEInterface can be instantiated."""
         from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
@@ -108,7 +109,10 @@ class TestVideoVAE:
 
     @pytest.mark.manual
     def test_teahv_vae_instantiation(self, device):
-        """Test TeahvInterface can be instantiated."""
+        """Test TeahvInterface can be instantiated.
+
+        Kept as manual: default checkpoint path is on S3 (needs credentials).
+        """
         from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
 
         model = TeahvVAEDecoderConfig().setup().to(device)
@@ -118,7 +122,10 @@ class TestVideoVAE:
 
     @pytest.mark.manual
     def test_wan_vae_instantiation(self, device):
-        """Test WanVAEInterface can be instantiated."""
+        """Test WanVAEInterface can be instantiated.
+
+        Kept as manual: default checkpoint path is on S3 (needs credentials).
+        """
         from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoderConfig
 
         model = WanVAEEncoderConfig().setup().to(device)
@@ -130,7 +137,7 @@ class TestVideoVAE:
 class TestDiTNetwork:
     """Tests for DiT network models."""
 
-    @pytest.mark.manual
+    @pytest.mark.ci_gpu
     def test_wan_dit_t2v_1_3b_instantiation_and_checkpoint_loading(self, device):
         """Test WanDiTNetwork 1.3B T2V can be instantiated and load checkpoint."""
         from flashdreams.core.checkpoint.load import load_checkpoint
@@ -150,7 +157,11 @@ class TestDiTNetwork:
 
     @pytest.mark.manual
     def test_wan_dit_i2v_14b_instantiation_and_checkpoint_loading(self, device):
-        """Test WanDiTNetwork 14B I2V can be instantiated and load checkpoint."""
+        """Test WanDiTNetwork 14B I2V can be instantiated and load checkpoint.
+
+        Kept as manual: ~28 GB download, ~28-40 GB peak VRAM during checkpoint
+        loading causes OOM on shared CI runners.
+        """
         from flashdreams.core.checkpoint.load import load_checkpoint
         from flashdreams.recipes.wan.transformer.impl.network import (
             WanDiTNetwork14BConfig,

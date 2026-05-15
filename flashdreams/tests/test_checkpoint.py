@@ -18,6 +18,7 @@
 import os
 import tempfile
 
+import pytest
 import torch
 
 from flashdreams.core.checkpoint.load import load_checkpoint
@@ -25,6 +26,7 @@ from flashdreams.core.checkpoint.load import load_checkpoint
 S3_PTH_PATH = "s3://flashdreams/assets/checkpoints/autoencoders/taew2_1.pth"
 
 
+@pytest.mark.manual
 def test_load_checkpoint_from_s3() -> None:
     """Test loading .pth checkpoints from S3."""
     with tempfile.TemporaryDirectory() as tmp_dir:

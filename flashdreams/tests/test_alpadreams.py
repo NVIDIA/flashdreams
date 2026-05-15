@@ -291,6 +291,7 @@ def test_alpadreams_teacher_configs_wire_cfg_negative_text(
     assert scheduler_config.shift == 5.0
 
 
+@pytest.mark.manual
 def test_alpadreams_streaming_inference():
     num_views = 1
     # Must match the alpadreams checkpoint training resolution

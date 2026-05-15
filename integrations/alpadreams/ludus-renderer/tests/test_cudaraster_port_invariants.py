@@ -4,8 +4,13 @@ These tests pin small, risky porting assumptions that are easier to verify
 directly than through the broad API contract suite.
 """
 
+import sys
 from pathlib import Path
 from typing import Any
+
+# Allow bare import of the sibling test module under --import-mode=importlib
+# (pytest's importlib mode does not add the test directory to sys.path).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import pytest

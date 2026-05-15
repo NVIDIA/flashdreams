@@ -34,6 +34,7 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 
 
 @torch.no_grad()
+@pytest.mark.manual
 @pytest.mark.parametrize("tokenizer_choice", ["lightvae", "vae"])
 @pytest.mark.parametrize("detokenizer_choice", ["lighttae", "lightvae", "vae"])
 def test_tokenizer(

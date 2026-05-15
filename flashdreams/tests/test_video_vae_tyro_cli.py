@@ -41,7 +41,11 @@ def test_video_vae_config_cli_defaults(
 ) -> None:
     config = tyro.cli(config_cls, args=[])
     assert isinstance(config, config_cls)
-    assert config._target is target_cls
+    # Compare by qualified name: importlib mode can create distinct class
+    # objects for the same source when rootdir differs from the package root.
+    actual = f"{config._target.__module__}.{config._target.__qualname__}"
+    expected = f"{target_cls.__module__}.{target_cls.__qualname__}"
+    assert actual == expected
 
 
 def test_pixelshuffle_cli_accepts_frame_selection_override() -> None:

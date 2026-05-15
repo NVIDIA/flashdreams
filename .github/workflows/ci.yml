@@ -51,10 +51,32 @@ jobs:
           uv run .github/scripts/sync_version.py || true
           uv build --wheel --package flashdreams
 
+      - name: Install test dependencies
+        run: |
+          uv sync --extra dev \
+            --no-install-package transformer-engine-torch
+
+      - name: Run CPU unit tests
+        run: |
+          # Restricted to paths that do not transitively import cv2
+          # (cv2 needs libGL.so.1 which is unavailable on the CPU runner).
+          # The GPU job runs the full test suite without path restrictions.
+          uv run --no-sync pytest -m "not ci_gpu" -v \
+            flashdreams/tests/ \
+            integrations/lingbot/tests/test_controls.py
+
       # Documentation is built and deployed by `.github/workflows/doc.yml`.
 
   gpu:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566
+      options: --gpus all
+    env:
+      # Place the venv outside the workspace so uv does not interfere with
+      # the checkout directory owned by the runner.
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -72,23 +94,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # transformer-engine-torch is source-only and requires the CUDA
-          # toolkit (nvcc) to compile.  Skip it -- tests that need TE will
-          # gracefully skip via @_requires_te / skipif guards.
-          uv sync --extra dev \
-            --no-install-package transformer-engine-torch
+          uv venv --clear
+          uv sync --extra dev
 
       - name: Verify GPU availability
         run: |
           echo "Verifying GPU access..."
           nvidia-smi
 
-      - name: Run GPU unit tests
+      - name: Run unit tests
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          uv run --no-sync pytest -m ci_gpu -v \
-            --import-mode=importlib \
-            -c flashdreams/pyproject.toml \
-            flashdreams/tests/
+          uv run --no-sync pytest -m "not slow" -v
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after lint passes.
