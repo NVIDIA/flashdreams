@@ -183,7 +183,7 @@ def interpolate_camera_poses(
     except ImportError as e:
         raise ImportError(
             "interpolate_camera_poses requires SciPy. Install it with "
-            "`pip install scipy` (or `pip install flashdreams[examples]`)."
+            "`pip install scipy` (or `pip install flash-lingbot`)."
         ) from e
 
     interp_func_trans = interp1d(

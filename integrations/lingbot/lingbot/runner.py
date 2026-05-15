@@ -28,12 +28,12 @@ from loguru import logger
 
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
-from flashdreams.recipes.lingbot_world.encoder.utils import (
+from lingbot.encoder.camctrl import CamCtrlInput
+from lingbot.encoder.utils import (
     get_Ks_transformed,
     preprocess_example_poses,
 )
-from flashdreams.recipes.lingbot_world.pipeline import (
+from lingbot.pipeline import (
     LingbotWorldInferencePipeline,
 )
 
@@ -45,7 +45,10 @@ land on the right pixel centers at the runner's actual frame size."""
 _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# ``lingbot/runner.py`` -> ``lingbot/`` -> ``integrations/lingbot/`` ->
+# ``integrations/`` -> repo root. Keep this in sync with the file's nesting
+# depth (``parents[3]``).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/lingbot_world"
 """S3 prefix the bundled prompt + first-frame + camera arrays are pulled from."""
 
@@ -276,7 +279,9 @@ __all__ = [
 ]
 
 
-## I/O helpers (``cv2`` / ``mediapy`` lazy-imported; live under the ``runners`` extras).
+## I/O helpers (``cv2`` / ``mediapy`` are listed under ``flash-lingbot``'s
+## runtime dependencies, so the import-time guards mostly catch the bare
+## ``pip install flashdreams`` case where the plugin extras were skipped).
 
 
 def _load_first_frame(
@@ -289,7 +294,7 @@ def _load_first_frame(
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
             "Loading the first-frame image needs mediapy + opencv. "
-            "Install the runner extras: pip install 'flashdreams[runners]'."
+            "Install the lingbot plugin: pip install flash-lingbot."
         ) from exc
 
     arr = media.read_image(str(path))[..., :3]
@@ -309,8 +314,8 @@ def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
         import mediapy as media  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
-            "Writing the output video needs mediapy. Install the runner "
-            "extras: pip install 'flashdreams[runners]'."
+            "Writing the output video needs mediapy. "
+            "Install the lingbot plugin: pip install flash-lingbot."
         ) from exc
 
     arr = (canvas.float().numpy() + 1.0) / 2.0

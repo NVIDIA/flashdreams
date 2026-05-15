@@ -61,24 +61,6 @@ Wan
    :no-undoc-members:
    :show-inheritance:
 
-Lingbot-World
--------------
-
-.. automodule:: flashdreams.recipes.lingbot_world
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-.. automodule:: flashdreams.recipes.lingbot_world.config
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-.. automodule:: flashdreams.recipes.lingbot_world.pipeline
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
 TAEHV
 -----
 

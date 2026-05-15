@@ -35,9 +35,9 @@ from flashdreams.core.distributed.rank_orchestration import (
     distributed_op,
 )
 from flashdreams.infra.config import derive_config
-from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_CONFIGS
-from flashdreams.recipes.lingbot_world.encoder.camctrl import CamCtrlInput
-from flashdreams.recipes.lingbot_world.encoder.utils import (
+from lingbot.config import LINGBOT_WORLD_CONFIGS
+from lingbot.encoder.camctrl import CamCtrlInput
+from lingbot.encoder.utils import (
     get_Ks_transformed,
     preprocess_example_poses,
 )

@@ -14,8 +14,7 @@
 # limitations under the License.
 
 import torch
-
-from flashdreams.recipes.lingbot_world.encoder.utils import (
+from lingbot.encoder.utils import (
     compute_relative_poses,
     compute_relative_poses_causal,
 )
@@ -68,6 +67,5 @@ def test_compute_relative_poses_causal():
     torch.testing.assert_close(relative_poses1, relative_poses3, atol=1e-4, rtol=1e-4)
 
 
-# python -m tests.test_camera_utils
 if __name__ == "__main__":
     test_compute_relative_poses_causal()

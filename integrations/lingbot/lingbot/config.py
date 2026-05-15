@@ -20,37 +20,37 @@ literals and the per-slug :class:`LingbotWorldRunnerConfig` literals
 that drive ``flashdreams-run``. CP size is auto-detected from
 ``torch.distributed.get_world_size()`` inside the transformer; shape
 knobs (batch / view / resolution / per-chunk latent T) are pinned to
-canonical Lingbot defaults. The runner-config literals self-register
-with :mod:`flashdreams.configs.registry` at import time.
+canonical Lingbot defaults. Runners are exposed to ``flashdreams-run``
+via the ``flashdreams.runner_configs`` entry-points declared in
+``flash-lingbot``'s ``pyproject.toml``.
 """
 
 from __future__ import annotations
 
 import torch
 
-from flashdreams.configs.registry import register_runner
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.lingbot_world.encoder.camctrl import (
-    I2VCamCtrlEncoderConfig,
-)
-from flashdreams.recipes.lingbot_world.pipeline import (
-    LingbotWorldInferencePipelineConfig,
-)
-from flashdreams.recipes.lingbot_world.runner import LingbotWorldRunnerConfig
-from flashdreams.recipes.lingbot_world.transformer import (
-    LingbotWorldTransformerConfig,
-)
-from flashdreams.recipes.lingbot_world.transformer.impl.network import (
-    LingbotWorldDiTNetwork14BConfig,
-)
 from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
 from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
+)
+from lingbot.encoder.camctrl import (
+    I2VCamCtrlEncoderConfig,
+)
+from lingbot.pipeline import (
+    LingbotWorldInferencePipelineConfig,
+)
+from lingbot.runner import LingbotWorldRunnerConfig
+from lingbot.transformer import (
+    LingbotWorldTransformerConfig,
+)
+from lingbot.transformer.impl.network import (
+    LingbotWorldDiTNetwork14BConfig,
 )
 
 AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
@@ -178,15 +178,22 @@ _LINGBOT_WORLD_DESCRIPTIONS: dict[str, str] = {
 }
 """Per-variant CLI descriptions, keyed by ``recipe_name``."""
 
-LINGBOT_WORLD_RUNNERS: dict[str, RunnerConfig] = {
-    name: LingbotWorldRunnerConfig(
-        runner_name=name,
-        description=_LINGBOT_WORLD_DESCRIPTIONS[name],
-        pipeline=cfg,
+RUNNER_LINGBOT_WORLD_FAST = LingbotWorldRunnerConfig(
+    runner_name=LINGBOT_WORLD_FAST.recipe_name,
+    description=_LINGBOT_WORLD_DESCRIPTIONS[LINGBOT_WORLD_FAST.recipe_name],
+    pipeline=LINGBOT_WORLD_FAST,
+)
+RUNNER_LINGBOT_WORLD_FAST_FLASH = LingbotWorldRunnerConfig(
+    runner_name=LINGBOT_WORLD_FAST_FLASH.recipe_name,
+    description=_LINGBOT_WORLD_DESCRIPTIONS[LINGBOT_WORLD_FAST_FLASH.recipe_name],
+    pipeline=LINGBOT_WORLD_FAST_FLASH,
+)
+
+RUNNER_CONFIGS: dict[str, RunnerConfig] = {
+    cfg.runner_name: cfg
+    for cfg in (
+        RUNNER_LINGBOT_WORLD_FAST,
+        RUNNER_LINGBOT_WORLD_FAST_FLASH,
     )
-    for name, cfg in LINGBOT_WORLD_CONFIGS.items()
 }
 """All shipped Lingbot-World runners, keyed by ``runner_name``."""
-
-for _name, _cfg in LINGBOT_WORLD_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")

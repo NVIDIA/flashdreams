@@ -15,11 +15,134 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# `lingbot`
+# `flash-lingbot`
 
-Lingbot integration package for `flashdreams` that exposes a minimal WebRTC server.
+Lingbot-World streaming camera-control I2V recipe + a minimal WebRTC
+demo server, packaged as a [`flashdreams`](../..) plugin in a
+standalone repo. Mirrors the
+[Adding a new recipe](../../docs/source/developer_guides/new_recipes.rst)
+flow exercised by `flashdreams-self-forcing` and `flashdreams-wan21`.
 
-## What It Provides
+## Layout
+
+```
+integrations/lingbot/
+├── lingbot/
+│   ├── config.py            # pipeline + runner literals (shipped slugs)
+│   ├── pipeline.py          # LingbotWorldInferencePipeline (Wan I2V + camera)
+│   ├── runner.py            # LingbotWorldRunner + RunnerConfig
+│   ├── encoder/             # Plücker camera-control encoder + math
+│   ├── transformer/         # Wan 2.1 DiT + per-block camera control
+│   └── webrtc/              # interactive demo server (aiohttp + aiortc)
+├── pyproject.toml           # entry-points register runners with flashdreams-run
+└── tests/                   # smoke + camera-utils + transformer CP + WebRTC
+```
+
+## Shipped slugs
+
+| slug | description |
+| --- | --- |
+| `lingbot-world-fast` | Lingbot World Fast streaming camera-control I2V (Wan VAE decoder). |
+| `lingbot-world-fast-flash` | Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window). |
+
+## Install
+
+The plugin is registered as a `uv` workspace member in the repo-root
+`pyproject.toml`, so a single `uv sync` from the repo root pulls it in:
+
+```bash
+uv sync
+```
+
+Standalone (outside the workspace) also works:
+
+```bash
+uv pip install -e integrations/lingbot
+```
+
+## HuggingFace setup
+
+Checkpoints are auto-downloaded from HuggingFace at first run. Set an
+auth token first.
+
+```bash
+export HF_TOKEN=<your-hf-token>
+
+# (optional) override the cache location.
+export HF_HOME=~/.cache/huggingface  # default
+```
+
+## Run (`flashdreams-run`)
+
+Once installed, the slugs are discovered automatically:
+
+```bash
+# List every registered runner (this plugin's slugs appear under "lingbot-world-*").
+uv run flashdreams-run --help
+
+# Per-runner help: every overridable field is a CLI flag.
+uv run flashdreams-run lingbot-world-fast --help
+
+# Single-GPU demo with the bundled example assets (lazy-synced from S3).
+uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
+
+# Custom inputs (production layout).
+uv run flashdreams-run lingbot-world-fast \
+    --image-path /path/to/first_frame.jpg \
+    --pose-path /path/to/poses.npy \
+    --intrinsic-path /path/to/intrinsics.npy \
+    --prompt "your text prompt here" --total-blocks 21
+```
+
+Multi-GPU via context-parallelism (Wan 2.1 CP assumes ``cp_size == world_size``):
+
+```bash
+uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+    lingbot-world-fast --example-data True --total-blocks 21
+```
+
+## Programmatic access
+
+Access via runner:
+
+```python
+from lingbot.config import RUNNER_LINGBOT_WORLD_FAST as runner_config
+from flashdreams.infra.config import derive_config
+
+cfg = derive_config(runner_config, prompt="A cinematic flythrough.", example_data=True)
+runner = cfg.setup()
+runner.run()
+```
+
+Access via pipeline:
+
+```python
+import torch
+from lingbot.config import LINGBOT_WORLD_FAST as pipeline_config
+from lingbot.encoder.camctrl import CamCtrlInput
+
+pipeline = pipeline_config.setup().to("cuda").eval()
+sp = pipeline.decoder.spatial_compression_ratio
+
+cache = pipeline.initialize_cache(
+    text=["A cinematic flythrough."],
+    image=first_frames_t,  # [B=1, V=1, T=1, C, H, W] in [-1, 1]
+    height=464 // sp,
+    width=832 // sp,
+)
+
+for i in range(21):
+    camctrl_input = CamCtrlInput(intrinsics=..., poses=..., world_scale=...)
+    video_chunk = pipeline.generate(autoregressive_index=i, cache=cache, input=camctrl_input)
+    pipeline.finalize(autoregressive_index=i, cache=cache)
+```
+
+
+## Run (WebRTC interactive demo)
+
+The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
+binds the recipe to keyboard input over a DataChannel and streams the
+generated video back to the browser.
 
 - `GET /request_session` serves a standalone viewer page (`HTML/CSS/JS` files on disk, not inlined in Python).
 - `POST /api/webrtc/offer` performs SDP offer/answer signaling.
@@ -30,12 +153,11 @@ Lingbot integration package for `flashdreams` that exposes a minimal WebRTC serv
   2. server runs one Lingbot AR inference chunk,
   3. server enqueues chunk frames to the WebRTC track and emits `chunk_done`.
 
-## Run
-
 From repository root:
 
 ```bash
-uv run --package flash-lingbot python -m lingbot.webrtc.server --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-flash
+uv run --package flash-lingbot python -m lingbot.webrtc.server \
+    --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-flash
 
 # 4 gpus
 uv run --package flash-lingbot \
@@ -50,9 +172,8 @@ Then open:
 - [http://localhost:8089/request_session](http://localhost:8089/request_session)
 - [http://localhost:8089/healthz](http://localhost:8089/healthz) (`runtime_ready` indicates preload completion)
 
-## Test
 
-From repository root:
+## Tests
 
 ```bash
 uv run --package flash-lingbot --extra dev pytest integrations/lingbot/tests
@@ -68,7 +189,7 @@ uv run --package flash-lingbot --extra dev pytest integrations/lingbot/tests
   - `poses.npy` (optional but recommended for world-scale normalization)
   - `prompt.txt`
 
-## DataChannel Message Format
+## DataChannel Message Format (WebRTC server)
 
 Browser -> server:
 

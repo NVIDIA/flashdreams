@@ -30,7 +30,6 @@ from __future__ import annotations
 import flashdreams.configs.runner_configs  # noqa: F401
 from flashdreams.configs.registry import supported_runners
 from flashdreams.recipes.alpadreams.config import ALPADREAMS_RUNNERS
-from flashdreams.recipes.lingbot_world.config import LINGBOT_WORLD_RUNNERS
 from flashdreams.recipes.template.config import TEMPLATE_RUNNERS
 
 
@@ -56,7 +55,6 @@ def test_supported_runners_covers_every_runner_dict() -> None:
     expected = {
         **TEMPLATE_RUNNERS,
         **ALPADREAMS_RUNNERS,
-        **LINGBOT_WORLD_RUNNERS,
     }
     missing = set(expected) - set(runners)
     assert not missing, f"supported_runners missing slugs: {sorted(missing)}"

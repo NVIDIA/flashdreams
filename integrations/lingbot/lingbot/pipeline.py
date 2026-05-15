@@ -22,14 +22,14 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.recipes.lingbot_world.encoder.camctrl import (
-    CamCtrlInput,
-    I2VCamCtrlInput,
-)
 from flashdreams.recipes.wan.pipeline import (
     WanInferencePipeline,
     WanInferencePipelineCache,
     WanInferencePipelineConfig,
+)
+from lingbot.encoder.camctrl import (
+    CamCtrlInput,
+    I2VCamCtrlInput,
 )
 
 

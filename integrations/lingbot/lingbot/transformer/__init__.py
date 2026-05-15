@@ -22,12 +22,12 @@ from typing import overload
 
 from torch import Tensor
 
-from flashdreams.recipes.lingbot_world.encoder.camctrl import I2VCamCtrlEmbeddings
 from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
     Wan21TransformerCache,
     Wan21TransformerConfig,
 )
+from lingbot.encoder.camctrl import I2VCamCtrlEmbeddings
 
 from .impl.network import (
     LingbotWorldDiTNetwork14BConfig,

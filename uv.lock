@@ -593,6 +593,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "flashdreams" },
+    { name = "mediapy" },
     { name = "opencv-python-headless" },
     { name = "scipy" },
 ]
@@ -608,6 +609,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
