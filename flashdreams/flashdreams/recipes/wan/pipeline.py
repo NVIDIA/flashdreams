@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass, field
 
 import torch
@@ -82,7 +83,9 @@ class WanInferencePipelineConfig(StreamInferencePipelineConfig):
         default_factory=lambda: WanInferencePipeline
     )
 
-    text_encoder: UMT5TextEncoderConfig = field(default_factory=UMT5TextEncoderConfig)
+    text_encoder: UMT5TextEncoderConfig | None = field(
+        default_factory=UMT5TextEncoderConfig
+    )
     """UMT5 text encoder run once per rollout."""
 
     image_encoder: CLIPImageEncoderConfig | None = None
@@ -128,12 +131,14 @@ class WanInferencePipeline(
         )
     """
 
-    text_encoder: UMT5TextEncoder
+    text_encoder: UMT5TextEncoder | None
     image_encoder: CLIPImageEncoder | None
 
     def __init__(self, config: WanInferencePipelineConfig) -> None:
         super().__init__(config)
-        self.text_encoder = config.text_encoder.setup()
+        self.text_encoder = (
+            config.text_encoder.setup() if config.text_encoder is not None else None
+        )
         self.image_encoder = (
             config.image_encoder.setup() if config.image_encoder is not None else None
         )
@@ -176,6 +181,7 @@ class WanInferencePipeline(
         assert len(text) > 0, "text must be non-empty"
         n = len(text)
 
+        assert self.text_encoder is not None, "text_encoder is not set"
         text_embeddings = self.text_encoder(text)  # [B, L, D]
 
         guidance_scale = self._transformer_config.guidance_scale
@@ -251,6 +257,10 @@ class WanInferencePipeline(
                 "image_embeddings": image_embeddings,
             },
         )
+
+        # For lower VRAM usage, release the oneshot encoders after initialize_cache.
+        self.release_oneshot_encoders()
+
         return WanInferencePipelineCache(
             transformer_cache=parent.transformer_cache,
             encoder_cache=parent.encoder_cache,
@@ -285,6 +295,18 @@ class WanInferencePipeline(
             return torch.zeros(
                 *batch_shape, expected_frames, 3, H, W, device=device, dtype=dtype
             )
+
+    def release_oneshot_encoders(self) -> None:
+        """Free the per-rollout text and first-frame image encoders."""
+        # None instead of delattr so initialize_cache's `is not None` guard
+        # fires with a useful message rather than an AttributeError.
+        self.text_encoder = None
+        self.image_encoder = None
+        # nn.Module reference cycles (parent <-> child, hooks) often outlive
+        # the local refcount drop, so force a GC pass before releasing the
+        # freed CUDA blocks.
+        gc.collect()
+        torch.cuda.empty_cache()
 
     @torch.no_grad()
     def generate(
