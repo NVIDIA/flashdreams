@@ -35,7 +35,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     distributed_op,
 )
 from flashdreams.infra.config import derive_config
-from lingbot.config import LINGBOT_WORLD_CONFIGS
+from lingbot.config import PIPELINE_CONFIGS
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
     get_Ks_transformed,
@@ -271,8 +271,8 @@ class LingbotInferenceRuntime:
                 "Missing Lingbot example assets: " + ", ".join(missing_paths)
             )
 
-        if self.config.config_name not in LINGBOT_WORLD_CONFIGS:
-            supported = ", ".join(sorted(LINGBOT_WORLD_CONFIGS))
+        if self.config.config_name not in PIPELINE_CONFIGS:
+            supported = ", ".join(sorted(PIPELINE_CONFIGS))
             raise ValueError(
                 f"Unknown config_name={self.config.config_name!r}. Supported: {supported}"
             )
@@ -349,7 +349,7 @@ class LingbotInferenceRuntime:
             else self.config.seed
         )
         pipeline_config = derive_config(
-            base_config=LINGBOT_WORLD_CONFIGS[self.config.config_name],
+            base_config=PIPELINE_CONFIGS[self.config.config_name],
             enable_sync_and_profile=True,
             diffusion_model=dict(
                 seed=rollout_seed,

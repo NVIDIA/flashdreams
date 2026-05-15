@@ -15,34 +15,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# `flash-lingbot`
+# flashdreams-lingbot
 
 Lingbot-World streaming camera-control I2V recipe + a minimal WebRTC
-demo server, packaged as a [`flashdreams`](../..) plugin in a
-standalone repo. Mirrors the
+demo server, packaged as a [`flashdreams`](../..) plugin, in a
+standalone repo.
+
+This is a worked example of the
 [Adding a new recipe](../../docs/source/developer_guides/new_recipes.rst)
-flow exercised by `flashdreams-self-forcing` and `flashdreams-wan21`.
-
-## Layout
-
-```
-integrations/lingbot/
-├── lingbot/
-│   ├── config.py            # pipeline + runner literals (shipped slugs)
-│   ├── pipeline.py          # LingbotWorldInferencePipeline (Wan I2V + camera)
-│   ├── runner.py            # LingbotWorldRunner + RunnerConfig
-│   ├── encoder/             # Plücker camera-control encoder + math
-│   ├── transformer/         # Wan 2.1 DiT + per-block camera control
-│   └── webrtc/              # interactive demo server (aiohttp + aiortc)
-├── pyproject.toml           # entry-points register runners with flashdreams-run
-└── tests/                   # smoke + camera-utils + transformer CP + WebRTC
-```
+developer-guide flow, extended with a per-plugin runtime server.
 
 ## Shipped slugs
 
 | slug | description |
 | --- | --- |
-| `lingbot-world-fast` | Lingbot World Fast streaming camera-control I2V (Wan VAE decoder). |
+| `lingbot-world-fast` | Lingbot World Fast streaming camera-control I2V (Wan VAE decoder, 4-step). |
 | `lingbot-world-fast-flash` | Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window). |
 
 ## Install
@@ -66,15 +53,16 @@ Checkpoints are auto-downloaded from HuggingFace at first run. Set an
 auth token first.
 
 ```bash
+# huggingface token.
 export HF_TOKEN=<your-hf-token>
 
 # (optional) override the cache location.
 export HF_HOME=~/.cache/huggingface  # default
 ```
 
-## Run (`flashdreams-run`)
+## Run
 
-Once installed, the slugs are discovered automatically:
+Once installed, the slugs are discovered automatically by `flashdreams-run`:
 
 ```bash
 # List every registered runner (this plugin's slugs appear under "lingbot-world-*").
@@ -94,17 +82,17 @@ uv run flashdreams-run lingbot-world-fast \
     --prompt "your text prompt here" --total-blocks 21
 ```
 
-Multi-GPU via context-parallelism (Wan 2.1 CP assumes ``cp_size == world_size``):
+Multi-GPU via context-parallelism (Wan 2.1 CP assumes `cp_size == world_size`):
 
 ```bash
+# e.g. 4GPUs
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     lingbot-world-fast --example-data True --total-blocks 21
 ```
 
 ## Programmatic access
 
-Access via runner:
-
+Access via runner.
 ```python
 from lingbot.config import RUNNER_LINGBOT_WORLD_FAST as runner_config
 from flashdreams.infra.config import derive_config
@@ -114,11 +102,10 @@ runner = cfg.setup()
 runner.run()
 ```
 
-Access via pipeline:
-
+Access via pipeline.
 ```python
 import torch
-from lingbot.config import LINGBOT_WORLD_FAST as pipeline_config
+from lingbot.config import PIPELINE_LINGBOT_WORLD_FAST as pipeline_config
 from lingbot.encoder.camctrl import CamCtrlInput
 
 pipeline = pipeline_config.setup().to("cuda").eval()
@@ -126,17 +113,19 @@ sp = pipeline.decoder.spatial_compression_ratio
 
 cache = pipeline.initialize_cache(
     text=["A cinematic flythrough."],
-    image=first_frames_t,  # [B=1, V=1, T=1, C, H, W] in [-1, 1]
-    height=464 // sp,
-    width=832 // sp,
+    image=first_frames_t,         # [B=1, V=1, T=1, C, H, W] in [-1, 1]
+    height=464 // sp,             # latent height for DiT
+    width=832 // sp,              # latent width for DiT
 )
 
-for i in range(21):
+total_blocks: int = 21
+generated_chunks: list[torch.Tensor] = []
+for i in range(total_blocks):
     camctrl_input = CamCtrlInput(intrinsics=..., poses=..., world_scale=...)
     video_chunk = pipeline.generate(autoregressive_index=i, cache=cache, input=camctrl_input)
-    pipeline.finalize(autoregressive_index=i, cache=cache)
+    pipeline.finalize(autoregressive_index=i, cache=cache)  # update KV cache
+    generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
 ```
-
 
 ## Run (WebRTC interactive demo)
 
@@ -144,7 +133,7 @@ The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
 binds the recipe to keyboard input over a DataChannel and streams the
 generated video back to the browser.
 
-- `GET /request_session` serves a standalone viewer page (`HTML/CSS/JS` files on disk, not inlined in Python).
+- `GET /request_session` serves a standalone viewer page (HTML/CSS/JS files on disk, not inlined in Python).
 - `POST /api/webrtc/offer` performs SDP offer/answer signaling.
 - Runtime/model/config preloading during server startup (before handling requests).
 - A single active WebRTC session per server process.
@@ -156,11 +145,11 @@ generated video back to the browser.
 From repository root:
 
 ```bash
-uv run --package flash-lingbot python -m lingbot.webrtc.server \
+uv run --package flashdreams-lingbot python -m lingbot.webrtc.server \
     --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-flash
 
-# 4 gpus
-uv run --package flash-lingbot \
+# 4 GPUs
+uv run --package flashdreams-lingbot \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
   -m lingbot.webrtc.server \
   --host 0.0.0.0 --port 8089 \
@@ -172,24 +161,17 @@ Then open:
 - [http://localhost:8089/request_session](http://localhost:8089/request_session)
 - [http://localhost:8089/healthz](http://localhost:8089/healthz) (`runtime_ready` indicates preload completion)
 
-
-## Tests
-
-```bash
-uv run --package flash-lingbot --extra dev pytest integrations/lingbot/tests
-```
-
-## Runtime Requirements
+### Runtime requirements
 
 - CUDA-capable GPU for Lingbot inference.
-- `HF_TOKEN` exported for Hugging Face model access.
+- `HF_TOKEN` exported for HuggingFace model access.
 - Lingbot example assets available under `assets/example_data/lingbot_world`:
   - `image.jpg`
   - `intrinsics.npy`
   - `poses.npy` (optional but recommended for world-scale normalization)
   - `prompt.txt`
 
-## DataChannel Message Format (WebRTC server)
+### DataChannel message format
 
 Browser -> server:
 
@@ -211,8 +193,9 @@ Browser -> server:
   - `a/d` (or `j/l`): yaw left/right
   - `q/e`: strafe left/right
   - `i/k`: pitch up/down
-- If multiple key events arrive before the next chunk starts, the server aggregates them and
-  applies latest-pressed precedence per component (forward/backward, turn, strafe, pitch).
+- If multiple key events arrive before the next chunk starts, the server
+  aggregates them and applies latest-pressed precedence per component
+  (forward/backward, turn, strafe, pitch).
 
 Server -> browser:
 
@@ -223,4 +206,10 @@ Server -> browser:
   "num_frames": 12,
   "enqueued_frames": 12
 }
+```
+
+## Tests
+
+```bash
+uv run --extra dev pytest integrations/lingbot/tests
 ```

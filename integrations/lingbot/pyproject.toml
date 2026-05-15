@@ -18,7 +18,7 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flash-lingbot"
+name = "flashdreams-lingbot"
 version = "0.1.0a2"
 description = "Lingbot World streaming camera-control I2V recipe + WebRTC server for flashdreams."
 readme = "README.md"

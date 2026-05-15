@@ -80,7 +80,7 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-causal-forcing | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
 | flash-alpadreams | git only | synced |
-| flash-lingbot | git only | synced |
+| flashdreams-lingbot | git only | synced |
 | ludus-renderer | git only | independent (0.9.0) |
 
 ## CI secrets required

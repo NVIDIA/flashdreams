@@ -37,6 +37,12 @@ from lingbot.pipeline import (
     LingbotWorldInferencePipeline,
 )
 
+__all__ = [
+    "LingbotWorldRunnerConfig",
+    "LingbotWorldRunner",
+]
+
+
 _INTRINSICS_REFERENCE_HEIGHT = 480
 """Capture-resolution height the bundled intrinsics ``.npy`` files are
 expressed in; rescaled by :func:`get_Ks_transformed` so Plücker rays
@@ -273,13 +279,7 @@ class LingbotWorldRunner(
             )
 
 
-__all__ = [
-    "LingbotWorldRunner",
-    "LingbotWorldRunnerConfig",
-]
-
-
-## I/O helpers (``cv2`` / ``mediapy`` are listed under ``flash-lingbot``'s
+## I/O helpers (``cv2`` / ``mediapy`` are listed under ``flashdreams-lingbot``'s
 ## runtime dependencies, so the import-time guards mostly catch the bare
 ## ``pip install flashdreams`` case where the plugin extras were skipped).
 
@@ -294,7 +294,7 @@ def _load_first_frame(
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
             "Loading the first-frame image needs mediapy + opencv. "
-            "Install the lingbot plugin: pip install flash-lingbot."
+            "Install the lingbot plugin: pip install flashdreams-lingbot."
         ) from exc
 
     arr = media.read_image(str(path))[..., :3]
@@ -315,7 +315,7 @@ def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
             "Writing the output video needs mediapy. "
-            "Install the lingbot plugin: pip install flash-lingbot."
+            "Install the lingbot plugin: pip install flashdreams-lingbot."
         ) from exc
 
     arr = (canvas.float().numpy() + 1.0) / 2.0

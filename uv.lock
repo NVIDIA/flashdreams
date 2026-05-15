@@ -13,11 +13,11 @@ resolution-markers = [
 [manifest]
 members = [
     "flash-alpadreams",
-    "flash-lingbot",
     "flashdreams",
     "flashdreams-causal-forcing",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
+    "flashdreams-lingbot",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
     "ludus-renderer",
@@ -586,38 +586,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flash-lingbot"
-version = "0.1.0a2"
-source = { editable = "integrations/lingbot" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "aiortc" },
-    { name = "flashdreams" },
-    { name = "mediapy" },
-    { name = "opencv-python-headless" },
-    { name = "scipy" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9" },
-    { name = "aiortc", specifier = ">=1.9" },
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "opencv-python-headless" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "scipy", specifier = ">=1.11" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "flashdreams"
 source = { editable = "flashdreams" }
 dependencies = [
@@ -757,6 +725,38 @@ requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-lingbot"
+version = "0.1.0a2"
+source = { editable = "integrations/lingbot" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiortc" },
+    { name = "flashdreams" },
+    { name = "mediapy" },
+    { name = "opencv-python-headless" },
+    { name = "scipy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9" },
+    { name = "aiortc", specifier = ">=1.9" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "opencv-python-headless" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 

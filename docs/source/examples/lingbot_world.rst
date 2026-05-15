@@ -20,7 +20,7 @@ Camera-controlled image-to-video with the Lingbot-World recipe.
 Reference:
 `lingbot-world fast inference <https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference>`_.
 
-Shipped as the out-of-tree ``flash-lingbot`` plugin under
+Shipped as the out-of-tree ``flashdreams-lingbot`` plugin under
 ``integrations/lingbot``. It registers two runner slugs with the
 unified ``flashdreams-run`` CLI: ``lingbot-world-fast`` (Wan VAE) and
 ``lingbot-world-fast-flash`` (LightTAE decoder, tighter streaming

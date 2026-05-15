@@ -13,17 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""User-facing configs for streaming Lingbot World camera-control I2V.
-
-Hosts both the pre-built :class:`LingbotWorldInferencePipelineConfig`
-literals and the per-slug :class:`LingbotWorldRunnerConfig` literals
-that drive ``flashdreams-run``. CP size is auto-detected from
-``torch.distributed.get_world_size()`` inside the transformer; shape
-knobs (batch / view / resolution / per-chunk latent T) are pinned to
-canonical Lingbot defaults. Runners are exposed to ``flashdreams-run``
-via the ``flashdreams.runner_configs`` entry-points declared in
-``flash-lingbot``'s ``pyproject.toml``.
-"""
+"""Configs for the Lingbot-World streaming camera-control I2V model."""
 
 from __future__ import annotations
 
@@ -39,51 +29,20 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
-from lingbot.encoder.camctrl import (
-    I2VCamCtrlEncoderConfig,
-)
-from lingbot.pipeline import (
-    LingbotWorldInferencePipelineConfig,
-)
+from lingbot.encoder.camctrl import I2VCamCtrlEncoderConfig
+from lingbot.pipeline import LingbotWorldInferencePipelineConfig
 from lingbot.runner import LingbotWorldRunnerConfig
-from lingbot.transformer import (
-    LingbotWorldTransformerConfig,
+from lingbot.transformer import LingbotWorldTransformerConfig
+from lingbot.transformer.impl.network import LingbotWorldDiTNetwork14BConfig
+
+CHECKPOINT_PATH = (
+    "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/"
+    "diffusion_pytorch_model.safetensors.index.json"
 )
-from lingbot.transformer.impl.network import (
-    LingbotWorldDiTNetwork14BConfig,
-)
-
-AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS: dict[str, str] = {
-    "LingBot-World-Fast": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
-}
 
 
-## Canonical Lingbot World streaming defaults
-
-_DEFAULT_DENOISING_TIMESTEPS = [1000, 1000 - 179, 1000 - 358, 1000 - 679]
-"""Upstream Fast 4-step distilled schedule (matches the LingBot-World-Fast checkpoint)."""
-
-_DEFAULT_NUM_TRAIN_TIMESTEPS = 1000
-"""Length of the training sigma table the schedule warps against."""
-
-_DEFAULT_BATCH_SHAPE: tuple[int, ...] = (1, 1)
-"""Single-view, single-batch streaming layout ``[B=1, V=1]``."""
-
-_DEFAULT_LEN_T_LATENT = 3
-"""Latent frames the transformer consumes per AR chunk."""
-
-DEFAULT_VIDEO_HEIGHT = 464
-"""Canonical pixel-space height; callers pass the matching latent
-``(height, width)`` into :meth:`WanInferencePipeline.initialize_cache`."""
-
-DEFAULT_VIDEO_WIDTH = 832
-"""Canonical pixel-space width."""
-
-WAN_VAE_SPATIAL_COMPRESSION = 8
-"""Pixel-side / latent-side ratio of the Wan VAE."""
-
-
-LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
+# Official LingBot-World-Fast pipeline config.
+PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     recipe_name="lingbot-world-fast",
     enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
@@ -103,11 +62,11 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
                 # ``concat_image_mask_to_latent=True`` setting below.
                 in_dim=16 + 4 + 16,
             ),
-            checkpoint_path=AVAILABLE_LINGBOT_WORLD_CHECKPOINT_PATHS[
-                "LingBot-World-Fast"
-            ],
-            batch_shape=_DEFAULT_BATCH_SHAPE,
-            len_t=_DEFAULT_LEN_T_LATENT,
+            checkpoint_path=CHECKPOINT_PATH,
+            # Single-view, single-batch streaming layout ``[B=1, V=1]``.
+            batch_shape=(1, 1),
+            # Latent frames the transformer consumes per AR chunk.
+            len_t=3,
             # CFG off by default to match the upstream Lingbot checkpoint.
             guidance_scale=1.0,
             window_size_t=63,
@@ -118,28 +77,31 @@ LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
             compile_network=True,
         ),
         scheduler=FlowMatchSchedulerConfig(
-            num_inference_steps=len(_DEFAULT_DENOISING_TIMESTEPS),
-            denoising_timesteps=_DEFAULT_DENOISING_TIMESTEPS,
+            # Upstream Fast 4-step distilled schedule (matches the
+            # LingBot-World-Fast checkpoint).
+            num_inference_steps=4,
+            denoising_timesteps=[1000, 1000 - 179, 1000 - 358, 1000 - 679],
             warp_denoising_step=True,
             shift=10.0,
             sigma_max=0.999,
             sigma_min=0.0,
             extra_one_step=True,
-            num_train_timesteps=_DEFAULT_NUM_TRAIN_TIMESTEPS,
+            num_train_timesteps=1000,
             timestep_dtype=torch.int64,
         ),
     ),
 )
-"""LingBot-World-Fast: streaming camera-control I2V chassis.
+RUNNER_LINGBOT_WORLD_FAST = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST.recipe_name,
+    description="Lingbot World Fast streaming camera-control I2V (Wan VAE decoder, 4-step).",
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST,
+)
 
-Wan 2.1 14B with the camera-control block (LingbotWorldDiTNetwork14B),
-Wan VAE I2V encoder (Plücker volume rendered inline by the encoder),
-Wan VAE decoder, and the upstream Fast 4-step distilled flow-match
-schedule.
-"""
-
-LINGBOT_WORLD_FAST_FLASH = derive_config(
-    LINGBOT_WORLD_FAST,
+# Faster version with changes:
+# - LightTAE (TAEHV) decoder.
+# - Tighter streaming window for fast interactive playback.
+PIPELINE_LINGBOT_WORLD_FAST_FLASH = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST,
     recipe_name="lingbot-world-fast-flash",
     decoder=TeahvVAEDecoderConfig(),
     diffusion_model=dict(
@@ -149,45 +111,20 @@ LINGBOT_WORLD_FAST_FLASH = derive_config(
         ),
     ),
 )
-"""LingBot-World-Fast-Flash: lowest-latency preset.
+RUNNER_LINGBOT_WORLD_FAST_FLASH = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_FLASH.recipe_name,
+    description="Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window).",
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_FLASH,
+)
 
-Swaps in the LightTAE (TAEHV) decoder and tightens the streaming
-window for fast interactive playback.
-"""
-
-
-LINGBOT_WORLD_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
+PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     cfg.recipe_name: cfg
     for cfg in (
-        LINGBOT_WORLD_FAST,
-        LINGBOT_WORLD_FAST_FLASH,
+        PIPELINE_LINGBOT_WORLD_FAST,
+        PIPELINE_LINGBOT_WORLD_FAST_FLASH,
     )
 }
-"""All shipped Lingbot-World variants, keyed by ``recipe_name``."""
-
-
-## Per-variant runner-config literals (slug == ``recipe_name``).
-
-_LINGBOT_WORLD_DESCRIPTIONS: dict[str, str] = {
-    "lingbot-world-fast": (
-        "Lingbot World Fast streaming camera-control I2V (Wan VAE decoder)."
-    ),
-    "lingbot-world-fast-flash": (
-        "Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window)."
-    ),
-}
-"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
-
-RUNNER_LINGBOT_WORLD_FAST = LingbotWorldRunnerConfig(
-    runner_name=LINGBOT_WORLD_FAST.recipe_name,
-    description=_LINGBOT_WORLD_DESCRIPTIONS[LINGBOT_WORLD_FAST.recipe_name],
-    pipeline=LINGBOT_WORLD_FAST,
-)
-RUNNER_LINGBOT_WORLD_FAST_FLASH = LingbotWorldRunnerConfig(
-    runner_name=LINGBOT_WORLD_FAST_FLASH.recipe_name,
-    description=_LINGBOT_WORLD_DESCRIPTIONS[LINGBOT_WORLD_FAST_FLASH.recipe_name],
-    pipeline=LINGBOT_WORLD_FAST_FLASH,
-)
+"""All shipped Lingbot-World pipeline configs, keyed by ``recipe_name``."""
 
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
@@ -196,4 +133,3 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
         RUNNER_LINGBOT_WORLD_FAST_FLASH,
     )
 }
-"""All shipped Lingbot-World runners, keyed by ``runner_name``."""

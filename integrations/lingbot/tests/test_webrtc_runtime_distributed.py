@@ -89,16 +89,16 @@ def _patch_pipeline_factory(
     derive_calls: list[dict[str, Any]],
     pipeline_events: list[tuple[Any, ...]],
 ) -> None:
-    """Register a fake entry in ``LINGBOT_WORLD_CONFIGS`` for
-    ``config_name`` and swap :func:`session.derive_config` with a
-    capturing stub that returns a :class:`_FakePipelineConfig`.
+    """Register a fake entry in ``PIPELINE_CONFIGS`` for ``config_name``
+    and swap :func:`session.derive_config` with a capturing stub that
+    returns a :class:`_FakePipelineConfig`.
 
     The runtime path under test is::
 
-        derive_config(base_config=LINGBOT_WORLD_CONFIGS[name], ...)
+        derive_config(base_config=PIPELINE_CONFIGS[name], ...)
             .setup().to(device=...)
     """
-    monkeypatch.setitem(session.LINGBOT_WORLD_CONFIGS, config_name, object())
+    monkeypatch.setitem(session.PIPELINE_CONFIGS, config_name, object())
 
     def _fake_derive_config(**kwargs: Any) -> _FakePipelineConfig:
         derive_calls.append(kwargs)
