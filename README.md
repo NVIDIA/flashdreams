@@ -121,6 +121,12 @@ non-zero ranks suppress them via tyro's distributed-mode hook.
 
 ## Instructions to run Alpadreams Inference
 
+Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+the `nvidia` Hugging Face org by default (`nvidia/omni-dreams-models` and
+`nvidia/omni-dreams-samples`). Set `OMNI_DREAMS_HF_ORG` before invoking
+`flashdreams-run` if your token can only access another mirror, such as
+`nvidia-omni-dreams-lha`.
+
 ```bash
 # 0. request interactive node with the pre-built container [IPP5 cluster as example].
 # The image is a multi-arch manifest (linux/arm64 + linux/amd64); the runtime picks
@@ -142,7 +148,7 @@ srun \
 export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface              # optional; this is the default
 export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
-# optional: override the Omni Dreams HF org (defaults to nvidia)
+# optional: override the Omni Dreams HF org before running/importing FlashDreams
 # export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
 
 # 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
