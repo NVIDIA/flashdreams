@@ -390,6 +390,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
@@ -515,12 +516,31 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">WanInferencePipelineConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">WanInferencePipelineConfig</span> <span class="o">=</span> <span class="n">config</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_setup_oneshot_encoder</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="n">encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">encoder</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+            <span class="n">encoder</span> <span class="o">=</span> <span class="n">encoder</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">encoder</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_oneshot_encoders_loaded</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reload one-shot encoders released after an earlier rollout.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;text_encoder is not set and config.text_encoder is None; &quot;</span>
+                <span class="s2">&quot;cannot encode raw prompts.&quot;</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_setup_oneshot_encoder</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">image_encoder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_setup_oneshot_encoder</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">image_encoder</span><span class="p">)</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_transformer_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Wan21TransformerConfig</span> <span class="o">|</span> <span class="n">Wan22TransformerConfig</span><span class="p">:</span>
@@ -540,6 +560,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="o">*</span><span class="p">,</span>
         <span class="n">height</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">release_oneshot_encoders</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WanInferencePipelineCache</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the per-rollout cache for a batch of prompts.</span>
 
@@ -555,6 +576,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">                I2V — derived from ``image`` when omitted; required for T2V.</span>
 <span class="sd">            width: Pre-patchify latent width (post-VAE). Same rules as</span>
 <span class="sd">                ``height``.</span>
+<span class="sd">            release_oneshot_encoders: Free the text and image encoders after</span>
+<span class="sd">                the cache is initialized. Later calls reload them from</span>
+<span class="sd">                ``self.config`` before encoding new prompts/images.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Cache to thread through ``generate`` / ``finalize``.</span>
@@ -562,6 +586,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;text must be non-empty&quot;</span>
         <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
 
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_oneshot_encoders_loaded</span><span class="p">()</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;text_encoder is not set&quot;</span>
         <span class="n">text_embeddings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>  <span class="c1"># [B, L, D]</span>
 
@@ -639,8 +664,8 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">},</span>
         <span class="p">)</span>
 
-        <span class="c1"># For lower VRAM usage, release the oneshot encoders after initialize_cache.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">release_oneshot_encoders</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">release_oneshot_encoders</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">release_oneshot_encoders</span><span class="p">()</span>
 
         <span class="k">return</span> <span class="n">WanInferencePipelineCache</span><span class="p">(</span>
             <span class="n">transformer_cache</span><span class="o">=</span><span class="n">parent</span><span class="o">.</span><span class="n">transformer_cache</span><span class="p">,</span>
@@ -681,7 +706,11 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="WanInferencePipeline.release_oneshot_encoders">
 <a class="viewcode-back" href="../../../../apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.release_oneshot_encoders">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">release_oneshot_encoders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Free the per-rollout text and first-frame image encoders.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Free the per-rollout text and first-frame image encoders.</span>
+
+<span class="sd">        Idempotent. A later :meth:`initialize_cache` call can reload the</span>
+<span class="sd">        encoders from ``self.config`` before encoding raw prompts/images.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># None instead of delattr so initialize_cache&#39;s `is not None` guard</span>
         <span class="c1"># fires with a useful message rather than an AttributeError.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">text_encoder</span> <span class="o">=</span> <span class="kc">None</span>
