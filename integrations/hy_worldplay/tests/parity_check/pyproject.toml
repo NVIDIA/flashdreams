@@ -1,0 +1,48 @@
+[project]
+name = "hy-worldplay-parity-check"
+version = "0.0.0"
+description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark."
+# Match flashdreams' supported Python range exactly (it pins 3.12).
+requires-python = ">=3.12,<3.13"
+
+# flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
+# numpy, tqdm, safetensors, etc. HY-WorldPlay's WAN pipeline only needs a
+# handful of extras layered on top. Transitive deps come along via these
+# top-level entries.
+#
+# Notable upstream dependencies pulled in here:
+#   * diffusers              -- WanPipeline base + AutoencoderKLWan + scheduler
+#   * sageattention (extra)  -- "Required for the WAN pipeline" per HY-WorldPlay/README.md.
+#                               Listed under [tool.uv.sources] below as a git
+#                               source because the wheel is not on PyPI.
+#   * scipy                  -- camera trajectory math (Rotation, etc.)
+#   * moviepy                -- generate.py uses VideoFileClip / VideoClip for
+#                               the optional WASD overlay
+#   * imageio[ffmpeg]        -- export_to_video MP4 writer backend
+#   * opencv-python-headless -- image preprocessing in upstream's pipeline
+#   * easydict / lmdb        -- transitively required by upstream's hyvideo/
+dependencies = [
+    "flashdreams",
+    "diffusers>=0.34",
+    "easydict",
+    "imageio[ffmpeg]>=2.31",
+    "lmdb",
+    "loguru>=0.7",
+    "moviepy>=1.0,<2",
+    "numpy>=1.24",
+    "omegaconf",
+    "opencv-python-headless",
+    "pillow",
+    "regex",
+    "safetensors>=0.4",
+    "scipy>=1.11",
+    "tqdm>=4.60",
+    "transformers==4.57.6",
+    "ftfy>=6.0",
+    "einops>=0.7",
+]
+
+[tool.uv.sources]
+# flashdreams is not on PyPI; install it from the local source tree
+# (../../../../flashdreams relative to this directory).
+flashdreams = { path = "../../../../flashdreams", editable = true }
