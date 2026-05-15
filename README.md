@@ -142,6 +142,8 @@ srun \
 export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface              # optional; this is the default
 export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
+# optional: override the Omni Dreams HF org (defaults to nvidia)
+# export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
 
 # 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
 #    Skip for external users. Requires the S3 credentials in step 3.
@@ -160,7 +162,7 @@ EOF
 # 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
 #    --example-data fills the per-camera path tuples from a bundled HDMap clip
 #    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
-#    clips at https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view .
+#    clips at https://huggingface.co/datasets/${OMNI_DREAMS_HF_ORG:-nvidia}/omni-dreams-samples/tree/main/data/single_view .
 # - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \

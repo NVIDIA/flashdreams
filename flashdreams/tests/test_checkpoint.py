@@ -18,55 +18,11 @@
 import os
 import tempfile
 
-import pytest
 import torch
 
-from flashdreams.core.checkpoint import load as checkpoint_load
 from flashdreams.core.checkpoint.load import load_checkpoint
 
 S3_PTH_PATH = "s3://flashdreams/assets/checkpoints/autoencoders/taew2_1.pth"
-
-
-def test_hf_checkpoint_download_retries_omni_dreams_alias(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Enterprise omni-dreams HF paths should fall back to the external mirror."""
-    calls: list[tuple[str, str, str | None, str]] = []
-
-    def fake_hf_hub_download(
-        *,
-        repo_id: str,
-        filename: str,
-        subfolder: str | None,
-        revision: str,
-    ) -> str:
-        calls.append((repo_id, filename, subfolder, revision))
-        if repo_id == "nvidia/omni-dreams-models":
-            raise RuntimeError("enterprise repo unavailable")
-        return "/tmp/aliased-checkpoint.pt"
-
-    monkeypatch.setattr(checkpoint_load, "hf_hub_download", fake_hf_hub_download)
-
-    local_path = checkpoint_load._download_checkpoint_from_huggingface_url(
-        "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/"
-        "single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt"
-    )
-
-    assert local_path == "/tmp/aliased-checkpoint.pt"
-    assert calls == [
-        (
-            "nvidia/omni-dreams-models",
-            "2b_res720p_30fps_i2v_hdmap_distilled.pt",
-            "single_view",
-            "main",
-        ),
-        (
-            "nvidia-omni-dreams-lha/omni-dreams-models",
-            "2b_res720p_30fps_i2v_hdmap_distilled.pt",
-            "single_view",
-            "main",
-        ),
-    ]
 
 
 def test_load_checkpoint_from_s3() -> None:

@@ -47,6 +47,7 @@ from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
     AlpadreamsPipelineCache,
 )
+from flashdreams.recipes.alpadreams.hf import omni_dreams_hf_repo, omni_dreams_hf_url
 from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
 
 DEFAULT_VIDEO_HEIGHT = 704
@@ -59,16 +60,13 @@ IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
-EXAMPLE_DATA_HF_REPOS = (
-    "nvidia/omni-dreams-samples",
-    "nvidia-omni-dreams-lha/omni-dreams-samples",
-)
-"""Single-view HDMap clips + first frames. Enterprise primary, public fallback."""
+EXAMPLE_DATA_HF_REPO = omni_dreams_hf_repo("omni-dreams-samples")
+"""Single-view HDMap clips + first frames under the configured HF org."""
 
 DEFAULT_EXAMPLE_DATA_UUID_1V = "23599139-948f-4681-b7f4-74794113086d"
 """Arbitrary first-alphabetically pick from the 32 single-view clips
 the dataset ships. Override with ``--example-data-uuid <uuid>``; see
-https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view ."""
+the configured Omni Dreams HF dataset's ``data/single_view`` directory."""
 
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
 """Internal-team source for both views; also the external fallback for
@@ -105,70 +103,50 @@ def _ensure_hf_single_view_example_data_synced(
     uuid: str,
 ) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
     """Pull ``data/single_view/<uuid>/{*_hdmap.mp4, first_frame.png}``
-    from :data:`EXAMPLE_DATA_HF_REPOS` (the hdmap filename is per-clip so
+    from :data:`EXAMPLE_DATA_HF_REPO` (the hdmap filename is per-clip so
     we list the dir first to find it). Returns ``((hdmap,), (first_frame,))``."""
     from huggingface_hub import HfApi, hf_hub_download
     from huggingface_hub.hf_api import RepoFile
 
     subdir = f"data/single_view/{uuid}"
     api = HfApi()
-    errors: list[str] = []
-    for repo_id in EXAMPLE_DATA_HF_REPOS:
-        try:
-            entries = api.list_repo_tree(
-                repo_id=repo_id,
-                repo_type="dataset",
-                path_in_repo=subdir,
-                recursive=False,
-            )
-            files = [
-                entry.path
-                for entry in entries
-                if isinstance(entry, RepoFile)
-            ]
-            hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
-            if not hdmap_candidates:
-                raise FileNotFoundError(
-                    f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
-                    f"{repo_id!r}. Pick a UUID listed at "
-                    f"https://huggingface.co/datasets/{repo_id}/tree/main/data/single_view "
-                    "via --example-data-uuid <uuid>, or supply --hdmap-video-paths / "
-                    "--first-frame-paths explicitly."
-                )
-            if len(hdmap_candidates) > 1:
-                raise RuntimeError(
-                    f"Multiple '*_hdmap.mp4' files under {subdir!r} in "
-                    f"{repo_id!r}: {hdmap_candidates}. Expected exactly "
-                    "one; aborting to avoid an ambiguous demo selection."
-                )
-            hdmap_local = Path(
-                hf_hub_download(
-                    repo_id=repo_id,
-                    repo_type="dataset",
-                    filename=hdmap_candidates[0],
-                )
-            )
-            first_frame_local = Path(
-                hf_hub_download(
-                    repo_id=repo_id,
-                    repo_type="dataset",
-                    filename=f"{subdir}/first_frame.png",
-                )
-            )
-            return (hdmap_local,), (first_frame_local,)
-        except Exception as exc:
-            errors.append(f"{repo_id}: {exc}")
-            if repo_id != EXAMPLE_DATA_HF_REPOS[-1]:
-                logger.warning(
-                    f"HF example-data sync failed from {repo_id}; "
-                    f"trying {EXAMPLE_DATA_HF_REPOS[-1]}: {exc}"
-                )
-
-    raise FileNotFoundError(
-        "Could not sync Alpadreams single-view example data from any HF repo "
-        f"alias for UUID {uuid!r}. Tried {EXAMPLE_DATA_HF_REPOS}. "
-        f"Errors: {'; '.join(errors)}"
+    entries = api.list_repo_tree(
+        repo_id=EXAMPLE_DATA_HF_REPO,
+        repo_type="dataset",
+        path_in_repo=subdir,
+        recursive=False,
     )
+    files = [entry.path for entry in entries if isinstance(entry, RepoFile)]
+    hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
+    if not hdmap_candidates:
+        raise FileNotFoundError(
+            f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
+            f"{EXAMPLE_DATA_HF_REPO!r}. Pick a UUID listed at "
+            f"{omni_dreams_hf_url('omni-dreams-samples', 'tree/main/data/single_view', repo_type='dataset')} "
+            "via --example-data-uuid <uuid>, or supply --hdmap-video-paths / "
+            "--first-frame-paths explicitly."
+        )
+    if len(hdmap_candidates) > 1:
+        raise RuntimeError(
+            f"Multiple '*_hdmap.mp4' files under {subdir!r} in "
+            f"{EXAMPLE_DATA_HF_REPO!r}: {hdmap_candidates}. Expected exactly "
+            "one; aborting to avoid an ambiguous demo selection."
+        )
+    hdmap_local = Path(
+        hf_hub_download(
+            repo_id=EXAMPLE_DATA_HF_REPO,
+            repo_type="dataset",
+            filename=hdmap_candidates[0],
+        )
+    )
+    first_frame_local = Path(
+        hf_hub_download(
+            repo_id=EXAMPLE_DATA_HF_REPO,
+            repo_type="dataset",
+            filename=f"{subdir}/first_frame.png",
+        )
+    )
+    return (hdmap_local,), (first_frame_local,)
 
 
 def _ensure_s3_example_data_synced(
@@ -261,7 +239,7 @@ class AlpadreamsRunnerConfig(RunnerConfig):
     demo; pass explicit paths instead for production runs."""
 
     example_data_uuid: str = DEFAULT_EXAMPLE_DATA_UUID_1V
-    """Single-view example clip to pull from :data:`EXAMPLE_DATA_HF_REPOS`.
+    """Single-view example clip to pull from :data:`EXAMPLE_DATA_HF_REPO`.
     Ignored for multi-view or when paths are already populated."""
 
 
