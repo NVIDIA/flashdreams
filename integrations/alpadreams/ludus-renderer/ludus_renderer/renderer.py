@@ -178,7 +178,7 @@ class LudusRenderer:
         assert uploaded_id == scene_id, f"Scene ID mismatch: {uploaded_id} != {scene_id}"
         
         # Store reference and update scene
-        scene.scene_id = scene_id
+        scene.scene_id = scene_id  # ty:ignore[unresolved-attribute]
         self._scenes[scene_id] = scene
         
         return scene_id
@@ -237,7 +237,7 @@ class LudusRenderer:
         Returns:
             Rendered images [n_timestamps * n_cameras, height, width, 4]
         """
-        if scene.scene_id is None:
+        if scene.scene_id is None:  # ty:ignore[unresolved-attribute]
             raise ValueError("Scene must be uploaded first")
         
         timestamps_us = timestamps_us.to(self.device)
@@ -254,7 +254,7 @@ class LudusRenderer:
         queries = []
         for t in range(n_timestamps):
             for c, cam_id in enumerate(camera_ids):
-                queries.append((scene.scene_id, cam_id, timestamps_us[t].item()))
+                queries.append((scene.scene_id, cam_id, timestamps_us[t].item()))  # ty:ignore[unresolved-attribute]
         
         return self.render_batch(queries, poses)
     
@@ -276,7 +276,7 @@ class LudusRenderer:
         Returns:
             Rendered image [height, width, 4]
         """
-        if scene.scene_id is None:
+        if scene.scene_id is None:  # ty:ignore[unresolved-attribute]
             raise ValueError("Scene must be uploaded first")
         
         if camera_pose is None:
@@ -286,7 +286,7 @@ class LudusRenderer:
             camera_pose = camera_pose.unsqueeze(0)
         
         camera_id = scene.get_camera_id(camera_name)
-        queries = [(scene.scene_id, camera_id, timestamp_us)]
+        queries = [(scene.scene_id, camera_id, timestamp_us)]  # ty:ignore[unresolved-attribute]
         
         result = self.render_batch(queries, camera_pose)
         return result[0]  # Remove batch dimension

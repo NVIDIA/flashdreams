@@ -219,6 +219,8 @@ class LudusRenderer:
         )
         camera_poses_batch = torch.stack(camera_poses_batch, dim=0).reshape(-1, 4, 4)
 
+        assert H is not None and W is not None, "No cameras provided"
+
         images = self.ctx.render(
             scene_id_batch,
             camera_id_batch,

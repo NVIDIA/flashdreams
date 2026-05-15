@@ -394,9 +394,13 @@ def detect_collisions_cpu(tar_path: str,
             break
         name = m.name.rsplit("/", 1)[-1] if "/" in m.name else m.name
         if name == "egomotion_estimate.parquet":
-            ego_bytes = tf.extractfile(m).read()
+            f = tf.extractfile(m)
+            assert f is not None
+            ego_bytes = f.read()
         elif name == "object_fused.parquet":
-            obs_bytes = tf.extractfile(m).read()
+            f = tf.extractfile(m)
+            assert f is not None
+            obs_bytes = f.read()
         if ego_bytes is not None and obs_bytes is not None:
             break
     tf.close()

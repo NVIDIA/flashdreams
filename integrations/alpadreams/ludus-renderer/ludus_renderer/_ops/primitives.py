@@ -171,7 +171,7 @@ class TimestampedScene:
     """
     polyline_pools: List[TimestampedPolylinePool]
     polygon_pools: List[TimestampedPolygonPool]
-    cube_pools: List[CubePool] = None
+    cube_pools: List[CubePool] | None = None
 
     @property
     def obstacle_pool(self) -> Optional[CubePool]:

@@ -107,7 +107,7 @@ PIPELINE_WAN21_T2V_1PT3B_FLASH = cast(
         recipe_name="self-forcing-wan2.1-t2v-1.3b-flash",
         decoder=TeahvVAEDecoderConfig(),
     ),
-)
+)  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_FLASH = SelfForcingT2VRunnerConfig(
     runner_name=PIPELINE_WAN21_T2V_1PT3B_FLASH.recipe_name,
     description="Self-Forcing distilled Wan 2.1 1.3B T2V (TAEHV decoder, 4-step).",

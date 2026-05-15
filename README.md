@@ -121,6 +121,12 @@ non-zero ranks suppress them via tyro's distributed-mode hook.
 
 ## Instructions to run Alpadreams Inference
 
+Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+the `nvidia` Hugging Face org by default (`nvidia/omni-dreams-models` and
+`nvidia/omni-dreams-samples`). Set `OMNI_DREAMS_HF_ORG` before invoking
+`flashdreams-run` if your token can only access another mirror, such as
+`nvidia-omni-dreams-lha`.
+
 ```bash
 # 0. request interactive node with the pre-built container [IPP5 cluster as example].
 # The image is a multi-arch manifest (linux/arm64 + linux/amd64); the runtime picks
@@ -142,6 +148,8 @@ srun \
 export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface              # optional; this is the default
 export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
+# optional: override the Omni Dreams HF org before running/importing FlashDreams
+# export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
 
 # 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
 #    Skip for external users. Requires the S3 credentials in step 3.
@@ -160,7 +168,7 @@ EOF
 # 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
 #    --example-data fills the per-camera path tuples from a bundled HDMap clip
 #    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
-#    clips at https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view .
+#    clips at https://huggingface.co/datasets/${OMNI_DREAMS_HF_ORG:-nvidia}/omni-dreams-samples/tree/main/data/single_view .
 # - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
@@ -322,7 +330,7 @@ export HF_HOME=~/.cache/huggingface # default
 # 2. Run inference. Checkpoint is auto-downloaded from huggingface at first run.
 #    --example-data lazy-syncs the bundled prompt + first-frame + camera arrays
 #    from S3 into assets/example_data/lingbot_world/ and fills the path defaults.
-uv run flashdreams-run \
+uv run python -m torch.distributed.run --nproc_per_node=1 --no-python flashdreams-run \
     lingbot-world-fast --example-data True --total-blocks 21
 ```
 

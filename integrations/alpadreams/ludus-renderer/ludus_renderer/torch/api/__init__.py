@@ -25,9 +25,9 @@ This module re-exports the same symbols for backward compatibility:
 
 # Re-export from new top-level locations
 from ...renderer import LudusRenderer
-from ...scene import Av2GpuScene, load_av2_scene, load_clipgt_scene
+from ...scene import Av2GpuScene, load_av2_scene, load_clipgt_scene  # ty:ignore[unresolved-import]
 from ...clipgt import ClipgtGpuScene, load_clipgt_scene
-from ...convert import convert_cameras, convert_timestamped_scene
+from ...convert import convert_cameras, convert_timestamped_scene  # ty:ignore[unresolved-import]
 
 __all__ = [
     "LudusRenderer",

@@ -1,0 +1,540 @@
+diff --git a/.gitignore b/.gitignore
+index d148610..8d0008e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,3 +1,6 @@
+ __pycache__/
+ .DS_Store
+ .vscode*
++
++lingbot-world-base-cam
++output
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+deleted file mode 100644
+index 97e0df0..0000000
+--- a/pyproject.toml
++++ /dev/null
+@@ -1,64 +0,0 @@
+-[build-system]
+-requires = ["setuptools>=61.0"]
+-build-backend = "setuptools.build_meta"
+-
+-[project]
+-name = "lingbot-world"
+-version = "1.0.0"
+-description = "LingBot-World: Advancing Open-source World Models"
+-authors = [
+-    { name = "Robbyant Team" }
+-]
+-license = { file = "LICENSE.txt" }
+-readme = "README.md"
+-requires-python = ">=3.10,<4.0"
+-dependencies = [
+-    "torch>=2.4.0",
+-    "torchvision>=0.19.0",
+-    "opencv-python>=4.9.0.80",
+-    "diffusers>=0.31.0",
+-    "transformers>=4.49.0",
+-    "tokenizers>=0.20.3",
+-    "accelerate>=1.1.1",
+-    "tqdm",
+-    "imageio",
+-    "easydict",
+-    "ftfy",
+-    "imageio-ffmpeg",
+-    "flash_attn",
+-    "numpy>=1.23.5,<2",
+-    "scipy"
+-]
+-
+-[project.optional-dependencies]
+-dev = [
+-    "pytest",
+-    "black",
+-    "flake8",
+-    "isort",
+-    "mypy",
+-    "huggingface-hub[cli]"
+-]
+-
+-[project.urls]
+-homepage = "https://technology.robbyant.com/lingbot-world"
+-documentation = "https://github.com/robbyant/lingbot-world"
+-repository = "https://github.com/robbyant/lingbot-world"
+-huggingface = "https://huggingface.co/robbyant/lingbot-world-base-cam"
+-
+-[tool.setuptools]
+-packages = ["wan"]
+-
+-[tool.setuptools.package-data]
+-"wan" = ["**/*.py"]
+-
+-[tool.black]
+-line-length = 88
+-
+-[tool.isort]
+-profile = "black"
+-
+-[tool.mypy]
+-strict = true
+-
+-
+diff --git a/wan/distributed/sequence_parallel.py b/wan/distributed/sequence_parallel.py
+index 7540cf4..30b0f4b 100644
+--- a/wan/distributed/sequence_parallel.py
++++ b/wan/distributed/sequence_parallel.py
+@@ -3,7 +3,7 @@ import torch
+ import torch.nn.functional as torch_F
+ from einops import rearrange
+ 
+-from ..modules.attention import flash_attention
++from ..modules.attention import attention
+ from ..modules.model import sinusoidal_embedding_1d
+ from .ulysses import distributed_attention
+ from .util import gather_forward, get_rank, get_world_size
+@@ -461,7 +461,7 @@ def sp_attn_forward_causal(
+     v_cache = kv_cache["v"][:, max(0, local_end_index - max_attention_size):local_end_index]
+ 
+     # Attention on local heads, full key/value cache for this rank
+-    x_local = flash_attention(query, k_cache, v_cache)  # [B, s, local_heads, d]
++    x_local = attention(query, k_cache, v_cache)  # [B, s, local_heads, d]
+ 
+     # Gather all head results across GPUs: [B, s, n, d]
+     x_full = gather_forward(x_local, dim=2)  # all_gather on head dim
+diff --git a/wan/distributed/ulysses.py b/wan/distributed/ulysses.py
+index a6a47d6..e99afa6 100644
+--- a/wan/distributed/ulysses.py
++++ b/wan/distributed/ulysses.py
+@@ -1,7 +1,7 @@
+ import torch
+ import torch.distributed as dist
+ 
+-from ..modules.attention import flash_attention
++from ..modules.attention import attention
+ from .util import all_to_all
+ 
+ 
+@@ -33,7 +33,7 @@ def distributed_attention(
+     v = all_to_all(v, scatter_dim=2, gather_dim=1)
+ 
+     # apply attention
+-    x = flash_attention(
++    x = attention(
+         q,
+         k,
+         v,
+diff --git a/wan/image2video_fast.py b/wan/image2video_fast.py
+index 0860669..ccd6751 100644
+--- a/wan/image2video_fast.py
++++ b/wan/image2video_fast.py
+@@ -15,6 +15,8 @@ import torch.distributed as dist
+ import torchvision.transforms.functional as TF
+ from tqdm import tqdm
+ 
++from flashdreams.infra.profiler import EventProfiler
++
+ from .distributed.fsdp import shard_model
+ from .distributed.sequence_parallel import sp_attn_forward_causal, sp_dit_forward_causal
+ from .distributed.util import get_world_size
+@@ -284,14 +286,14 @@ class WanI2VFast:
+         seed = seed if seed >= 0 else random.randint(0, sys.maxsize)
+         seed_g = torch.Generator(device=self.device)
+         seed_g.manual_seed(seed)
+-        noise = torch.randn(
+-            16,
+-            lat_f,
+-            lat_h,
+-            lat_w,
+-            dtype=torch.float32,
+-            generator=seed_g,
+-            device=self.device)
++        # noise = torch.randn(
++        #     16,
++        #     lat_f,
++        #     lat_h,
++        #     lat_w,
++        #     dtype=torch.float32,
++        #     generator=seed_g,
++        #     device=self.device)
+ 
+         msk = torch.ones(1, F, lat_h, lat_w, device=self.device)
+         msk[:, 1:] = 0
+@@ -391,7 +393,7 @@ class WanI2VFast:
+         # Initialize KV cache to all zeros
+         model_args = self.model.config
+         transformer_dtype = self.pipe_dtype
+-        frame_seqlen = int(noise.shape[-2] * noise.shape[-1]// 4)
++        frame_seqlen = int(lat_h * lat_w // 4)
+         kv_size = frame_seqlen * lat_f
+         head_dim = model_args.dim // model_args.num_heads
+         local_num_heads = model_args.num_heads // self.sp_size
+@@ -412,14 +414,23 @@ class WanI2VFast:
+                 no_sync_model(),
+         ):
+             # sample videos
+-            latent = noise
+-            latents_chunk = latent.split(chunk_size, dim=1) # [c, f, h, w]
++            # latent = noise
++            # latents_chunk = latent.split(chunk_size, dim=1) # [c, f, h, w]
+             condition_chunk = y.split(chunk_size, dim=1)
+             c2ws_plucker_emb_chunk = c2ws_plucker_emb.split(chunk_size, dim=2)
+-            num_inference_chunk = len(latents_chunk)
++            num_inference_chunk = len(condition_chunk)
+             pred_latent_chunks = []
+             for chunk_id in tqdm(range(num_inference_chunk)):
+-                current_latent = latents_chunk[chunk_id]
++                chunk_profiler = EventProfiler()
++                current_latent = torch.randn(
++                    chunk_size,
++                    16,
++                    lat_h,
++                    lat_w,
++                    dtype=torch.float32,
++                    generator=seed_g,
++                    device=self.device).permute(1, 0, 2, 3)
++                # current_latent = latents_chunk[chunk_id]
+                 current_condition = condition_chunk[chunk_id]
+                 current_c2ws_plucker_emb = c2ws_plucker_emb_chunk[chunk_id]
+ 
+@@ -462,17 +473,47 @@ class WanI2VFast:
+ 
+                     if timestep_idx < len(timesteps) - 1:
+                         next_timestep = timesteps[timestep_idx + 1]
+-                        current_latent = self.scheduler.add_noise(x0, torch.randn(x0.shape, generator=seed_g, device=x0.device, dtype=x0.dtype), next_timestep)
++                        next_noise = torch.randn(
++                            (
++                                chunk_size,
++                                16,
++                                lat_h,
++                                lat_w,
++                            ),
++                            generator=seed_g, 
++                            device=x0.device, 
++                            dtype=x0.dtype
++                        ).permute(1, 0, 2, 3)
++                        current_latent = self.scheduler.add_noise(x0, next_noise, next_timestep)
+                     else:
+                         # note return x0
+                         break
+ 
++                chunk_profiler.record("denoise")
++
+                 pred_latent_chunks.append(x0)
+ 
+                 # Update kv cache
+                 context_timestep = [timesteps[-1] * 0.0]
+                 timestep = torch.stack(context_timestep).to(self.device)
+                 self.model(x=[x0], t=timestep, **kwargs)
++                chunk_profiler.record("kv_update")
++
++                stages_ms = chunk_profiler.sync_and_summarize()
++                total_ms = sum(stages_ms.values())
++                # ``kv_update`` advances the AR cache for the next chunk; treat
++                # it the same way ``finalize`` is handled in flashdreams'
++                # StreamInferencePipeline so the remaining total matches the
++                # "useful work" reported by ``total_ms_wo_finalize`` there.
++                total_ms_wo_finalize = total_ms - stages_ms.get("kv_update", 0.0)
++                stages_str = " ".join(
++                    f"{stage} {ms:.2f}ms" for stage, ms in stages_ms.items()
++                )
++                print(
++                    f"Chunk {chunk_id} completed in {total_ms:.2f}ms "
++                    f"(wo_finalize {total_ms_wo_finalize:.2f}ms, "
++                    f"x0 shape {tuple(x0.shape)}) | {stages_str}"
++                )
+ 
+             pred_latent_chunks = torch.cat(pred_latent_chunks, dim=1)
+ 
+diff --git a/wan/modules/__init__.py b/wan/modules/__init__.py
+index 7eba5ea..04e9bbe 100644
+--- a/wan/modules/__init__.py
++++ b/wan/modules/__init__.py
+@@ -1,4 +1,4 @@
+-from .attention import flash_attention
++from .attention import attention, flash_attention
+ from .model import WanModel
+ from .model_fast import WanModelFast
+ from .t5 import T5Decoder, T5Encoder, T5EncoderModel, T5Model
+@@ -16,5 +16,6 @@ __all__ = [
+     'T5Decoder',
+     'T5EncoderModel',
+     'HuggingfaceTokenizer',
++    'attention',
+     'flash_attention',
+ ]
+diff --git a/wan/modules/animate/clip.py b/wan/modules/animate/clip.py
+index 95528e5..a5ef548 100644
+--- a/wan/modules/animate/clip.py
++++ b/wan/modules/animate/clip.py
+@@ -8,7 +8,7 @@ import torch.nn as nn
+ import torch.nn.functional as F
+ import torchvision.transforms as T
+ 
+-from ..attention import flash_attention
++from ..attention import attention
+ from ..tokenizers import HuggingfaceTokenizer
+ from .xlm_roberta import XLMRoberta
+ 
+@@ -82,7 +82,7 @@ class SelfAttention(nn.Module):
+ 
+         # compute attention
+         p = self.attn_dropout if self.training else 0.0
+-        x = flash_attention(q, k, v, dropout_p=p, causal=self.causal, version=2)
++        x = attention(q, k, v, dropout_p=p, causal=self.causal, fa_version=2)
+         x = x.reshape(b, s, c)
+ 
+         # output
+@@ -194,7 +194,7 @@ class AttentionPool(nn.Module):
+         k, v = self.to_kv(x).view(b, s, 2, n, d).unbind(2)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, version=2)
++        x = attention(q, k, v, fa_version=2)
+         x = x.reshape(b, 1, c)
+ 
+         # output
+diff --git a/wan/modules/animate/model_animate.py b/wan/modules/animate/model_animate.py
+index 556397f..ce93afc 100644
+--- a/wan/modules/animate/model_animate.py
++++ b/wan/modules/animate/model_animate.py
+@@ -20,6 +20,7 @@ from ...distributed.sequence_parallel import (
+ )
+ 
+ 
++from ..attention import attention
+ from ..model import (
+     Head,
+     WanAttentionBlock,
+@@ -27,7 +28,6 @@ from ..model import (
+     WanRMSNorm,
+     WanModel,
+     WanSelfAttention,
+-    flash_attention,
+     rope_params,
+     sinusoidal_embedding_1d,
+     rope_apply
+@@ -72,7 +72,7 @@ class WanAnimateSelfAttention(WanSelfAttention):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+@@ -131,9 +131,9 @@ class WanAnimateCrossAttention(WanSelfAttention):
+         if self.use_img_emb:
+             k_img = self.norm_k_img(self.k_img(context_img)).view(b, -1, n, d)
+             v_img = self.v_img(context_img).view(b, -1, n, d)
+-            img_x = flash_attention(q, k_img, v_img, k_lens=None)
++            img_x = attention(q, k_img, v_img, k_lens=None)
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)
+diff --git a/wan/modules/attention.py b/wan/modules/attention.py
+index c84d9e5..faec7d8 100644
+--- a/wan/modules/attention.py
++++ b/wan/modules/attention.py
+@@ -1,8 +1,17 @@
++# Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
++import os
++from contextlib import nullcontext
+ import torch
+ 
+ try:
+     import flash_attn_interface
+-    FLASH_ATTN_3_AVAILABLE = True
++
++    def is_hopper_gpu():
++        if not torch.cuda.is_available():
++            return False
++        device_name = torch.cuda.get_device_name(0).lower()
++        return "h100" in device_name or "hopper" in device_name
++    FLASH_ATTN_3_AVAILABLE = is_hopper_gpu()
+ except ModuleNotFoundError:
+     FLASH_ATTN_3_AVAILABLE = False
+ 
+@@ -12,6 +21,8 @@ try:
+ except ModuleNotFoundError:
+     FLASH_ATTN_2_AVAILABLE = False
+ 
++# FLASH_ATTN_3_AVAILABLE = False
++
+ import warnings
+ 
+ __all__ = [
+@@ -100,13 +111,11 @@ def flash_attention(
+                 0, dtype=torch.int32).to(q.device, non_blocking=True),
+             cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
+                 0, dtype=torch.int32).to(q.device, non_blocking=True),
+-            seqused_q=None,
+-            seqused_k=None,
+             max_seqlen_q=lq,
+             max_seqlen_k=lk,
+             softmax_scale=softmax_scale,
+             causal=causal,
+-            deterministic=deterministic).unflatten(0, (b, lq))
++            deterministic=deterministic)[0].unflatten(0, (b, lq))
+     else:
+         assert FLASH_ATTN_2_AVAILABLE
+         x = flash_attn.flash_attn_varlen_func(
+@@ -144,7 +153,9 @@ def attention(
+     dtype=torch.bfloat16,
+     fa_version=None,
+ ):
+-    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
++    FORCE_CUDNN_ATTN: bool = os.getenv('FORCE_CUDNN_ATTN', '0') == '1'
++
++    if (FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE) and not FORCE_CUDNN_ATTN:
+         return flash_attention(
+             q=q,
+             k=k,
+@@ -166,13 +177,20 @@ def attention(
+                 'Padding mask is disabled when using scaled_dot_product_attention. It can have a significant impact on performance.'
+             )
+         attn_mask = None
++        out_dtype = q.dtype
+ 
+         q = q.transpose(1, 2).to(dtype)
+         k = k.transpose(1, 2).to(dtype)
+         v = v.transpose(1, 2).to(dtype)
+ 
+-        out = torch.nn.functional.scaled_dot_product_attention(
+-            q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
++        if FORCE_CUDNN_ATTN:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++
++        with context_manager:
++            out = torch.nn.functional.scaled_dot_product_attention(
++                q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
+ 
+         out = out.transpose(1, 2).contiguous()
+-        return out
++        return out.to(out_dtype)
+diff --git a/wan/modules/model.py b/wan/modules/model.py
+index b17a39f..9618d08 100644
+--- a/wan/modules/model.py
++++ b/wan/modules/model.py
+@@ -7,7 +7,7 @@ import torch.nn.functional as torch_F
+ from diffusers.configuration_utils import ConfigMixin, register_to_config
+ from diffusers.models.modeling_utils import ModelMixin
+ 
+-from .attention import flash_attention
++from .attention import attention
+ 
+ __all__ = ['WanModel']
+ 
+@@ -143,7 +143,7 @@ class WanSelfAttention(nn.Module):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+@@ -173,7 +173,7 @@ class WanCrossAttention(WanSelfAttention):
+         v = self.v(context).view(b, -1, n, d)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)
+diff --git a/wan/modules/model_fast.py b/wan/modules/model_fast.py
+index 66c9897..f663fd2 100644
+--- a/wan/modules/model_fast.py
++++ b/wan/modules/model_fast.py
+@@ -16,8 +16,6 @@ from wan.modules.model import (
+     sinusoidal_embedding_1d
+ )
+ 
+-from .attention import flash_attention
+-
+ 
+ def causal_rope_apply(x, grid_sizes, freqs, start_frame=0):
+     n, c = x.size(2), x.size(3) // 2
+@@ -180,7 +178,7 @@ class WanCrossAttention(WanSelfAttention):
+             v = self.v(context).view(b, -1, n, d)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)
+diff --git a/wan/modules/s2v/model_s2v.py b/wan/modules/s2v/model_s2v.py
+index 79693c8..08cb511 100644
+--- a/wan/modules/s2v/model_s2v.py
++++ b/wan/modules/s2v/model_s2v.py
+@@ -16,13 +16,13 @@ from ...distributed.sequence_parallel import (
+     get_rank,
+     get_world_size,
+ )
++from ..attention import attention
+ from ..model import (
+     Head,
+     WanAttentionBlock,
+     WanLayerNorm,
+     WanModel,
+     WanSelfAttention,
+-    flash_attention,
+     rope_params,
+     sinusoidal_embedding_1d,
+ )
+@@ -167,7 +167,7 @@ class WanS2VSelfAttention(WanSelfAttention):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+diff --git a/wan/modules/s2v/motioner.py b/wan/modules/s2v/motioner.py
+index f080d1d..bd219cc 100644
+--- a/wan/modules/s2v/motioner.py
++++ b/wan/modules/s2v/motioner.py
+@@ -9,7 +9,7 @@ from diffusers.loaders import FromOriginalModelMixin, PeftAdapterMixin
+ from diffusers.utils import BaseOutput, is_torch_version
+ from einops import rearrange, repeat
+ 
+-from ..model import flash_attention
++from ..attention import attention
+ from .s2v_utils import rope_precompute
+ 
+ 
+@@ -171,7 +171,7 @@ class SelfAttention(nn.Module):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+@@ -223,7 +223,7 @@ class SwinSelfAttention(SelfAttention):
+ 
+         # q: b (t h w) n d
+         # k: b (t h w) n d
+-        out = flash_attention(
++        out = attention(
+             q=q,
+             k=k,
+             v=v,
+@@ -307,7 +307,7 @@ class CasualSelfAttention(SelfAttention):
+         # k: b (t h w) n d
+         outs = []
+         for i in range(q.shape[0]):
+-            out = flash_attention(
++            out = attention(
+                 q=q[i:i + 1],
+                 k=k[i:i + 1],
+                 v=v[i:i + 1],

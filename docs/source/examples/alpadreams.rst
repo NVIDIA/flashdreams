@@ -18,7 +18,7 @@ AlpaDreams
 
 Driving-scene video generation with the Alpadreams recipe (Cosmos DiT +
 HDMap conditioning + I2V mask injection). Driver: the unified
-``flashdreams-run`` CLI; checkpoints + S3 example data are auto-downloaded
+``flashdreams-run`` CLI; checkpoints and example data are auto-downloaded
 on first run.
 
 The runner slug encodes every variant of :data:`ALPADREAMS_CONFIGS`. Pick
@@ -104,15 +104,24 @@ and reuse the embeddings on the AR pass:
 Credentials
 -----------
 
-Checkpoints are pulled from the team S3 bucket. Drop a JSON file at
-``credentials/s3_checkpoint.secret`` with ``aws_access_key_id``,
-``aws_secret_access_key``, ``endpoint_url``, ``region_name`` and the
-loader picks it up automatically.
+Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+the ``nvidia`` Hugging Face org by default (``nvidia/omni-dreams-models`` and
+``nvidia/omni-dreams-samples``). Set ``OMNI_DREAMS_HF_ORG`` before invoking
+``flashdreams-run`` if your token can only access another mirror, such as
+``nvidia-omni-dreams-lha``.
 
-A HuggingFace token is also required for the encoder weights:
+A Hugging Face token is required for the encoder weights and the selected Omni
+Dreams org:
 
 .. code-block:: bash
 
    export HF_TOKEN=<your-hf-token>
    export HF_HOME=~/.cache/huggingface              # optional
    export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional
+   # export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
+
+Internal S3-backed runs can set ``FLASHDREAMS_INTERNAL_STORAGE=1`` to switch
+checkpoint and example-data URLs back to ``s3://flashdreams``. When using that
+path, drop a JSON file at ``credentials/s3_checkpoint.secret`` with
+``aws_access_key_id``, ``aws_secret_access_key``, ``endpoint_url``, and
+``region_name``; the loader picks it up automatically.

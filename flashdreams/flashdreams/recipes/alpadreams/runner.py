@@ -43,6 +43,7 @@ from loguru import logger
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.recipes.alpadreams.hf import omni_dreams_hf_repo, omni_dreams_hf_url
 from flashdreams.recipes.alpadreams.pipeline import (
     AlpadreamsPipeline,
     AlpadreamsPipelineCache,
@@ -59,13 +60,13 @@ IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
-EXAMPLE_DATA_HF_REPO = "nvidia-omni-dreams-lha/omni-dreams-samples"
-"""Single-view HDMap clips + first frames. Public default."""
+EXAMPLE_DATA_HF_REPO = omni_dreams_hf_repo("omni-dreams-samples")
+"""Single-view HDMap clips + first frames under the configured HF org."""
 
 DEFAULT_EXAMPLE_DATA_UUID_1V = "23599139-948f-4681-b7f4-74794113086d"
 """Arbitrary first-alphabetically pick from the 32 single-view clips
 the dataset ships. Override with ``--example-data-uuid <uuid>``; see
-https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view ."""
+the configured Omni Dreams HF dataset's ``data/single_view`` directory."""
 
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/alpadreams"
 """Internal-team source for both views; also the external fallback for
@@ -105,6 +106,7 @@ def _ensure_hf_single_view_example_data_synced(
     from :data:`EXAMPLE_DATA_HF_REPO` (the hdmap filename is per-clip so
     we list the dir first to find it). Returns ``((hdmap,), (first_frame,))``."""
     from huggingface_hub import HfApi, hf_hub_download
+    from huggingface_hub.hf_api import RepoFile
 
     subdir = f"data/single_view/{uuid}"
     api = HfApi()
@@ -114,13 +116,13 @@ def _ensure_hf_single_view_example_data_synced(
         path_in_repo=subdir,
         recursive=False,
     )
-    files = [entry.path for entry in entries if getattr(entry, "type", None) == "file"]
+    files = [entry.path for entry in entries if isinstance(entry, RepoFile)]
     hdmap_candidates = [f for f in files if f.endswith("_hdmap.mp4")]
     if not hdmap_candidates:
         raise FileNotFoundError(
             f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
             f"{EXAMPLE_DATA_HF_REPO!r}. Pick a UUID listed at "
-            f"https://huggingface.co/datasets/{EXAMPLE_DATA_HF_REPO}/tree/main/data/single_view "
+            f"{omni_dreams_hf_url('omni-dreams-samples', 'tree/main/data/single_view', repo_type='dataset')} "
             "via --example-data-uuid <uuid>, or supply --hdmap-video-paths / "
             "--first-frame-paths explicitly."
         )

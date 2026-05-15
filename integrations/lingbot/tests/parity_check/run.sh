@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pull Self-Forcing, apply local patch, and run the benchmark.
+# Pull LingBot-World, apply local patch, and run the benchmark.
 # Idempotent: re-running skips clone / checkout / downloads / patch when
 # already in place, and just re-runs the benchmark.
 
@@ -24,10 +24,10 @@ set -euo pipefail
 # from anywhere. ``../changes.patch`` in the original was implicit; here we
 # anchor everything to ``SCRIPT_DIR``.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${SCRIPT_DIR}/Self-Forcing"
+REPO_DIR="${SCRIPT_DIR}/lingbot-world"
 PATCH_FILE="${SCRIPT_DIR}/changes.patch"
-REPO_URL="https://github.com/guandeh17/Self-Forcing.git"
-PIN_COMMIT="33593df3e81fa3ec10239271dd2c100facac6de1"
+REPO_URL="https://github.com/Robbyant/lingbot-world.git"
+PIN_COMMIT="9660e9405fbc887655e2bc79ac09d61fa81128ae"
 
 # ---------------------------------------------------------------- clone + pin
 if [[ ! -d "${REPO_DIR}/.git" ]]; then
@@ -67,23 +67,22 @@ else
 fi
 
 # --------------------------------------------------------------- HF downloads
-if [[ ! -d "wan_models/Wan2.1-T2V-1.3B" ]] \
-        || [[ -z "$(ls -A wan_models/Wan2.1-T2V-1.3B 2>/dev/null)" ]]; then
-    echo "[setup] downloading Wan2.1-T2V-1.3B"
-    uv run huggingface-cli download Wan-AI/Wan2.1-T2V-1.3B \
-        --local-dir-use-symlinks False \
-        --local-dir wan_models/Wan2.1-T2V-1.3B
+if [[ ! -d "lingbot-world-base-cam" ]] \
+        || [[ -z "$(ls -A lingbot-world-base-cam 2>/dev/null)" ]]; then
+    echo "[setup] downloading lingbot-world-base-cam"
+    uv run huggingface-cli download robbyant/lingbot-world-base-cam --local-dir ./lingbot-world-base-cam
 else
-    echo "[setup] wan_models/Wan2.1-T2V-1.3B exists, skipping download"
+    echo "[setup] lingbot-world-base-cam exists, skipping download"
 fi
 
-if [[ ! -f "checkpoints/self_forcing_dmd.pt" ]]; then
-    echo "[setup] downloading self_forcing_dmd.pt"
-    uv run huggingface-cli download gdhe17/Self-Forcing \
-        checkpoints/self_forcing_dmd.pt \
-        --local-dir .
+# ``lingbot_world_fast`` is a directory of HF files, not a regular file -- use
+# ``-d`` + empty-dir guard, same shape as the check above.
+if [[ ! -d "lingbot-world-base-cam/lingbot_world_fast" ]] \
+        || [[ -z "$(ls -A lingbot-world-base-cam/lingbot_world_fast 2>/dev/null)" ]]; then
+    echo "[setup] downloading lingbot-world-fast"
+    uv run huggingface-cli download robbyant/lingbot-world-fast --local-dir ./lingbot-world-base-cam/lingbot_world_fast
 else
-    echo "[setup] checkpoints/self_forcing_dmd.pt exists, skipping download"
+    echo "[setup] lingbot-world-fast exists, skipping download"
 fi
 
 # ------------------------------------------------------------------- pip deps
@@ -96,7 +95,32 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
 # ----------------------------------------------------------------- benchmark
-echo "[run] starting benchmark"
-FORCE_CUDNN_ATTN=1 uv run python benchmark.py \
-    --enable_torch_compile \
-    --use_taehv
+PROMPT="The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls."
+
+echo "[run] starting benchmark [1 GPU]"
+FORCE_CUDNN_ATTN=1 uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
+    generate_fast.py \
+    --task i2v-A14B \
+    --size 480*832 \
+    --ckpt_dir lingbot-world-base-cam \
+    --image examples/00/image.jpg \
+    --action_path examples/00 \
+    --ulysses_size 1 \
+    --frame_num 237 \
+    --base_seed 42 \
+    --offload_model False \
+    --prompt "${PROMPT}"
+
+echo "[run] starting benchmark [4 GPUs]"
+FORCE_CUDNN_ATTN=1 uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+    generate_fast.py \
+    --task i2v-A14B \
+    --size 480*832 \
+    --ckpt_dir lingbot-world-base-cam \
+    --image examples/00/image.jpg \
+    --action_path examples/00 \
+    --ulysses_size 4 \
+    --frame_num 237 \
+    --base_seed 42 \
+    --offload_model False \
+    --prompt "${PROMPT}"
