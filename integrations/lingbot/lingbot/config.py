@@ -63,8 +63,9 @@ PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
                 in_dim=16 + 4 + 16,
             ),
             checkpoint_path=CHECKPOINT_PATH,
-            # Single-view, single-batch streaming layout ``[B=1, V=1]``.
-            batch_shape=(1, 1),
+            # Single-rollout layout: tensors flow through the stack as
+            # ``[T, C, H, W]`` (or ``[T, ...]``) with no leading batch/view dim.
+            batch_shape=(),
             # Latent frames the transformer consumes per AR chunk.
             len_t=3,
             # CFG off by default to match the upstream Lingbot checkpoint.

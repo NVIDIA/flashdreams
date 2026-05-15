@@ -298,8 +298,11 @@ class LingbotInferenceRuntime:
             / 127.5
             - 1.0
         )
-        first_frame_t = first_frame_t.permute(2, 0, 1).unsqueeze(0)
-        first_frames_t = first_frame_t.unsqueeze(0).unsqueeze(0)  # [1, 1, 1, C, H, W]
+        # Lingbot's shipped configs pin ``batch_shape=()`` (single-rollout
+        # layout), so the pipeline expects the first frame in shape
+        # ``[T=1, C, H, W]``; the leading ``unsqueeze(0)`` lifts ``[C, H, W]``
+        # to that ``T=1`` axis the I2V encoder pads/slices against.
+        first_frames_t = first_frame_t.permute(2, 0, 1).unsqueeze(0)
 
         intrinsics_np = np.load(intrinsics_path)
         if intrinsics_np.ndim == 1:
@@ -463,10 +466,8 @@ class LingbotInferenceRuntime:
             np.array2string(last_pose, precision=4, suppress_small=True),
         )
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
-        poses_t = poses_t.view(1, 1, num_frames, 4, 4)
-        intrinsics_t = self._base_intrinsics.view(1, 1, 1, 4).repeat(
-            1, 1, num_frames, 1
-        )
+        poses_t = poses_t.view(num_frames, 4, 4)
+        intrinsics_t = self._base_intrinsics.view(1, 4).repeat(num_frames, 1)
 
         camctrl_input = CamCtrlInput(
             intrinsics=intrinsics_t,

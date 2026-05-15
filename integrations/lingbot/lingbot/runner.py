@@ -183,22 +183,21 @@ class LingbotWorldRunner(
         prompt = self._resolve_prompt()
         device = torch.device(f"cuda:{self.local_rank}")
 
-        first_frame = _load_first_frame(
+        # Pipeline / encoder accept ``[*batch_shape, ...]`` shapes; the
+        # shipped configs pin ``batch_shape=()`` so a single-rollout layout
+        # is just ``[T, C, H, W]`` (image) / ``[T, 4, 4]`` (poses) /
+        # ``[T, 4]`` (intrinsics).
+        first_frames_t = _load_first_frame(
             cfg.image_path,
             pixel_height=cfg.pixel_height,
             pixel_width=cfg.pixel_width,
             device=device,
         )
-        # Lingbot's ``batch_shape`` is ``(1, 1)``: prepend ``[B=1, V=1]`` so
-        # the first frame is ``[B=1, V=1, T=1, C, H, W]`` and the camera
-        # stream is ``[B=1, V=1, T, ...]``. ``_preprocess_i2v_input`` expects
-        # ``[*batch_shape, T, C, H, W]`` and pads along T from there.
-        first_frames_t = first_frame.unsqueeze(0).unsqueeze(0)
 
         Ks = np.load(cfg.intrinsic_path)
         Ks_t = torch.from_numpy(Ks).to(device=device, dtype=torch.float32)
         # Rescale capture-resolution intrinsics to the runner's frame size.
-        Ks_t = get_Ks_transformed(
+        camera_intrinsics_t = get_Ks_transformed(
             Ks_t,
             height_org=_INTRINSICS_REFERENCE_HEIGHT,
             width_org=_INTRINSICS_REFERENCE_WIDTH,
@@ -210,10 +209,8 @@ class LingbotWorldRunner(
 
         c2ws = np.load(cfg.pose_path)
         c2ws, trans_normalizer = preprocess_example_poses(c2ws)
-        c2ws_t = torch.from_numpy(c2ws).to(device=device, dtype=torch.float32)
-        camera_intrinsics_t = Ks_t.unsqueeze(0).unsqueeze(0)  # [B=1, V=1, T, 4]
-        camera_poses_t = c2ws_t.unsqueeze(0).unsqueeze(0)  # [B=1, V=1, T, 4, 4]
-        total_camera_frames = camera_poses_t.shape[2]
+        camera_poses_t = torch.from_numpy(c2ws).to(device=device, dtype=torch.float32)
+        total_camera_frames = camera_poses_t.shape[0]
 
         if self.is_rank_zero:
             logger.info(
@@ -242,8 +239,8 @@ class LingbotWorldRunner(
                     f"num_frames={num_frames}, frames=[{start}, {end})"
                 )
             camctrl_input = CamCtrlInput(
-                intrinsics=camera_intrinsics_t[:, :, start:end],
-                poses=camera_poses_t[:, :, start:end],
+                intrinsics=camera_intrinsics_t[start:end],
+                poses=camera_poses_t[start:end],
                 world_scale=float(trans_normalizer),
             )
             video_chunk = self.pipeline.generate(
@@ -257,13 +254,12 @@ class LingbotWorldRunner(
             chunks.append(video_chunk.cpu())
             start = end
 
-        video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
+        video = torch.cat(chunks, dim=0)  # [T, C, H, W]
         if not self.is_rank_zero:
             return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        # Drop B + V (both 1) and lay views out side-by-side: ``[T, H, V*W, C]``.
-        canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
+        canvas = rearrange(video, "t c h w -> t h w c")
         video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_video(canvas, video_path, fps=cfg.fps)
         logger.info(

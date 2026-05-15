@@ -39,7 +39,7 @@ def test_lingbot_patchify_marks_i2v_and_plucker_as_patchified() -> None:
                 patch_embedding_type="linear",
                 control_type="cam",
             ),
-            batch_shape=(1, 1),
+            batch_shape=(),
             len_t=2,
             window_size_t=2,
             sink_size_t=0,
@@ -49,19 +49,19 @@ def test_lingbot_patchify_marks_i2v_and_plucker_as_patchified() -> None:
 
     camctrl_embeddings = I2VCamCtrlEmbeddings(
         i2v=I2VCtrl(
-            latent=torch.randn(1, 1, 2, 16, 4, 4),
-            mask=torch.randn(1, 1, 2, 16, 4, 4),
+            latent=torch.randn(2, 16, 4, 4),
+            mask=torch.randn(2, 16, 4, 4),
         ),
-        plucker=torch.randn(1, 1, 2, 6 * 64, 4, 4),
+        plucker=torch.randn(2, 6 * 64, 4, 4),
     )
 
     patched = transformer.patchify_and_maybe_split_cp(camctrl_embeddings)
     assert isinstance(patched, I2VCamCtrlEmbeddings)
     assert patched._is_patchified
     assert patched.i2v._is_patchified
-    assert patched.i2v.latent.shape == (1, 1, 8, 64)
-    assert patched.i2v.mask.shape == (1, 1, 8, 64)
-    assert patched.plucker.shape == (1, 1, 8, 1536)
+    assert patched.i2v.latent.shape == (8, 64)
+    assert patched.i2v.mask.shape == (8, 64)
+    assert patched.plucker.shape == (8, 1536)
 
     # Idempotent once marked patchified.
     assert transformer.patchify_and_maybe_split_cp(patched) is patched
