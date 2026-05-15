@@ -113,7 +113,7 @@ sp = pipeline.decoder.spatial_compression_ratio
 
 cache = pipeline.initialize_cache(
     text=["A cinematic flythrough."],
-    image=first_frames_t,         # [B=1, V=1, T=1, C, H, W] in [-1, 1]
+    image=first_frames_t,         # [T=1, C, H, W] in [-1, 1] (batch_shape=())
     height=464 // sp,             # latent height for DiT
     width=832 // sp,              # latent width for DiT
 )
@@ -121,7 +121,11 @@ cache = pipeline.initialize_cache(
 total_blocks: int = 21
 generated_chunks: list[torch.Tensor] = []
 for i in range(total_blocks):
-    camctrl_input = CamCtrlInput(intrinsics=..., poses=..., world_scale=...)
+    camctrl_input = CamCtrlInput(
+        intrinsics=...,           # [T_chunk, 4] (fx, fy, cx, cy)
+        poses=...,                # [T_chunk, 4, 4] camera-to-world
+        world_scale=...,
+    )
     video_chunk = pipeline.generate(autoregressive_index=i, cache=cache, input=camctrl_input)
     pipeline.finalize(autoregressive_index=i, cache=cache)  # update KV cache
     generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
