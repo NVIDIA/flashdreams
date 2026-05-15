@@ -160,7 +160,7 @@ EOF
 # 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
 #    --example-data fills the per-camera path tuples from a bundled HDMap clip
 #    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
-#    clips at https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view .
+#    clips at https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view .
 # - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \

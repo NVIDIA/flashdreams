@@ -40,6 +40,11 @@ _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
     os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")
 )
 
+_HF_REPO_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "nvidia/omni-dreams-models": ("nvidia-omni-dreams-lha/omni-dreams-models",),
+    "nvidia-omni-dreams-lha/omni-dreams-models": ("nvidia/omni-dreams-models",),
+}
+
 
 def _is_huggingface_checkpoint_url(path: str) -> bool:
     """Check whether path is a supported Hugging Face checkpoint URL."""
@@ -95,12 +100,51 @@ def _safetensors_device(map_location: str | torch.device) -> str:
     return str(map_location)
 
 
+def _huggingface_repo_candidates(repo_id: str) -> tuple[str, ...]:
+    """Return the requested HF repo plus configured org aliases."""
+    return tuple(dict.fromkeys((repo_id, *_HF_REPO_FALLBACKS.get(repo_id, ()))))
+
+
+def _hf_hub_download_with_repo_fallback(
+    *,
+    repo_id: str,
+    filename: str,
+    subfolder: str | None,
+    revision: str,
+) -> str:
+    """Download from HF, retrying configured repo aliases on access/not-found errors."""
+    candidates = _huggingface_repo_candidates(repo_id)
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            if candidate != repo_id:
+                logger.info(
+                    f"Retrying Hugging Face download from aliased repo: {candidate}"
+                )
+            return hf_hub_download(
+                repo_id=candidate,
+                filename=filename,
+                subfolder=subfolder,
+                revision=revision,
+            )
+        except Exception as exc:
+            last_error = exc
+            if candidate == candidates[-1]:
+                break
+            logger.warning(
+                "Hugging Face download failed from "
+                f"{candidate}; trying aliased repo {candidates[-1]}: {exc}"
+            )
+    assert last_error is not None
+    raise last_error
+
+
 def _hf_hub_download_shard_task(
     args: tuple[str, str, str | None, str],
 ) -> tuple[str, str]:
     """Picklable worker: download one shard; used by ProcessPoolExecutor."""
     repo_id, shard_file, subfolder, revision = args
-    path = hf_hub_download(
+    path = _hf_hub_download_with_repo_fallback(
         repo_id=repo_id,
         filename=shard_file,
         subfolder=subfolder,
@@ -189,7 +233,7 @@ def _load_sharded_safetensors_index_checkpoint(
             _parse_huggingface_checkpoint_url(checkpoint_path)
         )
         logger.info(f"Merging sharded safetensors from Hugging Face: {checkpoint_path}")
-        index_local = hf_hub_download(
+        index_local = _hf_hub_download_with_repo_fallback(
             repo_id=repo_id,
             filename=index_filename,
             subfolder=subfolder,
@@ -292,7 +336,7 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
     logger.info(f"Downloading checkpoint from Hugging Face: {url}")
-    local_path = hf_hub_download(
+    local_path = _hf_hub_download_with_repo_fallback(
         repo_id=repo_id,
         filename=filename,
         subfolder=subfolder,

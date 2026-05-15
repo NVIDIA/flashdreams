@@ -77,7 +77,7 @@ _INTERNAL_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
 # Unmirrored slugs fall through to s3 so recipe configs still import; mirror
 # new slugs here as they land on HF.
 _PUBLIC_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = {
-    "1view-vae-chunk2": "https://huggingface.co/nvidia-omni-dreams-lha/omni-dreams-models/resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt",
+    "1view-vae-chunk2": "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt",
 }
 
 AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS: dict[str, str] = (
