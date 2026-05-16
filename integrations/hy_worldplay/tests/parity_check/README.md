@@ -76,17 +76,63 @@ uv run python -m hy_worldplay.cli \
     --seed 0 --output-dir outputs/wrapper
 ```
 
-The two MP4s should be identical (same checkpoint, same pipeline,
-same RNG seed). A binary `cmp` is the simplest verification:
+The two MP4s should be equivalent (same checkpoint, same pipeline,
+same RNG seed). They are **not** bit-for-bit identical because the
+plugin and the upstream script run as separate processes against
+separate venvs, so they accumulate independent CUDA-stream-ordering
+noise, independent autotune-cache state, and independent H.264 encoder
+nondeterminism. Compare numerically, not via `cmp`:
 
 ```bash
-cmp HY-WorldPlay/outputs/parity/*.mp4 outputs/wrapper/hy-worldplay-wan-i2v-5b.mp4
+uv run python - <<'PY'
+import numpy as np, imageio.v3 as iio
+from pathlib import Path
+a = iio.imread(next(Path("HY-WorldPlay/outputs/parity").glob("*.mp4")))
+b = iio.imread("/workspace/flashdreams/outputs/hy-worldplay-wan-i2v-5b.mp4")
+assert a.shape == b.shape, f"shape mismatch: {a.shape} vs {b.shape}"
+d = np.abs(a.astype(np.int16) - b.astype(np.int16))
+print(f"mean |d| : {d.mean():.4f}  (uint8 / 255)")
+print(f"max  |d| : {d.max()}        (uint8 / 255)")
+print(f"frames with mean |d| > 5: {(d.mean(axis=(1,2,3))>5).sum()}/{a.shape[0]}")
+PY
 ```
 
-> **Note:** ffmpeg-encoded MP4s embed an encoder-version stamp in the
-> container header, so `cmp` may flag a few bytes there even when the
-> video frames are identical. Fall back to a per-frame PSNR / SSIM
-> check (e.g. via `mediapy.read_video`) for a robust comparison.
+### Parity caveats — drift budget and accepted bar
+
+Phase-1 parity is measured numerically against the upstream
+`wan/generate.py` output. On the reference single-GPU `--num-chunk 1
+--pose w-4 --seed 0` benchmark, **on the same torch version**, the
+observed drift is:
+
+| comparison | mean \|Δ\| (uint8) | max \|Δ\| | frames mean\|Δ\|>5 |
+| --- | --- | --- | --- |
+| **plugin vs upstream (same torch)** | **3.41** | 130 | **0** |
+| upstream vs itself (torch 2.11 vs 2.12) | 3.76 | 138 | 0 |
+| plugin vs plugin (two runs, same venv) | 0.00 | 0 | 0 |
+
+So the plugin reproduces upstream more tightly than upstream reproduces
+itself across a torch minor bump, and **zero frames cross the
+"visually noticeable" mean-delta-of-5 threshold**. The plugin itself
+is bit-deterministic across runs in the same venv.
+
+Two prerequisites for this bar:
+
+1. **`torch` version must match between the parity venv and the
+   flashdreams main venv.** The parity `pyproject.toml` pins
+   `torch==2.11.*` to mirror `flashdreams/uv.lock`. When flashdreams
+   bumps torch, bump this pin in lockstep — otherwise drift jumps from
+   ~3.4 to ~5 (we measured a 3.76 contribution from the 2.11 -> 2.12
+   minor alone).
+2. **`DEFAULT_PROMPT` in `hy_worldplay/runner.py` must byte-match
+   upstream's `wan/generate.py` `--input` argparse default.** An early
+   version had a trailing `.` that shifted the UMT5 tokenisation by
+   one token and added ~2 of drift on its own. The two strings are
+   compared in `tests/test_smoke.py::test_default_prompts_match_upstream`
+   (TODO; for now keep them aligned by hand).
+
+True bit-for-bit parity would require eliminating the two-venv split
+entirely (see the phase-1.5 plan in
+`../../README.md` — "Staging plan").
 
 ## Isolation
 

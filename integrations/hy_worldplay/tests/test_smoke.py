@@ -64,6 +64,54 @@ def test_default_prompts_are_nonempty() -> None:
     assert DEFAULT_NEGATIVE_PROMPT.strip(), "DEFAULT_NEGATIVE_PROMPT is empty"
 
 
+# Reference strings copied verbatim from upstream
+# ``HY-WorldPlay/wan/generate.py`` (``--input`` / ``--negative_prompt``
+# argparse defaults). Pinned here so the parity-check delta against
+# upstream cannot regress without a test failure first; bump in
+# lockstep when upstream rotates its example prompt.
+#
+# This test exists because phase-1 development hit a 36%-of-total
+# parity drift (mean |Δ| 5.35 -> 3.41 on uint8 RGB) that turned out to
+# be a single trailing ``.`` on ``DEFAULT_PROMPT`` -- UMT5 tokenises
+# the period as an extra token, which shifts the text embedding and
+# perturbs every diffusion step. Cheap test, expensive bug to find.
+_UPSTREAM_INPUT_DEFAULT = (
+    "First-person view walking around ancient Athens, "
+    "with Greek architecture and marble structures"
+)
+_UPSTREAM_NEGATIVE_PROMPT_DEFAULT = (
+    "色调艳丽,过曝,静态,细节模糊不清,字幕,风格,作品,画作,画面,静止,整体发灰,"
+    "最差质量,低质量,JPEG压缩残留,丑陋的,残缺的,多余的手指,画得不好的手部,"
+    "画得不好的脸部,畸形的,毁容的,形态畸形的肢体,手指融合,静止不动的画面,"
+    "杂乱的背景,三条腿,背景人很多,倒着走"
+)
+
+
+def test_default_prompt_byte_matches_upstream() -> None:
+    """Parity guard: ``DEFAULT_PROMPT`` must byte-match upstream's
+    ``--input`` argparse default."""
+    assert DEFAULT_PROMPT == _UPSTREAM_INPUT_DEFAULT, (
+        "DEFAULT_PROMPT drifted from upstream wan/generate.py --input "
+        "default. UMT5 tokenises trailing punctuation, whitespace, and "
+        "unicode-look-alikes as extra tokens -> any drift here directly "
+        "shifts the text embedding and the parity check.\n"
+        f"plugin   : {DEFAULT_PROMPT!r}\n"
+        f"upstream : {_UPSTREAM_INPUT_DEFAULT!r}"
+    )
+
+
+def test_default_negative_prompt_byte_matches_upstream() -> None:
+    """Parity guard: ``DEFAULT_NEGATIVE_PROMPT`` must byte-match
+    upstream's ``--negative_prompt`` argparse default."""
+    assert DEFAULT_NEGATIVE_PROMPT == _UPSTREAM_NEGATIVE_PROMPT_DEFAULT, (
+        "DEFAULT_NEGATIVE_PROMPT drifted from upstream wan/generate.py "
+        "--negative_prompt default. Same risk as the positive prompt: "
+        "even invisible whitespace changes the tokenisation.\n"
+        f"plugin   len={len(DEFAULT_NEGATIVE_PROMPT)} \n"
+        f"upstream len={len(_UPSTREAM_NEGATIVE_PROMPT_DEFAULT)}"
+    )
+
+
 def test_default_pose_string_well_formed() -> None:
     """Pose string ``num_chunk * 4`` invariant from upstream's
     ``WanRunner.predict`` -> ``pose_to_input`` assertion."""

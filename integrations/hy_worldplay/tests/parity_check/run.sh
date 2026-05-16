@@ -83,11 +83,21 @@ else
 fi
 
 # --------------------------------------------------------------- HF downloads
-if [[ ! -d "${HF_MODELS_DIR}/wan_transformer" ]] \
-        || [[ -z "$(ls -A "${HF_MODELS_DIR}/wan_transformer" 2>/dev/null)" ]]; then
-    echo "[setup] downloading ${HF_REPO} {wan_transformer, wan_distilled_model}"
+# ``huggingface-cli download`` treats positional args after the repo id as
+# *exact filenames*, not directory prefixes -- so passing
+# ``wan_transformer wan_distilled_model`` matches zero files and silently
+# exits 0 with nothing fetched (prints "Fetching 0 files: 0it [00:00]").
+# Use ``--include`` glob patterns to grab whole subdirectories instead.
+#
+# Total payload is ~52 GiB (wan_transformer ~10 GiB, wan_distilled_model
+# ~42 GiB), so the first run takes a while; subsequent runs no-op via the
+# directory-not-empty guard below.
+WAN_TRANSFORMER_CONFIG="${HF_MODELS_DIR}/wan_transformer/config.json"
+WAN_DISTILLED_CKPT="${HF_MODELS_DIR}/wan_distilled_model/model.pt"
+if [[ ! -f "${WAN_TRANSFORMER_CONFIG}" || ! -f "${WAN_DISTILLED_CKPT}" ]]; then
+    echo "[setup] downloading ${HF_REPO} {wan_transformer/, wan_distilled_model/} -> ${HF_MODELS_DIR}"
     uv run huggingface-cli download "${HF_REPO}" \
-        wan_transformer wan_distilled_model \
+        --include "wan_transformer/*" "wan_distilled_model/*" \
         --local-dir "${HF_MODELS_DIR}"
 else
     echo "[setup] HY-WorldPlay WAN models already present in ${HF_MODELS_DIR}, skipping download"

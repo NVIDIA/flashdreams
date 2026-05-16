@@ -55,9 +55,15 @@ __all__ = [
 
 DEFAULT_PROMPT = (
     "First-person view walking around ancient Athens, with Greek "
-    "architecture and marble structures."
+    "architecture and marble structures"
 )
-"""Default text prompt mirroring HY-WorldPlay's ``wan/generate.py`` example."""
+"""Default text prompt mirroring HY-WorldPlay's ``wan/generate.py`` example
+(``--input`` argparse default). Kept *byte-for-byte identical* to upstream
+-- including no trailing period -- because the UMT5 text encoder
+tokenizes a trailing ``.`` as an extra token, which shifts the
+conditioning embedding and produces a small-but-deterministic drift
+(~mean |delta|=5/255) vs upstream's reference output. See
+``tests/parity_check/README.md`` "Parity caveats" for the diagnostic."""
 
 DEFAULT_NEGATIVE_PROMPT = (
     "色调艳丽,过曝,静态,细节模糊不清,字幕,风格,作品,画作,画面,静止,整体发灰,"
