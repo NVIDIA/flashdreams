@@ -31,7 +31,7 @@ from flashdreams.recipes.cosmos.transformer.impl.network import (
 )
 from flashdreams.recipes.wan import WanVAEDecoderConfig, WanVAEEncoderConfig
 
-CHECKPOINT_PATH_T2V_2B = (
+CHECKPOINT_PATH_POST_TRAINED_2B = (
     "https://huggingface.co/nvidia/Cosmos-Predict2.5-2B/blob/main/base/post-trained/"
     "81edfebe-bd6a-4039-8c1d-737df1a790bf_ema_bf16.pt"
 )
@@ -46,7 +46,7 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
         seed=42,
         transformer=CosmosTransformerConfig(
             network=CosmosDiTNetworkConfig(),
-            checkpoint_path=CHECKPOINT_PATH_T2V_2B,
+            checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
             state_dict_transform=state_dict_transform,
             batch_shape=(),
             len_t=24,
@@ -81,7 +81,7 @@ PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
         seed=42,
         transformer=CosmosTransformerConfig(
             network=CosmosDiTNetworkConfig(),
-            checkpoint_path=CHECKPOINT_PATH_T2V_2B,
+            checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
             state_dict_transform=state_dict_transform,
             batch_shape=(),
             len_t=24,

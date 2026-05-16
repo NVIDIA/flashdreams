@@ -158,9 +158,9 @@ class CosmosTransformerConfig(TransformerConfig):
     guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
 
-    conditional_frame_timestep: float = -1.0
+    conditional_frame_timestep: float | None = None
     """Scheduler-scale timestep fed to the network at the conditional frame.
-    Negative values disable the override.
+    ``None`` disables the override.
     """
 
     @property
