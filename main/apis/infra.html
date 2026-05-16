@@ -1173,6 +1173,7 @@ dtype (UniPC uses int64, flow-match uses float).</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">sigma_min</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.0</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">extra_one_step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">timestep_dtype</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.13.0a0+gitdf83f06 ))"><span class="pre">dtype</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">torch.float32</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_tqdm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm.html#FlowMatchSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig" title="Link to this definition">#</a></dt>
@@ -1239,6 +1240,12 @@ recipes.</p>
 fractional part of the warped timestep — upstream Wan stores
 <code class="docutils literal notranslate"><span class="pre">scheduler.timesteps</span></code> as <code class="docutils literal notranslate"><span class="pre">int64</span></code> and lets the embedding upcast to
 <code class="docutils literal notranslate"><span class="pre">float64</span></code> internally.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm">
+<span class="sig-name descname"><span class="pre">enable_tqdm</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm" title="Link to this definition">#</a></dt>
+<dd><p>Whether to enable tqdm progress bar.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1324,6 +1331,7 @@ and uses it as sigma in the standard lerp.</p>
 <dd><em class="sig-param"><span class="n"><span class="pre">num_train_timesteps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">solver_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>,</dd>
 <dd><em class="sig-param"><span class="n"><span class="pre">use_kerras_sigma</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_tqdm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
 </dl>
 
 <span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/fm_unipc.html#FlowMatchUniPCSchedulerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig" title="Link to this definition">#</a></dt>
@@ -1360,6 +1368,12 @@ upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).</p>
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma">
 <span class="sig-name descname"><span class="pre">use_kerras_sigma</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma" title="Link to this definition">#</a></dt>
 <dd><p>Whether to use the exact sigma used in edm sampler.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm">
+<span class="sig-name descname"><span class="pre">enable_tqdm</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm" title="Link to this definition">#</a></dt>
+<dd><p>Whether to enable tqdm progress bar.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1923,6 +1937,7 @@ buffers carried across AR steps).</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min"><code class="docutils literal notranslate"><span class="pre">sigma_min</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step"><code class="docutils literal notranslate"><span class="pre">extra_one_step</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype"><code class="docutils literal notranslate"><span class="pre">timestep_dtype</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm"><code class="docutils literal notranslate"><span class="pre">enable_tqdm</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler"><code class="docutils literal notranslate"><span class="pre">FlowMatchScheduler</span></code></a><ul class="nav section-nav flex-column">
@@ -1936,6 +1951,7 @@ buffers carried across AR steps).</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps"><code class="docutils literal notranslate"><span class="pre">num_train_timesteps</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order"><code class="docutils literal notranslate"><span class="pre">solver_order</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma"><code class="docutils literal notranslate"><span class="pre">use_kerras_sigma</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm"><code class="docutils literal notranslate"><span class="pre">enable_tqdm</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler"><code class="docutils literal notranslate"><span class="pre">FlowMatchUniPCScheduler</span></code></a><ul class="nav section-nav flex-column">

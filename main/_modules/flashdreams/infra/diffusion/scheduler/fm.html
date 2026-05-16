@@ -392,6 +392,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">FlowPredictor</span><span class="p">,</span>
@@ -451,7 +452,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    ``torch.int64``) when the network&#39;s time embedding is sensitive to the</span>
 <span class="sd">    fractional part of the warped timestep — upstream Wan stores</span>
 <span class="sd">    ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to</span>
-<span class="sd">    ``float64`` internally.&quot;&quot;&quot;</span></div>
+<span class="sd">    ``float64`` internally.&quot;&quot;&quot;</span>
+
+    <span class="n">enable_tqdm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether to enable tqdm progress bar.&quot;&quot;&quot;</span></div>
 
 
 
@@ -598,7 +602,11 @@ SPDX-License-Identifier: Apache-2.0
 
         <span class="n">noisy</span> <span class="o">=</span> <span class="n">initial_noise</span>
         <span class="n">clean</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span>
+            <span class="nb">range</span><span class="p">(</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+            <span class="n">disable</span><span class="o">=</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">enable_tqdm</span><span class="p">,</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;FlowMatchScheduler&quot;</span><span class="p">,</span>
+        <span class="p">):</span>
             <span class="n">sigma</span> <span class="o">=</span> <span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
             <span class="c1"># Schedule buffers are pinned to fp32 (to preserve integer</span>
             <span class="c1"># timestep values under a stray `module.to(bf16)`), but the</span>
