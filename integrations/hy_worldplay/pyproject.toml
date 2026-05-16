@@ -52,6 +52,34 @@ flashdreams = { workspace = true }
 dev = [
     "pytest>=8.0",
 ]
+# Optional extra needed only when *running* the HY-WorldPlay upstream code
+# in-process from the flashdreams main venv (i.e. `python -m hy_worldplay.cli`).
+# Not required for smoke tests, ``flashdreams-run`` non-HY runners, or the
+# parity-check (which has its own isolated venv -- see
+# ``tests/parity_check/pyproject.toml``).
+#
+# These are kept optional because:
+#   * ``sageattention`` builds CUDA kernels and pins a specific torch range,
+#     which can destabilise the carefully-curated flashdreams main venv on
+#     bleeding-edge GPUs (e.g. Blackwell sm_120 wheels lag PyPI).
+#   * The rest are vLLM-style platform plumbing that only matter once the
+#     upstream ``wan`` package is imported.
+#
+# Install once before running the in-process CLI::
+#
+#     uv pip install --no-build-isolation -e \
+#         'integrations/hy_worldplay[upstream]'
+upstream = [
+    # Required for diffusers' ``low_cpu_mem_usage=True`` path; the Wan VAE
+    # has ``keep_in_fp32_modules=True`` and diffusers raises a ValueError
+    # if it can't enable low-CPU-mem loading (which needs accelerate).
+    "accelerate>=0.30",
+    "cloudpickle",
+    "filelock",
+    "pyyaml",
+    "remote-pdb",
+    "sageattention",
+]
 
 # Phase-1: standalone CLI entry point only. Once the recipe-level
 # integration lands (see README.md "Staging plan"), this will switch to

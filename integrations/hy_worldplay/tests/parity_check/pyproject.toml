@@ -12,9 +12,15 @@ requires-python = ">=3.12,<3.13"
 #
 # Notable upstream dependencies pulled in here:
 #   * diffusers              -- WanPipeline base + AutoencoderKLWan + scheduler
-#   * sageattention (extra)  -- "Required for the WAN pipeline" per HY-WorldPlay/README.md.
-#                               Listed under [tool.uv.sources] below as a git
-#                               source because the wheel is not on PyPI.
+#   * sageattention          -- "Required for the WAN pipeline" per
+#                               HY-WorldPlay/README.md (top-level import in
+#                               wan/models/dits/arwan_w_action_w_mem_relative_rope.py).
+#                               Wheels ship on PyPI; for non-PyPI-supported
+#                               GPU SMs (e.g. very new Blackwell sm_120),
+#                               build from source per upstream's README.
+#   * cloudpickle / filelock / pyyaml / remote-pdb
+#                            -- top-level imports in wan/utils.py (vendored
+#                               from vLLM's utils module).
 #   * scipy                  -- camera trajectory math (Rotation, etc.)
 #   * moviepy                -- generate.py uses VideoFileClip / VideoClip for
 #                               the optional WASD overlay
@@ -23,8 +29,25 @@ requires-python = ">=3.12,<3.13"
 #   * easydict / lmdb        -- transitively required by upstream's hyvideo/
 dependencies = [
     "flashdreams",
+    # Pinned to match the flashdreams root ``uv.lock`` (currently 2.11.0+cu130).
+    # *Must* stay in lockstep with whatever the flashdreams main venv resolves
+    # to -- otherwise the parity venv ends up on a different cuBLAS / cuDNN /
+    # bf16 reduction path and the upstream baseline drifts from the plugin
+    # output despite both being bit-exact within their own venv.
+    # See ``integrations/hy_worldplay/README.md`` "Parity caveats" for the
+    # diagnostic that surfaced this (torch 2.11 vs 2.12 -> mean |Δ| ≈ 5/255).
+    # Bump this in lockstep with ``flashdreams/uv.lock``.
+    "torch==2.11.*",
+    # ``accelerate`` is required for diffusers' ``low_cpu_mem_usage=True``
+    # path, which is the only loading mode compatible with the Wan VAE's
+    # ``keep_in_fp32_modules=True``. Upstream pulls this in via the
+    # ``transformers[accelerate,tiktoken]`` extra; we pin it explicitly so
+    # bumping transformers later doesn't silently drop it.
+    "accelerate>=0.30",
+    "cloudpickle",
     "diffusers>=0.34",
     "easydict",
+    "filelock",
     "imageio[ffmpeg]>=2.31",
     "lmdb",
     "loguru>=0.7",
@@ -33,8 +56,11 @@ dependencies = [
     "omegaconf",
     "opencv-python-headless",
     "pillow",
+    "pyyaml",
     "regex",
+    "remote-pdb",
     "safetensors>=0.4",
+    "sageattention",
     "scipy>=1.11",
     "tqdm>=4.60",
     "transformers==4.57.6",

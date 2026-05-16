@@ -81,8 +81,11 @@ The HY-WorldPlay WAN models are bundled in the
 repo:
 
 ```bash
+# NOTE: positional args after the repo id are treated as *exact filenames*,
+# not directory prefixes, so use ``--include`` glob patterns for whole
+# subdirectories (otherwise huggingface-cli silently fetches zero files).
 huggingface-cli download tencent/HY-WorldPlay \
-    wan_transformer wan_distilled_model \
+    --include "wan_transformer/*" "wan_distilled_model/*" \
     --local-dir /path/to/models
 ```
 
