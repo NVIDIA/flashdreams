@@ -452,7 +452,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         But it is per-token timesteps is convenient to implement.
         """
         cft = self.config.conditional_frame_timestep
-        if cache.image is None or cft < 0.0 or cache.autoregressive_index != 0:
+        if (
+            cache.image is None
+            or cft is None
+            or cft < 0.0
+            or cache.autoregressive_index != 0
+        ):
             return timestep
         # mask_first_block is patchified ``[..., L, D]``.
         override_mask = cache.mask_first_block[..., 0]
