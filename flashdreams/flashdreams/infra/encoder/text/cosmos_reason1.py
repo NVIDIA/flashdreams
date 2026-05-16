@@ -37,6 +37,14 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     model_name: str = "nvidia/Cosmos-Reason1-7B"
     """HF repo id of the underlying Qwen2.5-VL model."""
 
+    revision: str = "3210bec0495fdc7a8d3dbb8d58da5711eab4b423"
+    """HF commit hash to pin.
+
+    Defaults to the Cosmos-Reason1.1 SFT checkpoint
+    (``sft_exp721-1_qwen7b_tl_721_5vs5_s3_balanced_n32_resume_16k/iter_16000``)
+    that the Cosmos-Predict 2.5 2B model was trained on.
+    """
+
     max_length: int = 512
     """Token length to pad/truncate to."""
 
@@ -80,13 +88,18 @@ class CosmosReason1TextEncoder(Encoder):
 
         self.processor = AutoProcessor.from_pretrained(
             config.model_name,
+            revision=config.revision,
             local_files_only=local_files_only,
         )
         self.tokenizer = self.processor.tokenizer
 
-        logger.info(f"Loading Cosmos-Reason1 model from {config.model_name}")
+        logger.info(
+            f"Loading Cosmos-Reason1 model from {config.model_name}"
+            + (f"@{config.revision}" if config.revision else "")
+        )
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             config.model_name,
+            revision=config.revision,
             local_files_only=local_files_only,
             dtype=config.dtype,
         )

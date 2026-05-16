@@ -206,18 +206,16 @@ class FinalLayer(nn.Module):
 
         Args:
             x: Input tensor of shape ``[..., L, D]``.
-            emb: Conditioning embedding of shape ``[..., D]``.
-            adaln_lora: Optional LoRA tensor of shape ``[..., 3 * D]``.
+            emb: Conditioning embedding of shape ``[..., L or 1, D]``
+            adaln_lora: Optional LoRA tensor of shape
+                ``[..., L or 1, 3 * D]``.
 
         Returns:
             Output tensor of shape ``[..., L, patch_dim]``.
         """
-        # Insert the per-token broadcast slot: [..., D] -> [..., 1, D].
-        emb = emb.unsqueeze(-2)
-
+        assert emb.ndim == x.ndim, "emb and x must have the same number of dimensions"
         if self.use_adaln_lora:
             assert adaln_lora is not None
-            adaln_lora = adaln_lora.unsqueeze(-2)
             modulation = (
                 self.adaln_modulation(emb) + adaln_lora[..., : 2 * self.hidden_size]
             )
@@ -583,21 +581,20 @@ class Block(nn.Module):
 
         Args:
             x: Input tensor with shape ``[..., L, D]``.
-            emb: Timestep embedding with shape ``[..., D]``.
+            emb: Timestep embedding with shape ``[..., L or 1, D]``.
             cache: KV cache container for this block.
             rope_freqs: RoPE frequencies with shape ``[L, 1, 1, D]``.
-            adaln_lora: Optional AdaLN LoRA embedding with shape ``[..., 3 * D]``.
+            adaln_lora: Optional AdaLN LoRA embedding with shape
+                ``[..., L or 1, 3 * D]``.
 
         Returns:
             Updated hidden states with the same shape as ``x``.
         """
-        # Insert the per-token broadcast slot: [..., D] -> [..., 1, D].
-        emb = emb.unsqueeze(-2)
+        assert emb.ndim == x.ndim, "emb and x must have the same number of dimensions"
         if self.use_adaln_lora:
             assert adaln_lora is not None, (
                 "adaln_lora is required when use_adaln_lora is True"
             )
-            adaln_lora = adaln_lora.unsqueeze(-2)
             shift_self, scale_self, gate_self = (
                 self.adaln_modulation_self_attn(emb) + adaln_lora
             ).chunk(3, dim=-1)

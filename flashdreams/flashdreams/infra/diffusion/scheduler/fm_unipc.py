@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 from torch import Tensor
+from tqdm import tqdm
 
 from flashdreams.infra.diffusion.scheduler import (
     FlowPredictor,
@@ -199,6 +200,9 @@ class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
     use_kerras_sigma: bool = False
     """Whether to use the exact sigma used in edm sampler."""
 
+    enable_tqdm: bool = False
+    """Whether to enable tqdm progress bar."""
+
 
 class FlowMatchUniPCScheduler(Scheduler):
     """Order-2 UniPC predictor-corrector for flow-matching.
@@ -341,7 +345,11 @@ class FlowMatchUniPCScheduler(Scheduler):
         m_prev_prev: Tensor | None = None
         last_sample: Tensor | None = None
 
-        for i in range(N):
+        for i in tqdm(
+            range(N),
+            disable=not self.config.enable_tqdm,
+            desc="FlowMatchUniPCScheduler",
+        ):
             # Schedule buffers are pinned to fp32 (to preserve integer
             # timestep values under a stray `module.to(bf16)`), but the
             # network expects timesteps in the input dtype so that

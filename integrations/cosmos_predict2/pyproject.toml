@@ -42,6 +42,7 @@ dev = [
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
 "cosmos2-t2v-2b-720p" = "cosmos_predict2.config:RUNNER_COSMOS2_T2V_2B_720P"
+"cosmos2-i2v-2b-720p" = "cosmos_predict2.config:RUNNER_COSMOS2_I2V_2B_720P"
 
 [tool.setuptools.packages.find]
 include = ["cosmos_predict2*"]

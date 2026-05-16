@@ -18,13 +18,17 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
 import mediapy as media
+import torch
 from einops import rearrange
 from loguru import logger
 
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.cosmos.pipeline import (
@@ -33,28 +37,56 @@ from flashdreams.recipes.cosmos.pipeline import (
 )
 
 __all__ = [
-    "Cosmos2T2VRunnerConfig",
+    "Cosmos2I2VRunner",
+    "Cosmos2I2VRunnerConfig",
     "Cosmos2T2VRunner",
+    "Cosmos2T2VRunnerConfig",
 ]
 
-DEFAULT_T2V_PROMPT = (
-    "A robotic arm, primarily white with black joints and cables, "
-    "is shown in a clean, modern indoor setting with a white tabletop. "
-    "The arm, equipped with a gripper holding a small, light green pitcher, "
-    "is positioned above a clear glass containing a reddish-brown liquid and a spoon. "
-    "The robotic arm is in the process of pouring a transparent liquid into the glass. "
-    "To the left of the pitcher, there is an opened jar with a similar reddish-brown "
-    "substance visible through its transparent body. In the background, a vase with "
-    "white flowers and a brown couch are partially visible, adding to the contemporary ambiance. "
-    "The lighting is bright, casting soft shadows on the table. The robotic arm's movements are "
-    "smooth and controlled, demonstrating precision in its task. As the video progresses, "
-    "the robotic arm completes the pour, leaving the glass half-filled with the reddish-brown liquid. "
-    "The jar remains untouched throughout the sequence, and the spoon inside the glass remains stationary. "
-    "The other robotic arm on the right side also stays stationary throughout the video. "
-    "The final frame captures the robotic arm with the pitcher finishing the pour, with the glass now "
-    "filled to a higher level, while the pitcher is slightly tilted but still held securely by the gripper."
+DEFAULT_PROMPT = (
+    "A high-definition video captures the precision of robotic welding in an industrial setting. "
+    "The first frame showcases a robotic arm, equipped with a welding torch, positioned over a "
+    "large metal structure. The welding process is in full swing, with bright sparks and intense "
+    "light illuminating the scene, creating a vivid display of blue and white hues. A significant "
+    "amount of smoke billows around the welding area, partially obscuring the view but emphasizing "
+    "the heat and activity. The background reveals parts of the workshop environment, including a "
+    "ventilation system and various pieces of machinery, indicating a busy and functional industrial "
+    "workspace. As the video progresses, the robotic arm maintains its steady position, continuing "
+    "the welding process and moving to its left. The welding torch consistently emits sparks and light, "
+    "and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath "
+    "the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, "
+    "with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of "
+    "the welding operation."
 )
 """Default demo prompt used when no ``--prompt`` is supplied."""
+
+
+DEFAULT_I2V_IMAGE_URL = "https://media.githubusercontent.com/media/nvidia-cosmos/cosmos-predict2.5/refs/heads/main/assets/base/robot_welding.jpg"
+
+IMAGE_CACHE_DIR = (
+    Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
+    / "cosmos_predict2"
+)
+"""User-writable cache for on-the-fly I2V first-frame downloads."""
+
+
+def _resolve_image_path(image_path: str | Path) -> Path:
+    """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
+
+    ``http(s)://`` strings are atomically fetched into
+    :data:`IMAGE_CACHE_DIR` and validated as decodable images before
+    being published; local paths pass through unchanged.
+    """
+    if isinstance(image_path, Path):
+        return image_path
+    if not image_path.startswith(("http://", "https://")):
+        return Path(image_path)
+
+    return download_to_cache(
+        image_path,
+        cache_dir=IMAGE_CACHE_DIR,
+        validator=lambda p: media.read_image(str(p)),
+    )
 
 
 @dataclass(kw_only=True)
@@ -63,10 +95,9 @@ class Cosmos2T2VRunnerConfig(RunnerConfig):
 
     _target: type = field(default_factory=lambda: Cosmos2T2VRunner)
 
-    prompt: str | Path = DEFAULT_T2V_PROMPT
+    prompt: str | Path = DEFAULT_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
-    txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to ``DEFAULT_T2V_PROMPT``."""
+    txt file whose first line is read as the prompt (--prompt prompt.txt)."""
 
     pixel_height: int = 720
     """Output video pixel height."""
@@ -150,3 +181,49 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
                 f"[{config.runner_name}] wrote per-AR-step stats "
                 f"-> {stats_path.resolve()}"
             )
+
+
+@dataclass(kw_only=True)
+class Cosmos2I2VRunnerConfig(Cosmos2T2VRunnerConfig):
+    """Runner config for the Cosmos-Predict2 I2V variant."""
+
+    _target: type = field(default_factory=lambda: Cosmos2I2VRunner)
+
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    """First-frame RGB image. Either a local path or an HTTP(S) URL."""
+
+
+class Cosmos2I2VRunner(Cosmos2T2VRunner):
+    """Cosmos-Predict2 non-streaming I2V driver."""
+
+    config: Cosmos2I2VRunnerConfig
+
+    def _initialize_cache(self) -> CosmosInferencePipelineCache:
+        """Initialize the autoregressive cache for I2V (loads first frame)."""
+        config = self.config
+        prompt = self._resolve_prompt()
+
+        assert isinstance(self.pipeline.decoder, StreamingVideoDecoder)
+        sp = self.pipeline.decoder.spatial_compression_ratio
+        assert config.pixel_height % sp == 0, (
+            f"pixel_height={config.pixel_height} must divide {sp}."
+        )
+        assert config.pixel_width % sp == 0, (
+            f"pixel_width={config.pixel_width} must divide {sp}."
+        )
+
+        # Load + resize the first frame, then convert to [-1, 1] bf16
+        # in shape [T=1, C, H, W] (matches batch_shape=()). Pin to the
+        # pipeline's actual device so non-default ``--device`` selections
+        # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
+        local_image_path = _resolve_image_path(config.image_path)
+        arr = media.read_image(str(local_image_path))[..., :3]
+        arr = cv2.resize(arr, (config.pixel_width, config.pixel_height))
+        tensor = (
+            torch.from_numpy(arr).to(device=self.pipeline.device, dtype=torch.bfloat16)
+            / 127.5
+            - 1.0
+        )
+        image = rearrange(tensor, "h w c -> 1 c h w")
+
+        return self.pipeline.initialize_cache(text=[prompt], image=image)
