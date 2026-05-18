@@ -493,7 +493,7 @@ def _get_ffmpeg_binary():
     if path:
         return path
     try:
-        import imageio_ffmpeg
+        import imageio_ffmpeg  # ty: ignore[unresolved-import]
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         raise RuntimeError(

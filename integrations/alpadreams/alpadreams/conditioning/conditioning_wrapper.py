@@ -30,35 +30,14 @@ import torch
 from alpadreams.conditioning.renderer import LudusRenderer
 from alpadreams.conditioning.world_scenario.data_types import SceneData
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
-from alpadreams.config import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS
-from alpadreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoderConfig,
-)
+from alpadreams.config import ALPADREAMS_CONFIGS
 from alpadreams.grpc.profiling_server import get_profiler, get_profiling_context
 from alpadreams.pipeline import (
     AlpadreamsPipeline,
     AlpadreamsPipelineCache,
-    AlpadreamsPipelineConfig,
 )
 from alpadreams.transformer import CosmosTransformerConfig
-from alpadreams.transformer.impl.network import (
-    CosmosDiTNetworkConfig,
-)
-from loguru import logger
 from torch import Tensor, nn
-
-from flashdreams.infra.diffusion.model import DiffusionModelConfig
-from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.encoder.text.cosmos_reason1 import CosmosReason1TextEncoderConfig
-from flashdreams.recipes.taehv import (
-    AVAILABLE_TAEHV_CHECKPOINT_PATHS,
-    TeahvVAEDecoderConfig,
-)
-from flashdreams.recipes.wan.autoencoder.vae import (
-    AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
-    WanVAEDecoderConfig,
-    WanVAEEncoderConfig,
-)
 
 
 @dataclass
@@ -112,67 +91,59 @@ class AlpadreamsConditioningWrapper(nn.Module):
     def __init__(
         self,
         *,
-        n_cameras: int,
+        pipeline_config_name: str,
         resolution_wh: tuple[int, int],
-        local_attn_size: int,
-        sink_size: int,
-        denoising_step_list: list[int],
-        num_frames_per_block: int,
-        compile_net: bool,
-        seed_for_every_rollout: int | None,
-        encode_with_pixel_shuffle: bool,
-        no_tae: bool,
-        upsampler: str = "none",
-        use_cuda_graphs: bool = True,
-        kv_cache_on_side_stream: bool = False,
-        s3_credential_path: str = "credentials/s3_checkpoint.secret",
+        seed_for_every_rollout: int | None = None,
         device: torch.device = torch.device("cuda:0"),
     ) -> None:
+        """Instantiate the pipeline from a registered Alpadreams config.
+
+        Args:
+            pipeline_config_name: Key into
+                :data:`alpadreams.config.ALPADREAMS_CONFIGS`
+                identifying the pipeline literal to instantiate.
+            resolution_wh: Decoded video ``(width, height)``. Not encoded in
+                the pipeline config; supplied per server deployment.
+            seed_for_every_rollout: Optional per-rollout RNG seed override. When
+                ``None``, each rollout draws a fresh OS-entropy seed.
+            device: CUDA device the pipeline is moved to.
+
+        Raises:
+            KeyError: ``pipeline_config_name`` is not a registered Alpadreams
+                recipe.
+            TypeError: The selected pipeline does not use
+                :class:`CosmosTransformerConfig` (the wrapper relies on its
+                ``num_views`` / ``len_t`` fields to size session state).
+        """
         super().__init__()
 
-        if num_frames_per_block % 4 != 0:
-            raise ValueError(
-                "num_frames_per_block must be divisible by 4 for flashdreams pipeline backend"
+        if pipeline_config_name not in ALPADREAMS_CONFIGS:
+            raise KeyError(
+                f"Unknown Alpadreams pipeline config {pipeline_config_name!r}. "
+                f"Available: {sorted(ALPADREAMS_CONFIGS)}"
             )
-        if upsampler != "none":
-            raise ValueError(
-                "Upsampler support is not wired in flashdreams pipeline backend yet."
-            )
-        if not use_cuda_graphs:
-            logger.warning(
-                "use_cuda_graphs flag is ignored by flashdreams pipeline backend."
-            )
-        if kv_cache_on_side_stream:
-            logger.warning(
-                "kv_cache_on_side_stream flag is ignored by flashdreams pipeline backend."
-            )
-        if s3_credential_path != "credentials/s3_checkpoint.secret":
-            logger.warning(
-                "s3_credential_path is controlled by flashdreams checkpoint loader defaults."
+        pipeline_config = ALPADREAMS_CONFIGS[pipeline_config_name]
+
+        transformer_cfg = pipeline_config.diffusion_model.transformer
+        if not isinstance(transformer_cfg, CosmosTransformerConfig):
+            raise TypeError(
+                "AlpadreamsConditioningWrapper only supports pipelines built on "
+                f"CosmosTransformerConfig, got {type(transformer_cfg).__name__}"
             )
 
         self._device = device
-        self._n_cameras = n_cameras
+        self._n_cameras = transformer_cfg.num_views
         self.video_resolution_wh = resolution_wh
         self._rollout_seed = seed_for_every_rollout
         self.fps = 30
 
-        self.frame_chunk_size = num_frames_per_block
-        len_t = num_frames_per_block // 4
+        # ``len_t`` latent frames per AR block decode into ``len_t * 4`` pixel
+        # frames for every continuation step; the first block emits a single
+        # latent (the seeded image) plus the same temporal stride.
+        len_t = transformer_cfg.len_t
+        self.frame_chunk_size = len_t * 4
         self.initial_frame_chunk_size = 1 + (len_t - 1) * 4
 
-        pipeline_config = self._build_pipeline_config(
-            n_cameras=n_cameras,
-            resolution_wh=resolution_wh,
-            local_attn_size=local_attn_size,
-            sink_size=sink_size,
-            denoising_step_list=denoising_step_list,
-            len_t=len_t,
-            compile_net=compile_net,
-            encode_with_pixel_shuffle=encode_with_pixel_shuffle,
-            no_tae=no_tae,
-            seed=seed_for_every_rollout if seed_for_every_rollout is not None else 42,
-        )
         pipeline = pipeline_config.setup().to(device=device)
         assert isinstance(pipeline, AlpadreamsPipeline)  # for type checking
         self.pipeline: AlpadreamsPipeline = pipeline
@@ -194,127 +165,6 @@ class AlpadreamsConditioningWrapper(nn.Module):
     @property
     def output_device(self) -> torch.device:
         return self._device
-
-    @staticmethod
-    def _build_pipeline_config(
-        *,
-        n_cameras: int,
-        resolution_wh: tuple[int, int],
-        local_attn_size: int,
-        sink_size: int,
-        denoising_step_list: list[int],
-        len_t: int,
-        compile_net: bool,
-        encode_with_pixel_shuffle: bool,
-        no_tae: bool,
-        seed: int,
-    ) -> AlpadreamsPipelineConfig:
-        if n_cameras not in (1, 4):
-            raise ValueError(
-                f"Only n_cameras in {{1, 4}} is supported by current checkpoints, got {n_cameras}"
-            )
-
-        if n_cameras == 1:
-            if encode_with_pixel_shuffle:
-                if len_t != 4:
-                    raise ValueError(
-                        "Single-view pixel-shuffle checkpoints currently support len_t=4 only."
-                    )
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-                    "1view-pshuffle-chunk4"
-                ]
-                hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
-            else:
-                if len_t not in (2, 3):
-                    raise ValueError(
-                        "Single-view VAE-encoding checkpoints currently support len_t in {2, 3}."
-                    )
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-                    f"1view-vae-chunk{len_t}"
-                ]
-                tokenizer_key = "vae" if no_tae else "lightvae"
-                hdmap_encoder_config = WanVAEEncoderConfig(
-                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS[tokenizer_key],
-                )
-        else:
-            if len_t != 4:
-                raise ValueError(
-                    "Multi-view checkpoints currently support len_t=4 only."
-                )
-            if encode_with_pixel_shuffle:
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-                    "4view-pshuffle-chunk4"
-                ]
-                hdmap_encoder_config = PixelShuffleVAEEncoderConfig()
-            else:
-                checkpoint_path = AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS[
-                    "4view-vae-chunk4"
-                ]
-                hdmap_encoder_config = WanVAEEncoderConfig(
-                    checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-                )
-
-        if no_tae:
-            decoder_config = WanVAEDecoderConfig(
-                checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-            )
-        else:
-            decoder_config = TeahvVAEDecoderConfig(
-                checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
-            )
-
-        _, height = resolution_wh
-        extrapolation = 2.0 if height <= 480 else 3.0
-        # Per-rollout latent (height, width) is supplied later via
-        # :meth:`AlpadreamsPipeline.initialize_cache` (derived from the
-        # encoded first-frame's shape).
-        transformer_config = CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(
-                # HDMap conditioning channel count: 192 for pixel-shuffle,
-                # 16 for the Wan-VAE branch.
-                additional_concat_ch=192 if encode_with_pixel_shuffle else 16,
-                enable_cross_view_attn=n_cameras > 1,
-            ),
-            batch_shape=(1,),
-            num_views=n_cameras,
-            h_extrapolation_ratio=extrapolation,
-            w_extrapolation_ratio=extrapolation,
-            window_size_t=local_attn_size,
-            sink_size_t=sink_size,
-            len_t=len_t,
-            checkpoint_path=checkpoint_path,
-            compile_network=compile_net,
-        )
-
-        scheduler_config = FlowMatchSchedulerConfig(
-            num_inference_steps=len(denoising_step_list),
-            denoising_timesteps=denoising_step_list,
-            warp_denoising_step=True,
-            shift=5.0,
-            sigma_min=0.0,
-            extra_one_step=True,
-        )
-
-        # `image_encoder` (first-frame) is pinned to the full Wan VAE to
-        # match the training distribution regardless of which encoder is
-        # used for the per-AR-step HDMap.
-        image_encoder_config = WanVAEEncoderConfig(
-            checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        )
-
-        return AlpadreamsPipelineConfig(
-            recipe_name=f"alpadreams-integration-{n_cameras}view",
-            text_encoder=CosmosReason1TextEncoderConfig(),
-            image_encoder=image_encoder_config,
-            encoder=hdmap_encoder_config,
-            decoder=decoder_config,
-            diffusion_model=DiffusionModelConfig(
-                seed=seed,
-                context_noise=128,
-                transformer=transformer_config,
-                scheduler=scheduler_config,
-            ),
-        )
 
     def set_rollout_seed(self, seed: int | None) -> None:
         self._rollout_seed = seed

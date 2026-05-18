@@ -51,6 +51,7 @@ from alpadreams.conditioning.conditioning_wrapper import (
 from alpadreams.conditioning.renderer import LudusRenderer
 from alpadreams.conditioning.world_scenario.data_types import SceneData
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
+from alpadreams.config import ALPADREAMS_CONFIGS
 from alpadreams.grpc.profiling_server import (
     get_profiler,
     init_profiler,
@@ -70,6 +71,7 @@ from alpadreams.grpc.utils import (
     proto_to_dict,
     trajectory_to_camera_poses,
 )
+from alpadreams.transformer import CosmosTransformerConfig
 from loguru import logger
 from ludus_renderer import nvjpeg
 
@@ -90,50 +92,6 @@ RESOLUTION_MAP: dict[str, tuple[int, int]] = {
     "720p": (1280, 720),
     "704p": (1280, 704),
 }
-
-
-def resolve_num_frames_per_block(
-    *,
-    n_cameras: int,
-    encode_with_pixel_shuffle: bool,
-    num_frames_per_block: int | None,
-) -> int:
-    """Resolve and validate temporal block size against available checkpoints."""
-    if n_cameras not in (1, 4):
-        raise ValueError(
-            f"Only n_cameras in {{1, 4}} is supported by current checkpoints, got {n_cameras}"
-        )
-
-    if num_frames_per_block is None:
-        # len_t = num_frames_per_block // 4. Any multi-view or pixel-shuffle path
-        # currently requires len_t=4, i.e. num_frames_per_block=16.
-        if n_cameras > 1 or encode_with_pixel_shuffle:
-            return 16
-        return 12
-
-    if num_frames_per_block % 4 != 0:
-        raise ValueError("num_frames_per_block must be divisible by 4.")
-
-    len_t = num_frames_per_block // 4
-    if n_cameras > 1 and len_t != 4:
-        raise ValueError(
-            "Multi-view checkpoints require len_t=4 "
-            f"(got len_t={len_t} from num_frames_per_block={num_frames_per_block}). "
-            "Use --num_frames_per_block 16."
-        )
-    if n_cameras == 1 and encode_with_pixel_shuffle and len_t != 4:
-        raise ValueError(
-            "Single-view pixel-shuffle checkpoints require len_t=4 "
-            f"(got len_t={len_t} from num_frames_per_block={num_frames_per_block}). "
-            "Use --num_frames_per_block 16."
-        )
-    if n_cameras == 1 and not encode_with_pixel_shuffle and len_t not in (2, 3):
-        raise ValueError(
-            "Single-view VAE-encoding checkpoints require len_t in {2, 3} "
-            f"(got len_t={len_t} from num_frames_per_block={num_frames_per_block}). "
-            "Use --num_frames_per_block 8 or 12."
-        )
-    return num_frames_per_block
 
 
 class ControlSignal(IntEnum):
@@ -224,44 +182,21 @@ def capture_exceptions(func: Callable) -> Callable:
 
 def build_alpadreams_conditioning_wrapper(
     rank: int,
-    n_cameras: int,
-    local_attn_size: int,
-    sink_size: int,
+    pipeline_config_name: str,
     device: torch.device,
     seed_for_every_rollout: int | None = None,
     resolution: str = "704p",
-    encode_with_pixel_shuffle: bool = False,
-    denoising_step_list: list[int] | None = None,
-    num_frames_per_block: int = 12,
-    compile_net: bool = True,
-    use_cuda_graphs: bool = True,
-    s3_credential_path: str = "credentials/s3_checkpoint.secret",
-    upsampler: str = "none",
-    kv_cache_on_side_stream: bool = False,
-    no_tae: bool = False,
 ) -> AlpadreamsConditioningWrapper:
+    """Build a wrapper from a registered Alpadreams pipeline config name."""
     logger.info(
-        f"[Rank {rank}] Initializing WorldModelService with {n_cameras} cameras on device {device}"
+        f"[Rank {rank}] Initializing WorldModelService with pipeline "
+        f"{pipeline_config_name!r} on device {device}"
     )
 
-    if denoising_step_list is None:
-        denoising_step_list = [1000, 500]
-
     api = AlpadreamsConditioningWrapper(
-        n_cameras=n_cameras,
+        pipeline_config_name=pipeline_config_name,
         resolution_wh=RESOLUTION_MAP[resolution],
-        local_attn_size=local_attn_size,
-        sink_size=sink_size,
-        denoising_step_list=denoising_step_list,
-        num_frames_per_block=num_frames_per_block,
-        compile_net=compile_net,
         seed_for_every_rollout=seed_for_every_rollout,
-        encode_with_pixel_shuffle=encode_with_pixel_shuffle,
-        no_tae=no_tae,
-        upsampler=upsampler,
-        use_cuda_graphs=use_cuda_graphs,
-        kv_cache_on_side_stream=kv_cache_on_side_stream,
-        s3_credential_path=s3_credential_path,
         device=device,
     )
     if dist.is_initialized() and dist.get_world_size() > 1:
@@ -275,46 +210,18 @@ def build_alpadreams_conditioning_wrapper(
 class WorldModelEngine:
     def __init__(
         self,
+        pipeline_config_name: str,
         device: torch.device | str = torch.device("cuda:0"),
         # image encoding related
         output_format: str = "png",
         jpeg_quality: int = 90,
         # model related
-        n_cameras: int = 1,
-        local_attn_size: int | None = None,
-        sink_size: int | None = None,
-        context_parallel_size: int = 1,
         seed_for_every_rollout: int | None = None,
         resolution: str = "704p",
-        encode_with_pixel_shuffle: bool = False,
-        denoising_step_list: list[int] | None = None,
-        num_frames_per_block: int | None = None,
-        compile_net: bool = True,
-        use_cuda_graphs: bool = True,
-        s3_credential_path: str = "credentials/s3_checkpoint.secret",
-        upsampler: str = "none",
-        kv_cache_on_side_stream: bool = False,
-        no_tae: bool = False,
     ):
         # determine rank
         self.MASTER_RANK = 0
         self.rank = 0 if not dist.is_initialized() else dist.get_rank()
-
-        # Set default values if not provided
-        local_attn_size = 8 if local_attn_size is None else local_attn_size
-        sink_size = 0 if sink_size is None else sink_size
-        num_frames_per_block = resolve_num_frames_per_block(
-            n_cameras=n_cameras,
-            encode_with_pixel_shuffle=encode_with_pixel_shuffle,
-            num_frames_per_block=num_frames_per_block,
-        )
-        len_t = num_frames_per_block // 4
-        logger.info(
-            f"KV cache window: local_attn_size={local_attn_size}, sink_size={sink_size}"
-        )
-        logger.info(
-            f"Temporal chunk config: num_frames_per_block={num_frames_per_block}, len_t={len_t}"
-        )
 
         # Save configurations
         self.device = torch.device(device)
@@ -322,28 +229,18 @@ class WorldModelEngine:
             raise ValueError(f"CUDA device is required, got {self.device}")
         if self.device.index is None:
             self.device = torch.device("cuda:0")
-        self.n_cameras = n_cameras
         self.seed_for_every_rollout_default = seed_for_every_rollout
 
-        # Load the video generation model (SV when n_cameras=1, MV when n_cameras>1)
         self.conditioning_wrapper = build_alpadreams_conditioning_wrapper(
             rank=self.rank,
-            n_cameras=n_cameras,
-            local_attn_size=local_attn_size,
-            sink_size=sink_size,
+            pipeline_config_name=pipeline_config_name,
             device=self.device,
             seed_for_every_rollout=seed_for_every_rollout,
             resolution=resolution,
-            encode_with_pixel_shuffle=encode_with_pixel_shuffle,
-            denoising_step_list=denoising_step_list,
-            num_frames_per_block=num_frames_per_block,
-            compile_net=compile_net,
-            use_cuda_graphs=use_cuda_graphs,
-            s3_credential_path=s3_credential_path,
-            upsampler=upsampler,
-            kv_cache_on_side_stream=kv_cache_on_side_stream,
-            no_tae=no_tae,
         )
+        # n_cameras is fixed by the chosen pipeline; mirror it here so payloads
+        # can validate camera-list shape without reaching into the wrapper.
+        self.n_cameras = self.conditioning_wrapper.n_cameras
         logger.info("WorldModelEngine initialized successfully")
 
         # Store encoding configuration
@@ -1380,25 +1277,13 @@ def parse_args() -> argparse.Namespace:
         help="Directory to save session recordings. Each session will create a {session_id}.binlog file in this directory.",
     )
     parser.add_argument(
-        "--n_cameras",
-        type=int,
-        default=1,
-        help="Number of camera views. 1 = single-view, >1 = multi-view. Default: 1.",
-    )
-    parser.add_argument(
-        "--local_attn_size",
-        type=int,
-        default=None,
+        "--pipeline_config_name",
+        type=str,
+        required=True,
+        choices=sorted(ALPADREAMS_CONFIGS),
         help=(
-            "Local attention size in latent frames. Default: 21 for multi-view, 7 for single-view."
-        ),
-    )
-    parser.add_argument(
-        "--sink_size",
-        type=int,
-        default=None,
-        help=(
-            "Sink size in latent frames. Default: 3 for multi-view, 0 for single-view."
+            "Registered Alpadreams pipeline config name. Selects checkpoint, "
+            "encoder/decoder, scheduler, KV-cache window, and len_t in one shot."
         ),
     )
     parser.add_argument(
@@ -1413,59 +1298,6 @@ def parse_args() -> argparse.Namespace:
         choices=["480p", "720p", "704p"],
         default="704p",
         help="Resolution of the video (default: 704p).",
-    )
-    parser.add_argument(
-        "--encode_with_pixel_shuffle",
-        action="store_true",
-        help="Encode HDMap with pixel shuffle instead of VAE encoding.",
-    )
-    parser.add_argument(
-        "--denoising_steps",
-        type=str,
-        default="1000,500",
-        help="Comma-separated list of denoising timesteps (default: '1000,500').",
-    )
-    parser.add_argument(
-        "--num_frames_per_block",
-        type=int,
-        default=None,
-        help=(
-            "Number of pixel frames per block. Defaults to 16 for multi-view or "
-            "pixel-shuffle mode, and 12 for single-view VAE-encoding."
-        ),
-    )
-    parser.add_argument(
-        "--no_compile_net",
-        action="store_true",
-        help="Disable torch.compile for the network.",
-    )
-    parser.add_argument(
-        "--no_cuda_graphs",
-        action="store_true",
-        help="Disable CUDA graphs for DiT blocks.",
-    )
-    parser.add_argument(
-        "--s3_credential_path",
-        type=str,
-        default="credentials/s3_checkpoint.secret",
-        help="Path to S3 credential file for checkpoint download.",
-    )
-    parser.add_argument(
-        "--upsampler",
-        type=str,
-        choices=["none", "realesrgan", "flashvsr"],
-        default="none",
-        help="Upsampler to use (default: none).",
-    )
-    parser.add_argument(
-        "--kv_cache_on_side_stream",
-        action="store_true",
-        help="Use side stream for KV cache update.",
-    )
-    parser.add_argument(
-        "--no_tae",
-        action="store_true",
-        help="Disable TAE decoder (use WanVAE for decoding instead of WanVAE_tiny). Required for parallel VAE decoding.",
     )
     return parser.parse_args()
 
@@ -1521,10 +1353,15 @@ def main() -> None:
 
     args = parse_args()
 
-    # Parse denoising steps from comma-separated string
-    denoising_step_list = [int(x.strip()) for x in args.denoising_steps.split(",")]
+    # The CP-divisibility check inside ``initialize_distributed`` needs
+    # ``n_cameras`` up front, but ``n_cameras`` is now fixed by the chosen
+    # pipeline config. Resolve it from the registry before distributed init.
+    pipeline_cfg = ALPADREAMS_CONFIGS[args.pipeline_config_name]
+    transformer_cfg = pipeline_cfg.diffusion_model.transformer
+    assert isinstance(transformer_cfg, CosmosTransformerConfig)
+    n_cameras = transformer_cfg.num_views
 
-    device, world_rank, context_parallel_size = initialize_distributed(args.n_cameras)
+    device, world_rank, context_parallel_size = initialize_distributed(n_cameras)
     logger.info(
         "Using flashdreams pipeline backend; checkpoints are loaded lazily via flashdreams checkpoint loader."
     )
@@ -1535,7 +1372,6 @@ def main() -> None:
         logger.info("  Data will be saved when server stops (Ctrl+C)")
         profiler = init_profiler(enabled=True)
 
-        # Register cleanup to save profiling data on shutdown
         def save_profiling_data():
             logger.info("Saving profiling data...")
             profiler.print_summary()
@@ -1543,30 +1379,17 @@ def main() -> None:
 
         atexit.register(save_profiling_data)
 
-    # Common model kwargs shared between WorldModelService (rank 0) and WorldModelEngine (other ranks)
-    model_kwargs: dict[str, Any] = dict(
+    del (
+        context_parallel_size
+    )  # observed only via dist.get_world_size() inside the pipeline.
+
+    engine = WorldModelEngine(
+        pipeline_config_name=args.pipeline_config_name,
         device=device,
         output_format=args.output_format,
         jpeg_quality=args.jpeg_quality,
-        n_cameras=args.n_cameras,
-        local_attn_size=args.local_attn_size,
-        sink_size=args.sink_size,
-        context_parallel_size=context_parallel_size,
-        resolution=args.resolution,
-        encode_with_pixel_shuffle=args.encode_with_pixel_shuffle,
-        denoising_step_list=denoising_step_list,
-        num_frames_per_block=args.num_frames_per_block,
-        compile_net=not args.no_compile_net,
-        use_cuda_graphs=not args.no_cuda_graphs,
-        s3_credential_path=args.s3_credential_path,
-        upsampler=args.upsampler,
-        kv_cache_on_side_stream=args.kv_cache_on_side_stream,
-        no_tae=args.no_tae,
-    )
-
-    engine = WorldModelEngine(
         seed_for_every_rollout=args.seed_for_every_rollout,
-        **model_kwargs,
+        resolution=args.resolution,
     )
 
     server: grpc.Server | None = None
