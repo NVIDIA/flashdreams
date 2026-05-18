@@ -128,15 +128,16 @@ the `nvidia` Hugging Face org by default (`nvidia/omni-dreams-models` and
 `nvidia-omni-dreams-lha`.
 
 ```bash
-# 0. request interactive node with the pre-built container [IPP5 cluster as example].
-# The image is a multi-arch manifest (linux/arm64 + linux/amd64); the runtime picks
-# the right variant automatically. See `docker/README.md` for how it is built.
+# 0. request interactive node with a flashdreams-ready container [IPP5 cluster as example].
+# Build the image locally with `bash docker/build_with_docker.sh <YOUR-REGISTRY/IMAGE:TAG>`
+# or use the CUDA base image directly: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+# See `docker/README.md` for details.
 srun \
     --gpus-per-node=4 -q interactive --exclusive --nodes 1 --cpus-per-gpu 36 --pty \
     --partition=gtc_demo \
     --time=24:00:00  \
     --pty \
-    --container-image=ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566 \
+    --container-image=<YOUR-IMAGE> \
     --container-mounts=/dev/nvidia-caps-imex-channels:/dev/nvidia-caps-imex-channels,/home:/home,/cm:/cm,/usr/share/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d \
     --container-remap-root \
     --container-mount-home \

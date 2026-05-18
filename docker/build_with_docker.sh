@@ -1,19 +1,25 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# build_with_docker.sh — Build & push the flashdreams base image (multi-arch)
+# build_with_docker.sh -- Build & push the flashdreams base image (multi-arch)
 # -----------------------------------------------------------------------------
 #
 # WHAT THIS SCRIPT DOES
 # ---------------------
 # Builds `docker/Dockerfile` for both linux/arm64 and linux/amd64 in a single
-# buildx invocation and pushes the resulting manifest list to the GitHub
-# Container Registry (GHCR).
+# buildx invocation and pushes the resulting manifest list to the target
+# registry/tag(s) you specify.
 #
-# Tag scheme:
-#     ghcr.io/nvidia/flashdreams:<TAG>-<YYYYMMDD>-<git-sha>
+# USAGE
+# -----
+#   bash docker/build_with_docker.sh REGISTRY/IMAGE:TAG [REGISTRY/IMAGE:TAG ...]
 #
-# The date + short git SHA make every build uniquely addressable, while the
-# TAG prefix (e.g. "base-v0.3") tracks the Dockerfile's major revision.
+# At least one fully-qualified image tag is required. Multiple tags are
+# supported (e.g. to push to more than one registry at once).
+#
+# Examples:
+#   bash docker/build_with_docker.sh ghcr.io/myorg/flashdreams:latest
+#   bash docker/build_with_docker.sh myregistry.example.com/flashdreams:v1.0
+#   bash docker/build_with_docker.sh reg1/img:tag reg2/img:tag
 #
 # PREREQUISITES
 # -------------
@@ -22,25 +28,19 @@
 #      The companion script `docker_farm_setup.sh` sets one up named "farm",
 #      using the shared NVIDIA DGX Spark host (aliased "dgx-spark" in
 #      ~/.ssh/config) as the native arm64 node. If you skip that, buildx
-#      falls back to QEMU emulation for the non-native arch — works but
+#      falls back to QEMU emulation for the non-native arch -- works but
 #      significantly slower.
 #      To request access to dgx-spark (SSH config, account), contact
 #      qiwu@nvidia.com.
-#   3. You are logged in to the GitHub Container Registry:
-#          docker login ghcr.io
-#      (use a GitHub personal access token with `write:packages` scope).
+#   3. You are logged in to your target container registry:
+#          docker login <registry>
 #   4. The working directory is the repo root (the build context is ".") and
 #      `docker/Dockerfile` is reachable. Invoke as:
-#          bash docker/build_with_docker.sh
-#   5. The working tree is a git checkout (the tag embeds `git rev-parse --short HEAD`).
+#          bash docker/build_with_docker.sh REGISTRY/IMAGE:TAG
 #
-# HOW TO RUN
-# ----------
-#   bash docker/build_with_docker.sh
-#
-# To build without pushing (for local testing), drop `--push` and add
-# `--load` instead — note that `--load` is single-arch only, so you'll also
-# need to drop one of the `--platform` values.
+# To build without pushing (for local testing), edit this script to replace
+# `--push` with `--load` -- note that `--load` is single-arch only, so you
+# will also need to drop one of the `--platform` values.
 #
 # FLAG NOTES
 # ----------
@@ -58,23 +58,24 @@
 #   --push
 #       Upload the resulting images and manifest list directly to the
 #       registry. Implies no local `docker images` entry for this build.
-#
-# TAG BUMP CHECKLIST
-# ------------------
-# When cutting a new base image (e.g. after a Dockerfile or dependency
-# change), bump TAG below (base-v0.3 -> base-v0.4), commit, then run this
-# script. Update the container references in the top-level README.md so
-# downstream users know which tag to pull.
 # -----------------------------------------------------------------------------
 
 set -eu -o pipefail
 
-TAG=base-v0.3-$(date +%Y%m%d)-$(git rev-parse --short HEAD)
+if [[ $# -eq 0 ]]; then
+    echo "Error: at least one target image tag is required." >&2
+    echo "" >&2
+    echo "Usage: bash docker/build_with_docker.sh REGISTRY/IMAGE:TAG [REGISTRY/IMAGE:TAG ...]" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  bash docker/build_with_docker.sh ghcr.io/myorg/flashdreams:latest" >&2
+    echo "  bash docker/build_with_docker.sh myregistry.example.com/flashdreams:v1.0" >&2
+    exit 1
+fi
 
-REGISTRIES=${@:-ghcr.io/nvidia/flashdreams}
-REGISTRIES_ARGS=()
-for registry in $REGISTRIES; do
-    REGISTRIES_ARGS+=(-t $registry:$TAG)
+TAG_ARGS=()
+for tag in "$@"; do
+    TAG_ARGS+=(-t "$tag")
 done
 
 docker buildx build \
@@ -82,5 +83,5 @@ docker buildx build \
     --allow network.host \
     --network host \
     --push \
-    "${REGISTRIES_ARGS[@]}" \
+    "${TAG_ARGS[@]}" \
     -f docker/Dockerfile .
