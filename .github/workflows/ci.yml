@@ -9,6 +9,55 @@ on:
       - '**'
 
 jobs:
+  verify-nvcc:
+    runs-on: linux-amd64-cpu8
+    container:
+      image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+    steps:
+      - name: Check nvcc availability
+        run: |
+          echo "=== Checking for nvcc ==="
+          which nvcc || echo "WARNING: nvcc not found in PATH"
+          
+          echo ""
+          echo "=== NVCC Version ==="
+          nvcc --version
+          
+          echo ""
+          echo "=== CUDA Paths ==="
+          ls -la /usr/local/cuda*/bin/nvcc || echo "nvcc not found in /usr/local/cuda*/bin/"
+          
+          echo ""
+          echo "=== PATH ==="
+          echo $PATH
+
+      - name: Compile simple CUDA program
+        run: |
+          echo "=== Creating test CUDA program ==="
+          cat > test.cu << 'EOF'
+          #include <stdio.h>
+          
+          __global__ void hello() {
+              printf("Hello from GPU thread %d\n", threadIdx.x);
+          }
+          
+          int main() {
+              printf("Hello from CPU\n");
+              hello<<<1, 1>>>();
+              cudaDeviceSynchronize();
+              printf("CUDA compilation successful!\n");
+              return 0;
+          }
+          EOF
+          
+          echo ""
+          echo "=== Compiling with nvcc ==="
+          nvcc test.cu -o test_cuda
+          
+          echo ""
+          echo "=== Compilation successful ==="
+          ls -lh test_cuda
+
   lint:
     runs-on: linux-amd64-cpu8
     steps:
