@@ -31,7 +31,6 @@ import pytest
 # would be empty when tests run in isolation.
 import flashdreams.configs.runner_configs  # noqa: F401
 from flashdreams.configs.registry import supported_runners
-from flashdreams.recipes.alpadreams.config import ALPADREAMS_RUNNERS
 from flashdreams.recipes.template.config import TEMPLATE_RUNNERS
 
 pytestmark = pytest.mark.ci_cpu
@@ -52,13 +51,13 @@ def test_supported_runners_keys_match_runner_name() -> None:
 def test_supported_runners_covers_every_runner_dict() -> None:
     """Each per-recipe ``<NAME>_RUNNERS`` dict must be merged in full.
 
-    Catches the case where a new recipe added a ``<NAME>_RUNNERS``
+    Catches the case where a new in-tree recipe added a ``<NAME>_RUNNERS``
     dict but forgot to wire its ``runner.py`` into the aggregator.
+    Out-of-tree plugin recipes are covered by their own smoke tests.
     """
     runners = supported_runners()
     expected = {
         **TEMPLATE_RUNNERS,
-        **ALPADREAMS_RUNNERS,
     }
     missing = set(expected) - set(runners)
     assert not missing, f"supported_runners missing slugs: {sorted(missing)}"

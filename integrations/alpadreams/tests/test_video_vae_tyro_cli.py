@@ -15,12 +15,12 @@
 
 import pytest
 import tyro
-
-from flashdreams.infra.config import InstantiateConfig
-from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
+from alpadreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoder,
     PixelShuffleVAEEncoderConfig,
 )
+
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.recipes.taehv import (
     TeahvVAEDecoder,
     TeahvVAEDecoderConfig,

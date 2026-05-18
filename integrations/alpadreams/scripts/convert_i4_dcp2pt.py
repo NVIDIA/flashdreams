@@ -41,15 +41,15 @@ import argparse
 from pathlib import Path
 
 import torch
-
-from flashdreams.core.checkpoint.load import load_distributed_checkpoint
-from flashdreams.recipes.alpadreams.config import (
+from alpadreams.config import (
     ALPADREAMS_CONFIGS as CONFIGS,
 )
-from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
-from flashdreams.recipes.alpadreams.transformer.impl.network import CosmosDiTNetwork
+from alpadreams.transformer import CosmosTransformerConfig
+from alpadreams.transformer.impl.network import CosmosDiTNetwork
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from flashdreams.core.checkpoint.load import load_distributed_checkpoint
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CREDENTIAL_PATH = REPO_ROOT / "credentials/s3_checkpoint.secret"
 
 

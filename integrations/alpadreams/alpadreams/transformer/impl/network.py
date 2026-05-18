@@ -521,7 +521,7 @@ class CosmosDiTNetwork(nn.Module):
         return x
 
 
-# python -m flashdreams.recipes.alpadreams.transformer.impl.network --in-channels 3
+# python -m alpadreams.transformer.impl.network --in-channels 3
 if __name__ == "__main__":
     import tyro
 

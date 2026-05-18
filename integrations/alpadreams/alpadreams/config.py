@@ -17,18 +17,29 @@
 
 Hosts both the pre-built :class:`AlpadreamsPipelineConfig` literals
 and the per-slug :class:`AlpadreamsRunnerConfig` literals that drive
-``flashdreams-run``. Per-variant runner literals are projected from
-``ALPADREAMS_CONFIGS`` by :func:`_build_alpadreams_runners` so adding
-a new pipeline only requires registering a CLI description below. The
-runner-config literals self-register with
-:mod:`flashdreams.configs.registry` at import time.
+``flashdreams-run``. Each ``RUNNER_*`` literal is wired into the
+``flashdreams.runner_configs`` entry-point group by this package's
+``pyproject.toml`` and discovered at install time -- no in-tree
+registration is performed here.
 """
 
 from __future__ import annotations
 
 from typing import cast
 
-from flashdreams.configs.registry import register_runner
+from alpadreams.encoder.pixel_shuffle import (
+    PixelShuffleVAEEncoderConfig,
+)
+from alpadreams.hf import omni_dreams_hf_url
+from alpadreams.pipeline import (
+    AlpadreamsPipelineConfig,
+)
+from alpadreams.runner import AlpadreamsRunnerConfig
+from alpadreams.transformer import CosmosTransformerConfig
+from alpadreams.transformer.impl.network import (
+    CosmosDiTNetworkConfig,
+)
+
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
@@ -42,18 +53,6 @@ from flashdreams.infra.encoder.text.cosmos_reason1 import (
     CosmosReason1TextEncoderConfig,
 )
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoderConfig,
-)
-from flashdreams.recipes.alpadreams.hf import omni_dreams_hf_url
-from flashdreams.recipes.alpadreams.pipeline import (
-    AlpadreamsPipelineConfig,
-)
-from flashdreams.recipes.alpadreams.runner import AlpadreamsRunnerConfig
-from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
-from flashdreams.recipes.alpadreams.transformer.impl.network import (
-    CosmosDiTNetworkConfig,
-)
 from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
     TeahvVAEDecoderConfig,
@@ -435,78 +434,129 @@ _DEFAULT_PROMPT_4V = (
     "sunlight, natural colors, realistic materials, crisp shadows, clean asphalt texture."
 )
 
-_ALPADREAMS_DESCRIPTIONS: dict[str, str] = {
-    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae": (
-        "Single-view 2-step distilled chunk2 (LightVAE + LightTAE)."
-    ),
-    "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf": (
+RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = AlpadreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.recipe_name,
+    description="Single-view 2-step distilled chunk2 (LightVAE + LightTAE).",
+    pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = AlpadreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.recipe_name,
+    description=(
         "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
     ),
-    "alpadreams-sv-2steps-chunk2-loc6-vae-vae": (
-        "Single-view chunk2 with the full Wan VAE on encoder + decoder."
-    ),
-    "alpadreams-sv-2steps-chunk3-loc6-vae-vae": (
-        "Single-view chunk3 (len_t=3) with the full Wan VAE."
-    ),
-    "alpadreams-sv-2steps-chunk4-loc8-pshuffle-lighttae": (
-        "Single-view chunk4 with the PixelShuffle HDMap encoder + LightTAE."
-    ),
-    "alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae": (
-        "4-camera multi-view chunk4 (PixelShuffle HDMap + LightTAE)."
-    ),
-    "alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+    pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE = AlpadreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK2_LOC6_VAE_VAE.recipe_name,
+    description="Single-view chunk2 with the full Wan VAE on encoder + decoder.",
+    pipeline=SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE = AlpadreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK3_LOC6_VAE_VAE.recipe_name,
+    description="Single-view chunk3 (len_t=3) with the full Wan VAE.",
+    pipeline=SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = AlpadreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.recipe_name,
+    description="Single-view chunk4 with the PixelShuffle HDMap encoder + LightTAE.",
+    pipeline=SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = AlpadreamsRunnerConfig(
+    runner_name=MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.recipe_name,
+    description="4-camera multi-view chunk4 (PixelShuffle HDMap + LightTAE).",
+    pipeline=MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
+    prompt=_DEFAULT_PROMPT_4V,
+)
+
+RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = AlpadreamsRunnerConfig(
+    runner_name=SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.recipe_name,
+    description=(
         "Teacher: single-view 35-step UniPC chunk2 (Cosmos2 2B, 720p, CFG=3.0)."
     ),
-    "alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m": (
+    pipeline=SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = AlpadreamsRunnerConfig(
+    runner_name=SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.recipe_name,
+    description=(
         "Teacher: single-view 35-step bidirectional chunk48 (one rollout, 720p)."
     ),
-    "alpadreams-experiment1-baseline": (
-        "Experiment-1 baseline (re-publishes the chunk2 perf chassis)."
-    ),
-    "alpadreams-experiment1-skip-finalize-kv-cache": (
-        "Experiment-1: skip-finalize-kv-cache ablation."
-    ),
-    "alpadreams-experiment1-skip-finalize-kv-cache-noise350": (
-        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 350]."
-    ),
-    "alpadreams-experiment1-skip-finalize-kv-cache-noise250": (
-        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 250]."
-    ),
-    "alpadreams-experiment1-skip-finalize-kv-cache-noise150": (
-        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 150]."
-    ),
-    "alpadreams-experiment1-skip-finalize-kv-cache-noise100": (
-        "Experiment-1: skip-finalize + denoising_timesteps=[1000, 100]."
-    ),
+    pipeline=SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_BASELINE = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_BASELINE.recipe_name,
+    description="Experiment-1 baseline (re-publishes the chunk2 perf chassis).",
+    pipeline=EXPERIMENT1_BASELINE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE.recipe_name,
+    description="Experiment-1: skip-finalize-kv-cache ablation.",
+    pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350 = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350.recipe_name,
+    description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 350].",
+    pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250 = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250.recipe_name,
+    description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 250].",
+    pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150 = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150.recipe_name,
+    description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 150].",
+    pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = AlpadreamsRunnerConfig(
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100.recipe_name,
+    description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 100].",
+    pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+
+ALPADREAMS_RUNNERS: dict[str, RunnerConfig] = {
+    cfg.runner_name: cfg
+    for cfg in (
+        RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
+        RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
+        RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
+        RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
+        RUNNER_MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
+        RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
+        RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
+        RUNNER_EXPERIMENT1_BASELINE,
+        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
+        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350,
+        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250,
+        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150,
+        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100,
+    )
 }
-"""Per-variant CLI descriptions, keyed by ``recipe_name``."""
-
-
-def _build_alpadreams_runners() -> dict[str, RunnerConfig]:
-    """Project ``ALPADREAMS_CONFIGS`` into per-variant runner literals."""
-    runners: dict[str, RunnerConfig] = {}
-    for name, pipeline_cfg in ALPADREAMS_CONFIGS.items():
-        transformer_cfg = pipeline_cfg.diffusion_model.transformer
-        assert isinstance(transformer_cfg, CosmosTransformerConfig)
-        prompt = (
-            _DEFAULT_PROMPT_4V if transformer_cfg.num_views == 4 else _DEFAULT_PROMPT_1V
-        )
-        assert name in _ALPADREAMS_DESCRIPTIONS, (
-            f"missing CLI description for alpadreams slug {name!r}; "
-            "add an entry to ``_ALPADREAMS_DESCRIPTIONS``."
-        )
-        runners[name] = AlpadreamsRunnerConfig(
-            runner_name=name,
-            description=_ALPADREAMS_DESCRIPTIONS[name],
-            pipeline=pipeline_cfg,
-            prompt=prompt,
-        )
-    return runners
-
-
-ALPADREAMS_RUNNERS: dict[str, RunnerConfig] = _build_alpadreams_runners()
 """All shipped Alpadreams runners (single- and multi-view variants),
 keyed by ``runner_name``."""
-
-for _name, _cfg in ALPADREAMS_RUNNERS.items():
-    register_runner(_name, _cfg, source="builtin")

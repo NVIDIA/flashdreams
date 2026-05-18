@@ -18,9 +18,9 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from alpadreams import hf
 
 from flashdreams.core.io import internal
-from flashdreams.recipes.alpadreams import hf
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -56,8 +56,7 @@ def test_use_internal_storage_falsy(
 
 
 def _reload(module_path: str):
-    """Re-import a module so its ``AVAILABLE_*`` re-reads the env var.
-    Doesn't work on alpadreams config (re-registers runners on import)."""
+    """Re-import a module so its ``AVAILABLE_*`` re-reads the env var."""
     return importlib.reload(importlib.import_module(module_path))
 
 
@@ -118,11 +117,10 @@ def test_taehv_paths_respect_env_var(
 def test_alpadreams_paths_at_current_env() -> None:
     """Check the default/public alpadreams paths for the scrubbed test env.
 
-    ``alpadreams.config`` can't be reloaded mid-test because importing it
-    re-registers runners, and the autouse fixture clears the internal-storage
-    env var before this test runs.
+    The autouse fixture clears the internal-storage env var before this
+    test runs, so the public/HF defaults are exercised here.
     """
-    from flashdreams.recipes.alpadreams import config
+    from alpadreams import config
 
     # Mirrored chunk2 -> HF; unmirrored slugs fall through to s3.
     assert config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS["1view-vae-chunk2"].startswith(
