@@ -61,19 +61,15 @@ def _compute_freqs(
     return freqs
 
 
-class RotaryPositionEmbedding3D:
-    """3D rotary position embedding for (t, h, w) sequences.
-
-    Splits head_dim into three parts for time, height, and width. Supports
-    context parallelism and time-shift for causal / streaming use.
-    """
+class _RotaryPositionEmbedding3DBase:
+    """Shared 3D RoPE frequency construction."""
 
     raw_freqs_h: Tensor
     raw_freqs_w: Tensor
     raw_freqs_t: Tensor
+    freqs_t: Tensor
     freqs_h: Tensor
     freqs_w: Tensor
-    freqs_t: Tensor
 
     def __init__(
         self,
@@ -87,18 +83,6 @@ class RotaryPositionEmbedding3D:
         interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
     ) -> None:
-        """Build 3D RoPE for the given sequence lengths and head dimension.
-
-        Args:
-            head_dim: Attention head dimension; split into h/w/t sub-dims (2:2:2 ratio).
-            len_h: Sequence length along height.
-            len_w: Sequence length along width.
-            len_t: Sequence length along time.
-            h_extrapolation_ratio: NTK extrapolation ratio for height.
-            w_extrapolation_ratio: NTK extrapolation ratio for width.
-            t_extrapolation_ratio: NTK extrapolation ratio for time.
-            interleaved: Whether to interleave the frequency components.
-        """
         self.len_h = len_h
         self.len_w = len_w
         self.len_t = len_t
@@ -112,59 +96,54 @@ class RotaryPositionEmbedding3D:
         self.raw_freqs_w = _compute_freqs(dim_w, w_extrapolation_ratio, device)
         self.raw_freqs_t = _compute_freqs(dim_t, t_extrapolation_ratio, device)
 
-        seq_t = torch.arange(len_t, dtype=torch.float32, device=device)
-        seq_h = torch.arange(len_h, dtype=torch.float32, device=device)
-        seq_w = torch.arange(len_w, dtype=torch.float32, device=device)
+        self.device_mesh: DeviceMesh | None = None
+        self.cp_group: ProcessGroup | None = None
 
-        # Align with the patchify pattern (t, h, w).
-        self.freqs_t = repeat(
+    def _freq_components_for_len(self, len_t: int) -> tuple[Tensor, Tensor, Tensor]:
+        seq_t = torch.arange(len_t, dtype=torch.float32, device=self.device)
+        return self._freq_components(seq_t)
+
+    def _freq_components(self, seq_t: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        seq_h = torch.arange(self.len_h, dtype=torch.float32, device=self.device)
+        seq_w = torch.arange(self.len_w, dtype=torch.float32, device=self.device)
+        len_t = seq_t.shape[0]
+        freqs_t = repeat(
             torch.outer(seq_t, self.raw_freqs_t),
             "t d -> (t h w) 1 1 d",
-            h=len_h,
-            w=len_w,
+            h=self.len_h,
+            w=self.len_w,
         )
-        self.freqs_h = repeat(
+        freqs_h = repeat(
             torch.outer(seq_h, self.raw_freqs_h),
             "h d -> (t h w) 1 1 d",
             t=len_t,
-            w=len_w,
+            w=self.len_w,
         )
-        self.freqs_w = repeat(
+        freqs_w = repeat(
             torch.outer(seq_w, self.raw_freqs_w),
             "w d -> (t h w) 1 1 d",
             t=len_t,
-            h=len_h,
+            h=self.len_h,
         )
-
-        self.device_mesh: DeviceMesh | None = None
-        self.freqs_t_cp: Tensor | None = None
-        self.freqs_h_cp: Tensor | None = None
-        self.freqs_w_cp: Tensor | None = None
+        return freqs_t, freqs_h, freqs_w
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Enable or disable context parallelism by splitting frequency buffers along seq dim.
-
-        Currently we assume the sequence length is L = T * H * W. The memory layout is (T, H, W).
 
         Args:
             cp_group: Process group for context parallel; use None to disable CP.
         """
         if cp_group is None:
+            self.cp_group = None
             self.device_mesh = None
-            self.freqs_t_cp = None
-            self.freqs_h_cp = None
-            self.freqs_w_cp = None
         else:
-            self.device_mesh = DeviceMesh.from_group(cp_group, device_type="cuda")
-            self.freqs_t_cp = split_inputs_cp(
-                self.freqs_t, seq_dim=0, cp_group=cp_group
+            self.cp_group = cp_group
+            device_type = (
+                self.device.type
+                if isinstance(self.device, torch.device)
+                else str(self.device)
             )
-            self.freqs_h_cp = split_inputs_cp(
-                self.freqs_h, seq_dim=0, cp_group=cp_group
-            )
-            self.freqs_w_cp = split_inputs_cp(
-                self.freqs_w, seq_dim=0, cp_group=cp_group
-            )
+            self.device_mesh = DeviceMesh.from_group(cp_group, device_type=device_type)
 
     def is_context_parallel_enabled(self) -> bool:
         """Return True if context parallelism is active."""
@@ -173,6 +152,63 @@ class RotaryPositionEmbedding3D:
     def context_parallel_size(self) -> int:
         """Return the context parallel world size, or 1 if CP is disabled."""
         return self.device_mesh.size() if self.device_mesh is not None else 1
+
+    def _cat_freqs(self, freqs_t: Tensor, freqs_h: Tensor, freqs_w: Tensor) -> Tensor:
+        if self.interleaved:
+            return torch.cat(
+                [
+                    freqs_t.repeat_interleave(2, dim=-1),
+                    freqs_h.repeat_interleave(2, dim=-1),
+                    freqs_w.repeat_interleave(2, dim=-1),
+                ],
+                dim=-1,
+            )
+        return torch.cat([freqs_t, freqs_h, freqs_w] * 2, dim=-1)
+
+    def _split_cache_freqs_cp(self, freqs: Tensor, valid_len_t: int) -> Tensor:
+        """Split a KV-cache-layout RoPE tensor by chunk for CP."""
+        cp_group = unpack_optional(self.cp_group)
+        tokens_per_chunk = self.len_t * self.len_h * self.len_w
+        assert valid_len_t % self.len_t == 0
+        valid_tokens = valid_len_t * self.len_h * self.len_w
+        freqs = freqs[:valid_tokens]
+        freq_shape = freqs.shape[1:]
+        freqs = freqs.reshape(valid_len_t // self.len_t, tokens_per_chunk, *freq_shape)
+        freqs = split_inputs_cp(freqs, seq_dim=1, cp_group=cp_group)
+        return freqs.reshape(-1, *freq_shape)
+
+
+class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
+    """Standard 3D RoPE with unbounded autoregressive time positions.
+
+    Each AR step emits only the current chunk's monotonically increasing
+    positions. This is the default RoPE used by existing transformer recipes.
+    """
+
+    def __init__(
+        self,
+        head_dim: int,
+        len_h: int,
+        len_w: int,
+        len_t: int,
+        h_extrapolation_ratio: float = 1.0,
+        w_extrapolation_ratio: float = 1.0,
+        t_extrapolation_ratio: float = 1.0,
+        interleaved: bool = False,
+        device: torch.device = torch.device("cuda"),
+    ) -> None:
+        super().__init__(
+            head_dim=head_dim,
+            len_h=len_h,
+            len_w=len_w,
+            len_t=len_t,
+            h_extrapolation_ratio=h_extrapolation_ratio,
+            w_extrapolation_ratio=w_extrapolation_ratio,
+            t_extrapolation_ratio=t_extrapolation_ratio,
+            interleaved=interleaved,
+            device=device,
+        )
+        self.freqs_t, self.freqs_h, self.freqs_w = self._freq_components_for_len(len_t)
 
     def shift_t(self, autoregressive_index: int) -> Tensor:
         """Shift the time dimension by ``autoregressive_index`` chunks.
@@ -189,27 +225,98 @@ class RotaryPositionEmbedding3D:
             where L is the sequence length T * H * W. The memory layout is (T, H, W).
         """
         offset = autoregressive_index * self.len_t
+        freqs_t = self.freqs_t + offset * self.raw_freqs_t
+        freqs = self._cat_freqs(freqs_t, self.freqs_h, self.freqs_w)
         if self.is_context_parallel_enabled():
-            freqs_t = unpack_optional(self.freqs_t_cp) + offset * self.raw_freqs_t
-            freqs_h = unpack_optional(self.freqs_h_cp)
-            freqs_w = unpack_optional(self.freqs_w_cp)
-        else:
-            freqs_t = self.freqs_t + offset * self.raw_freqs_t
-            freqs_h = self.freqs_h
-            freqs_w = self.freqs_w
-
-        if self.interleaved:
-            freqs = torch.cat(
-                [
-                    freqs_t.repeat_interleave(2, dim=-1),
-                    freqs_h.repeat_interleave(2, dim=-1),
-                    freqs_w.repeat_interleave(2, dim=-1),
-                ],
-                dim=-1,
+            freqs = split_inputs_cp(
+                freqs,
+                seq_dim=0,
+                cp_group=unpack_optional(self.cp_group),
             )
-        else:
-            freqs = torch.cat([freqs_t, freqs_h, freqs_w] * 2, dim=-1)
         return freqs
+
+
+class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
+    """3D RoPE with bounded KV-cache-relative positions.
+
+    Positions are reassigned every step to where each token currently sits in
+    the KV cache. This must be paired with storing K without standard RoPE
+    before the cache write and rotating cached K on read in the attention module.
+    """
+
+    def __init__(
+        self,
+        head_dim: int,
+        len_h: int,
+        len_w: int,
+        len_t: int,
+        sink_size_t: int,
+        window_size_t: int,
+        h_extrapolation_ratio: float = 1.0,
+        w_extrapolation_ratio: float = 1.0,
+        t_extrapolation_ratio: float = 1.0,
+        interleaved: bool = False,
+        device: torch.device = torch.device("cuda"),
+    ) -> None:
+        assert sink_size_t >= 0, "sink_size_t must be non-negative"
+        assert window_size_t > 0, "window_size_t must be positive"
+        self.sink_size_t = sink_size_t
+        self.window_size_t = window_size_t
+        self.kvcache_total_size_t = self.sink_size_t + self.window_size_t
+        super().__init__(
+            head_dim=head_dim,
+            len_h=len_h,
+            len_w=len_w,
+            len_t=len_t,
+            h_extrapolation_ratio=h_extrapolation_ratio,
+            w_extrapolation_ratio=w_extrapolation_ratio,
+            t_extrapolation_ratio=t_extrapolation_ratio,
+            interleaved=interleaved,
+            device=device,
+        )
+        assert self.kvcache_total_size_t % self.len_t == 0, (
+            "sink_size_t + window_size_t "
+            f"({self.kvcache_total_size_t}) must be divisible by len_t ({self.len_t})"
+        )
+        self.freqs_t, self.freqs_h, self.freqs_w = self._freq_components_for_len(
+            self.kvcache_total_size_t
+        )
+        self._rope_freqs = self._cat_freqs(self.freqs_t, self.freqs_h, self.freqs_w)
+        self._rope_freqs_cp: Tensor | None = None
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        super().set_context_parallel_group(cp_group)
+        self._rope_freqs_cp = (
+            None
+            if cp_group is None
+            else self._split_cache_freqs_cp(
+                self._rope_freqs, self.kvcache_total_size_t
+            )
+        )
+
+    def shift_t(self, autoregressive_index: int) -> Tensor:
+        """Return fixed KV-cache-relative RoPE frequencies.
+
+        Args:
+            autoregressive_index: Accepted for API parity with standard RoPE.
+                Must be 0 because cache-relative positions are fixed by
+                KV-cache position, not by global AR step.
+
+        Returns:
+            RoPE frequencies of shape ``[S, 1, 1, head_dim]``, where ``S`` is
+            the valid KV-cache token count after optional CP splitting.
+        """
+        assert autoregressive_index == 0, (
+            "KV-cache-relative RoPE expects shift_t(0); positions are cache-relative "
+            "and do not shift with the global AR index."
+        )
+        if self.is_context_parallel_enabled():
+            if self._rope_freqs_cp is not None:
+                return self._rope_freqs_cp
+            return self._split_cache_freqs_cp(
+                self._rope_freqs, self.kvcache_total_size_t
+            )
+        return self._rope_freqs
 
 
 def apply_rope_freqs(x: Tensor, freqs: Tensor, interleaved: bool = False) -> Tensor:
@@ -221,7 +328,7 @@ def apply_rope_freqs(x: Tensor, freqs: Tensor, interleaved: bool = False) -> Ten
     Args:
         x: Input tensor of shape ``[B, S, H, D]``; rotated in place.
         freqs: RoPE frequencies of shape ``[S, 1, 1, D]`` as emitted by
-            :meth:`RotaryPositionEmbedding3D.shift_t`.
+            ``shift_t``.
         interleaved: If ``True``, rotate the pair ``(2k, 2k+1)``; else
             rotate ``(d, d + D/2)``.
 
