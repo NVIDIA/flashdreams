@@ -30,26 +30,26 @@ import torch
 from alpadreams.conditioning.renderer import LudusRenderer
 from alpadreams.conditioning.world_scenario.data_types import SceneData
 from alpadreams.conditioning.world_scenario.ftheta import FThetaCamera
+from alpadreams.config import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS
+from alpadreams.encoder.pixel_shuffle import (
+    PixelShuffleVAEEncoderConfig,
+)
 from alpadreams.grpc.profiling_server import get_profiler, get_profiling_context
+from alpadreams.pipeline import (
+    AlpadreamsPipeline,
+    AlpadreamsPipelineCache,
+    AlpadreamsPipelineConfig,
+)
+from alpadreams.transformer import CosmosTransformerConfig
+from alpadreams.transformer.impl.network import (
+    CosmosDiTNetworkConfig,
+)
 from loguru import logger
 from torch import Tensor, nn
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.infra.encoder.text.cosmos_reason1 import CosmosReason1TextEncoderConfig
-from flashdreams.recipes.alpadreams.config import AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS
-from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoderConfig,
-)
-from flashdreams.recipes.alpadreams.pipeline import (
-    AlpadreamsPipeline,
-    AlpadreamsPipelineCache,
-    AlpadreamsPipelineConfig,
-)
-from flashdreams.recipes.alpadreams.transformer import CosmosTransformerConfig
-from flashdreams.recipes.alpadreams.transformer.impl.network import (
-    CosmosDiTNetworkConfig,
-)
 from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
     TeahvVAEDecoderConfig,

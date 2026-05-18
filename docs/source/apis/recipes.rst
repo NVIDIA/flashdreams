@@ -33,20 +33,11 @@ consume.
 AlpaDreams
 ----------
 
-.. automodule:: flashdreams.recipes.alpadreams
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-.. automodule:: flashdreams.recipes.alpadreams.config
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-.. automodule:: flashdreams.recipes.alpadreams.pipeline
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
+AlpaDreams now ships as a plugin under ``integrations/alpadreams``; it
+registers its runners via the ``flashdreams.runner_configs`` entry-point
+group and is no longer part of the in-tree ``flashdreams.recipes`` API
+surface. See ``integrations/alpadreams/README.md`` for the plugin entry
+point and ``flashdreams-run alpadreams-*`` for the user-facing CLI.
 
 Wan
 ---

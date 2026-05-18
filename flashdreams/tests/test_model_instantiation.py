@@ -95,18 +95,6 @@ class TestTextEncoders:
 class TestVideoVAE:
     """Tests for video VAE models."""
 
-    @pytest.mark.ci_gpu
-    def test_pixel_shuffle_vae_instantiation(self, device):
-        """Test PixelShuffleVAEInterface can be instantiated."""
-        from flashdreams.recipes.alpadreams.encoder.pixel_shuffle import (
-            PixelShuffleVAEEncoderConfig,
-        )
-
-        model = PixelShuffleVAEEncoderConfig().setup().to(device)
-
-        assert model.temporal_compression_ratio == 4
-        assert model.spatial_compression_ratio == 8
-
     @pytest.mark.manual
     def test_teahv_vae_instantiation(self, device):
         """Test TeahvInterface can be instantiated.

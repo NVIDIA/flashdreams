@@ -22,6 +22,12 @@ from dataclasses import dataclass, field
 from typing import TypeAlias
 
 import torch
+from alpadreams.constants import NEGATIVE_PROMPT
+from alpadreams.transformer import (
+    CosmosTransformer,
+    CosmosTransformerCache,
+    CosmosTransformerConfig,
+)
 from torch import Tensor
 
 from flashdreams.core.distributed.context_parallel import (
@@ -39,12 +45,6 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
-)
-from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
-from flashdreams.recipes.alpadreams.transformer import (
-    CosmosTransformer,
-    CosmosTransformerCache,
-    CosmosTransformerConfig,
 )
 from flashdreams.recipes.taehv import TeahvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (

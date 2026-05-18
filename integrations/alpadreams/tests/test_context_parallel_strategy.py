@@ -16,8 +16,7 @@
 """Unit tests for hierarchical context parallel group creation."""
 
 import pytest
-
-from flashdreams.recipes.alpadreams.transformer.impl.context_parallel import (
+from alpadreams.transformer.impl.context_parallel import (
     create_hierarchical_cp_groups,
 )
 

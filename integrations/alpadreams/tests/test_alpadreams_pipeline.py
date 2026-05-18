@@ -18,6 +18,20 @@ from typing import Any, cast
 
 import pytest
 import torch
+from alpadreams import transformer as alpadreams_transformer_module
+from alpadreams.config import (
+    ALPADREAMS_CONFIGS,
+    SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
+)
+from alpadreams.constants import NEGATIVE_PROMPT
+from alpadreams.pipeline import AlpadreamsPipeline
+from alpadreams.transformer import (
+    CosmosTransformer,
+    CosmosTransformerConfig,
+)
+from alpadreams.transformer.impl.context_parallel import (
+    HierarchicalCPGroups,
+)
 
 # Mixed markers: most tests are ci_cpu; streaming_inference is manual.
 # Per-function markers used below.
@@ -25,20 +39,6 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
     FlowMatchUniPCSchedulerConfig,
 )
 from flashdreams.infra.pipeline import StreamInferencePipeline
-from flashdreams.recipes.alpadreams import transformer as alpadreams_transformer_module
-from flashdreams.recipes.alpadreams.config import (
-    ALPADREAMS_CONFIGS,
-    SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-)
-from flashdreams.recipes.alpadreams.constants import NEGATIVE_PROMPT
-from flashdreams.recipes.alpadreams.pipeline import AlpadreamsPipeline
-from flashdreams.recipes.alpadreams.transformer import (
-    CosmosTransformer,
-    CosmosTransformerConfig,
-)
-from flashdreams.recipes.alpadreams.transformer.impl.context_parallel import (
-    HierarchicalCPGroups,
-)
 
 
 def _make_uninitialized_alpadreams_pipeline() -> AlpadreamsPipeline:
