@@ -470,8 +470,8 @@ def camera_spec_to_ftheta(camera_spec: dict) -> FThetaCamera:
     Raises:
         ValueError: If camera model is not supported.
     """
-    resolution_h = camera_spec.get("resolution_h", 480)
-    resolution_w = camera_spec.get("resolution_w", 832)
+    resolution_h = camera_spec["resolution_h"]
+    resolution_w = camera_spec["resolution_w"]
 
     # Check which camera model is present
     if "ftheta_param" in camera_spec:
@@ -479,26 +479,26 @@ def camera_spec_to_ftheta(camera_spec: dict) -> FThetaCamera:
 
         # Build intrinsics array for FThetaCamera.from_numpy
         # Expected format: [cx, cy, width, height, *poly(6), is_bw_poly, linear_c, linear_d, linear_e]
-        cx = ftheta.get("principal_point_x", resolution_w / 2)
-        cy = ftheta.get("principal_point_y", resolution_h / 2)
+        cx = ftheta["principal_point_x"]
+        cy = ftheta["principal_point_y"]
 
         # Get polynomial coefficients.
         # NOTE: proto_to_dict (MessageToDict) converts enum fields to their
         # *string* names (e.g. "PIXELDIST_TO_ANGLE"), not integer values.
-        poly_type = ftheta.get("reference_poly", 1)
+        poly_type = ftheta["reference_poly"]
         is_backward = poly_type in (1, "PIXELDIST_TO_ANGLE")
 
         if is_backward:
             is_bw_poly = 1.0
-            poly_coeffs = ftheta.get("pixeldist_to_angle_poly", [])
+            poly_coeffs = ftheta["pixeldist_to_angle_poly"]
         else:
             is_bw_poly = 0.0
-            poly_coeffs = ftheta.get("angle_to_pixeldist_poly", [])
+            poly_coeffs = ftheta["angle_to_pixeldist_poly"]
 
-        linear_cde = ftheta.get("linear_cde", {})
-        linear_c = linear_cde.get("linear_c", 1.0)
-        linear_d = linear_cde.get("linear_d", 0.0)
-        linear_e = linear_cde.get("linear_e", 0.0)
+        linear_cde = ftheta["linear_cde"]
+        linear_c = linear_cde["linear_c"]
+        linear_d = linear_cde["linear_d"]
+        linear_e = linear_cde["linear_e"]
 
         # Pad polynomial to 6 coefficients (from_numpy reads positions 4:10)
         poly_padded = list(poly_coeffs) + [0.0] * max(0, 6 - len(poly_coeffs))

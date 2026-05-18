@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from alpadreams.grpc import server
+from alpadreams.grpc.protos import common_pb2, video_model_pb2
 from alpadreams.grpc.server import WorldModelService
 
 pytestmark = pytest.mark.ci_gpu
@@ -73,3 +75,24 @@ def test_service_cleanup_closes_recorder_and_engine_session() -> None:
     assert recorder.closed is True
     assert "session-a" not in service.recorders
     assert ("cleanup", "session-a") in engine.calls
+
+
+def test_rig_to_camera_must_match_camera_specs() -> None:
+    request = video_model_pb2.SessionRequest(
+        rig_to_camera=[
+            common_pb2.Pose(
+                vec=common_pb2.Vec3(x=0.0, y=0.0, z=0.0),
+                quat=common_pb2.Quat(w=1.0, x=0.0, y=0.0, z=0.0),
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="one Pose per camera_spec"):
+        server._parse_rig_to_camera_transforms(request, ["front", "rear"])
+
+
+def test_rig_to_camera_rejects_default_pose() -> None:
+    request = video_model_pb2.SessionRequest(rig_to_camera=[common_pb2.Pose()])
+
+    with pytest.raises(ValueError, match="not a valid Pose"):
+        server._parse_rig_to_camera_transforms(request, ["front"])

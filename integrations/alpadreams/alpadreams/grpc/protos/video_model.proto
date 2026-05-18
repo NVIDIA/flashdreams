@@ -93,9 +93,10 @@ message SessionRequest {
     TextPrompt text_prompt = 5;  // Optional text prompt for generation
     int32 start_frame_offset = 6;  // Number of frames to skip from scene start (e.g., 30 = skip 1s at 30fps)
     DebugOptions debug_options = 7;      // Optional debug output options
-    repeated camera.CameraSpec camera_specs = 8;  // One per view (includes rig_to_camera + intrinsics)
+    repeated camera.CameraSpec camera_specs = 8;  // One per view (intrinsics)
     repeated Image initial_frames = 9;            // One conditioning frame per view
     fixed64 random_seed = 10;  // Optional random seed for deterministic generation (0 = server chooses)
+    repeated common.Pose rig_to_camera = 11; // One per view, same order as camera_specs
 }
 
 message SessionCloseRequest {

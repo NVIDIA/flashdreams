@@ -57,7 +57,11 @@ from alpadreams.grpc.profiling_server import (
     init_profiler,
     profiling_context,
 )
-from alpadreams.grpc.protos import common_pb2, video_model_pb2, video_model_pb2_grpc
+from alpadreams.grpc.protos import (
+    common_pb2,
+    video_model_pb2,
+    video_model_pb2_grpc,
+)
 from alpadreams.grpc.session_recorder import SessionRecorder
 from alpadreams.grpc.utils import (
     camera_spec_to_ftheta,
@@ -67,9 +71,8 @@ from alpadreams.grpc.utils import (
     encode_image,
     get_external_ip,
     load_static_world_from_zip_bytes,
-    parse_rig_to_camera,
+    pose_to_matrix,
     proto_to_dict,
-    trajectory_to_camera_poses,
 )
 from alpadreams.transformer import CosmosTransformerConfig
 from loguru import logger
@@ -94,6 +97,62 @@ RESOLUTION_MAP: dict[str, tuple[int, int]] = {
     "720p": (1280, 720),
     "704p": (1280, 704),
 }
+
+
+def _pose_proto_to_matrix(pose: common_pb2.Pose, *, field_name: str) -> np.ndarray:
+    """Convert a Pose proto to a matrix without substituting application defaults."""
+    translation = (
+        float(pose.vec.x),
+        float(pose.vec.y),
+        float(pose.vec.z),
+    )
+    quat_wxyz = (
+        float(pose.quat.w),
+        float(pose.quat.x),
+        float(pose.quat.y),
+        float(pose.quat.z),
+    )
+
+    try:
+        return pose_to_matrix(translation, quat_wxyz)
+    except ValueError as e:
+        raise ValueError(f"{field_name} is not a valid Pose: {e}") from e
+
+
+def _parse_rig_to_camera_transforms(
+    request: video_model_pb2.SessionRequest, camera_names: list[str]
+) -> dict[str, np.ndarray]:
+    if len(request.rig_to_camera) != len(camera_names):
+        raise ValueError(
+            "SessionRequest.rig_to_camera must contain one Pose per camera_spec "
+            f"in the same order, got {len(request.rig_to_camera)} for "
+            f"{len(camera_names)} camera_specs"
+        )
+
+    return {
+        cam_name: _pose_proto_to_matrix(
+            request.rig_to_camera[i],
+            field_name=f"SessionRequest.rig_to_camera[{i}]",
+        )
+        for i, cam_name in enumerate(camera_names)
+    }
+
+
+def _trajectory_proto_to_matrices(
+    trajectory: common_pb2.Trajectory,
+) -> tuple[np.ndarray, list[int]]:
+    matrices: list[np.ndarray] = []
+    timestamps: list[int] = []
+    for i, pose_at_time in enumerate(trajectory.poses):
+        matrices.append(
+            _pose_proto_to_matrix(
+                pose_at_time.pose, field_name=f"rig_trajectory.poses[{i}].pose"
+            )
+        )
+        timestamps.append(int(pose_at_time.timestamp_us))
+    if not matrices:
+        return np.empty((0, 4, 4), dtype=np.float32), []
+    return np.stack(matrices).astype(np.float32), timestamps
 
 
 class ControlSignal(IntEnum):
@@ -852,7 +911,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         profiler = get_profiler()
         _ = profiler.get_chunk_idx(session_id)
 
-        # 1. Parse camera specs list — extract names, intrinsics, rig_to_camera
+        # 1. Parse camera specs list — extract names and intrinsics.
         camera_specs_raw = list(request.camera_specs)
         if not camera_specs_raw:
             raise ValueError(
@@ -861,11 +920,12 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
 
         camera_names: list[str] = []
         camera_models_from_client: dict[str, FThetaCamera] = {}
-        rig_to_camera_transforms: dict[str, np.ndarray] = {}
 
         for i, spec in enumerate(camera_specs_raw):
             spec_dict = proto_to_dict(spec)
-            cam_name = spec_dict.get("logical_id", f"camera_{i}")
+            cam_name = spec.logical_id
+            if not cam_name:
+                raise ValueError(f"camera_specs[{i}].logical_id must be set")
             camera_names.append(cam_name)
 
             # Parse intrinsics (if provided by client)
@@ -877,13 +937,12 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             if has_camera_model:
                 camera_models_from_client[cam_name] = camera_spec_to_ftheta(spec_dict)
 
-            # Parse rig_to_camera (FLU convention from client → convert to RDF)
-            rig_to_cam_flu = parse_rig_to_camera(spec_dict)
-            rig_to_camera_transforms[cam_name] = rig_to_cam_flu
-
         logger.info(f"Parsed {len(camera_names)} camera specs: {camera_names}")
-        assert len(camera_names) == len(camera_models_from_client), (
-            "Expected one camera model per camera name"
+        if len(camera_names) != len(camera_models_from_client):
+            raise ValueError("Expected one camera model per camera_spec")
+
+        rig_to_camera_transforms = _parse_rig_to_camera_transforms(
+            request, camera_names
         )
 
         # 2a. Decode initial frames — one per camera
@@ -1032,8 +1091,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         with profiler.measure(
             "parse_trajectory", session_id=session_id, chunk_idx=chunk_idx
         ):
-            trajectory_dict = proto_to_dict(request.rig_trajectory)
-            client_poses = trajectory_dict.get("poses", [])
+            client_poses = list(request.rig_trajectory.poses)
 
             if len(client_poses) < chunk_size:
                 raise ValueError(
@@ -1045,8 +1103,8 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             logger.info(
                 f"Using client-provided rig trajectory ({len(client_poses)} poses)"
             )
-            rig_poses_flu, trajectory_timestamps_us = trajectory_to_camera_poses(
-                client_poses
+            rig_poses_flu, trajectory_timestamps_us = _trajectory_proto_to_matrices(
+                request.rig_trajectory
             )
 
             if len(rig_poses_flu) != chunk_size:

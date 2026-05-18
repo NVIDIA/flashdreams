@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from alpadreams.grpc.protos import common_pb2 as _common_pb2
 from alpadreams.grpc.protos import camera_pb2 as _camera_pb2
 from google.protobuf.internal import containers as _containers
@@ -117,7 +102,7 @@ class DebugOptions(_message.Message):
     def __init__(self, return_hdmap_frames: bool = ..., return_bev_map: bool = ..., skip_video_generation: bool = ..., bev_height_m: _Optional[float] = ..., bev_fov_deg: _Optional[float] = ...) -> None: ...
 
 class SessionRequest(_message.Message):
-    __slots__ = ("static_world_map", "text_prompt", "start_frame_offset", "debug_options", "camera_specs", "initial_frames", "random_seed")
+    __slots__ = ("static_world_map", "text_prompt", "start_frame_offset", "debug_options", "camera_specs", "initial_frames", "random_seed", "rig_to_camera")
     STATIC_WORLD_MAP_FIELD_NUMBER: _ClassVar[int]
     TEXT_PROMPT_FIELD_NUMBER: _ClassVar[int]
     START_FRAME_OFFSET_FIELD_NUMBER: _ClassVar[int]
@@ -125,6 +110,7 @@ class SessionRequest(_message.Message):
     CAMERA_SPECS_FIELD_NUMBER: _ClassVar[int]
     INITIAL_FRAMES_FIELD_NUMBER: _ClassVar[int]
     RANDOM_SEED_FIELD_NUMBER: _ClassVar[int]
+    RIG_TO_CAMERA_FIELD_NUMBER: _ClassVar[int]
     static_world_map: StaticWorldMap
     text_prompt: TextPrompt
     start_frame_offset: int
@@ -132,7 +118,8 @@ class SessionRequest(_message.Message):
     camera_specs: _containers.RepeatedCompositeFieldContainer[_camera_pb2.CameraSpec]
     initial_frames: _containers.RepeatedCompositeFieldContainer[Image]
     random_seed: int
-    def __init__(self, static_world_map: _Optional[_Union[StaticWorldMap, _Mapping]] = ..., text_prompt: _Optional[_Union[TextPrompt, _Mapping]] = ..., start_frame_offset: _Optional[int] = ..., debug_options: _Optional[_Union[DebugOptions, _Mapping]] = ..., camera_specs: _Optional[_Iterable[_Union[_camera_pb2.CameraSpec, _Mapping]]] = ..., initial_frames: _Optional[_Iterable[_Union[Image, _Mapping]]] = ..., random_seed: _Optional[int] = ...) -> None: ...
+    rig_to_camera: _containers.RepeatedCompositeFieldContainer[_common_pb2.Pose]
+    def __init__(self, static_world_map: _Optional[_Union[StaticWorldMap, _Mapping]] = ..., text_prompt: _Optional[_Union[TextPrompt, _Mapping]] = ..., start_frame_offset: _Optional[int] = ..., debug_options: _Optional[_Union[DebugOptions, _Mapping]] = ..., camera_specs: _Optional[_Iterable[_Union[_camera_pb2.CameraSpec, _Mapping]]] = ..., initial_frames: _Optional[_Iterable[_Union[Image, _Mapping]]] = ..., random_seed: _Optional[int] = ..., rig_to_camera: _Optional[_Iterable[_Union[_common_pb2.Pose, _Mapping]]] = ...) -> None: ...
 
 class SessionCloseRequest(_message.Message):
     __slots__ = ("session_id",)
