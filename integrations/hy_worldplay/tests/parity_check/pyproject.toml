@@ -1,10 +1,25 @@
 [project]
 name = "hy-worldplay-parity-check"
 version = "0.0.0"
-description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark."
+description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark AND the in-tree plugin CLI."
 # Match flashdreams' supported Python range exactly (it pins 3.12).
 requires-python = ">=3.12,<3.13"
 
+# This sub-venv has *two* jobs and we deliberately collapse them onto
+# the same dep set:
+#   1. Run upstream's ``wan/generate.py`` end-to-end for the parity
+#      baseline (the historical reason this sub-venv exists, mirroring
+#      the ``self_forcing/tests/parity_check`` layout).
+#   2. Run the in-tree plugin CLI -- ``python -m hy_worldplay.cli`` --
+#      against the same dep stack so the parity comparison stays
+#      apples-to-apples and so the heavyweight upstream deps stay out
+#      of the repo-root ``uv.lock``.
+#
+# The plugin workspace member (``flashdreams-hy-worldplay``) only
+# carries the lightweight config / runner shim, so installing it here
+# adds the ``hy_worldplay`` import path without re-resolving anything
+# heavy.
+#
 # flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
 # numpy, tqdm, safetensors, etc. HY-WorldPlay's WAN pipeline only needs a
 # handful of extras layered on top. Transitive deps come along via these
@@ -29,6 +44,11 @@ requires-python = ">=3.12,<3.13"
 #   * easydict / lmdb        -- transitively required by upstream's hyvideo/
 dependencies = [
     "flashdreams",
+    # Plugin workspace member -- adds the ``hy_worldplay`` import path so
+    # ``python -m hy_worldplay.cli`` works from inside this venv without
+    # any extra ``uv pip install`` step. Wired in via the path source
+    # below.
+    "flashdreams-hy-worldplay",
     # Pinned to match the flashdreams root ``uv.lock`` (currently 2.11.0+cu130).
     # *Must* stay in lockstep with whatever the flashdreams main venv resolves
     # to -- otherwise the parity venv ends up on a different cuBLAS / cuDNN /
@@ -69,6 +89,12 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-# flashdreams is not on PyPI; install it from the local source tree
-# (../../../../flashdreams relative to this directory).
+# Neither package is on PyPI; install both from the local source tree.
+# Paths are relative to this directory:
+#   flashdreams              -> ../../../../flashdreams
+#   flashdreams-hy-worldplay -> ../..   (i.e. integrations/hy_worldplay)
+# The workspace member declares ``flashdreams = { workspace = true }`` in
+# its own pyproject; the top-level path source here takes precedence in
+# this resolution context (which is *outside* the flashdreams workspace).
 flashdreams = { path = "../../../../flashdreams", editable = true }
+flashdreams-hy-worldplay = { path = "../..", editable = true }

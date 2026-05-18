@@ -344,14 +344,23 @@ The HY-WorldPlay WAN-5B I2V slug ships as an out-of-tree plugin
 (`flashdreams/integrations/hy_worldplay/`) -- a phase-1 vendor
 wrapper around upstream's `wan/generate.py` `WanRunner`. A
 recipe-level integration that promotes the slug into a
-`flashdreams-run` subcommand is tracked as phase 2; see
-`integrations/hy_worldplay/README.md` for the staging plan.
+`flashdreams-run` subcommand is tracked as phase 2 and depends on a
+flashdreams-side Wan 2.2 5B recipe landing first; see
+`integrations/hy_worldplay/README.md` for the full staging plan.
+
+The heavy upstream deps (sageattention, accelerate, cloudpickle, ...)
+are deliberately **not** in the repo-root `uv.lock`. They live in an
+isolated sub-venv under
+`integrations/hy_worldplay/tests/parity_check/` so they don't bloat
+the env that every other contributor resolves. All GPU invocations
+below route through that sub-venv via `uv run --project ...`.
 
 ```bash
 # 0. request interactive node with pre-built container same as above alpadreams demo.
 
-# 1. install the plugin (one-time; declared as a uv workspace member, so
-#    `uv sync` from the repo root is enough -- this line is for clarity).
+# 1. install the lightweight plugin shim (one-time; declared as a uv
+#    workspace member, so `uv sync` from the repo root is enough --
+#    this line is for clarity).
 uv pip install -e flashdreams/integrations/hy_worldplay
 
 # 2. setup huggingface
@@ -360,14 +369,16 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 # - (optional) huggingface cache path
 export HF_HOME=~/.cache/huggingface # default
 
-# 3. provision the upstream tree + checkpoints. The parity-check script
-#    does this idempotently:
+# 3. provision the upstream tree + checkpoints AND materialize the
+#    parity / run sub-venv. The parity-check script does both
+#    idempotently:
 bash flashdreams/integrations/hy_worldplay/tests/parity_check/run.sh
-#    -> clones HY-WorldPlay/, downloads wan_transformer + wan_distilled_model.
+#    -> clones HY-WorldPlay/, downloads wan_transformer +
+#       wan_distilled_model, and runs `uv sync` inside the sub-venv.
 
-# 4. run inference through the flashdreams plugin.
+# 4. run inference through the flashdreams plugin (from the sub-venv).
 PARITY=flashdreams/integrations/hy_worldplay/tests/parity_check
-uv run python -m hy_worldplay.cli \
+uv run --project "${PARITY}" python -m hy_worldplay.cli \
     --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
     --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
     --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
@@ -375,7 +386,8 @@ uv run python -m hy_worldplay.cli \
     --num-chunk 1 --pose 'w-4'
 
 # 5. (optional) multi-GPU via context-parallelism (recommended max 8 GPUs).
-uv run torchrun --nproc_per_node=4 --no-python --module hy_worldplay.cli \
+uv run --project "${PARITY}" torchrun \
+    --nproc_per_node=4 --no-python --module hy_worldplay.cli \
     --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
     --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
     --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \

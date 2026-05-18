@@ -64,7 +64,9 @@ Written under `HY-WorldPlay/outputs/parity/` by default:
 - `err.txt` — error log (only created on failures)
 
 To compare against the `flashdreams` plugin output, run the same
-inputs through the wrapper:
+inputs through the wrapper. Stay inside this directory so `uv run`
+resolves to this sub-venv (which has both the upstream deps *and*
+the `hy_worldplay` workspace member installed):
 
 ```bash
 uv run python -m hy_worldplay.cli \
@@ -75,6 +77,9 @@ uv run python -m hy_worldplay.cli \
     --num-chunk 1 --pose 'w-4' \
     --seed 0 --output-dir outputs/wrapper
 ```
+
+Or invoke the same sub-venv from elsewhere in the repo via
+`uv run --project integrations/hy_worldplay/tests/parity_check ...`.
 
 The two MP4s should be equivalent (same checkpoint, same pipeline,
 same RNG seed). They are **not** bit-for-bit identical because the
@@ -126,9 +131,10 @@ Two prerequisites for this bar:
 2. **`DEFAULT_PROMPT` in `hy_worldplay/runner.py` must byte-match
    upstream's `wan/generate.py` `--input` argparse default.** An early
    version had a trailing `.` that shifted the UMT5 tokenisation by
-   one token and added ~2 of drift on its own. The two strings are
-   compared in `tests/test_smoke.py::test_default_prompts_match_upstream`
-   (TODO; for now keep them aligned by hand).
+   one token and added ~2 of drift on its own. Now guarded by
+   `tests/test_smoke.py::test_default_prompt_byte_matches_upstream`
+   and its negative-prompt twin, so a regression fails CPU-only
+   pytest before it ever reaches a GPU run.
 
 True bit-for-bit parity would require eliminating the two-venv split
 entirely (see the phase-1.5 plan in
@@ -140,6 +146,21 @@ Deps are pinned in this directory's `pyproject.toml` and live in
 `./.venv/`. Because `uv run` walks upward looking for a project, calls
 from inside `HY-WorldPlay/` resolve to *this* venv, not the surrounding
 flashdreams one.
+
+This sub-venv intentionally **doubles as the plugin run-venv** in
+phase 1: it lists `flashdreams-hy-worldplay` as a path source so
+`python -m hy_worldplay.cli` works here without a separate install
+step, and the upstream + plugin runs share an identical dep stack
+(same torch / cuBLAS / sageattention / accelerate), which is required
+for the parity comparison below. Outside of this directory, use
+`uv run --project integrations/hy_worldplay/tests/parity_check ...`
+to target the same venv from elsewhere in the repo.
+
+This collapsing also keeps HY-WorldPlay's heavy upstream deps
+(sageattention, cloudpickle, ...) out of the repo-root `uv.lock` —
+they only appear in this sub-venv's lockfile. The collapse goes away
+in phase 2b when the slug becomes a `flashdreams-run` subcommand and
+the run path moves back into the main flashdreams venv.
 
 ## Files tracked here
 
