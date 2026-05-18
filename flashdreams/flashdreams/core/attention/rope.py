@@ -67,9 +67,6 @@ class _RotaryPositionEmbedding3DBase:
     raw_freqs_h: Tensor
     raw_freqs_w: Tensor
     raw_freqs_t: Tensor
-    freqs_h: Tensor
-    freqs_w: Tensor
-    freqs_t: Tensor
 
     def __init__(
         self,
@@ -184,7 +181,66 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
 
     Each AR step emits only the current chunk's monotonically increasing
     positions. This is the default RoPE used by existing transformer recipes.
+    Use it when keys are rotated before they are written into the KV cache, so
+    the cached K tensor already carries its original global position.
+
+    The head dimension is split across temporal, height, and width components
+    in a 2:2:2 ratio. ``shift_t()`` concatenates those components into a
+    full-width RoPE tensor of shape ``[L, 1, 1, head_dim]`` that can be passed
+    directly to :func:`apply_rope_freqs`.
+
+    Args:
+        head_dim: Attention head dimension. Must be compatible with the fused
+            RoPE kernel and is split across time, height, and width.
+        len_h: Number of patch tokens along height in one chunk.
+        len_w: Number of patch tokens along width in one chunk.
+        len_t: Number of temporal patch tokens in one autoregressive chunk.
+        h_extrapolation_ratio: NTK extrapolation ratio for height frequencies.
+        w_extrapolation_ratio: NTK extrapolation ratio for width frequencies.
+        t_extrapolation_ratio: NTK extrapolation ratio for time frequencies.
+        interleaved: Whether RoPE pairs are stored as ``(2k, 2k+1)`` instead
+            of ``(k, k + D/2)``.
+        device: Device where frequency buffers are allocated.
+
+    Attributes:
+        raw_freqs_t: Base temporal RoPE frequency components before expansion,
+            shape ``[dim_t // 2]``.
+        raw_freqs_h: Base height RoPE frequency components before expansion,
+            shape ``[dim_h // 2]``.
+        raw_freqs_w: Base width RoPE frequency components before expansion,
+            shape ``[dim_w // 2]``.
+        freqs_t: Expanded temporal frequency components for one chunk, shape
+            ``[L, 1, 1, dim_t // 2]``.
+        freqs_h: Expanded height frequency components for one chunk, shape
+            ``[L, 1, 1, dim_h // 2]``.
+        freqs_w: Expanded width frequency components for one chunk, shape
+            ``[L, 1, 1, dim_w // 2]``.
+
+    Examples:
+
+        Apply standard RoPE to the current query and key chunk before writing
+        K into the KV cache:
+
+        >>> rope = RotaryPositionEmbedding3D(
+        ...     head_dim=128,
+        ...     len_t=3,
+        ...     len_h=60,
+        ...     len_w=104,
+        ...     interleaved=True,
+        ... )
+        >>> freqs = rope.shift_t(autoregressive_index=2)
+        >>> freqs.shape
+        torch.Size([18720, 1, 1, 128])
+        >>> q = apply_rope_freqs(q, freqs, interleaved=rope.interleaved)
+        >>> k = apply_rope_freqs(k, freqs, interleaved=rope.interleaved)
     """
+
+    raw_freqs_t: Tensor
+    raw_freqs_h: Tensor
+    raw_freqs_w: Tensor
+    freqs_t: Tensor
+    freqs_h: Tensor
+    freqs_w: Tensor
 
     def __init__(
         self,
@@ -216,6 +272,8 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
 
         The internal offset is ``autoregressive_index * len_t`` so callers
         only need to track the AR step, not the per-chunk temporal length.
+        If context parallelism is enabled with :meth:`set_context_parallel_group`,
+        the returned frequencies are the local CP shard along sequence dim 0.
 
         Args:
             autoregressive_index: AR step index for the chunk being processed.
@@ -243,7 +301,76 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
     Positions are reassigned every step to where each token currently sits in
     the KV cache. This must be paired with storing K without standard RoPE
     before the cache write and rotating cached K on read in the attention module.
+    Use it for bounded sink/window caches where older tokens move through cache
+    slots instead of retaining monotonically increasing global positions.
+
+    ``shift_t()`` intentionally ignores ``autoregressive_index``: the returned
+    frequencies describe KV-cache slots, not global AR time. The frequency
+    tensor length is based on ``sink_size_t + window_size_t`` and therefore
+    remains bounded even as generation continues.
+
+    Args:
+        head_dim: Attention head dimension. Must be compatible with the fused
+            RoPE kernel and is split across time, height, and width.
+        len_h: Number of patch tokens along height in one chunk.
+        len_w: Number of patch tokens along width in one chunk.
+        len_t: Number of temporal patch tokens in one autoregressive chunk.
+        sink_size_t: Number of temporal cache positions kept as fixed sink
+            tokens.
+        window_size_t: Number of temporal cache positions kept as the rolling
+            window. ``sink_size_t + window_size_t`` must be divisible by
+            ``len_t`` so CP can split cache chunks consistently.
+        h_extrapolation_ratio: NTK extrapolation ratio for height frequencies.
+        w_extrapolation_ratio: NTK extrapolation ratio for width frequencies.
+        t_extrapolation_ratio: NTK extrapolation ratio for time frequencies.
+        interleaved: Whether RoPE pairs are stored as ``(2k, 2k+1)`` instead
+            of ``(k, k + D/2)``.
+        device: Device where frequency buffers are allocated.
+
+    Attributes:
+        raw_freqs_t: Base temporal RoPE frequency components before expansion,
+            shape ``[dim_t // 2]``.
+        raw_freqs_h: Base height RoPE frequency components before expansion,
+            shape ``[dim_h // 2]``.
+        raw_freqs_w: Base width RoPE frequency components before expansion,
+            shape ``[dim_w // 2]``.
+        freqs_t: Expanded temporal frequency components for all KV-cache slots,
+            shape ``[S, 1, 1, dim_t // 2]``.
+        freqs_h: Expanded height frequency components for all KV-cache slots,
+            shape ``[S, 1, 1, dim_h // 2]``.
+        freqs_w: Expanded width frequency components for all KV-cache slots,
+            shape ``[S, 1, 1, dim_w // 2]``.
+
+    Examples:
+
+        Store unrotated K in the KV cache, then rotate a materialized cache
+        read with cache-slot positions before attention:
+
+        >>> rope = KVCacheRelativeRotaryPositionEmbedding3D(
+        ...     head_dim=128,
+        ...     len_t=3,
+        ...     len_h=60,
+        ...     len_w=104,
+        ...     sink_size_t=5,
+        ...     window_size_t=7,
+        ...     interleaved=True,
+        ... )
+        >>> freqs = rope.shift_t(autoregressive_index=25)
+        >>> freqs.shape
+        torch.Size([74880, 1, 1, 128])
+        >>> cached_k = apply_rope_freqs(
+        ...     cached_k,
+        ...     freqs,
+        ...     interleaved=rope.interleaved,
+        ... )
     """
+
+    raw_freqs_t: Tensor
+    raw_freqs_h: Tensor
+    raw_freqs_w: Tensor
+    freqs_t: Tensor
+    freqs_h: Tensor
+    freqs_w: Tensor
 
     def __init__(
         self,
@@ -307,6 +434,11 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
 
     def shift_t(self, autoregressive_index: int) -> Tensor:
         """Return fixed KV-cache-relative RoPE frequencies.
+
+        The returned tensor covers all valid KV-cache slots, ordered as
+        ``(T, H, W)``. If context parallelism is enabled with
+        :meth:`set_context_parallel_group`, cache chunks are split independently
+        so each rank receives the local sequence shard for every cache chunk.
 
         Args:
             autoregressive_index: Accepted for API parity with standard RoPE.
