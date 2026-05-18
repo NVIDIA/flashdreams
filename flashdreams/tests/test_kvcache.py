@@ -17,13 +17,15 @@
 Unit tests for BlockKVCache.
 """
 
+from typing import Any, cast
+
 import pytest
 import torch
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.rope import (
-    RotaryPositionEmbedding3D,
     KVCacheRelativeRotaryPositionEmbedding3D,
+    RotaryPositionEmbedding3D,
 )
 
 
@@ -290,8 +292,9 @@ def test_kvcache_relative_rope_cp_freqs_match_cache_chunks() -> None:
             interleaved=True,
             device=torch.device("cpu"),
         )
-        cp_rope.cp_group = _FakeProcessGroup(world_size=world_size, rank=rank)
-        cp_rope.device_mesh = _FakeDeviceMesh(world_size=world_size)
+        cp_rope_any = cast(Any, cp_rope)
+        cp_rope_any.cp_group = _FakeProcessGroup(world_size=world_size, rank=rank)
+        cp_rope_any.device_mesh = _FakeDeviceMesh(world_size=world_size)
 
         freqs_rank = cp_rope.shift_t(0)
         expected = torch.cat(

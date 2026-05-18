@@ -3,14 +3,14 @@
 
 import types
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import torch
 
 from flashdreams.core.attention.kvcache import BlockKVCache
-from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
 from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
+from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
     Wan21TransformerConfig,
@@ -103,7 +103,7 @@ def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:
         head_dim=4,
         apply_rope_before_kvcache=False,
     )
-    attn.attn_op = _IdentityAttention()
+    cast(Any, attn).attn_op = _IdentityAttention()
 
     cache_k = torch.randn(1, 3, 1, 4)
     cache_v = torch.randn(1, 3, 1, 4)

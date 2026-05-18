@@ -407,9 +407,9 @@ class WanDiTNetwork(nn.Module):
                 layout ``"... (t h w) (c kt kh kw)"``.
             timesteps: Diffusion timesteps, broadcastable to shape ``[...]``.
             cache: Network KV caches.
-            rope_freqs: RoPE frequencies after CP, shape
-                ``[S, 1, 1, d // 2]``. Standard mode uses current-chunk
-                frequencies; KV-cache-relative mode uses frequencies relative to the KV cache.
+            rope_freqs: Full-width RoPE frequencies after CP. Standard mode
+                uses current-chunk frequencies with shape ``[L, 1, 1, d]``;
+                KV-cache-relative mode uses frequencies relative to the KV cache.
             current_chunk_idx: Current chunk index for streaming cache update.
             eager_mode: If ``True``, run cache before/after update hooks.
             block_extra_kwargs: Extra kwargs forwarded to each block.

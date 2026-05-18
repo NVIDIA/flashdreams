@@ -197,7 +197,7 @@ class MultiHeadAttention(nn.Module):
             context: Context tensor of shape [..., L, context_dim].
             kv_cache: Existing cache to update, or ``None`` to create a new cache.
             rope_freqs: Optional RoPE frequencies for K before
-                K cache write, shape ``[L, 1, 1, d // 2]``.
+                K cache write, shape ``[L, 1, 1, d]``.
 
         Returns:
             Updated ``BlockKVCache`` containing keys and values.
@@ -248,9 +248,9 @@ class MultiHeadAttention(nn.Module):
             x: Query tokens, shape ``[..., L, query_dim]``.
             kv_cache: KV cache used as attention context.
             rope_freqs_q: Optional RoPE frequencies for Q, shape
-                ``[L, 1, 1, d // 2]``.
+                ``[L, 1, 1, d]``.
             rope_freqs_k: Optional KV-cache-relative RoPE frequencies for
-                cached K, shape ``[S_cache, 1, 1, d // 2]``. Only used when
+                cached K, shape ``[S_cache, 1, 1, d]``. Only used when
                 K is stored without standard RoPE before the KV cache write.
 
         Returns:
@@ -288,7 +288,7 @@ class MultiHeadAttention(nn.Module):
         if rope_freqs is None:
             return None, None
         if self.apply_rope_before_kvcache:
-            return rope_freqs, None
+            return rope_freqs, rope_freqs
 
         write_end = kv_cache.write_end
         write_start = write_end - kv_cache.chunk_size
@@ -318,7 +318,7 @@ class MultiHeadAttention(nn.Module):
         """
         rope_freqs_q, rope_freqs_k = self._slice_rope_freqs(rope_freqs, kv_cache)
         if update_kv_cache:
-            kv_cache = self.update_kv(x, kv_cache, rope_freqs_q)
+            kv_cache = self.update_kv(x, kv_cache, rope_freqs_k)
         return self.apply_kv(x, kv_cache, rope_freqs_q, rope_freqs_k)
 
 
@@ -594,9 +594,9 @@ class Block(nn.Module):
             x: Input tensor with shape [..., L, D].
             e: Modulation tensor with shape [..., 6, D].
             cache: KV cache container for this block.
-            rope_freqs: RoPE frequencies with shape ``[S, 1, 1, head_dim]``.
-                Standard mode passes current-chunk frequencies. KV-cache-relative
-                mode passes cache-layout frequencies.
+            rope_freqs: Full-width RoPE frequencies. Standard mode passes
+                current-chunk frequencies with shape ``[L, 1, 1, head_dim]``;
+                KV-cache-relative mode passes cache-layout frequencies.
 
         Returns:
             Updated hidden states with shape [..., L, D].

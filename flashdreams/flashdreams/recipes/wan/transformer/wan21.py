@@ -25,8 +25,8 @@ import torch
 from torch import Tensor
 
 from flashdreams.core.attention.rope import (
-    RotaryPositionEmbedding3D,
     KVCacheRelativeRotaryPositionEmbedding3D,
+    RotaryPositionEmbedding3D,
 )
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
@@ -64,13 +64,13 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     """Unconditional caches; ``None`` disables CFG."""
 
     rope_adapter: RotaryPositionEmbedding3D | KVCacheRelativeRotaryPositionEmbedding3D
-    """3D RoPE indexing runtime used to build the per-step cache layout."""
+    """3D RoPE adapter for self-attention position frequencies."""
 
     rope_freqs: Tensor | None = None
     """Self-attention RoPE frequencies for the current AR step.
     Standard mode stores K after applying current-chunk RoPE.
     KV-cache-relative mode stores unrotated K and applies cache-slot RoPE on cache read.
-    Shape ``[L, 1, 1, head_dim // 2]`` after CP. Recomputed once per
+    Shape ``[L, 1, 1, head_dim]`` after CP in standard mode. Recomputed once per
     AR step in :meth:`start` and reused across cond and uncond branches
     (and across all scheduler steps within the AR step)."""
 
@@ -82,14 +82,8 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
         # forward; predict_flow runs with eager_mode=False so the network
         # itself does not call before_update. Same for shift_t: tying the
         # AR index into the captured graph as a Python int would re-trigger
-        # cat/repeat on every cond/uncond pass. KV-cache-relative RoPE uses
-        # fixed cache positions, so it always requests the unshifted frequencies.
-        rope_shift_idx = (
-            0
-            if isinstance(self.rope_adapter, KVCacheRelativeRotaryPositionEmbedding3D)
-            else autoregressive_index
-        )
-        self.rope_freqs = self.rope_adapter.shift_t(rope_shift_idx)
+        # cat/repeat on every cond/uncond pass.
+        self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
 
         self.autoregressive_index = autoregressive_index
         self.network_cache.before_update(autoregressive_index)
@@ -103,6 +97,7 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
 
 
 ## Transformer
+
 
 @dataclass(kw_only=True)
 class Wan21TransformerConfig(TransformerConfig):

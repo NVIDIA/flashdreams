@@ -67,9 +67,9 @@ class _RotaryPositionEmbedding3DBase:
     raw_freqs_h: Tensor
     raw_freqs_w: Tensor
     raw_freqs_t: Tensor
-    freqs_t: Tensor
     freqs_h: Tensor
     freqs_w: Tensor
+    freqs_t: Tensor
 
     def __init__(
         self,
@@ -83,6 +83,19 @@ class _RotaryPositionEmbedding3DBase:
         interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
     ) -> None:
+        """Build 3D RoPE for the given sequence lengths and head dimension.
+
+        Args:
+            head_dim: Attention head dimension; split into h/w/t sub-dims (2:2:2 ratio).
+            len_h: Sequence length along height.
+            len_w: Sequence length along width.
+            len_t: Sequence length along time.
+            h_extrapolation_ratio: NTK extrapolation ratio for height.
+            w_extrapolation_ratio: NTK extrapolation ratio for width.
+            t_extrapolation_ratio: NTK extrapolation ratio for time.
+            interleaved: Whether to interleave the frequency components.
+            device: Device to use for the frequency calculations.
+        """
         self.len_h = len_h
         self.len_w = len_w
         self.len_t = len_t
@@ -165,18 +178,6 @@ class _RotaryPositionEmbedding3DBase:
             )
         return torch.cat([freqs_t, freqs_h, freqs_w] * 2, dim=-1)
 
-    def _split_cache_freqs_cp(self, freqs: Tensor, valid_len_t: int) -> Tensor:
-        """Split a KV-cache-layout RoPE tensor by chunk for CP."""
-        cp_group = unpack_optional(self.cp_group)
-        tokens_per_chunk = self.len_t * self.len_h * self.len_w
-        assert valid_len_t % self.len_t == 0
-        valid_tokens = valid_len_t * self.len_h * self.len_w
-        freqs = freqs[:valid_tokens]
-        freq_shape = freqs.shape[1:]
-        freqs = freqs.reshape(valid_len_t // self.len_t, tokens_per_chunk, *freq_shape)
-        freqs = split_inputs_cp(freqs, seq_dim=1, cp_group=cp_group)
-        return freqs.reshape(-1, *freq_shape)
-
 
 class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
     """Standard 3D RoPE with unbounded autoregressive time positions.
@@ -221,7 +222,7 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
                 Step 0 returns the unshifted frequencies.
 
         Returns:
-            Concatenated RoPE frequencies of shape ``[L, 1, 1, head_dim // 2]``,
+            Concatenated RoPE frequencies of shape ``[L, 1, 1, head_dim]``,
             where L is the sequence length T * H * W. The memory layout is (T, H, W).
         """
         offset = autoregressive_index * self.len_t
@@ -284,14 +285,24 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
         self._rope_freqs = self._cat_freqs(self.freqs_t, self.freqs_h, self.freqs_w)
         self._rope_freqs_cp: Tensor | None = None
 
+    def _split_cache_freqs_cp(self, freqs: Tensor, valid_len_t: int) -> Tensor:
+        """Split cache-relative RoPE frequencies chunk-by-chunk for CP."""
+        cp_group = unpack_optional(self.cp_group)
+        tokens_per_chunk = self.len_t * self.len_h * self.len_w
+        assert valid_len_t % self.len_t == 0
+        valid_tokens = valid_len_t * self.len_h * self.len_w
+        freqs = freqs[:valid_tokens]
+        freq_shape = freqs.shape[1:]
+        freqs = freqs.reshape(valid_len_t // self.len_t, tokens_per_chunk, *freq_shape)
+        freqs = split_inputs_cp(freqs, seq_dim=1, cp_group=cp_group)
+        return freqs.reshape(-1, *freq_shape)
+
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         super().set_context_parallel_group(cp_group)
         self._rope_freqs_cp = (
             None
             if cp_group is None
-            else self._split_cache_freqs_cp(
-                self._rope_freqs, self.kvcache_total_size_t
-            )
+            else self._split_cache_freqs_cp(self._rope_freqs, self.kvcache_total_size_t)
         )
 
     def shift_t(self, autoregressive_index: int) -> Tensor:
@@ -299,17 +310,13 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
 
         Args:
             autoregressive_index: Accepted for API parity with standard RoPE.
-                Must be 0 because cache-relative positions are fixed by
-                KV-cache position, not by global AR step.
+                Ignored because cache-relative positions are fixed by KV-cache
+                position, not by global AR step.
 
         Returns:
             RoPE frequencies of shape ``[S, 1, 1, head_dim]``, where ``S`` is
             the valid KV-cache token count after optional CP splitting.
         """
-        assert autoregressive_index == 0, (
-            "KV-cache-relative RoPE expects shift_t(0); positions are cache-relative "
-            "and do not shift with the global AR index."
-        )
         if self.is_context_parallel_enabled():
             if self._rope_freqs_cp is not None:
                 return self._rope_freqs_cp
@@ -328,7 +335,8 @@ def apply_rope_freqs(x: Tensor, freqs: Tensor, interleaved: bool = False) -> Ten
     Args:
         x: Input tensor of shape ``[B, S, H, D]``; rotated in place.
         freqs: RoPE frequencies of shape ``[S, 1, 1, D]`` as emitted by
-            ``shift_t``.
+            :meth:`RotaryPositionEmbedding3D.shift_t` or
+            :meth:`KVCacheRelativeRotaryPositionEmbedding3D.shift_t`.
         interleaved: If ``True``, rotate the pair ``(2k, 2k+1)``; else
             rotate ``(d, d + D/2)``.
 

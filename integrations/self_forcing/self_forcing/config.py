@@ -134,7 +134,7 @@ PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
             ),
         ),
     ),
-)
+)  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT = SelfForcingT2VRunnerConfig(
     runner_name=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT.recipe_name,
     description=(
