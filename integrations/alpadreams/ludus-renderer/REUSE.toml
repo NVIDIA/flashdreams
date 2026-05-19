@@ -1,0 +1,42 @@
+version = 1
+SPDX-PackageName = "ludus-renderer"
+SPDX-PackageSupplier = "NVIDIA Corporation"
+SPDX-PackageDownloadLocation = "https://github.com/NVIDIA/flashdreams"
+
+# Files that cannot carry an in-file SPDX header (lockfiles, dotfiles, plain
+# text/markdown), or where a header would obscure the canonical upstream
+# content, are covered by these aggregate annotations.
+
+[[annotations]]
+path = [
+    ".gitignore",
+    "README.md",
+    "THIRD_PARTY_NOTICES.txt",
+    "pyproject.toml",
+    "uv.lock",
+    "docs/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
+SPDX-License-Identifier = "Apache-2.0"
+
+# CONTRIBUTING quotes the Developer Certificate of Origin 1.1 verbatim under
+# its own "verbatim copies are permitted" grant. The file as a project artefact
+# is distributed under the same Apache-2.0 terms as the rest of the project.
+[[annotations]]
+path = "CONTRIBUTING"
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "Copyright (C) 2004, 2006 The Linux Foundation and its contributors",
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+# The Apache-2.0 LICENSE file at the project root is the canonical license
+# text. REUSE recognises the LICENSES/ directory layout; we keep both so that
+# the project root has a conventional LICENSE file too.
+[[annotations]]
+path = "LICENSE"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2004 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
