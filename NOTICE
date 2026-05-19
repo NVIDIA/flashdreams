@@ -23,6 +23,7 @@ ftfy                   Apache-2.0   https://github.com/rspeer/python-ftfy
 huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_hub
 loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
+nvidia-cudnn-frontend MIT          https://github.com/NVIDIA/cudnn-frontend
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
 torch                  BSD-3-Clause https://pytorch.org
