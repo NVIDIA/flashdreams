@@ -41,6 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SKIP_PACKAGES = {
     "ludus-renderer",
     "self-forcing-parity-check",
+    "hy-worldplay-parity-check",
 }
 
 # Regex to extract __version__ = "X.Y.Z" from _version.py.

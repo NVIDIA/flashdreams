@@ -360,7 +360,7 @@ provides-extras = ["dev", "examples", "runners"]
 
 [[package]]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a1"
+version = "0.1.0a2"
 source = { editable = "../../" }
 dependencies = [
     { name = "diffusers" },
@@ -370,7 +370,6 @@ dependencies = [
     { name = "moviepy" },
     { name = "opencv-python-headless" },
     { name = "scipy" },
-    { name = "tyro" },
 ]
 
 [package.metadata]
@@ -383,7 +382,6 @@ requires-dist = [
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
-    { name = "tyro", specifier = ">=0.8" },
 ]
 provides-extras = ["dev"]
 

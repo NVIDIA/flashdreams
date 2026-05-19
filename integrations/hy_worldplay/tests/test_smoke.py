@@ -26,13 +26,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.config import RUNNER_CONFIGS, RUNNER_HY_WORLDPLAY_WAN_I2V_5B
 from hy_worldplay.runner import (
     DEFAULT_NEGATIVE_PROMPT,
     DEFAULT_PROMPT,
     HyWorldPlayWanI2VRunnerConfig,
 )
+
+from flashdreams.infra.runner import RunnerConfig
+
+pytestmark = pytest.mark.ci_cpu
 
 
 def test_runners_dict_is_non_empty() -> None:
@@ -129,7 +132,7 @@ def test_default_pose_string_well_formed() -> None:
 def test_setup_without_required_paths_raises() -> None:
     """Constructing the runner without the three required paths should
     fail loudly rather than try to import upstream and segfault."""
-    cfg = HyWorldPlayWanI2VRunnerConfig()
+    cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")
     assert cfg.ar_model_path is None
     assert cfg.ckpt_path is None
     assert cfg.hy_worldplay_repo_root is None
@@ -141,6 +144,7 @@ def test_missing_repo_root_raises_filenotfound() -> None:
     """Pointing at a non-existent repo root should give a clear error
     rather than a cryptic ``ImportError``."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
         ar_model_path=Path("/nonexistent/wan_transformer"),
         ckpt_path=Path("/nonexistent/model.pt"),
         hy_worldplay_repo_root=Path("/nonexistent/HY-WorldPlay"),

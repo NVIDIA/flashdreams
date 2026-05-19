@@ -52,7 +52,6 @@ from typing import Any
 
 from flashdreams.infra.runner import RunnerConfig
 
-
 __all__ = [
     "HyWorldPlayWanI2VRunner",
     "HyWorldPlayWanI2VRunnerConfig",
@@ -319,7 +318,12 @@ class HyWorldPlayWanI2VRunner:
         video = result["video"]
         config.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = config.output_dir / f"{config.runner_name}.mp4"
-        export_to_video(np.asarray(video[0]), str(out_path), fps=config.fps)
+        # ``export_to_video`` expects a list of per-frame ndarrays; the
+        # upstream pipeline returns a single ``(T, H, W, 3)`` tensor, so
+        # we split along the time axis to produce the list shape diffusers
+        # iterates over with ``len()`` + index access.
+        frames: list[np.ndarray] = list(np.asarray(video[0]))
+        export_to_video(frames, str(out_path), fps=config.fps)
         logger.info(
             f"[{config.runner_name}] wrote video "
             f"({np.asarray(video).shape}) -> {out_path.resolve()} "

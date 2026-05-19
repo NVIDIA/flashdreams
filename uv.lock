@@ -764,7 +764,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a1"
+version = "0.1.0a2"
 source = { editable = "integrations/hy_worldplay" }
 dependencies = [
     { name = "diffusers" },

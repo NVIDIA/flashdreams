@@ -48,7 +48,6 @@ RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig(
 
 
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
-    cfg.runner_name: cfg
-    for cfg in (RUNNER_HY_WORLDPLAY_WAN_I2V_5B,)
+    cfg.runner_name: cfg for cfg in (RUNNER_HY_WORLDPLAY_WAN_I2V_5B,)
 }
 """All shipped HY-WorldPlay runners, keyed by ``runner_name``."""

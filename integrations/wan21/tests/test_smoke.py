@@ -43,7 +43,7 @@ def test_runner_name_mirrors_pipeline_recipe_name() -> None:
     drifted = {
         slug: (cfg.runner_name, cfg.pipeline.recipe_name)
         for slug, cfg in RUNNER_CONFIGS.items()
-        if cfg.runner_name != cfg.pipeline.recipe_name
+        if cfg.pipeline is not None and cfg.runner_name != cfg.pipeline.recipe_name
     }
     assert not drifted, f"runner_name != pipeline.recipe_name: {drifted}"
 
