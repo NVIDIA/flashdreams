@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1] / "ludus_renderer" / "_cpp" / "cudara
 @pytest.fixture(scope="module")
 def cudaraster_plugin() -> Any:
     _require_cuda()
-    return _get_plugin(gl=False)
+    return _get_plugin()
 
 
 @pytest.fixture

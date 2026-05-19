@@ -114,10 +114,42 @@ RUNNER_WAN21_T2V_1PT3B_FLASH = SelfForcingT2VRunnerConfig(
     pipeline=PIPELINE_WAN21_T2V_1PT3B_FLASH,
 )
 
+# Anti-drift Wan preset: static sink=5, rolling window=7
+# (recent=4 + current=3), with KVCache-relative RoPE.
+PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        PIPELINE_WAN21_T2V_1PT3B,
+        recipe_name="self-forcing-wan2.1-t2v-1.3b-anti-drift",
+        diffusion_model=dict(
+            seed=0,
+            transformer=dict(
+                window_size_t=7,
+                sink_size_t=5,
+                compile_network=False,
+                use_cuda_graph=False,
+                network=dict(
+                    apply_rope_before_kvcache=False,
+                ),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT = SelfForcingT2VRunnerConfig(
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT.recipe_name,
+    description=(
+        "Self-Forcing distilled Wan 2.1 1.3B T2V "
+        "(KVCache-relative RoPE, static sink/window, 4-step)."
+    ),
+    pipeline=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT,
+    total_blocks=80,
+)
+
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (
         RUNNER_WAN21_T2V_1PT3B,
         RUNNER_WAN21_T2V_1PT3B_FLASH,
+        RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT,
     )
 }

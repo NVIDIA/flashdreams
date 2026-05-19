@@ -158,7 +158,7 @@ def render_ludus(scene_path: str, output_dir: Path, frame_indices: List[int],
     import torch
     from ludus_renderer import load_clipgt_scene
     from ludus_renderer.render_utils import SceneAdapter, compute_camera_poses
-    from ludus_renderer.torch import LudusTimestampedContext
+    from ludus_renderer.torch import LudusCudaTimestampedContext
     from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
     
     print(f"\n{'='*60}")
@@ -186,7 +186,7 @@ def render_ludus(scene_path: str, output_dir: Path, frame_indices: List[int],
     print(f"Rendering {len(frame_indices)} frames...")
     
     # Create context
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
     if msaa_samples > 0:
         ctx.set_msaa_samples(msaa_samples)

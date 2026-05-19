@@ -27,7 +27,7 @@ import torch
 from torch import Tensor
 from transformers import AutoTokenizer, UMT5EncoderModel
 
-from flashdreams.core.io.hf import should_use_local_files_only
+from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
 from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 
@@ -70,12 +70,15 @@ class UMT5TextEncoder(Encoder):
         super().__init__(config)
         self.config: UMT5TextEncoderConfig = config
 
-        local_files_only = should_use_local_files_only(config.model_id_or_local_path)
+        maybe_download_hf_repo_on_rank0(
+            config.model_id_or_local_path,
+            allow_patterns=("text_encoder/**", "tokenizer/**"),
+        )
 
         self.text_encoder = UMT5EncoderModel.from_pretrained(
             config.model_id_or_local_path,
             subfolder="text_encoder",
-            local_files_only=local_files_only,
+            local_files_only=True,
         )
         self.text_encoder.eval().requires_grad_(False)
         self.text_encoder.to(dtype=config.dtype)
@@ -83,7 +86,7 @@ class UMT5TextEncoder(Encoder):
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_local_path,
             subfolder="tokenizer",
-            local_files_only=local_files_only,
+            local_files_only=True,
         )
 
     @torch.no_grad()

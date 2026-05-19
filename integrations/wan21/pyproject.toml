@@ -48,3 +48,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["wan21*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

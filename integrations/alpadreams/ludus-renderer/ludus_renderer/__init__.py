@@ -14,20 +14,21 @@
 # limitations under the License.
 
 """
-Ludus Renderer - GPU-native F-theta fisheye mesh shader rendering.
+Ludus Renderer - GPU-native F-theta fisheye CUDA software rasterizer.
 
-High-level API:
-    from ludus_renderer import LudusRenderer, load_clipgt_scene
+High-level API::
+
+    from ludus_renderer import LudusCudaTimestampedContext, load_clipgt_scene
 
     scene = load_clipgt_scene("/path/to/clipgt/scene", device="cuda")
-    renderer = LudusRenderer(width=1280, height=720)
-    renderer.upload_scene(scene.timestamped_scene)
-    images = renderer.render_batch(queries, poses)
+    ctx = LudusCudaTimestampedContext(device="cuda")
+    ctx.upload_cameras(cameras)
+    scene_id = ctx.upload_scene(scene.timestamped_scene)
+    images = ctx.render(scene_ids, camera_ids, timestamps_us, camera_type_ids,
+                        camera_poses, resolution=(H, W))
 
-Low-level API:
-    from ludus_renderer import LudusTimestampedContext, TimestampedScene
+NVJPEG Encoding (GPU-accelerated JPEG)::
 
-NVJPEG Encoding (GPU-accelerated JPEG):
     from ludus_renderer import nvjpeg
 
     images = torch.randint(0, 255, (4, 3, 480, 640), dtype=torch.uint8, device='cuda')
@@ -36,7 +37,6 @@ NVJPEG Encoding (GPU-accelerated JPEG):
 
 __version__ = "0.1.0"
 
-# High-level API
 # NVJPEG GPU encoding (lazy import)
 from . import nvjpeg
 
@@ -58,9 +58,8 @@ from ._ops import (
     Cube,
     CubePool,
     FThetaCamera,
-    # Contexts
-    LudusGLContext,
-    LudusTimestampedContext,
+    # Context
+    LudusCudaTimestampedContext,
     ObstaclePool,
     Polygon,
     # Primitives
@@ -69,11 +68,9 @@ from ._ops import (
     # Timestamped pools
     TimestampedPolylinePool,
     TimestampedScene,
-    ludus_render,
 )
 from .augmentation import mirror_augment_scene
 from .clipgt import ClipgtGpuScene, EgoTrackData, load_av2_scene, load_clipgt_scene
-from .renderer import LudusRenderer
 
 # Scene cache
 from .scene_cache import (
@@ -100,16 +97,13 @@ __all__ = [
     # Version
     "__version__",
     # High-level API
-    "LudusRenderer",
     "ClipgtGpuScene",
     "load_clipgt_scene",
     "load_av2_scene",
     "EgoTrackData",
     "mirror_augment_scene",
-    # Low-level contexts
-    "LudusGLContext",
-    "LudusTimestampedContext",
-    "ludus_render",
+    # CUDA rendering context
+    "LudusCudaTimestampedContext",
     # Primitives
     "Polyline",
     "Polygon",

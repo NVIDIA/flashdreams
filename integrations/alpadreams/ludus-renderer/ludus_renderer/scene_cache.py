@@ -90,8 +90,8 @@ _DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/ludus")
 def compute_format_hash() -> str:
     """Compute a hash that changes when the packed buffer layout changes.
 
-    Combines C++ struct sizes (from pybind) with Python packing constants.
-    Any struct or packing change auto-invalidates cache.
+    Driven entirely by Python packing constants; bump ``CACHE_VERSION``
+    if the on-disk cache layout ever changes.
     """
     parts = [
         f"cache_version={CACHE_VERSION}",
@@ -100,13 +100,6 @@ def compute_format_hash() -> str:
         "aabb_per_element=6",
         "cube_float_layout=trans3_quat4_scale3_color6",
     ]
-    try:
-        from ._ops._ludus_gl import get_struct_sizes  # ty:ignore[unresolved-import]
-        sizes = get_struct_sizes()
-        for name in sorted(sizes.keys()):
-            parts.append(f"sizeof_{name}={sizes[name]}")
-    except ImportError:
-        parts.append("cpp_sizes=unavailable")
     sig = ",".join(parts)
     return hashlib.sha256(sig.encode()).hexdigest()[:16]
 

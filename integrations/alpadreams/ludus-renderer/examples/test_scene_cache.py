@@ -16,12 +16,12 @@
 
 """Test and benchmark the 3-level scene cache (L1 CUDA / L2 CPU / L3 Disk).
 
-Exercises the full L3 → L2 → L1 pipeline:
+Exercises the full L3 -> L2 -> L1 pipeline:
 1. Cold load from tar (populating L3 disk cache on first run)
 2. L3 disk cache hit
 3. L2 CPU cache hit
 4. Async prefetch
-5. L1 CUDA tensor cache + direct GL upload
+5. L1 CUDA tensor cache + upload to rendering context
 6. Async L1 prefetch
 7. Render correctness: direct tar vs cached (pixel-identical check)
 
@@ -122,18 +122,15 @@ def main():
     print(f"  Post-prefetch ensure_cpu: {t_after * 1000:.2f}ms")
     print(f"  Stats: {db.stats}")
 
-    # --- Test 5: GPU upload (L2 → L1 → GL direct) ---
+    # --- Test 5: GPU upload (L2 -> L1 -> rendering context) ---
     if not args.no_gpu:
-        print(f"\n--- Test 5: GPU upload (L2 → L1 CUDA → GL direct) ---")
+        print(f"\n--- Test 5: GPU upload (L2 -> L1 CUDA -> render context) ---")
         try:
-            from ludus_renderer import LudusTimestampedContext, FThetaCamera
+            from ludus_renderer import LudusCudaTimestampedContext
             from ludus_renderer.render_utils import create_bev_camera
 
             device = torch.device("cuda")
-            ctx = LudusTimestampedContext(device=device)
-
-            ctx.preallocate_buffers(max_scenes=len(keys), bytes_per_scene=2 * 1024 * 1024)
-            print(f"  Pre-allocated GL buffers for {len(keys)} scenes @ 2MB")
+            ctx = LudusCudaTimestampedContext(device=device)
 
             bev_cam = create_bev_camera(256, 256, device=device)
             ctx.upload_cameras([bev_cam])
@@ -185,7 +182,7 @@ def main():
                 get_all_bev_camera_poses, SceneAdapter,
             )
             from ludus_renderer import (
-                LudusTimestampedContext, CAMERA_TYPE_BEV,
+                LudusCudaTimestampedContext, CAMERA_TYPE_BEV,
                 resample_timestamps,
             )
             from ludus_renderer.scene_cache import scene_to_device
@@ -199,7 +196,7 @@ def main():
             test_keys = [db.key_for_path(p) for p in test_paths]
 
             def render_scenes(scenes_list, label):
-                ctx2 = LudusTimestampedContext(device=device)
+                ctx2 = LudusCudaTimestampedContext(device=device)
                 bev = create_bev_camera(W, H, device=device)
                 ctx2.upload_cameras([bev])
                 sids = []

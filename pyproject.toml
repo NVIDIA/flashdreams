@@ -15,6 +15,7 @@ members = [
 # compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
 # cuBLAS 13.4 is backwards compatible with 13.1.
 [tool.uv]
+managed = true
 required-version = ">=0.11.8"
 override-dependencies = ["nvidia-cublas>=13.4"]
 

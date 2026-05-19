@@ -31,6 +31,7 @@ const params = new URLSearchParams(window.location.search)
 const mockMode = params.has("mock") && params.get("mock") !== "0"
 const allowedKeys = new Set(["w", "a", "s", "d", "q", "e", "i", "j", "k", "l"])
 const keySources = new Map()
+const heldKeyOrder = new Map()
 const activeKeys = new Set()
 const frameTimes = []
 const pendingActions = []
@@ -41,6 +42,7 @@ let controlChannel = null
 let statsTimer = null
 let inferenceInFlight = false
 let connected = false
+let heldKeySequence = 0
 let mockChunkIndex = 0
 let mockGenerationStarted = false
 let mockChunkTimer = null
@@ -246,6 +248,15 @@ function enqueueAction(action) {
   }
 }
 
+function enqueueHeldKeyRepeats() {
+  const heldKeys = Array.from(activeKeys).sort((a, b) => {
+    return (heldKeyOrder.get(a) || 0) - (heldKeyOrder.get(b) || 0)
+  })
+  for (const key of heldKeys) {
+    enqueueAction({ event: "keydown", key })
+  }
+}
+
 function setKeyHeld(key, source, held) {
   const normalized = normalizeKey(key)
   if (!allowedKeys.has(normalized)) {
@@ -268,9 +279,12 @@ function setKeyHeld(key, source, held) {
   updateControlHighlights()
 
   if (held && !wasActive && isActive) {
+    heldKeySequence += 1
+    heldKeyOrder.set(normalized, heldKeySequence)
     enqueueAction({ event: "keydown", key: normalized })
   }
   if (!held && wasActive && !isActive) {
+    heldKeyOrder.delete(normalized)
     enqueueAction({ event: "keyup", key: normalized })
   }
 }
@@ -280,6 +294,7 @@ function releaseAllKeys() {
     const sources = keySources.get(key)
     if (sources && sources.size > 0) {
       sources.clear()
+      heldKeyOrder.delete(key)
       updateControlHighlights()
       enqueueAction({ event: "keyup", key })
     }
@@ -321,6 +336,9 @@ function handleControlMessage(rawMessage) {
     logEvent(parts.join(", "))
     setStatus(activeKeys.size > 0 ? "Generating" : "Waiting", activeKeys.size > 0 ? "generating" : "waiting")
     setFlow(`chunk ${payload.chunk_index} complete`)
+    if (activeKeys.size > 0) {
+      enqueueHeldKeyRepeats()
+    }
     return
   }
 

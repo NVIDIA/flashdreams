@@ -446,9 +446,9 @@ def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
                  camera_name: str = 'camera:front:wide:120fov',
                  camera_id: int = 0) -> Image.Image:
     """Render a single frame and return as PIL Image.
-    
+
     Args:
-        ctx: LudusTimestampedContext
+        ctx: Ludus rendering context (e.g. ``LudusCudaTimestampedContext``).
         scene: Scene with ego_tracks and cameras
         scene_id: Uploaded scene ID
         timestamps: Tensor of timestamps
@@ -511,12 +511,12 @@ def render_sequence_gpu(ctx, scene_id: int, timestamps,
                         camera_poses: torch.Tensor, camera_type_id: int,
                         width: int, height: int, device: torch.device) -> torch.Tensor:
     """Render all frames and return as GPU tensor.
-    
+
     This is the core rendering function that keeps everything on GPU.
     Use this when you need direct access to GPU tensors for further processing.
-    
+
     Args:
-        ctx: LudusTimestampedContext
+        ctx: Ludus rendering context (e.g. ``LudusCudaTimestampedContext``).
         scene_id: Uploaded scene ID
         timestamps: Tensor of timestamps to render
         camera_poses: Pre-computed camera poses [N, 4, 4]
@@ -589,13 +589,13 @@ def render_all_frames(ctx, scene, scene_id: int, timestamps,
                       camera_name: str = 'camera:front:wide:120fov',
                       verbose: bool = False) -> Tuple[List[Image.Image], Dict]:
     """Render all frames and return as PIL Images with timing info.
-    
+
     This is a convenience function that combines compute_camera_poses,
-    render_sequence_gpu, gpu_to_numpy, and PIL image conversion. 
+    render_sequence_gpu, gpu_to_numpy, and PIL image conversion.
     For more control, use the individual functions directly.
-    
+
     Args:
-        ctx: LudusTimestampedContext
+        ctx: Ludus rendering context (e.g. ``LudusCudaTimestampedContext``).
         scene: Scene with ego_tracks and cameras
         scene_id: Uploaded scene ID
         timestamps: Tensor of timestamps

@@ -34,7 +34,7 @@ import torch
 
 from ludus_renderer import load_clipgt_scene
 from ludus_renderer.augmentation import mirror_augment_scene
-from ludus_renderer.torch import LudusTimestampedContext
+from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
 from ludus_renderer.render_utils import (
     SceneAdapter, create_camera, compute_camera_poses,
@@ -83,7 +83,7 @@ def main():
     print(f"  {n_frames} frames at {args.fps} Hz, duration {duration_us / 1e6:.1f}s")
 
     # Renderer setup
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
 
     camera = create_camera(args.width, args.height, device, bev=True,

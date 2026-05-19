@@ -141,6 +141,7 @@ class MultiHeadAttention(nn.Module):
         n_heads: int = 8,
         head_dim: int = 64,
         eps: float = 1e-6,
+        apply_rope_before_kvcache: bool = True,
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -160,6 +161,7 @@ class MultiHeadAttention(nn.Module):
         self.context_dim = context_dim
         self.inner_dim = inner_dim
         self.eps = eps
+        self.apply_rope_before_kvcache = apply_rope_before_kvcache
 
         self.q = nn.Linear(query_dim, inner_dim)
         self.k = nn.Linear(context_dim, inner_dim)
@@ -194,7 +196,8 @@ class MultiHeadAttention(nn.Module):
         Args:
             context: Context tensor of shape [..., L, context_dim].
             kv_cache: Existing cache to update, or ``None`` to create a new cache.
-            rope_freqs: Optional RoPE frequencies for K, shape [L, 1, 1, d // 2].
+            rope_freqs: Optional RoPE frequencies for K before
+                K cache write, shape ``[L, 1, 1, d]``.
 
         Returns:
             Updated ``BlockKVCache`` containing keys and values.
@@ -206,8 +209,7 @@ class MultiHeadAttention(nn.Module):
 
         k = self.norm_k(self.k(context)).reshape(batch_size, L, n, d)
         v = self.v(context).reshape(batch_size, L, n, d)
-        if rope_freqs is not None:
-            # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
+        if rope_freqs is not None and self.apply_rope_before_kvcache:
             k = apply_rope_freqs(k, rope_freqs, interleaved=True)
 
         if kv_cache is None:
@@ -237,15 +239,19 @@ class MultiHeadAttention(nn.Module):
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
-        rope_freqs: Tensor | None = None,
+        rope_freqs_q: Tensor | None = None,
+        rope_freqs_k: Tensor | None = None,
     ) -> Tensor:
         """Run attention with queries from ``x`` against cached K/V.
 
         Args:
             x: Query tokens, shape ``[..., L, query_dim]``.
             kv_cache: KV cache used as attention context.
-            rope_freqs: Optional RoPE frequencies for Q, shape
-                ``[L, 1, 1, d // 2]``.
+            rope_freqs_q: Optional RoPE frequencies for Q, shape
+                ``[L, 1, 1, d]``.
+            rope_freqs_k: Optional KV-cache-relative RoPE frequencies for
+                cached K, shape ``[S_cache, 1, 1, d]``. Only used when
+                K is stored without standard RoPE before the KV cache write.
 
         Returns:
             Output-projected attention, shape ``[..., L, query_dim]``.
@@ -257,16 +263,38 @@ class MultiHeadAttention(nn.Module):
         assert n * d == D, "n * d must be equal to D"
 
         q = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
-        if rope_freqs is not None:
-            # rope_freqs = torch.repeat_interleave(rope_freqs, repeats=2, dim=-1)
-            q = apply_rope_freqs(q, rope_freqs, interleaved=True)
-
         cached_k = kv_cache.cached_k()
+        if rope_freqs_q is not None:
+            q = apply_rope_freqs(q, rope_freqs_q, interleaved=True)
+        if not self.apply_rope_before_kvcache:
+            assert rope_freqs_k is not None, (
+                "KV-cache-relative RoPE requires rope_freqs_k for cached K"
+            )
+            cached_k = cached_k.clone()
+            cached_k = apply_rope_freqs(cached_k, rope_freqs_k, interleaved=True)
+
         cached_v = kv_cache.cached_v()
 
         out = self.attn_op(q, cached_k, cached_v)
         out = out.reshape(batch_shape + (L, n * d))
         return self.o(out)
+
+    def _slice_rope_freqs(
+        self,
+        rope_freqs: Tensor | None,
+        kv_cache: BlockKVCache,
+    ) -> tuple[Tensor | None, Tensor | None]:
+        """Select Q/K RoPE frequencies for standard or cache-relative mode."""
+        if rope_freqs is None:
+            return None, None
+        if self.apply_rope_before_kvcache:
+            return rope_freqs, rope_freqs
+
+        write_end = kv_cache.write_end
+        write_start = write_end - kv_cache.chunk_size
+        rope_freqs_q = rope_freqs[write_start:write_end]
+        rope_freqs_k = rope_freqs[: kv_cache.size]
+        return rope_freqs_q, rope_freqs_k
 
     def forward(
         self,
@@ -280,15 +308,18 @@ class MultiHeadAttention(nn.Module):
         Args:
             x: Query tensor and, when updating, the source for new K/V ([..., L, n * d]).
             kv_cache: Cache read by attention; written when ``update_kv_cache`` is True.
-            rope_freqs: Optional RoPE frequencies for Q and (when updating) K.
+            rope_freqs: Optional RoPE frequencies. Standard mode receives current-chunk
+                frequencies. KV-cache-relative mode receives frequencies relative to the KV cache
+                and applies the K slice on cache read.
             update_kv_cache: If False, only run attention against the existing cache.
 
         Returns:
             Projected output tensor of shape [..., L, query_dim].
         """
+        rope_freqs_q, rope_freqs_k = self._slice_rope_freqs(rope_freqs, kv_cache)
         if update_kv_cache:
-            kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.apply_kv(x, kv_cache, rope_freqs)
+            kv_cache = self.update_kv(x, kv_cache, rope_freqs_k)
+        return self.apply_kv(x, kv_cache, rope_freqs_q, rope_freqs_k)
 
 
 class SelfAttention(MultiHeadAttention):
@@ -455,6 +486,7 @@ class Block(nn.Module):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         i2v: bool = False,
+        apply_rope_before_kvcache: bool = True,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -470,6 +502,7 @@ class Block(nn.Module):
             n_heads=num_heads,
             head_dim=dim // num_heads,
             eps=eps,
+            apply_rope_before_kvcache=apply_rope_before_kvcache,
         )
         self.norm3 = (
             nn.LayerNorm(dim, eps, elementwise_affine=True)
@@ -561,7 +594,9 @@ class Block(nn.Module):
             x: Input tensor with shape [..., L, D].
             e: Modulation tensor with shape [..., 6, D].
             cache: KV cache container for this block.
-            rope_freqs: RoPE frequencies with shape [L, 1, 1, head_dim // 2].
+            rope_freqs: Full-width RoPE frequencies. Standard mode passes
+                current-chunk frequencies with shape ``[L, 1, 1, head_dim]``;
+                KV-cache-relative mode passes cache-layout frequencies.
 
         Returns:
             Updated hidden states with shape [..., L, D].

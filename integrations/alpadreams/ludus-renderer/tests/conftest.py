@@ -36,7 +36,7 @@ def _cuda_and_plugin_available() -> tuple[bool, str]:
     try:
         from ludus_renderer._ops._plugin import _get_plugin
 
-        _get_plugin(gl=False)
+        _get_plugin()
     except Exception as exc:
         return False, f"ludus_renderer plugin failed to load: {exc}"
 

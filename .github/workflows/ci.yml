@@ -9,67 +9,65 @@ on:
       - '**'
 
 jobs:
-  lint:
-    runs-on: linux-amd64-cpu8
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install dependencies
-        run: |
-          # ty needs third-party packages to resolve imports. Skip packages
-          # that cannot be installed on CPU-only runners:
-          # - transformer-engine-torch: source-only, requires CUDA to compile
-          uv sync --extra dev --group lint \
-            --no-install-package transformer-engine-torch
-
-      - name: Run linter checks
-        run: uv run --no-sync pre-commit run -a
-
   cpu:
     runs-on: linux-amd64-cpu8
     container:
       image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
+      UV_LINK_MODE: copy
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
         id: get-pr-info
         uses: nv-gha-runners/get-pr-info@main
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
+      - name: Install lint system dependencies
         run: |
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             python3 python3-dev python3-venv \
-            ffmpeg \
-            gcc g++ ninja-build \
-            libnccl-dev \
-            curl git ca-certificates unzip
-          rm -rf /var/lib/apt/lists/*
+            git curl ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "cpu"
+
+      - name: Install lint dependencies
+        run: |
+          # ty needs third-party packages to resolve imports. Skip packages
+          # that cannot be installed on CPU-only runners:
+          # - transformer-engine-torch: source-only, requires GPU arch to compile
+          uv venv --clear
+          uv sync --extra dev --group lint \
+            --no-install-package transformer-engine-torch
+
+      - name: Run linter checks
+        run: |
+          # Container runs as root but the workspace is owned by the runner
+          # uid -- git refuses to operate without safe.directory.
+          git config --global --add safe.directory "$(pwd)"
+          uv run --no-sync pre-commit run -a
+
+      - name: Install remaining system dependencies
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            ffmpeg \
+            gcc g++ ninja-build \
+            libnccl-dev \
+            unzip
+          rm -rf /var/lib/apt/lists/*
 
       - name: Build flashdreams wheel
-        run: |
-          uv run .github/scripts/sync_version.py || true
-          uv build --wheel --package flashdreams
-
-      - name: Install test dependencies
-        run: |
-          uv venv --clear
-          uv sync --extra dev
+        run: uv build --wheel --package flashdreams
 
       - name: Run CPU unit tests
         run: uv run --no-sync pytest -m ci_cpu -v
@@ -86,6 +84,7 @@ jobs:
       # Place the venv outside the workspace so uv does not interfere with
       # the checkout directory owned by the runner.
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
+      UV_LINK_MODE: copy
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -111,6 +110,9 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "gpu"
 
       - name: Install dependencies
         run: |
@@ -128,14 +130,14 @@ jobs:
         run: uv run --no-sync pytest -m ci_gpu -v
 
   # ===========================================================================
-  # Publish to Test PyPI -- runs only on main after lint passes.
+  # Publish to Test PyPI -- runs only on main after cpu + gpu jobs pass.
   # TEMPORARY: targets test.pypi.org while the project is pre-release.
   # Switch --publish-url/--check-url to the real PyPI endpoints and the
   # secret to PYPI_API_TOKEN when going public.
   # ===========================================================================
   publish-testpypi:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [lint]
+    needs: [cpu, gpu]
     runs-on: linux-amd64-cpu8
     steps:
       - name: Checkout
@@ -143,6 +145,8 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       - name: Sync versions
         run: uv run .github/scripts/sync_version.py || true

@@ -46,7 +46,7 @@ from ludus_renderer.render_utils import (
     create_bev_camera,
     get_all_bev_camera_poses,
 )
-from ludus_renderer.torch import LudusTimestampedContext
+from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
 from ludus_renderer.util import resample_timestamps
 
@@ -178,7 +178,7 @@ def run(args):
           f"({t_load / args.num_scenes:.2f}s avg)")
 
     # --- Setup rendering context ---
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
 
     bev_cam = create_bev_camera(args.width, args.height, device,

@@ -91,3 +91,27 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 SPDX-License-Identifier = "Apache-2.0"
+
+# --- HPG-2011 NVIDIA CUDA Rasterizer port (NVIDIA-authored, BSD-3-Clause).
+#     This subtree is documented in NOTICE and in
+#     ludus_renderer/_cpp/cudaraster/PORT_NOTES.md. The inline file headers
+#     carry the full BSD-3-Clause text; this annotation provides the
+#     SPDX identifiers REUSE needs (the inline headers predate the SPDX
+#     tag convention). `override` prevents the project-default Apache-2.0
+#     aggregate from being merged in. ---
+[[annotations]]
+path = "integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved."
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- LodePNG, embedded by the upstream cudaraster framework (third-party,
+#     Zlib license). The inline header in lodepng.h preserves the upstream
+#     copyright as required by the Zlib license; the full text is reproduced
+#     in LICENSES/Zlib.txt. This annotation comes after the cudaraster
+#     `override` above so the more specific path wins. ---
+[[annotations]]
+path = "integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/framework/3rdparty/lodepng/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2005-2011 Lode Vandevenne"
+SPDX-License-Identifier = "Zlib"
