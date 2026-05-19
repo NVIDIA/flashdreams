@@ -36,6 +36,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     distributed_op,
 )
 from flashdreams.infra.config import derive_config
+from flashdreams.serving.webrtc.server import SessionBusyError
 from lingbot.config import PIPELINE_CONFIGS
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
@@ -55,10 +56,6 @@ LOGGER = logging.getLogger(__name__)
 
 class LingbotRuntimeError(RuntimeError):
     """Raised when the Lingbot runtime is used incorrectly."""
-
-
-class SessionBusyError(RuntimeError):
-    """Raised when a second peer tries to open a session."""
 
 
 class LingbotControlSignal(IntEnum):

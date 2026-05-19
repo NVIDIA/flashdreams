@@ -24,7 +24,7 @@ description = "Alpadreams inference with flashdreams"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "flashdreams",
+    "flashdreams[serving]",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio",

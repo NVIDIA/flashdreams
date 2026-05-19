@@ -554,7 +554,7 @@ name = "flash-alpadreams"
 version = "0.1.0a2"
 source = { editable = "integrations/alpadreams" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "imageio" },
@@ -572,7 +572,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "imageio" },
@@ -626,9 +626,15 @@ runners = [
     { name = "opencv-python-headless" },
     { name = "scipy" },
 ]
+serving = [
+    { name = "aiohttp" },
+    { name = "aiortc" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", marker = "extra == 'serving'", specifier = ">=3.9" },
+    { name = "aiortc", marker = "extra == 'serving'", specifier = ">=1.9" },
     { name = "boto3", specifier = ">=1.35" },
     { name = "botocore", specifier = ">=1.35" },
     { name = "einops", specifier = ">=0.7" },
@@ -660,7 +666,7 @@ requires-dist = [
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
     { name = "tyro", specifier = ">=0.8" },
 ]
-provides-extras = ["dev", "examples", "runners"]
+provides-extras = ["dev", "examples", "runners", "serving"]
 
 [[package]]
 name = "flashdreams-causal-forcing"

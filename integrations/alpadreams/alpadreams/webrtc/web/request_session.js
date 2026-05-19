@@ -1,0 +1,377 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+const connectButton = document.getElementById("connectButton")
+const statusText = document.getElementById("statusText")
+const flowText = document.getElementById("flowText")
+const eventLog = document.getElementById("eventLog")
+const remoteVideo = document.getElementById("remoteVideo")
+const fpsValue = document.getElementById("fpsValue")
+const latencyValue = document.getElementById("latencyValue")
+const resolutionValue = document.getElementById("resolutionValue")
+const stepValue = document.getElementById("stepValue")
+const modelValue = document.getElementById("modelValue")
+const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
+
+const allowedKeys = new Set(["w", "a", "s", "d"])
+const keyAliases = new Map([
+  ["arrowup", "w"],
+  ["arrowleft", "a"],
+  ["arrowdown", "s"],
+  ["arrowright", "d"],
+])
+const keySources = new Map()
+const activeKeys = new Set()
+const frameTimes = []
+const pendingActions = []
+
+let peerConnection = null
+let controlChannel = null
+let statsTimer = null
+let connected = false
+
+const metrics = {
+  fps: null,
+  targetFps: null,
+  latencyMs: null,
+  resolution: null,
+  step: null,
+  model: "Alpadreams",
+}
+
+function normalizeKey(rawKey) {
+  const key = String(rawKey || "").toLowerCase()
+  return keyAliases.get(key) || key
+}
+
+function formatTime() {
+  return new Date().toLocaleTimeString([], { hour12: false })
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const number = Number(value)
+    if (Number.isFinite(number)) {
+      return number
+    }
+  }
+  return null
+}
+
+function formatMs(value) {
+  if (!Number.isFinite(value)) {
+    return "--"
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)} s`
+  }
+  return `${Math.round(value)} ms`
+}
+
+function logEvent(message, { source = "server", level = "info" } = {}) {
+  const entry = document.createElement("div")
+  entry.className = `logEntry is-${source}`
+  if (level === "error") {
+    entry.classList.add("is-error")
+  }
+  const time = document.createElement("time")
+  time.textContent = `[${formatTime()}]`
+  const body = document.createElement("span")
+  body.textContent = message
+  entry.append(time, body)
+  eventLog.append(entry)
+  while (eventLog.children.length > 28) {
+    eventLog.firstElementChild.remove()
+  }
+}
+
+function setStatus(message, state = message.toLowerCase()) {
+  statusText.textContent = message
+  document.body.dataset.status = state
+}
+
+function setFlow(message) {
+  flowText.textContent = message
+}
+
+function renderMetrics() {
+  const fps = firstFinite(metrics.fps, metrics.targetFps)
+  fpsValue.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : "--"
+  latencyValue.textContent = formatMs(metrics.latencyMs)
+  resolutionValue.textContent = metrics.resolution || "--"
+  stepValue.textContent = metrics.step === null ? "--" : String(metrics.step)
+  modelValue.textContent = metrics.model || "Alpadreams"
+}
+
+function takeObservedActionLatency(now = performance.now()) {
+  if (pendingActions.length === 0) {
+    return null
+  }
+  const oldest = pendingActions[0]
+  pendingActions.length = 0
+  return Math.max(0, now - oldest.sentAt)
+}
+
+function updateMetricsFromChunk(payload) {
+  metrics.targetFps = firstFinite(payload.fps, payload.target_fps, metrics.targetFps)
+  metrics.latencyMs = firstFinite(
+    payload.latency_ms,
+    payload.control_latency_ms,
+    takeObservedActionLatency(),
+    payload.lag_ms,
+    payload.gen_ms,
+    metrics.latencyMs
+  )
+  metrics.step = Number.isFinite(Number(payload.chunk_index))
+    ? Number(payload.chunk_index)
+    : metrics.step
+  metrics.model = typeof payload.model === "string" && payload.model ? payload.model : metrics.model
+  if (payload.resolution && typeof payload.resolution === "object") {
+    const width = Number(payload.resolution.width)
+    const height = Number(payload.resolution.height)
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      metrics.resolution = `${width}x${height}`
+    }
+  }
+  renderMetrics()
+}
+
+function updateMetricsFromVideo() {
+  if (remoteVideo.videoWidth > 0 && remoteVideo.videoHeight > 0) {
+    metrics.resolution = `${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`
+    renderMetrics()
+  }
+}
+
+function recordFrame(timestamp) {
+  const now = Number.isFinite(timestamp) ? timestamp : performance.now()
+  frameTimes.push(now)
+  while (frameTimes.length > 0 && now - frameTimes[0] > 1200) {
+    frameTimes.shift()
+  }
+  if (frameTimes.length >= 2) {
+    const elapsed = frameTimes[frameTimes.length - 1] - frameTimes[0]
+    metrics.fps = elapsed > 0 ? ((frameTimes.length - 1) * 1000) / elapsed : metrics.fps
+    renderMetrics()
+  }
+}
+
+function updateControlHighlights() {
+  activeKeys.clear()
+  for (const [key, sources] of keySources.entries()) {
+    if (sources.size > 0) {
+      activeKeys.add(key)
+    }
+  }
+  for (const button of controlButtons) {
+    const key = button.dataset.controlKey
+    button.classList.toggle("is-active", activeKeys.has(key))
+    button.setAttribute("aria-pressed", activeKeys.has(key) ? "true" : "false")
+  }
+}
+
+function actionLabel(action) {
+  return `${action.event}:${action.key}`
+}
+
+function sendControlAction(action) {
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    setFlow("connect session first")
+    return false
+  }
+  controlChannel.send(JSON.stringify({ type: "action", action }))
+  pendingActions.push({ sentAt: performance.now(), label: actionLabel(action) })
+  while (pendingActions.length > 32) {
+    pendingActions.shift()
+  }
+  setStatus("Generating", "generating")
+  setFlow(`sent ${actionLabel(action)}`)
+  logEvent(`control ${actionLabel(action)}`, { source: "client" })
+  return true
+}
+
+function setKeyHeld(key, source, held) {
+  if (!allowedKeys.has(key)) {
+    return
+  }
+  let sources = keySources.get(key)
+  if (!sources) {
+    sources = new Set()
+    keySources.set(key, sources)
+  }
+  const wasHeld = sources.size > 0
+  if (held) {
+    sources.add(source)
+  } else {
+    sources.delete(source)
+  }
+  const isHeld = sources.size > 0
+  updateControlHighlights()
+  if (wasHeld !== isHeld) {
+    sendControlAction({ event: isHeld ? "keydown" : "keyup", key })
+  }
+}
+
+function handleServerMessage(message) {
+  let payload
+  try {
+    payload = JSON.parse(message)
+  } catch {
+    logEvent("invalid server payload", { level: "error" })
+    return
+  }
+  if (payload.type === "chunk_done") {
+    updateMetricsFromChunk(payload)
+    setStatus("Connected", "connected")
+    setFlow(`chunk ${payload.chunk_index} done`)
+    logEvent(`chunk ${payload.chunk_index} ${payload.num_frames} frames`)
+    return
+  }
+  if (payload.type === "error") {
+    setStatus("Error", "error")
+    logEvent(payload.message || "server error", { level: "error" })
+  }
+}
+
+async function waitForIceGatheringComplete(pc) {
+  if (pc.iceGatheringState === "complete") {
+    return
+  }
+  await new Promise((resolve) => {
+    const onStateChange = () => {
+      if (pc.iceGatheringState === "complete") {
+        pc.removeEventListener("icegatheringstatechange", onStateChange)
+        resolve()
+      }
+    }
+    pc.addEventListener("icegatheringstatechange", onStateChange)
+  })
+}
+
+async function connectSession() {
+  if (connected) {
+    return
+  }
+  connectButton.disabled = true
+  setStatus("Connecting", "connecting")
+  setFlow("creating peer")
+
+  peerConnection = new RTCPeerConnection()
+  controlChannel = peerConnection.createDataChannel("controls", { ordered: true })
+  peerConnection.addTransceiver("video", { direction: "recvonly" })
+
+  controlChannel.addEventListener("open", () => {
+    connected = true
+    setStatus("Connected", "connected")
+    setFlow("press W A S D")
+    logEvent("data channel open")
+  })
+  controlChannel.addEventListener("message", event => handleServerMessage(event.data))
+  controlChannel.addEventListener("close", () => {
+    connected = false
+    setStatus("Closed", "idle")
+    setFlow("closed")
+  })
+
+  peerConnection.addEventListener("track", event => {
+    remoteVideo.srcObject = event.streams[0]
+    setFlow("video track attached")
+  })
+  peerConnection.addEventListener("connectionstatechange", () => {
+    const state = peerConnection.connectionState
+    if (state === "failed" || state === "disconnected" || state === "closed") {
+      connected = false
+      setStatus(state, state === "failed" ? "error" : "idle")
+    }
+  })
+
+  const offer = await peerConnection.createOffer()
+  await peerConnection.setLocalDescription(offer)
+  await waitForIceGatheringComplete(peerConnection)
+  const response = await fetch("/api/webrtc/offer", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(peerConnection.localDescription),
+  })
+  if (!response.ok) {
+    const reason = await response.text()
+    connectButton.disabled = false
+    setStatus("Error", "error")
+    setFlow(`offer failed ${response.status}`)
+    logEvent(reason || "offer failed", { level: "error" })
+    return
+  }
+  const answer = await response.json()
+  await peerConnection.setRemoteDescription(answer)
+  setFlow("answer applied")
+}
+
+for (const button of controlButtons) {
+  const key = button.dataset.controlKey
+  button.addEventListener("pointerdown", event => {
+    event.preventDefault()
+    button.setPointerCapture(event.pointerId)
+    setKeyHeld(key, `pointer:${event.pointerId}`, true)
+  })
+  button.addEventListener("pointerup", event => {
+    event.preventDefault()
+    setKeyHeld(key, `pointer:${event.pointerId}`, false)
+  })
+  button.addEventListener("pointercancel", event => {
+    setKeyHeld(key, `pointer:${event.pointerId}`, false)
+  })
+}
+
+window.addEventListener("keydown", event => {
+  const key = normalizeKey(event.key)
+  if (!allowedKeys.has(key) || event.repeat) {
+    return
+  }
+  event.preventDefault()
+  setKeyHeld(key, "keyboard", true)
+})
+
+window.addEventListener("keyup", event => {
+  const key = normalizeKey(event.key)
+  if (!allowedKeys.has(key)) {
+    return
+  }
+  event.preventDefault()
+  setKeyHeld(key, "keyboard", false)
+})
+
+connectButton.addEventListener("click", () => {
+  connectSession().catch(error => {
+    connectButton.disabled = false
+    setStatus("Error", "error")
+    setFlow("connect failed")
+    logEvent(error instanceof Error ? error.message : String(error), { level: "error" })
+  })
+})
+
+remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
+
+function pollVideoFrames() {
+  if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+    remoteVideo.requestVideoFrameCallback(function onFrame(now) {
+      recordFrame(now)
+      updateMetricsFromVideo()
+      remoteVideo.requestVideoFrameCallback(onFrame)
+    })
+  } else {
+    statsTimer = window.setInterval(updateMetricsFromVideo, 500)
+  }
+}
+
+pollVideoFrames()
+renderMetrics()
+logEvent("ready")
+
+window.addEventListener("beforeunload", () => {
+  if (statsTimer !== null) {
+    window.clearInterval(statsTimer)
+  }
+  if (peerConnection) {
+    peerConnection.close()
+  }
+})

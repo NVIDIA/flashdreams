@@ -1,0 +1,793 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import logging
+import os
+import tempfile
+from collections import deque
+from dataclasses import dataclass, field
+from enum import IntEnum
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+import torch
+import torch.distributed as dist
+from aiortc import RTCPeerConnection, RTCSessionDescription
+from alpadreams.conditioning.conditioning_wrapper import (
+    AV_POSITIVE_PROMPT,
+    AlpadreamsConditioningState,
+    AlpadreamsConditioningWrapper,
+    TextPrompt,
+)
+from alpadreams.conditioning.renderer import load_and_attach_ludus_scene
+from alpadreams.conditioning.world_scenario.data_loaders import load_scene
+from alpadreams.conditioning.world_scenario.settings import SETTINGS
+from alpadreams.config import ALPADREAMS_CONFIGS
+from alpadreams.transformer import CosmosTransformerConfig
+
+from flashdreams.core.distributed.rank_orchestration import (
+    RankCoordinator,
+    distributed_op,
+)
+from flashdreams.serving.webrtc.controls import (
+    WSAD_SUPPORTED_KEYS,
+    CameraPoseIntegrator,
+    KeyboardResampler,
+    PoseSegment,
+)
+from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.server import SessionBusyError
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+LOGGER = logging.getLogger(__name__)
+
+
+class AlpadreamsRuntimeError(RuntimeError):
+    """Raised when the Alpadreams WebRTC runtime is used incorrectly."""
+
+
+class AlpadreamsControlSignal(IntEnum):
+    INITIALIZE = 0
+    RESET_SESSION = 1
+    ACTION_STEP = 2
+    CLOSE = 3
+    EXIT = 4
+
+
+@dataclass(slots=True)
+class AlpadreamsRuntimeConfig:
+    pipeline_config_name: str = (
+        "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
+    )
+    scene_dir: Path = REPO_ROOT / "assets" / "omnidreams"
+    seed: int | None = 42
+    device: str = "cuda:0"
+    video_height: int = 704
+    video_width: int = 1280
+    fps: int = 30
+    camera_name: str = "camera_front_wide_120fov"
+    first_frame_filename: str = "first_frame.jpeg"
+    prompt_filename: str = "prompt.txt"
+    clipgt_dirname: str = "clipgt"
+    move_speed_per_s: float = 6.0
+    rotate_speed_rad_per_s: float = float(np.deg2rad(35.0))
+
+
+@dataclass(slots=True)
+class AlpadreamsStepResult:
+    chunk_index: int
+    num_frames: int
+    video_chunk: torch.Tensor
+    stats: dict[str, float] | None
+
+
+class AlpadreamsInferenceRuntime:
+    """Single-scene, single-view Alpadreams runtime for WebRTC control."""
+
+    def __init__(self, config: AlpadreamsRuntimeConfig | None = None) -> None:
+        self.config = config or AlpadreamsRuntimeConfig()
+        self.MASTER_RANK = 0
+        self.rank = 0 if not dist.is_initialized() else dist.get_rank()
+
+        control_device = torch.device(self.config.device)
+        if control_device.type == "cuda" and control_device.index is None:
+            control_device = torch.device(
+                f"cuda:{torch.cuda.current_device()}"
+                if torch.cuda.is_available()
+                else "cuda:0"
+            )
+
+        self.pose_integrator = CameraPoseIntegrator(
+            move_speed_per_s=self.config.move_speed_per_s,
+            rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
+        )
+        self.autoregressive_index = 0
+
+        self._device: torch.device | None = None
+        self._wrapper: AlpadreamsConditioningWrapper | None = None
+        self._state: AlpadreamsConditioningState | None = None
+        self._renderer: Any | None = None
+        self._scene_data: Any | None = None
+        self._initial_rgb_frames: torch.Tensor | None = None
+        self._text_prompts: list[TextPrompt] | None = None
+        self._camera_to_rig: torch.Tensor | None = None
+        self._initial_ego_pose: np.ndarray | None = None
+        self._next_timestamp_us: int = 0
+        self._closed = False
+        self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+
+        self._step_lock = asyncio.Lock()
+        self.rank_coordinator = RankCoordinator(
+            device=control_device,
+            signal_type=AlpadreamsControlSignal,
+            is_master=self.is_master,
+            master_rank=self.MASTER_RANK,
+        )
+        self.rank_coordinator.register_distributed_ops(self)
+
+    @property
+    def is_master(self) -> bool:
+        return self.rank == self.MASTER_RANK
+
+    def wait_for_termination(self) -> None:
+        self.rank_coordinator.worker_loop(exit_signal=AlpadreamsControlSignal.EXIT)
+
+    def send_exit_signal(self) -> None:
+        if self.is_master:
+            self.rank_coordinator.send_exit(exit_signal=AlpadreamsControlSignal.EXIT)
+
+    async def initialize(self) -> None:
+        if self._wrapper is not None:
+            return
+        await asyncio.to_thread(self._initialize_sync_all_ranks)
+
+    async def reset_for_new_session(self) -> None:
+        if self._closed:
+            raise AlpadreamsRuntimeError("Runtime is closed.")
+        if self._wrapper is None:
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+        await asyncio.to_thread(self._reset_rollout_sync_all_ranks)
+
+    async def close(self) -> None:
+        self._closed = True
+        await asyncio.to_thread(self._close_sync_all_ranks)
+
+    async def generate_chunk(
+        self,
+        *,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> AlpadreamsStepResult:
+        if self._closed:
+            raise AlpadreamsRuntimeError("Session is closed.")
+        if self._wrapper is None:
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+
+        async with self._step_lock:
+            if self._closed:
+                raise AlpadreamsRuntimeError("Session is closed.")
+            return await asyncio.to_thread(
+                self._generate_chunk_sync_all_ranks, segments, frame_times
+            )
+
+    def peek_next_chunk_num_frames(self) -> int:
+        if self._wrapper is None:
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+        if self._state is None:
+            return int(self._wrapper.initial_frame_chunk_size)
+        return int(self._wrapper.frame_chunk_size)
+
+    def peek_steady_chunk_num_frames(self) -> int:
+        if self._wrapper is None:
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+        return int(self._wrapper.frame_chunk_size)
+
+    @distributed_op(AlpadreamsControlSignal.INITIALIZE)
+    def _initialize_sync_all_ranks(self) -> None:
+        self._initialize_sync()
+
+    @distributed_op(AlpadreamsControlSignal.RESET_SESSION)
+    def _reset_rollout_sync_all_ranks(self) -> None:
+        self._reset_rollout_sync()
+
+    @distributed_op(AlpadreamsControlSignal.ACTION_STEP)
+    def _generate_chunk_sync_all_ranks(
+        self,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> AlpadreamsStepResult:
+        return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
+
+    @distributed_op(AlpadreamsControlSignal.CLOSE)
+    def _close_sync_all_ranks(self) -> None:
+        self._close_sync()
+
+    def _initialize_sync(self) -> None:
+        if self._wrapper is not None:
+            return
+
+        cfg = self.config
+        scene_dir = cfg.scene_dir
+        clipgt_dir = scene_dir / cfg.clipgt_dirname
+        first_frame_path = scene_dir / cfg.first_frame_filename
+        prompt_path = scene_dir / cfg.prompt_filename
+        missing_paths = [
+            str(path)
+            for path in (clipgt_dir, first_frame_path, prompt_path)
+            if not path.exists()
+        ]
+        if missing_paths:
+            raise FileNotFoundError(
+                "Missing Alpadreams WebRTC scene assets: " + ", ".join(missing_paths)
+            )
+        if cfg.pipeline_config_name not in ALPADREAMS_CONFIGS:
+            supported = ", ".join(sorted(ALPADREAMS_CONFIGS))
+            raise ValueError(
+                f"Unknown pipeline_config_name={cfg.pipeline_config_name!r}. "
+                f"Supported: {supported}"
+            )
+
+        pipeline_cfg = ALPADREAMS_CONFIGS[cfg.pipeline_config_name]
+        transformer_cfg = pipeline_cfg.diffusion_model.transformer
+        if not isinstance(transformer_cfg, CosmosTransformerConfig):
+            raise TypeError(
+                "Alpadreams WebRTC requires a CosmosTransformerConfig pipeline."
+            )
+        if transformer_cfg.num_views != 1:
+            raise ValueError(
+                "Alpadreams WebRTC v1 only supports single-view configs; "
+                f"{cfg.pipeline_config_name!r} has num_views={transformer_cfg.num_views}."
+            )
+
+        self._device = torch.device(cfg.device)
+        if self._device.type == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA is required for Alpadreams WebRTC runtime.")
+
+        image_bgr = cv2.imread(str(first_frame_path), cv2.IMREAD_COLOR)
+        if image_bgr is None:
+            raise RuntimeError(f"Failed to read first frame from {first_frame_path}")
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        image_rgb = cv2.resize(
+            image_rgb,
+            (cfg.video_width, cfg.video_height),
+            interpolation=cv2.INTER_CUBIC,
+        )
+        self._initial_rgb_frames = (
+            torch.from_numpy(image_rgb)
+            .permute(2, 0, 1)
+            .contiguous()
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .to(device=self._device, dtype=torch.uint8)
+        )
+
+        prompt = prompt_path.read_text(encoding="utf-8").strip() or AV_POSITIVE_PROMPT
+        self._text_prompts = [TextPrompt(positive=prompt)]
+
+        loadable_clipgt_dir = self._prepare_clipgt_dir(clipgt_dir)
+        scene_data = load_scene(
+            loadable_clipgt_dir,
+            camera_names=[cfg.camera_name],
+            max_frames=-1,
+            input_pose_fps=SETTINGS["INPUT_POSE_FPS"],
+            resize_resolution_hw=(cfg.video_height, cfg.video_width),
+        )
+        scene_data = load_and_attach_ludus_scene(
+            loadable_clipgt_dir,
+            scene_data,
+            device=self._device,
+        )
+        if not scene_data.ego_poses:
+            raise ValueError(f"Scene {loadable_clipgt_dir} has no ego poses.")
+        if cfg.camera_name not in scene_data.camera_models:
+            raise ValueError(
+                f"Camera {cfg.camera_name!r} was not loaded from {loadable_clipgt_dir}."
+            )
+        if cfg.camera_name not in scene_data.camera_extrinsics:
+            raise ValueError(
+                f"Camera {cfg.camera_name!r} has no extrinsics in {loadable_clipgt_dir}."
+            )
+
+        self._wrapper = AlpadreamsConditioningWrapper(
+            pipeline_config_name=cfg.pipeline_config_name,
+            resolution_wh=(cfg.video_width, cfg.video_height),
+            seed_for_every_rollout=cfg.seed,
+            device=self._device,
+        )
+        self._scene_data = scene_data
+        self._renderer = self._wrapper.create_renderer(scene_data, [cfg.camera_name])
+        self._camera_to_rig = torch.as_tensor(
+            scene_data.camera_extrinsics[cfg.camera_name],
+            device=self._device,
+            dtype=torch.float32,
+        )
+        self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
+        self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
+        self._reset_rollout_sync()
+
+    def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
+        if list(clipgt_dir.glob("*.calibration_estimate.parquet")):
+            return clipgt_dir
+        if not (clipgt_dir / "calibration_estimate.parquet").exists():
+            return clipgt_dir
+
+        self._clipgt_temp_dir = tempfile.TemporaryDirectory(prefix="alpadreams-clipgt-")
+        staged = Path(self._clipgt_temp_dir.name)
+        for source in clipgt_dir.glob("*.parquet"):
+            target = staged / f"clip.{source.name}"
+            os.symlink(source.resolve(), target)
+        return staged
+
+    def _reset_rollout_sync(self) -> None:
+        if self._wrapper is None or self._renderer is None:
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+        if self._initial_ego_pose is None or self._scene_data is None:
+            raise AlpadreamsRuntimeError("Scene state is not initialized.")
+
+        if self._state is not None and self._state.pipeline_cache is not None:
+            del self._state.pipeline_cache
+        self._state = None
+        self.pose_integrator = CameraPoseIntegrator(
+            move_speed_per_s=self.config.move_speed_per_s,
+            rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
+        )
+        self.pose_integrator.reset(self._initial_ego_pose)
+        self.autoregressive_index = 0
+        self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
+        self._wrapper.set_rollout_seed(self.config.seed)
+
+    def _close_sync(self) -> None:
+        state = self._state
+        wrapper = self._wrapper
+        self._state = None
+        self._wrapper = None
+        self._renderer = None
+        self._scene_data = None
+        self._initial_rgb_frames = None
+        self._text_prompts = None
+        self._camera_to_rig = None
+        self._initial_ego_pose = None
+
+        if state is not None and wrapper is not None:
+            wrapper.cleanup(state)
+        if wrapper is not None:
+            del wrapper
+        if self._clipgt_temp_dir is not None:
+            self._clipgt_temp_dir.cleanup()
+            self._clipgt_temp_dir = None
+
+        if self._device is not None and self._device.type == "cuda":
+            torch.cuda.synchronize(device=self._device)
+            torch.cuda.empty_cache()
+
+    def _generate_one_chunk_sync(
+        self,
+        *,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> AlpadreamsStepResult:
+        if (
+            self._wrapper is None
+            or self._renderer is None
+            or self._initial_rgb_frames is None
+            or self._text_prompts is None
+            or self._camera_to_rig is None
+        ):
+            raise AlpadreamsRuntimeError("Runtime is not initialized.")
+        if self._device is None:
+            raise AlpadreamsRuntimeError("Runtime device is not initialized.")
+
+        num_frames = self.peek_next_chunk_num_frames()
+        if len(frame_times) != num_frames:
+            raise AlpadreamsRuntimeError(
+                f"Expected {num_frames} frame_times for chunk={self.autoregressive_index}, "
+                f"got {len(frame_times)}."
+            )
+        if not segments:
+            raise AlpadreamsRuntimeError(
+                f"Chunk={self.autoregressive_index} received empty segments."
+            )
+
+        ego_poses = self.pose_integrator.integrate_chunk(
+            segments=segments, frame_times=frame_times
+        )
+        ego_poses_t = torch.from_numpy(ego_poses).to(
+            device=self._device, dtype=torch.float32
+        )
+        camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
+        frame_timestamps_us = self._consume_timestamps(num_frames)
+
+        camera_names = [self.config.camera_name]
+        camera_poses_per_view = {self.config.camera_name: camera_poses}
+        if self._state is None:
+            output = self._wrapper.start_generation(
+                text_prompts=self._text_prompts,
+                initial_rgb_frames=self._initial_rgb_frames,
+                renderer=self._renderer,
+                camera_names=camera_names,
+                camera_poses_per_view=camera_poses_per_view,
+                frame_timestamps_us=frame_timestamps_us,
+            )
+            self._state = output.state
+        else:
+            output = self._wrapper.continue_generation(
+                state=self._state,
+                camera_names=camera_names,
+                camera_poses_per_view=camera_poses_per_view,
+                frame_timestamps_us=frame_timestamps_us,
+            )
+            self._state = output.state
+
+        if self._state.pipeline_cache is not None:
+            self._wrapper.finalize_block_generation(
+                self._state.pipeline_cache,
+                output.finalization_state,
+            )
+
+        if output.rgb_frames is None:
+            raise AlpadreamsRuntimeError("Alpadreams WebRTC received no RGB frames.")
+
+        result = AlpadreamsStepResult(
+            chunk_index=self.autoregressive_index,
+            num_frames=int(output.rgb_frames.shape[2]),
+            video_chunk=output.rgb_frames.detach().cpu(),
+            stats=None,
+        )
+        self.autoregressive_index += 1
+        return result
+
+    def _consume_timestamps(self, num_frames: int) -> list[int]:
+        step_us = int(round(1_000_000 / self.config.fps))
+        timestamps = [self._next_timestamp_us + i * step_us for i in range(num_frames)]
+        self._next_timestamp_us += num_frames * step_us
+        return timestamps
+
+
+@dataclass(slots=True)
+class _ManagedAlpadreamsSession:
+    runtime: AlpadreamsInferenceRuntime
+    video_track: BufferedVideoTrack
+    peer_connection: Any
+    resampler: KeyboardResampler
+    control_channel: Any | None = None
+    generation_task: asyncio.Task[Any] | None = None
+    first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
+    pending_action_arrivals: deque[float] = field(default_factory=deque)
+    closed: bool = False
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+
+        if self.generation_task is not None and not self.generation_task.done():
+            self.generation_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.generation_task
+            self.generation_task = None
+
+        await self.video_track.close()
+        await self.peer_connection.close()
+
+
+class AlpadreamsWebRTCSessionManager:
+    """Owns one active WebRTC session and forwards WSAD actions."""
+
+    def __init__(
+        self,
+        *,
+        runtime_config: AlpadreamsRuntimeConfig | None = None,
+    ) -> None:
+        self.runtime_config = runtime_config or AlpadreamsRuntimeConfig()
+        self.fps = self.runtime_config.fps
+        self._runtime = AlpadreamsInferenceRuntime(config=self.runtime_config)
+        self._runtime_ready = False
+        self._active_session: _ManagedAlpadreamsSession | None = None
+        self._session_lock = asyncio.Lock()
+
+    def has_active_session(self) -> bool:
+        return self._active_session is not None and not self._active_session.closed
+
+    def is_runtime_ready(self) -> bool:
+        return self._runtime_ready
+
+    async def preload_runtime(self) -> None:
+        if self._runtime_ready:
+            return
+        await self._runtime.initialize()
+        self._runtime_ready = True
+
+    async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
+        async with self._session_lock:
+            if self._active_session is not None and not self._active_session.closed:
+                raise SessionBusyError("An Alpadreams session is already active.")
+
+            if not self._runtime_ready:
+                await self._runtime.initialize()
+                self._runtime_ready = True
+            await self._runtime.reset_for_new_session()
+
+            peer_connection = RTCPeerConnection()
+            num_frames = self._runtime.peek_steady_chunk_num_frames()
+            video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
+            peer_connection.addTrack(video_track)
+            resampler = KeyboardResampler(
+                fps=self.fps,
+                start_v=0.0,
+                supported_keys=WSAD_SUPPORTED_KEYS,
+            )
+            managed_session = _ManagedAlpadreamsSession(
+                runtime=self._runtime,
+                video_track=video_track,
+                peer_connection=peer_connection,
+                resampler=resampler,
+            )
+            self._active_session = managed_session
+
+            @peer_connection.on("datachannel")
+            def on_datachannel(channel: Any) -> None:
+                managed_session.control_channel = channel
+                channel_open_v = asyncio.get_running_loop().time()
+                managed_session.resampler.reset(start_v=channel_open_v)
+
+                @channel.on("message")
+                def on_message(message: Any) -> None:
+                    asyncio.create_task(
+                        self._handle_datachannel_message(
+                            managed_session=managed_session,
+                            raw_message=message,
+                        )
+                    )
+
+                managed_session.generation_task = asyncio.create_task(
+                    self._generation_worker(managed_session=managed_session)
+                )
+
+            @peer_connection.on("connectionstatechange")
+            async def on_connectionstatechange() -> None:
+                if peer_connection.connectionState in {
+                    "failed",
+                    "disconnected",
+                    "closed",
+                }:
+                    await self.close_active_session()
+
+            try:
+                offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
+                await peer_connection.setRemoteDescription(offer)
+                answer = await peer_connection.createAnswer()
+                await peer_connection.setLocalDescription(answer)
+                local_description = peer_connection.localDescription
+                if local_description is None:
+                    raise RuntimeError(
+                        "Peer connection did not produce local description."
+                    )
+                return {"sdp": local_description.sdp, "type": local_description.type}
+            except Exception:
+                LOGGER.exception("WebRTC negotiation failed while creating an answer.")
+                await managed_session.close()
+                self._active_session = None
+                raise
+
+    async def close_active_session(self) -> None:
+        async with self._session_lock:
+            if self._active_session is None:
+                return
+            active_session = self._active_session
+            self._active_session = None
+            await active_session.close()
+
+    async def shutdown(self) -> None:
+        await self.close_active_session()
+        await self._runtime.close()
+        self._runtime_ready = False
+
+    def wait_for_termination(self) -> None:
+        self._runtime.wait_for_termination()
+
+    def send_exit_signal(self) -> None:
+        self._runtime.send_exit_signal()
+
+    async def _handle_datachannel_message(
+        self,
+        *,
+        managed_session: _ManagedAlpadreamsSession,
+        raw_message: Any,
+    ) -> None:
+        channel = managed_session.control_channel
+        if channel is None or managed_session.closed:
+            return
+
+        if not isinstance(raw_message, str):
+            self._send_json(
+                channel, {"type": "error", "message": "Expected text payload."}
+            )
+            return
+
+        try:
+            payload = json.loads(raw_message)
+        except json.JSONDecodeError:
+            self._send_json(
+                channel, {"type": "error", "message": "Invalid JSON payload."}
+            )
+            return
+
+        if not isinstance(payload, dict):
+            self._send_json(
+                channel, {"type": "error", "message": "Payload must be a JSON object."}
+            )
+            return
+        if payload.get("type") != "action":
+            self._send_json(
+                channel,
+                {
+                    "type": "error",
+                    "message": "Unsupported message type, expected 'action'.",
+                },
+            )
+            return
+
+        action_payload = payload.get("action", payload)
+        if not isinstance(action_payload, dict):
+            self._send_json(
+                channel, {"type": "error", "message": "'action' must be an object."}
+            )
+            return
+
+        event = str(action_payload.get("event", "")).strip().lower()
+        if event == "step":
+            return
+        if event not in ("keydown", "keyup"):
+            self._send_json(
+                channel,
+                {
+                    "type": "error",
+                    "message": f"Unsupported event={event!r}; "
+                    "expected 'keydown' or 'keyup'.",
+                },
+            )
+            return
+        key = str(action_payload.get("key", "")).strip()
+        if not key:
+            self._send_json(
+                channel,
+                {
+                    "type": "error",
+                    "message": "Action payload must include non-empty 'key'.",
+                },
+            )
+            return
+
+        arrival_t = asyncio.get_running_loop().time()
+        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
+        managed_session.pending_action_arrivals.append(arrival_t)
+        managed_session.first_action_received.set()
+
+    async def _generation_worker(
+        self, *, managed_session: _ManagedAlpadreamsSession
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        runtime = managed_session.runtime
+        resampler = managed_session.resampler
+        video_track = managed_session.video_track
+
+        LOGGER.info("Generation worker idle; waiting for first WSAD action.")
+        try:
+            await managed_session.first_action_received.wait()
+        except asyncio.CancelledError:
+            LOGGER.info("Generation worker cancelled before first action.")
+            raise
+        if managed_session.closed:
+            return
+        resampler.next_chunk_start_v = loop.time()
+
+        try:
+            while not managed_session.closed:
+                try:
+                    num_frames = runtime.peek_next_chunk_num_frames()
+                except AlpadreamsRuntimeError:
+                    LOGGER.exception("Runtime not ready; stopping generation worker.")
+                    return
+                chunk_duration = num_frames * resampler.dt
+                trigger_wall = resampler.next_chunk_start_v + chunk_duration
+                delay = trigger_wall - loop.time()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                if managed_session.closed:
+                    break
+
+                now = loop.time()
+                lag = now - (resampler.next_chunk_start_v + chunk_duration)
+                if lag > chunk_duration:
+                    resampler.next_chunk_start_v = now - chunk_duration
+
+                t_before_gen = loop.time()
+                segments, frame_times = resampler.sample_chunk(num_frames)
+                chunk_end_v = resampler.next_chunk_start_v
+                consumed_action_arrivals: list[float] = []
+                while (
+                    managed_session.pending_action_arrivals
+                    and managed_session.pending_action_arrivals[0] <= chunk_end_v
+                ):
+                    consumed_action_arrivals.append(
+                        managed_session.pending_action_arrivals.popleft()
+                    )
+                try:
+                    result = await runtime.generate_chunk(
+                        segments=segments, frame_times=frame_times
+                    )
+                except Exception as exc:
+                    LOGGER.exception("Chunk generation failed.")
+                    channel = managed_session.control_channel
+                    if channel is not None:
+                        self._send_json(channel, {"type": "error", "message": str(exc)})
+                    continue
+                t_after_gen = loop.time()
+                enqueued = await video_track.enqueue_chunk(result.video_chunk)
+                t_after_enqueue = loop.time()
+
+                gen_ms = (t_after_gen - t_before_gen) * 1e3
+                enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3
+                play_ms = result.num_frames * 1000.0 / video_track.fps
+                lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
+                control_latency_ms = (
+                    (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
+                    if consumed_action_arrivals
+                    else None
+                )
+                LOGGER.info(
+                    "Chunk done chunk=%s num_frames=%s segments=%d "
+                    "enqueued=%s gen_ms=%.1f enqueue_ms=%.1f play_ms=%.1f "
+                    "queue_depth=%d lag_ms=%.1f",
+                    result.chunk_index,
+                    result.num_frames,
+                    len(segments),
+                    enqueued,
+                    gen_ms,
+                    enqueue_ms,
+                    play_ms,
+                    video_track.qsize(),
+                    lag_ms,
+                )
+
+                channel = managed_session.control_channel
+                if channel is not None:
+                    payload: dict[str, Any] = {
+                        "type": "chunk_done",
+                        "chunk_index": result.chunk_index,
+                        "num_frames": result.num_frames,
+                        "enqueued_frames": enqueued,
+                        "fps": video_track.fps,
+                        "resolution": {
+                            "width": self.runtime_config.video_width,
+                            "height": self.runtime_config.video_height,
+                        },
+                        "model": self.runtime_config.pipeline_config_name,
+                        "gen_ms": round(gen_ms, 1),
+                        "enqueue_ms": round(enqueue_ms, 1),
+                        "play_ms": round(play_ms, 1),
+                        "queue_depth": video_track.qsize(),
+                        "lag_ms": round(lag_ms, 1),
+                    }
+                    if control_latency_ms is not None:
+                        payload["latency_ms"] = round(control_latency_ms, 1)
+                        payload["control_latency_ms"] = round(control_latency_ms, 1)
+                        payload["consumed_actions"] = len(consumed_action_arrivals)
+                    self._send_json(channel, payload)
+        except asyncio.CancelledError:
+            LOGGER.info("Generation worker cancelled.")
+            raise
+
+    @staticmethod
+    def _send_json(channel: Any, payload: dict[str, Any]) -> None:
+        try:
+            channel.send(json.dumps(payload))
+        except Exception:
+            return
