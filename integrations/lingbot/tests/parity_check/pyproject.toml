@@ -24,3 +24,6 @@ dependencies = [
 # flashdreams is not on PyPI; install it from the local source tree
 # (../../../../flashdreams relative to this directory).
 flashdreams = { path = "../../../../flashdreams", editable = true }
+
+[tool.uv]
+managed = true
