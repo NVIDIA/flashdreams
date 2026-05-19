@@ -470,7 +470,10 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">concat_padding_mask</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;If True, concatenate one mask channel into the input channels.&quot;&quot;&quot;</span>
     <span class="n">patch_embedding_type</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;linear&quot;</span><span class="p">,</span> <span class="s2">&quot;conv3d&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;conv3d&quot;</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Type of patch embedding: ``&quot;linear&quot;`` (flattened patch MLP) or ``&quot;conv3d&quot;`` (strided conv).&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Type of patch embedding: ``&quot;linear&quot;`` (flattened patch MLP) or ``&quot;conv3d&quot;`` (strided conv).&quot;&quot;&quot;</span>
+
+    <span class="n">apply_rope_before_kvcache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;If True, apply RoPE to keys before storing them in the KV cache.&quot;&quot;&quot;</span></div>
 
 
 
@@ -522,6 +525,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">eps</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">concat_padding_mask</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">concat_padding_mask</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">patch_embedding_type</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">patch_embedding_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">apply_rope_before_kvcache</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">apply_rope_before_kvcache</span>
 
         <span class="c1"># Embedding layers</span>
         <span class="n">in_dim</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">in_dim</span> <span class="o">+</span> <span class="mi">1</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">concat_padding_mask</span> <span class="k">else</span> <span class="n">config</span><span class="o">.</span><span class="n">in_dim</span>
@@ -575,6 +579,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">cross_attn_norm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cross_attn_norm</span><span class="p">,</span>
             <span class="n">eps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
             <span class="n">i2v</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cross_attn_enable_img</span><span class="p">,</span>
+            <span class="n">apply_rope_before_kvcache</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">apply_rope_before_kvcache</span><span class="p">,</span>
         <span class="p">)</span>
 
 <div class="viewcode-block" id="WanDiTNetwork.set_context_parallel_group">
@@ -801,8 +806,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">                layout ``&quot;... (t h w) (c kt kh kw)&quot;``.</span>
 <span class="sd">            timesteps: Diffusion timesteps, broadcastable to shape ``[...]``.</span>
 <span class="sd">            cache: Network KV caches.</span>
-<span class="sd">            rope_freqs: RoPE frequencies after CP, shape</span>
-<span class="sd">                ``[L, 1, 1, head_dim // 2]``.</span>
+<span class="sd">            rope_freqs: Full-width RoPE frequencies after CP. Standard mode</span>
+<span class="sd">                uses current-chunk frequencies with shape ``[L, 1, 1, d]``;</span>
+<span class="sd">                KV-cache-relative mode uses frequencies relative to the KV cache.</span>
 <span class="sd">            current_chunk_idx: Current chunk index for streaming cache update.</span>
 <span class="sd">            eager_mode: If ``True``, run cache before/after update hooks.</span>
 <span class="sd">            block_extra_kwargs: Extra kwargs forwarded to each block.</span>

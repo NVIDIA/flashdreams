@@ -565,6 +565,18 @@ are overwritten.</p>
 <dd><p>Data type to store the cache in.</p>
 </dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.size">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">size</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.size" title="Link to this definition">#</a></dt>
+<dd><p>Number of valid cached tokens visible to attention.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.write_end">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">write_end</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.write_end" title="Link to this definition">#</a></dt>
+<dd><p>Right edge of the current chunk in the physical cache layout.</p>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.core.attention.BlockKVCache.is_steady_state">
 <span class="sig-name descname"><span class="pre">is_steady_state</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/core/attention/kvcache.html#BlockKVCache.is_steady_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.BlockKVCache.is_steady_state" title="Link to this definition">#</a></dt>
@@ -735,6 +747,8 @@ the boilerplate at the top of the example launchers.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.sink_size"><code class="docutils literal notranslate"><span class="pre">sink_size</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.device"><code class="docutils literal notranslate"><span class="pre">device</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.dtype"><code class="docutils literal notranslate"><span class="pre">dtype</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.size"><code class="docutils literal notranslate"><span class="pre">size</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.write_end"><code class="docutils literal notranslate"><span class="pre">write_end</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.is_steady_state"><code class="docutils literal notranslate"><span class="pre">is_steady_state()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.before_update"><code class="docutils literal notranslate"><span class="pre">before_update()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.core.attention.BlockKVCache.update"><code class="docutils literal notranslate"><span class="pre">update()</span></code></a></li>

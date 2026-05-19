@@ -395,7 +395,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.attention.rope</span><span class="w"> </span><span class="kn">import</span> <span class="n">RotaryPositionEmbedding3D</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.attention.rope</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">KVCacheRelativeRotaryPositionEmbedding3D</span><span class="p">,</span>
+    <span class="n">RotaryPositionEmbedding3D</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.checkpoint.load</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.compile</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_module</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.cuda_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CUDAGraphWrapper</span>
@@ -431,12 +434,14 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">network_cache_uncond</span><span class="p">:</span> <span class="n">WanDiTNetworkCache</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Unconditional caches; ``None`` disables CFG.&quot;&quot;&quot;</span>
 
-    <span class="n">rope_adapter</span><span class="p">:</span> <span class="n">RotaryPositionEmbedding3D</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;3D RoPE adapter; advances along T per AR step.&quot;&quot;&quot;</span>
+    <span class="n">rope_adapter</span><span class="p">:</span> <span class="n">RotaryPositionEmbedding3D</span> <span class="o">|</span> <span class="n">KVCacheRelativeRotaryPositionEmbedding3D</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;3D RoPE adapter for self-attention position frequencies.&quot;&quot;&quot;</span>
 
     <span class="n">rope_freqs</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Self-attention RoPE frequencies for the current AR step.</span>
-<span class="sd">    Shape ``[L, 1, 1, head_dim // 2]`` after CP. Recomputed once per</span>
+<span class="sd">    Standard mode stores K after applying current-chunk RoPE.</span>
+<span class="sd">    KV-cache-relative mode stores unrotated K and applies cache-slot RoPE on cache read.</span>
+<span class="sd">    Shape ``[L, 1, 1, head_dim]`` after CP in standard mode. Recomputed once per</span>
 <span class="sd">    AR step in :meth:`start` and reused across cond and uncond branches</span>
 <span class="sd">    (and across all scheduler steps within the AR step).&quot;&quot;&quot;</span>
 
@@ -471,7 +476,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">Wan21TransformerConfig</span><span class="p">(</span><span class="n">TransformerConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Wan 2.1 transformer.</span>
 
-<span class="sd">    Bakes in the temporal layout (``len_t``, ``window_size_t``,</span>
+<span class="sd">    Bakes in the temporal layout (``len_t``, ``window_size_t``, optional</span>
 <span class="sd">    ``sink_size_t``) and the CFG / compile knobs. Per-rollout spatial</span>
 <span class="sd">    layout (``height``, ``width``) is supplied to</span>
 <span class="sd">    :meth:`Wan21Transformer.initialize_autoregressive_cache` so one</span>
@@ -522,7 +527,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Self-attention sliding-window size (pre-patchify T frames).&quot;&quot;&quot;</span>
 
     <span class="n">sink_size_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of sink tokens preserved across the window.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Prefix sink size (pre-patchify T frames) for self-attention KV cache.&quot;&quot;&quot;</span>
 
     <span class="n">h_extrapolation_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
     <span class="n">w_extrapolation_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
@@ -570,12 +575,27 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_cp_size</span> <span class="o">=</span> <span class="mi">1</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_cp_group</span> <span class="o">=</span> <span class="kc">None</span>
-
         <span class="c1"># Pre-patchify temporal divisibility check; per-rollout</span>
         <span class="c1"># (height, width) is populated by initialize_autoregressive_cache.</span>
         <span class="n">kt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">patch_size</span>
         <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">len_t</span> <span class="o">%</span> <span class="n">kt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;len_t (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span><span class="si">}</span><span class="s2">) must be divisible by patch_size[0] (</span><span class="si">{</span><span class="n">kt</span><span class="si">}</span><span class="s2">).&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">%</span> <span class="n">kt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;window_size_t (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">window_size_t</span><span class="si">}</span><span class="s2">) must be divisible by &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;patch_size[0] (</span><span class="si">{</span><span class="n">kt</span><span class="si">}</span><span class="s2">).&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">%</span> <span class="n">kt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;sink_size_t (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">sink_size_t</span><span class="si">}</span><span class="s2">) must be divisible by &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;patch_size[0] (</span><span class="si">{</span><span class="n">kt</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+        <span class="n">len_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">len_t</span> <span class="o">//</span> <span class="n">kt</span>
+        <span class="n">window_size_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+        <span class="n">sink_size_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">sink_size_t</span> <span class="o">+</span> <span class="n">window_size_t</span><span class="p">)</span> <span class="o">%</span> <span class="n">len_t</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;sink_size_t + window_size_t (</span><span class="si">{</span><span class="n">sink_size_t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">window_size_t</span><span class="si">}</span><span class="s2">) must be &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;divisible by post-patch len_t (</span><span class="si">{</span><span class="n">len_t</span><span class="si">}</span><span class="s2">) so the BlockKVCache can &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;fit a whole number of AR chunks.&quot;</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_output_height</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_output_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -603,13 +623,8 @@ SPDX-License-Identifier: Apache-2.0
         <span class="c1"># matches the KV cache&#39;s filling -&gt; steady transition so the captured</span>
         <span class="c1"># region only sees steady-state paths.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_use_cuda_graph</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">use_cuda_graph</span>
-        <span class="n">chunks_total</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">+</span> <span class="n">config</span><span class="o">.</span><span class="n">window_size_t</span>
-        <span class="k">assert</span> <span class="n">chunks_total</span> <span class="o">%</span> <span class="n">config</span><span class="o">.</span><span class="n">len_t</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;sink_size_t + window_size_t (</span><span class="si">{</span><span class="n">chunks_total</span><span class="si">}</span><span class="s2">) must be &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;divisible by len_t (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">len_t</span><span class="si">}</span><span class="s2">) so the BlockKVCache can &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;fit a whole number of AR chunks.&quot;</span>
-        <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_cuda_graph_capture_ar_idx</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">chunks_total</span> <span class="o">//</span> <span class="n">config</span><span class="o">.</span><span class="n">len_t</span>
+        <span class="n">chunks_total</span> <span class="o">=</span> <span class="n">sink_size_t</span> <span class="o">+</span> <span class="n">window_size_t</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cuda_graph_capture_ar_idx</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">chunks_total</span> <span class="o">//</span> <span class="n">len_t</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_network_call</span><span class="p">:</span> <span class="n">CUDAGraphWrapper</span> <span class="o">|</span> <span class="n">WanDiTNetwork</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">CUDAGraphWrapper</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">cuda_graph_warmup_iters</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">use_cuda_graph</span>
@@ -668,8 +683,18 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">pHW</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_height</span> <span class="o">//</span> <span class="n">kh</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_width</span> <span class="o">//</span> <span class="n">kw</span><span class="p">)</span>
         <span class="n">cp_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cp_size</span>
         <span class="n">chunk_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>  <span class="c1"># already CP-divided</span>
-        <span class="n">window_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">//</span> <span class="n">kt</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">//</span> <span class="n">cp_size</span>
-        <span class="n">sink_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">//</span> <span class="n">kt</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">//</span> <span class="n">cp_size</span>
+        <span class="n">window_size_t</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+        <span class="n">sink_size_t</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">window_size_t</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">%</span> <span class="n">cp_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;window_size_t * frame_token_count (</span><span class="si">{</span><span class="n">window_size_t</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pHW</span><span class="si">}</span><span class="s2">) must be &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;divisible by cp_size (</span><span class="si">{</span><span class="n">cp_size</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">sink_size_t</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">%</span> <span class="n">cp_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;sink_size_t * frame_token_count (</span><span class="si">{</span><span class="n">sink_size_t</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pHW</span><span class="si">}</span><span class="s2">) must be &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;divisible by cp_size (</span><span class="si">{</span><span class="n">cp_size</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+        <span class="n">window_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">window_size_t</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">//</span> <span class="n">cp_size</span>
+        <span class="n">sink_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">sink_size_t</span> <span class="o">*</span> <span class="n">pHW</span><span class="p">)</span> <span class="o">//</span> <span class="n">cp_size</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
             <span class="n">chunk_size</span><span class="o">=</span><span class="n">chunk_size</span><span class="p">,</span>
             <span class="n">window_size</span><span class="o">=</span><span class="n">window_size</span><span class="p">,</span>
@@ -747,16 +772,22 @@ SPDX-License-Identifier: Apache-2.0
             <span class="p">)</span>
 
         <span class="n">head_dim</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">dim</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">num_heads</span>
-        <span class="n">rope_adapter</span> <span class="o">=</span> <span class="n">RotaryPositionEmbedding3D</span><span class="p">(</span>
-            <span class="n">len_t</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">len_t</span> <span class="o">//</span> <span class="n">kt</span><span class="p">,</span>
-            <span class="n">len_h</span><span class="o">=</span><span class="n">height</span> <span class="o">//</span> <span class="n">kh</span><span class="p">,</span>
-            <span class="n">len_w</span><span class="o">=</span><span class="n">width</span> <span class="o">//</span> <span class="n">kw</span><span class="p">,</span>
-            <span class="n">head_dim</span><span class="o">=</span><span class="n">head_dim</span><span class="p">,</span>
-            <span class="n">h_extrapolation_ratio</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">h_extrapolation_ratio</span><span class="p">,</span>
-            <span class="n">w_extrapolation_ratio</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">w_extrapolation_ratio</span><span class="p">,</span>
-            <span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="n">rope_kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;len_t&quot;</span><span class="p">:</span> <span class="n">cfg</span><span class="o">.</span><span class="n">len_t</span> <span class="o">//</span> <span class="n">kt</span><span class="p">,</span>
+            <span class="s2">&quot;len_h&quot;</span><span class="p">:</span> <span class="n">height</span> <span class="o">//</span> <span class="n">kh</span><span class="p">,</span>
+            <span class="s2">&quot;len_w&quot;</span><span class="p">:</span> <span class="n">width</span> <span class="o">//</span> <span class="n">kw</span><span class="p">,</span>
+            <span class="s2">&quot;head_dim&quot;</span><span class="p">:</span> <span class="n">head_dim</span><span class="p">,</span>
+            <span class="s2">&quot;h_extrapolation_ratio&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">h_extrapolation_ratio</span><span class="p">,</span>
+            <span class="s2">&quot;w_extrapolation_ratio&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">w_extrapolation_ratio</span><span class="p">,</span>
+            <span class="s2">&quot;interleaved&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">apply_rope_before_kvcache</span><span class="p">:</span>
+            <span class="n">rope_adapter</span> <span class="o">=</span> <span class="n">RotaryPositionEmbedding3D</span><span class="p">(</span><span class="o">**</span><span class="n">rope_kwargs</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rope_kwargs</span><span class="p">[</span><span class="s2">&quot;sink_size_t&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+            <span class="n">rope_kwargs</span><span class="p">[</span><span class="s2">&quot;window_size_t&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">//</span> <span class="n">kt</span>
+            <span class="n">rope_adapter</span> <span class="o">=</span> <span class="n">KVCacheRelativeRotaryPositionEmbedding3D</span><span class="p">(</span><span class="o">**</span><span class="n">rope_kwargs</span><span class="p">)</span>
         <span class="n">rope_adapter</span><span class="o">.</span><span class="n">set_context_parallel_group</span><span class="p">(</span><span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_cp_group</span><span class="p">)</span>
 
         <span class="c1"># Reset any prior CUDA graph: it refers to slot pointers from the</span>
@@ -845,6 +876,9 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">assert</span> <span class="n">network_cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;uncond=True requires cache.network_cache_uncond, but it is None &quot;</span>
             <span class="s2">&quot;(CFG was not enabled at cache build time).&quot;</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">cache</span><span class="o">.</span><span class="n">rope_freqs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Wan21TransformerCache.start() must populate rope_freqs before predict_flow&quot;</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_select_network</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">uncond</span><span class="o">=</span><span class="n">uncond</span><span class="p">)(</span>
             <span class="n">x</span><span class="o">=</span><span class="n">network_input</span><span class="p">,</span>
