@@ -26,6 +26,15 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 LOGGER = logging.getLogger(__name__)
 
 
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    for logger_name in ("aioice", "aioice.ice", "aiortc"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -51,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--video_height", type=int, default=704)
     parser.add_argument("--video_width", type=int, default=1280)
+    parser.add_argument(
+        "--warmup_chunks",
+        type=int,
+        default=2,
+        help="Number of synthetic startup chunks to generate for kernel autotuning.",
+    )
     parser.add_argument(
         "--camera_name",
         type=str,
@@ -85,6 +100,7 @@ def build_runtime_config(
         video_width=args.video_width,
         fps=args.fps,
         camera_name=args.camera_name,
+        warmup_chunks=args.warmup_chunks,
     )
 
 
@@ -150,10 +166,7 @@ def _validate_single_view_config(config_name: str) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    configure_logging()
     args = parse_args()
     _validate_single_view_config(args.pipeline_config_name)
 

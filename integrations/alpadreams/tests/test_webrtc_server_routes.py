@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from alpadreams.webrtc.server import create_app
+from alpadreams.webrtc.server import configure_logging, create_app
 
 from flashdreams.serving.webrtc.server import SessionBusyError
 
@@ -108,3 +110,11 @@ async def test_offer_busy_returns_conflict() -> None:
         assert response.status == 409
     finally:
         await client.close()
+
+
+def test_configure_logging_suppresses_ice_info_spam() -> None:
+    configure_logging()
+
+    assert logging.getLogger("aioice").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("aioice.ice").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("aiortc").getEffectiveLevel() == logging.WARNING

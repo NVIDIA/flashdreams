@@ -205,12 +205,14 @@ body[data-status="error"] .statusDot {
 
 .logList {
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 6px;
-  overflow: hidden;
+  overflow-y: auto;
   max-height: 164px;
+  padding-right: 4px;
   font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #c6cdd1;
+  scrollbar-color: #566168 transparent;
 }
 
 .logEntry {

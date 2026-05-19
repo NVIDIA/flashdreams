@@ -69,6 +69,13 @@ function formatMs(value) {
 }
 
 function logEvent(message, { source = "server", level = "info" } = {}) {
+  const consoleMessage = `[Alpadreams WebRTC][${source}] ${message}`
+  if (level === "error") {
+    console.error(consoleMessage)
+  } else {
+    console.info(consoleMessage)
+  }
+
   const entry = document.createElement("div")
   entry.className = `logEntry is-${source}`
   if (level === "error") {
@@ -83,6 +90,7 @@ function logEvent(message, { source = "server", level = "info" } = {}) {
   while (eventLog.children.length > 28) {
     eventLog.firstElementChild.remove()
   }
+  eventLog.scrollTop = eventLog.scrollHeight
 }
 
 function setStatus(message, state = message.toLowerCase()) {
@@ -140,6 +148,42 @@ function updateMetricsFromVideo() {
   if (remoteVideo.videoWidth > 0 && remoteVideo.videoHeight > 0) {
     metrics.resolution = `${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`
     renderMetrics()
+  }
+}
+
+async function dumpPeerStats(reason) {
+  if (!peerConnection) {
+    return
+  }
+  try {
+    const stats = await peerConnection.getStats()
+    const reports = new Map()
+    for (const report of stats.values()) {
+      reports.set(report.id, report)
+    }
+    console.group(`[Alpadreams WebRTC] peer stats: ${reason}`)
+    for (const report of stats.values()) {
+      if (report.type !== "candidate-pair") {
+        continue
+      }
+      const local = reports.get(report.localCandidateId)
+      const remote = reports.get(report.remoteCandidateId)
+      console.info({
+        id: report.id,
+        state: report.state,
+        nominated: report.nominated,
+        writable: report.writable,
+        local: local
+          ? `${local.candidateType} ${local.protocol} ${local.address || local.ip}:${local.port}`
+          : report.localCandidateId,
+        remote: remote
+          ? `${remote.candidateType} ${remote.protocol} ${remote.address || remote.ip}:${remote.port}`
+          : report.remoteCandidateId,
+      })
+    }
+    console.groupEnd()
+  } catch (error) {
+    console.warn("[Alpadreams WebRTC] getStats failed", error)
   }
 }
 
@@ -271,23 +315,51 @@ async function connectSession() {
     connected = false
     setStatus("Closed", "idle")
     setFlow("closed")
+    logEvent("data channel closed", { source: "client" })
   })
 
   peerConnection.addEventListener("track", event => {
     remoteVideo.srcObject = event.streams[0]
     setFlow("video track attached")
+    logEvent("video track attached", { source: "client" })
   })
   peerConnection.addEventListener("connectionstatechange", () => {
     const state = peerConnection.connectionState
+    logEvent(`connection_state=${state}`, { source: "client" })
+    if (state === "connected") {
+      connected = true
+      setStatus("Connected", "connected")
+      setFlow("press W A S D")
+      return
+    }
+    if (state === "connecting") {
+      setStatus("Connecting", "connecting")
+      return
+    }
     if (state === "failed" || state === "disconnected" || state === "closed") {
       connected = false
       setStatus(state, state === "failed" ? "error" : "idle")
+      void dumpPeerStats(`connection_state=${state}`)
     }
+  })
+  peerConnection.addEventListener("iceconnectionstatechange", () => {
+    const state = peerConnection.iceConnectionState
+    logEvent(`ice_connection_state=${state}`, { source: "client" })
+    if (state === "failed" || state === "disconnected") {
+      void dumpPeerStats(`ice_connection_state=${state}`)
+    }
+  })
+  peerConnection.addEventListener("icegatheringstatechange", () => {
+    logEvent(`ice_gathering_state=${peerConnection.iceGatheringState}`, { source: "client" })
+  })
+  peerConnection.addEventListener("signalingstatechange", () => {
+    logEvent(`signaling_state=${peerConnection.signalingState}`, { source: "client" })
   })
 
   const offer = await peerConnection.createOffer()
   await peerConnection.setLocalDescription(offer)
   await waitForIceGatheringComplete(peerConnection)
+  logEvent("local offer ready", { source: "client" })
   const response = await fetch("/api/webrtc/offer", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -303,6 +375,7 @@ async function connectSession() {
   }
   const answer = await response.json()
   await peerConnection.setRemoteDescription(answer)
+  logEvent("remote answer applied", { source: "client" })
   setFlow("answer applied")
 }
 
