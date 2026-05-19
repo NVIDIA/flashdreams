@@ -378,7 +378,7 @@ bash flashdreams/integrations/hy_worldplay/tests/parity_check/run.sh
 
 # 4. run inference through the flashdreams plugin (from the sub-venv).
 PARITY=flashdreams/integrations/hy_worldplay/tests/parity_check
-uv run --project "${PARITY}" python -m hy_worldplay.cli \
+uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
     --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
     --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
@@ -387,7 +387,8 @@ uv run --project "${PARITY}" python -m hy_worldplay.cli \
 
 # 5. (optional) multi-GPU via context-parallelism (recommended max 8 GPUs).
 uv run --project "${PARITY}" torchrun \
-    --nproc_per_node=4 --no-python --module hy_worldplay.cli \
+    --nproc_per_node=4 --no-python \
+    flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
     --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
     --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \

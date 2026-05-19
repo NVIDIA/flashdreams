@@ -69,7 +69,7 @@ resolves to this sub-venv (which has both the upstream deps *and*
 the `hy_worldplay` workspace member installed):
 
 ```bash
-uv run python -m hy_worldplay.cli \
+uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path "${IMAGE_PATH}" \
     --ar-model-path HY-WorldPlay/hf_models/wan_transformer \
     --ckpt-path HY-WorldPlay/hf_models/wan_distilled_model/model.pt \
@@ -148,9 +148,10 @@ from inside `HY-WorldPlay/` resolve to *this* venv, not the surrounding
 flashdreams one.
 
 This sub-venv intentionally **doubles as the plugin run-venv** in
-phase 1: it lists `flashdreams-hy-worldplay` as a path source so
-`python -m hy_worldplay.cli` works here without a separate install
-step, and the upstream + plugin runs share an identical dep stack
+phase 1: it lists `flashdreams-hy-worldplay` as a path source so the
+`flashdreams.runner_configs` entry-point registers without a separate
+install step, and `flashdreams-run hy-worldplay-wan-i2v-5b` works
+here directly. The upstream + plugin runs share an identical dep stack
 (same torch / cuBLAS / sageattention / accelerate), which is required
 for the parity comparison below. Outside of this directory, use
 `uv run --project integrations/hy_worldplay/tests/parity_check ...`

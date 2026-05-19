@@ -18,7 +18,8 @@
 This module provides a thin shim that adapts the upstream
 HY-WorldPlay :class:`wan.generate.WanRunner` (Wan 2.2 TI2V-5B backbone
 with action + camera-trajectory conditioning and reconstituted-context
-memory) onto a flashdreams-style runner config + CLI surface.
+memory) onto a flashdreams :class:`RunnerConfig` surface so the slug
+is dispatchable via ``flashdreams-run hy-worldplay-wan-i2v-5b``.
 
 Phase-1 goal (this module): bit-for-bit reproduction of the upstream
 ``wan/generate.py`` invocation, driven from a flashdreams plugin
@@ -26,14 +27,17 @@ package, so the team can iterate on top of a known-good baseline
 without forking the upstream tree. The wrapped pipeline construction
 (``WanRunner.__init__`` -> ``_init_models``) is delegated unchanged to
 upstream, so any output the wrapper produces matches what
-``torchrun wan/generate.py`` produces with the same flags.
+``torchrun wan/generate.py`` produces with the same flags. Because the
+upstream pipeline does not slice into flashdreams'
+:class:`StreamInferencePipeline` 3-stage interface yet, the runner
+sets ``pipeline=None`` on its :class:`RunnerConfig` and owns its own
+``__init__`` (the base ``Runner`` skips pipeline construction in that
+case).
 
 Phase-2 (tracked in the integration ``README.md``): refactor onto
 ``flashdreams.recipes.wan`` infrastructure -- expose action +
 trajectory + memory hooks on ``WanInferencePipeline`` so the recipe
-can register with ``flashdreams-run`` like ``self_forcing`` /
-``causal_forcing`` do, and so the recipe shares CP / KV-cache /
-profiler with the rest of the wan family.
+shares CP / KV-cache / profiler with the rest of the wan family.
 """
 
 from __future__ import annotations
@@ -42,9 +46,11 @@ import importlib
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from flashdreams.infra.runner import RunnerConfig
 
 
 __all__ = [
@@ -98,26 +104,21 @@ def _ensure_upstream_importable(repo_root: Path) -> None:
 
 
 @dataclass(kw_only=True)
-class HyWorldPlayWanI2VRunnerConfig:
+class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     """User-facing config for the HY-WorldPlay WAN-5B I2V runner.
 
     Mirrors the upstream ``wan/generate.py`` argparse surface (see
     ``HY-WorldPlay/wan/generate.py`` and ``HY-WorldPlay/wan/README.md``)
-    so users can map directly between the two. Pure dataclass so it
-    drives a tyro-based CLI without depending on flashdreams' richer
-    ``StreamInferencePipelineConfig`` plumbing -- the wrapped pipeline
-    is HY-WorldPlay's diffusers ``WanPipeline`` and doesn't fit the
-    flashdreams streaming-pipeline interface yet (phase-2).
+    so users can map directly between the two. Inherits the standard
+    runner knobs (``runner_name``, ``description``, ``output_dir``,
+    ``device``, ``offset_seed_by_global_rank``) from
+    :class:`RunnerConfig`; leaves ``pipeline=None`` because phase-1
+    wraps upstream's ``WanRunner.predict()`` directly rather than a
+    flashdreams :class:`StreamInferencePipeline` (the recipe-level
+    promotion is phase 2 -- see the integration README staging plan).
     """
 
-    runner_name: str = "hy-worldplay-wan-i2v-5b"
-    """Stable slug. Used as the output filename stem."""
-
-    description: str = (
-        "HY-WorldPlay WAN-5B I2V (Wan 2.2 TI2V backbone, action + camera "
-        "trajectory conditioning, reconstituted-context memory)."
-    )
-    """One-line description shown in CLI help."""
+    _target: type = field(default_factory=lambda: HyWorldPlayWanI2VRunner)
 
     prompt: str | Path = DEFAULT_PROMPT
     """Inline text prompt or a path to a ``.txt`` file whose first
@@ -169,15 +170,9 @@ class HyWorldPlayWanI2VRunnerConfig:
 
     seed: int = 0
     """RNG seed. Offset by ``RANK`` automatically when running under
-    torchrun so each rank draws a distinct stream while preserving
-    deterministic replay per rank (mirrors flashdreams'
-    ``RunnerConfig.offset_seed_by_global_rank``)."""
-
-    offset_seed_by_rank: bool = True
-    """Set to ``False`` for byte-identical multi-rank output."""
-
-    output_dir: Path = Path("outputs")
-    """Directory the runner writes outputs into. Created on demand."""
+    torchrun if :attr:`RunnerConfig.offset_seed_by_global_rank` is set,
+    so each rank draws a distinct stream while preserving deterministic
+    replay per rank."""
 
     model_id: str = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
     """HuggingFace ID for the base Wan 2.2 backbone (VAE + scheduler +
@@ -198,17 +193,18 @@ class HyWorldPlayWanI2VRunnerConfig:
     name -- we add ``<root>`` and ``<root>/wan`` to ``sys.path`` before
     constructing the pipeline."""
 
-    def setup(self) -> "HyWorldPlayWanI2VRunner":
-        """Materialize the runner. Mirrors flashdreams'
-        :meth:`InstantiateConfig.setup` shape so callers using the
-        idiomatic ``runner = cfg.setup(); runner.run()`` flow work
-        unchanged when this config is later promoted to a real
-        ``RunnerConfig``."""
-        return HyWorldPlayWanI2VRunner(self)
-
 
 class HyWorldPlayWanI2VRunner:
-    """HY-WorldPlay WAN-5B I2V driver."""
+    """HY-WorldPlay WAN-5B I2V driver.
+
+    Not a :class:`flashdreams.infra.runner.Runner` subclass because the
+    phase-1 wrapper owns its own distributed setup (deferred to
+    upstream's ``WanRunner``) and has no flashdreams
+    :class:`StreamInferencePipeline` for the base ``Runner.__init__``
+    to construct. The config's ``_target`` points here so
+    ``HyWorldPlayWanI2VRunnerConfig.setup()`` instantiates this class
+    directly.
+    """
 
     config: HyWorldPlayWanI2VRunnerConfig
 
@@ -290,7 +286,7 @@ class HyWorldPlayWanI2VRunner:
         prompt = self._resolve_prompt()
 
         seed = config.seed
-        if config.offset_seed_by_rank and self.rank != 0:
+        if config.offset_seed_by_global_rank and self.rank != 0:
             seed = seed + self.rank
 
         input_dict: dict[str, Any] = {

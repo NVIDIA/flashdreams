@@ -22,20 +22,32 @@ Wan recipe family. The HunyuanVideo-1.5 8B variant
 multiple text encoders (Qwen2.5-VL-7B, ByT5, Glyph-SDXL-v2), gated
 vision encoder (FLUX.1-Redux-dev), 8-way SP -- and is tracked as a
 follow-up. See the integration ``README.md`` for the staging plan.
+
+The runner config is registered with ``flashdreams-run`` via the
+``flashdreams.runner_configs`` entry-point group declared in this
+package's ``pyproject.toml``; the registry key always comes from
+``cfg.runner_name``.
 """
 
 from __future__ import annotations
 
+from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
 # Default literal: every field at its upstream-matching default. Users
 # *must* override at least ``ar_model_path`` / ``ckpt_path`` /
 # ``hy_worldplay_repo_root`` (and ``image_path``) at runtime; we don't
 # bake in real paths here because they're machine-specific.
-RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig()
+RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig(
+    runner_name="hy-worldplay-wan-i2v-5b",
+    description=(
+        "HY-WorldPlay WAN-5B I2V (Wan 2.2 TI2V backbone, action + camera "
+        "trajectory conditioning, reconstituted-context memory)."
+    ),
+)
 
 
-RUNNER_CONFIGS: dict[str, HyWorldPlayWanI2VRunnerConfig] = {
+RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (RUNNER_HY_WORLDPLAY_WAN_I2V_5B,)
 }

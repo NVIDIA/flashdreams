@@ -10,10 +10,11 @@ requires-python = ">=3.12,<3.13"
 #   1. Run upstream's ``wan/generate.py`` end-to-end for the parity
 #      baseline (the historical reason this sub-venv exists, mirroring
 #      the ``self_forcing/tests/parity_check`` layout).
-#   2. Run the in-tree plugin CLI -- ``python -m hy_worldplay.cli`` --
-#      against the same dep stack so the parity comparison stays
-#      apples-to-apples and so the heavyweight upstream deps stay out
-#      of the repo-root ``uv.lock``.
+#   2. Run the in-tree plugin --
+#      ``flashdreams-run hy-worldplay-wan-i2v-5b`` -- against the same
+#      dep stack so the parity comparison stays apples-to-apples and so
+#      the heavyweight upstream deps stay out of the repo-root
+#      ``uv.lock``.
 #
 # The plugin workspace member (``flashdreams-hy-worldplay``) only
 # carries the lightweight config / runner shim, so installing it here
@@ -44,10 +45,11 @@ requires-python = ">=3.12,<3.13"
 #   * easydict / lmdb        -- transitively required by upstream's hyvideo/
 dependencies = [
     "flashdreams",
-    # Plugin workspace member -- adds the ``hy_worldplay`` import path so
-    # ``python -m hy_worldplay.cli`` works from inside this venv without
-    # any extra ``uv pip install`` step. Wired in via the path source
-    # below.
+    # Plugin workspace member -- adds the ``hy_worldplay`` import path
+    # and registers the ``flashdreams.runner_configs`` entry-point so
+    # ``flashdreams-run hy-worldplay-wan-i2v-5b`` works from inside
+    # this venv without any extra ``uv pip install`` step. Wired in
+    # via the path source below.
     "flashdreams-hy-worldplay",
     # Pinned to match the flashdreams root ``uv.lock`` (currently 2.11.0+cu130).
     # *Must* stay in lockstep with whatever the flashdreams main venv resolves

@@ -42,7 +42,6 @@ dependencies = [
     "moviepy>=1.0,<2",
     "opencv-python-headless",
     "scipy>=1.11",
-    "tyro>=0.8",
 ]
 
 [tool.uv.sources]
@@ -53,23 +52,24 @@ dev = [
     "pytest>=8.0",
 ]
 
-# Phase-1: standalone CLI entry point only. Once the recipe-level
-# integration lands (see README.md "Staging plan"), this will switch to
-# the ``flashdreams.runner_configs`` entry-point group used by
-# ``self_forcing`` / ``causal_forcing`` / ``wan21`` so the same slug
-# becomes a ``flashdreams-run hy-worldplay-wan-i2v-5b`` subcommand.
+# Register the runner with ``flashdreams-run`` via the same entry-point
+# group used by ``self_forcing`` / ``causal_forcing`` / ``wan21``; the
+# CLI's plugin discovery layer
+# (``flashdreams.plugins.registry.discover_runners``) scans this group
+# at startup. The entry-point name is informational -- the registry
+# key always comes from ``cfg.runner_name``.
 #
 # Heavy upstream-execution deps (sageattention, cloudpickle, accelerate,
 # filelock, pyyaml, remote-pdb) are deliberately *not* declared here --
 # they would leak into the repo-root ``uv.lock`` and bloat the
 # resolved-env for every contributor, including those who never touch
-# HY-WorldPlay. The plugin CLI runs from the isolated parity-check
-# sub-venv that pins all of them (see
+# HY-WorldPlay. ``flashdreams-run hy-worldplay-wan-i2v-5b`` runs from
+# the isolated parity-check sub-venv that pins all of them (see
 # ``tests/parity_check/pyproject.toml``); this workspace member only
 # carries the lightweight config / runner shim surface needed for
 # ``python -c 'import hy_worldplay'`` and the CPU-only smoke tests.
-[project.scripts]
-hy-worldplay-wan-i2v-5b = "hy_worldplay.cli:entrypoint"
+[project.entry-points."flashdreams.runner_configs"]
+"hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
 
 [tool.setuptools.packages.find]
 include = ["hy_worldplay*"]

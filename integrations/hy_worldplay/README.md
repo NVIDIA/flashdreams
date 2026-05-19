@@ -27,12 +27,16 @@ delegates pipeline construction and inference to upstream's
 identical to a vanilla `torchrun wan/generate.py ...` invocation. The
 parity check at `tests/parity_check/` verifies that baseline.
 
-The upstream WAN pipeline does not slice cleanly into flashdreams'
+The slug is exposed as a `flashdreams-run hy-worldplay-wan-i2v-5b`
+subcommand via the standard `flashdreams.runner_configs` entry-point
+group, just like `self_forcing` / `wan21`. Because the upstream WAN
+pipeline does not slice cleanly into flashdreams'
 `StreamInferencePipeline` 3-stage encode/diffuse/decode interface
-(action + memory + chunked AR + distributed VAE), so the slug is
-exposed via a standalone CLI (`python -m hy_worldplay.cli`) rather
-than as a `flashdreams-run` subcommand for now. Promotion to
-`flashdreams-run` is part of phase 2 (see "Staging plan" below).
+(action + memory + chunked AR + distributed VAE), the runner sets
+`pipeline=None` on its `RunnerConfig` and owns its own `__init__`
+(the base `Runner` skips pipeline construction in that case).
+Promotion onto a real `WanInferencePipeline` is phase 2b (see
+"Staging plan" below).
 
 ## Install
 
@@ -49,7 +53,8 @@ repo-root `uv.lock`:
    [`tests/parity_check/`](tests/parity_check/) — pins
    `sageattention`, `accelerate`, `cloudpickle`, `torch==2.11.*`,
    etc. Used both for the upstream parity baseline *and* for actually
-   invoking `python -m hy_worldplay.cli` end-to-end on a GPU. This
+   invoking `flashdreams-run hy-worldplay-wan-i2v-5b` end-to-end on a
+   GPU. This
    mirrors the [`self_forcing/tests/parity_check`](../self_forcing/tests/parity_check)
    layout and keeps HY-WorldPlay's heavy stack scoped to the
    integration directory.
@@ -64,8 +69,8 @@ uv sync
 ( cd integrations/hy_worldplay/tests/parity_check && uv sync )
 ```
 
-Once both have run, `python -m hy_worldplay.cli` works from the
-parity-check sub-venv via `uv run --project ...` (see below).
+Once both have run, `flashdreams-run hy-worldplay-wan-i2v-5b` works
+from the parity-check sub-venv via `uv run --project ...` (see below).
 
 The upstream HY-WorldPlay tree is **not** a Python dependency; you
 provision it once and point the runner at it. The easiest way is to
@@ -133,7 +138,7 @@ Single-GPU (matches upstream's
 ```bash
 PARITY=integrations/hy_worldplay/tests/parity_check
 
-uv run --project "${PARITY}" python -m hy_worldplay.cli \
+uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path ./assets/img/test.png \
     --ar-model-path /path/to/models/wan_transformer \
     --ckpt-path /path/to/models/wan_distilled_model/model.pt \
@@ -147,7 +152,7 @@ Multi-GPU (4 GPUs, matches upstream's 4-GPU example):
 
 ```bash
 uv run --project "${PARITY}" torchrun \
-    --nproc_per_node=4 --no-python --module hy_worldplay.cli \
+    --nproc_per_node=4 --no-python flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path ./assets/img/test.png \
     --ar-model-path /path/to/models/wan_transformer \
     --ckpt-path /path/to/models/wan_distilled_model/model.pt \
@@ -160,7 +165,7 @@ uv run --project "${PARITY}" torchrun \
 Per-runner `--help` lists every overridable field:
 
 ```bash
-uv run --project "${PARITY}" python -m hy_worldplay.cli --help
+uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b --help
 ```
 
 ### Camera control
@@ -230,8 +235,10 @@ land first.
    - Thin `HyWorldPlayWanI2VRunner` shim that calls upstream's
      `WanRunner.predict()` so we get bit-identical output to
      `torchrun wan/generate.py` with the same flags.
-   - Standalone `python -m hy_worldplay.cli` entry point, invoked
-     from the parity sub-venv.
+   - Registered with `flashdreams-run` via the
+     `flashdreams.runner_configs` entry-point group; invoked from the
+     parity sub-venv (which has the heavy deps + an editable
+     `flashdreams` install so the console script resolves).
    - Parity-check infra under `tests/parity_check/` that clones
      upstream at a pinned commit, downloads checkpoints, and runs the
      reference benchmark. Numeric per-frame parity bar enforced
@@ -255,10 +262,11 @@ land first.
    - Extend that pipeline with HY-WorldPlay's deltas: action inputs,
      camera-trajectory conditioning, and the reconstituted-context
      memory module.
-   - Promote the slug to a `flashdreams-run hy-worldplay-wan-i2v-5b`
-     subcommand (entry-point group `flashdreams.runner_configs`),
-     dropping the standalone CLI and the parity sub-venv (since the
-     run path collapses back into the main flashdreams venv).
+   - Drop the parity sub-venv: the run path collapses back into the
+     main flashdreams venv once the heavy upstream deps (sageattention,
+     cloudpickle, accelerate, ...) are no longer needed. The
+     `flashdreams-run hy-worldplay-wan-i2v-5b` slug already shipped in
+     phase 1 stays as the stable user-facing interface.
    - Re-run the parity check against the phase-1 baseline so the
      refactor is gated on a numeric diff, not eyeballs.
 

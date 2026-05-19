@@ -16,9 +16,9 @@
 """Cheap import-time checks for the ``hy_worldplay`` plugin.
 
 These tests deliberately avoid touching the upstream HY-WorldPlay tree
-or any GPU code; they only exercise the dataclass surface and the CLI
-wiring so that ``uv run pytest integrations/hy_worldplay/tests`` is
-fast and CPU-only.
+or any GPU code; they only exercise the dataclass surface and the
+``flashdreams-run`` registration wiring so that
+``uv run pytest integrations/hy_worldplay/tests`` is fast and CPU-only.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.config import RUNNER_CONFIGS, RUNNER_HY_WORLDPLAY_WAN_I2V_5B
 from hy_worldplay.runner import (
     DEFAULT_NEGATIVE_PROMPT,
@@ -148,10 +149,58 @@ def test_missing_repo_root_raises_filenotfound() -> None:
         cfg.setup()
 
 
-def test_cli_module_imports() -> None:
-    """The CLI module must be importable without side effects (no
-    upstream / GPU imports at import time)."""
-    import hy_worldplay.cli  # noqa: F401
+def test_runner_config_is_runner_config_subclass() -> None:
+    """``HyWorldPlayWanI2VRunnerConfig`` must subclass
+    :class:`flashdreams.infra.runner.RunnerConfig` so the
+    ``flashdreams.runner_configs`` entry-point discovery layer (which
+    ``isinstance``-checks against ``RunnerConfig``) accepts it."""
+    assert isinstance(RUNNER_HY_WORLDPLAY_WAN_I2V_5B, RunnerConfig)
 
-    assert callable(hy_worldplay.cli.entrypoint)
-    assert callable(hy_worldplay.cli.main)
+
+def test_pipeline_is_none() -> None:
+    """Phase-1 wrapper has no flashdreams ``StreamInferencePipeline`` to
+    drive (it delegates to upstream's ``WanRunner.predict()``); the
+    base ``RunnerConfig.pipeline`` field must therefore stay ``None``
+    so ``Runner.__init__`` (when the config is later promoted onto the
+    base ``Runner`` ABC in phase 2b) skips pipeline construction."""
+    assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B.pipeline is None
+
+
+def test_entry_point_registered() -> None:
+    """The plugin's ``pyproject.toml`` must publish the runner under the
+    ``flashdreams.runner_configs`` entry-point group so
+    ``flashdreams-run`` discovers it. Importing the entry point exercises
+    the same code path ``flashdreams.plugins.registry.discover_runners``
+    uses at CLI startup -- a missing or misnamed entry would surface here
+    rather than as a confusing "no such subcommand" later.
+
+    Requires the plugin to be installed (``uv sync`` from repo root, or
+    ``uv pip install -e integrations/hy_worldplay``); skipped if not
+    installed so the test still works in editable checkouts that didn't
+    sync yet.
+    """
+    import sys
+
+    if sys.version_info < (3, 10):
+        from importlib_metadata import entry_points  # type: ignore[import-not-found]
+    else:
+        from importlib.metadata import entry_points
+
+    eps = {
+        ep.name: ep
+        for ep in entry_points(group="flashdreams.runner_configs")
+        if ep.value.startswith("hy_worldplay.")
+    }
+    if not eps:
+        pytest.skip(
+            "flashdreams-hy-worldplay not installed (no "
+            "flashdreams.runner_configs entry point registered). Run "
+            "``uv sync`` or ``uv pip install -e integrations/hy_worldplay``."
+        )
+
+    assert "hy-worldplay-wan-i2v-5b" in eps, (
+        f"expected entry-point 'hy-worldplay-wan-i2v-5b', got {list(eps)}"
+    )
+    loaded = eps["hy-worldplay-wan-i2v-5b"].load()
+    assert isinstance(loaded, RunnerConfig)
+    assert loaded.runner_name == "hy-worldplay-wan-i2v-5b"
