@@ -99,7 +99,9 @@ class FlowMatchScheduler(Scheduler):
             x_t = (1 - sigma(t)) * x0 + sigma(t) * eps
         return x0
 
-    Examples:
+    Example:
+
+    .. code-block:: python
 
         scheduler = FlowMatchSchedulerConfig(
             num_inference_steps=4,

@@ -13,40 +13,39 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Lingbot-World
+Interactive serving
 ===================================
 
-Camera-controlled image-to-video with the Lingbot-World recipe.
-Reference:
-`lingbot-world fast inference <https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference>`_.
+FlashDreams supports interactive serving workflows through integration-specific
+integrations, with Lingbot-World as the primary reference implementation.
 
-Shipped as the out-of-tree ``flashdreams-lingbot`` plugin under
-``integrations/lingbot``. It registers two runner slugs with the
-unified ``flashdreams-run`` CLI: ``lingbot-world-fast`` (Wan VAE) and
-``lingbot-world-fast-flash`` (LightTAE decoder, tighter streaming
-window). Pass ``--example-data`` to lazy-sync the bundled prompt +
-first-frame + camera arrays from S3 into
-``assets/example_data/lingbot_world/`` and fill the path defaults.
+What this guide covers
+----------------------
 
-.. code-block:: bash
+- launching serving-oriented runners,
+- wiring serving state/control inputs into runner configuration,
+- validating single-GPU and multi-GPU launch patterns.
 
-   export HF_TOKEN=<your-hf-token>
+Lingbot-World serving baseline
+------------------------------
 
-Single GPU
-----------
+Single GPU:
 
 .. code-block:: bash
 
    uv run flashdreams-run \
        lingbot-world-fast --example-data True --total-blocks 21
 
-Multi GPU
----------
-
-Wan 2.1 context parallel assumes ``cp_size == world_size``; launch via
-``torchrun --no-python``:
+Multi GPU:
 
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
        lingbot-world-fast --example-data True --total-blocks 21
+
+Serving implementation references
+---------------------------------
+
+- :doc:`/models/lingbot_world` for model-specific launch options.
+- :doc:`/apis/serving` for serving API concepts and component mapping.
+- ``integrations/lingbot/lingbot/webrtc`` for the WebRTC serving stack.

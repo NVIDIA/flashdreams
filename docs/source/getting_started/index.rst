@@ -13,22 +13,14 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Self-forcing T2V (Wan2.1)
+:orphan:
+
+Getting Started
 ===================================
 
-Self-forcing T2V variant of Wan2.1, shipped as the
-``flashdreams-self-forcing`` integration plugin and exposed on the
-unified ``flashdreams-run`` CLI under two slugs:
+Start here to install FlashDreams, run your first world model, and explore
+supported model families.
 
-- ``self-forcing-wan2.1-t2v-1.3b`` — Wan VAE decoder, 4-step.
-- ``self-forcing-wan2.1-t2v-1.3b-flash`` — same DiT, swapped to the
-  TAEHV (LightTAE) decoder for faster decoding.
-
-Checkpoints are auto-downloaded from HuggingFace on first run.
-
-.. code-block:: bash
-
-   export HF_TOKEN=<your-hf-token>
-   export HF_HOME=~/.cache/huggingface  # optional
-
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b --total-blocks 7
+- :doc:`Installation </getting_started/installation>`
+- :doc:`Launch your first world model </getting_started/first_world_model>`
+- :doc:`Supported models </getting_started/supported_models>`

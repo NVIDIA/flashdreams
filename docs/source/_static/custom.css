@@ -9,3 +9,61 @@ SPDX-License-Identifier: Apache-2.0
 .bd-links__title {
     display: none;
 }
+
+.video-slot {
+    border: 1px dashed var(--nv-color-neutral-500, #6f6f6f);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: 12px 0 18px;
+    background: var(--nv-color-neutral-100, rgba(127, 127, 127, 0.06));
+}
+
+.benchmark-figure {
+    margin: 16px 0 20px;
+}
+
+.sidebar-github-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    border: 1px solid var(--color-sidebar-link-text--top-level, #777);
+    border-radius: 999px;
+    padding: 4px 10px;
+    margin: 4px 10px 10px;
+    color: var(--color-sidebar-link-text--top-level, inherit);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.sidebar-github-link:hover {
+    text-decoration: none;
+}
+
+.sidebar-brand .sidebar-logo {
+    max-width: 220px;
+}
+
+.mobile-header .brand {
+    display: none;
+}
+
+.mobile-header .header-center {
+    display: none;
+}
+
+body.index .content h1 {
+    margin-top: 0.2rem;
+}
+
+.homepage-logo-wrap {
+    margin: 0 0 0.8rem;
+    text-align: center;
+}
+
+.homepage-logo-wrap img {
+    width: min(560px, 90%);
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}

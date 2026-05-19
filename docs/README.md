@@ -17,8 +17,7 @@ limitations under the License.
 
 # FlashDreams documentation
 
-This directory hosts the Sphinx sources for the FlashDreams API
-reference site.
+This directory hosts the Sphinx sources for the FlashDreams documentation site.
 
 ## Build locally
 
@@ -41,20 +40,35 @@ any browser, e.g. `xdg-open docs/_build/html/index.html`.
 docs/
 └── source/
     ├── conf.py             # Sphinx configuration (theme + extensions)
-    ├── index.rst           # landing page + top-level toctree
+    ├── index.rst           # overview landing page + top-level toctrees
+    ├── getting_started/
+    │   ├── installation.rst
+    │   ├── first_world_model.rst
+    │   └── supported_models.rst
+    ├── developer_guides/
+    │   ├── new_recipes.rst
+    │   ├── system_overview.rst
+    │   ├── configs.rst
+    │   └── interactive_serving.rst
+    ├── reference/
+    │   ├── cli.rst
+    │   └── evaluation.rst
     ├── apis/
     │   ├── core.rst        # flashdreams.core (attention, distributed, …)
     │   ├── infra.rst       # flashdreams.infra (pipeline, diffusion, …)
-    │   ├── recipes.rst     # flashdreams.recipes (omnidreams, wan, …)
-    │   └── serving.rst     # placeholder for the future serving layer
-    └── examples/           # one rst per inference launcher
+    │   ├── recipes.rst     # flashdreams.recipes (wan, cosmos, …)
+    │   └── serving.rst     # serving architecture and launch patterns
+    └── models/
         ├── omnidreams.rst
         ├── self_forcing.rst
         ├── causal_forcing.rst
-        ├── causal_wan22.rst
+        ├── fastvideo_wan22.rst
         ├── lingbot_world.rst
         └── wan21.rst
 ```
+
+Benchmark sources and chart generator live under ``docs/benchmarks/`` and emit
+SVG assets into ``docs/source/_static/perf/``.
 
 ## Hosting on GitHub Pages
 
@@ -93,9 +107,8 @@ to be present.
 
 - **A new model recipe** — append a section to `source/apis/recipes.rst`
   using `.. automodule:: flashdreams.recipes.<name>`, and add a launcher
-  walk-through to `source/examples/<name>.rst`. Wire the new file into
-  the matching toctree in `source/index.rst` (autoregressive vs
-  bidirectional vs serving).
+  walk-through to `source/models/<name>.rst`. Wire the new file into
+  the models toctree in `source/models/index.rst`.
 - **A new infra component** — re-export the public symbols from the
   package `__init__.py`, then add an `.. autoclass::` block to the
   relevant section of `source/apis/infra.rst`.
