@@ -24,7 +24,7 @@ from loguru import logger
 from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
-from flashdreams.core.io.hf import should_use_local_files_only
+from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
 from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 
@@ -84,12 +84,15 @@ class CosmosReason1TextEncoder(Encoder):
         self.embedding_concat_strategy = config.embedding_concat_strategy
         self.n_layers_per_group = config.n_layers_per_group
 
-        local_files_only = should_use_local_files_only(config.model_name)
+        maybe_download_hf_repo_on_rank0(
+            config.model_name,
+            revision=config.revision,
+        )
 
         self.processor = AutoProcessor.from_pretrained(
             config.model_name,
             revision=config.revision,
-            local_files_only=local_files_only,
+            local_files_only=True,
         )
         self.tokenizer = self.processor.tokenizer
 
@@ -100,7 +103,7 @@ class CosmosReason1TextEncoder(Encoder):
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             config.model_name,
             revision=config.revision,
-            local_files_only=local_files_only,
+            local_files_only=True,
             dtype=config.dtype,
         )
         self.model.eval().requires_grad_(False)
