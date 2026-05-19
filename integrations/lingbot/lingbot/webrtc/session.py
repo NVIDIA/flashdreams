@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -515,6 +516,9 @@ class _ManagedLingbotSession:
     virtual clock to ``loop.time()`` so chunk 0's window starts at the
     moment of first interaction, not at data-channel open time."""
 
+    pending_action_arrivals: deque[float] = field(default_factory=deque)
+    """Accepted control-edge arrival times not yet reported in latency telemetry."""
+
     closed: bool = False
 
     async def close(self) -> None:
@@ -759,6 +763,7 @@ class LingbotWebRTCSessionManager:
         # in :meth:`KeyboardResampler.sample_chunk` are well-defined.
         arrival_t = asyncio.get_running_loop().time()
         managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
+        managed_session.pending_action_arrivals.append(arrival_t)
         LOGGER.info(
             "Logged control event=%s key=%s arrival_t=%.3f log_size=%d",
             event,
@@ -864,6 +869,15 @@ class LingbotWebRTCSessionManager:
 
                 t_before_gen = loop.time()
                 segments, frame_times = resampler.sample_chunk(num_frames)
+                chunk_end_v = resampler.next_chunk_start_v
+                consumed_action_arrivals: list[float] = []
+                while (
+                    managed_session.pending_action_arrivals
+                    and managed_session.pending_action_arrivals[0] <= chunk_end_v
+                ):
+                    consumed_action_arrivals.append(
+                        managed_session.pending_action_arrivals.popleft()
+                    )
                 try:
                     result = await runtime.generate_chunk(
                         segments=segments, frame_times=frame_times
@@ -889,10 +903,16 @@ class LingbotWebRTCSessionManager:
                 # keeps growing indicates the catch-up branch isn't
                 # firing and end-to-end latency will degrade.
                 lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
+                control_latency_ms = (
+                    (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
+                    if consumed_action_arrivals
+                    else None
+                )
                 LOGGER.info(
                     "Chunk done chunk=%s num_frames=%s segments=%d "
                     "enqueued=%s gen_ms=%.1f enqueue_ms=%.1f play_ms=%.1f "
-                    "queue_depth=%d next_v=%.3f wall=%.3f lag_ms=%.1f",
+                    "queue_depth=%d next_v=%.3f wall=%.3f lag_ms=%.1f "
+                    "control_latency_ms=%s consumed_actions=%d",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
@@ -904,19 +924,38 @@ class LingbotWebRTCSessionManager:
                     resampler.next_chunk_start_v,
                     t_after_enqueue,
                     lag_ms,
+                    (
+                        f"{control_latency_ms:.1f}"
+                        if control_latency_ms is not None
+                        else "n/a"
+                    ),
+                    len(consumed_action_arrivals),
                 )
 
                 channel = managed_session.control_channel
                 if channel is not None:
-                    self._send_json(
-                        channel,
-                        {
-                            "type": "chunk_done",
-                            "chunk_index": result.chunk_index,
-                            "num_frames": result.num_frames,
-                            "enqueued_frames": enqueued,
+                    payload: dict[str, Any] = {
+                        "type": "chunk_done",
+                        "chunk_index": result.chunk_index,
+                        "num_frames": result.num_frames,
+                        "enqueued_frames": enqueued,
+                        "fps": video_track.fps,
+                        "resolution": {
+                            "width": self.runtime_config.video_width,
+                            "height": self.runtime_config.video_height,
                         },
-                    )
+                        "model": self.runtime_config.config_name,
+                        "gen_ms": round(gen_ms, 1),
+                        "enqueue_ms": round(enqueue_ms, 1),
+                        "play_ms": round(play_ms, 1),
+                        "queue_depth": video_track.qsize(),
+                        "lag_ms": round(lag_ms, 1),
+                    }
+                    if control_latency_ms is not None:
+                        payload["latency_ms"] = round(control_latency_ms, 1)
+                        payload["control_latency_ms"] = round(control_latency_ms, 1)
+                        payload["consumed_actions"] = len(consumed_action_arrivals)
+                    self._send_json(channel, payload)
         except asyncio.CancelledError:
             LOGGER.info("Generation worker cancelled.")
             raise
