@@ -451,6 +451,18 @@ SPDX-License-Identifier: Apache-2.0
 <span class="n">configure_loguru_for_distributed</span><span class="p">()</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">is_distributed_initialized</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True when torch distributed is available and initialized.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the torch distributed global rank, or 0 outside distributed runs.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">()</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
 <div class="viewcode-block" id="Device">
 <a class="viewcode-back" href="../../../apis/core.html#flashdreams.core.distributed.Device">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Device</span><span class="p">:</span>
