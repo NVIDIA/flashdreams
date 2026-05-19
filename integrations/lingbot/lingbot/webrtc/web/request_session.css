@@ -126,76 +126,20 @@ body.has-video .mockCanvas {
   z-index: 3;
   top: clamp(18px, 3vw, 42px);
   left: clamp(18px, 3vw, 52px);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+  width: clamp(260px, 25vw, 390px);
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.55));
 }
 
-.brandMark {
-  position: relative;
-  width: 62px;
-  height: 42px;
-  border: 2px solid rgba(142, 240, 28, 0.92);
-  border-radius: 22px;
-  filter: drop-shadow(0 0 18px rgba(142, 240, 28, 0.30));
-}
-
-.brandMark::before,
-.brandMark::after {
-  content: "";
-  position: absolute;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--accent);
-  left: -24px;
-}
-
-.brandMark::before {
-  top: 13px;
-  width: 28px;
-}
-
-.brandMark::after {
-  top: 25px;
-  width: 38px;
-}
-
-.brandBolt {
-  position: absolute;
-  top: 7px;
-  left: 22px;
-  width: 16px;
-  height: 28px;
-  background: var(--accent);
-  clip-path: polygon(56% 0, 18% 46%, 47% 46%, 28% 100%, 84% 36%, 54% 36%);
-}
-
-.brandText {
-  display: grid;
-  gap: 2px;
-}
-
-.brandName {
-  font-size: clamp(1.8rem, 3vw, 2.6rem);
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.brandName span,
-.brandKicker,
 .statusLine strong,
 .metric strong,
 .logEntry time {
   color: var(--accent-strong);
 }
 
-.brandKicker {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+.brandLogo {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .statusCard {
@@ -504,21 +448,7 @@ body[data-status="generating"] .statusLine strong {
   .brandOverlay {
     top: 18px;
     left: 18px;
-  }
-
-  .brandMark {
-    width: 50px;
-    height: 34px;
-  }
-
-  .brandBolt {
-    top: 5px;
-    left: 18px;
-    height: 24px;
-  }
-
-  .brandName {
-    font-size: 1.55rem;
+    width: min(310px, calc(100vw - 36px));
   }
 
   .statusCard {
@@ -558,10 +488,6 @@ body[data-status="generating"] .statusLine strong {
 }
 
 @media (max-width: 520px) {
-  .brandKicker {
-    display: none;
-  }
-
   .controlRow {
     grid-template-columns: 1fr;
     gap: 8px;
