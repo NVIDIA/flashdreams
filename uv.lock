@@ -560,6 +560,7 @@ dependencies = [
     { name = "imageio" },
     { name = "ludus-renderer" },
     { name = "mediapy" },
+    { name = "nvidia-cudnn-frontend" },
     { name = "opencv-python-headless" },
     { name = "shapely" },
 ]
@@ -578,6 +579,7 @@ requires-dist = [
     { name = "imageio" },
     { name = "ludus-renderer", editable = "integrations/alpadreams/ludus-renderer" },
     { name = "mediapy", specifier = ">=1.1" },
+    { name = "nvidia-cudnn-frontend", specifier = "==1.22.1" },
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'" },
@@ -1464,6 +1466,16 @@ dependencies = [
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/84/26025437c1e6b61a707442184fa0c03d083b661adf3a3eecfd6d21677740/nvidia_cudnn_cu13-9.19.0.56-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:6ed29ffaee1176c612daf442e4dd6cfeb6a0caa43ddcbeb59da94953030b1be4", size = 433781201, upload-time = "2026-02-03T20:40:53.805Z" },
     { url = "https://files.pythonhosted.org/packages/a3/22/0b4b932655d17a6da1b92fa92ab12844b053bb2ac2475e179ba6f043da1e/nvidia_cudnn_cu13-9.19.0.56-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:d20e1734305e9d68889a96e3f35094d733ff1f83932ebe462753973e53a572bf", size = 366066321, upload-time = "2026-02-03T20:44:52.837Z" },
+]
+
+[[package]]
+name = "nvidia-cudnn-frontend"
+version = "1.22.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/3f/523fb08d9b7be15242ade6e2a641900d05c0e9cfffab8260de37a04ac0d2/nvidia_cudnn_frontend-1.22.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f64fb4e0a45b7a8bb126f91a71d8afc03facf14b82dade51744ca48cf20d2974", size = 2722597, upload-time = "2026-04-10T17:33:54.366Z" },
+    { url = "https://files.pythonhosted.org/packages/34/b7/35c87c334d553bd45809ec957b53f3d7dd13c5a407e853c9eea29fcc5b3c/nvidia_cudnn_frontend-1.22.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:933275df405053001888875ee75d2138b20dc4e8bf4057461b1c74ca68b0e270", size = 2863367, upload-time = "2026-04-10T17:29:22.838Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/42/af975c8937a4c331b1215a0b2bdd2a742d792c6f777f919fd70480d63762/nvidia_cudnn_frontend-1.22.1-cp312-cp312-win_amd64.whl", hash = "sha256:2da1c277f008ee64273a48a5cb8d07efbb6d6774fdc08bd889476cce93b2f69a", size = 2310595, upload-time = "2026-04-10T17:37:24.776Z" },
 ]
 
 [[package]]

@@ -48,6 +48,7 @@ Optional integration: integrations/alpadreams
 --------------------------------------------------------------------------------
 
 mediapy                Apache-2.0   https://github.com/google/mediapy
+nvidia-cudnn-frontend  MIT          https://github.com/NVIDIA/cudnn-frontend
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
