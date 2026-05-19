@@ -388,12 +388,12 @@ body[data-status="generating"] .connectButton {
   bottom: clamp(20px, 4vh, 40px);
   display: grid;
   grid-template-columns:
-    minmax(72px, 0.7fr)
-    minmax(120px, 1fr)
-    minmax(132px, 1.15fr)
-    minmax(72px, 0.7fr)
-    minmax(150px, 1.45fr);
-  width: min(760px, calc(100vw - 36px));
+    minmax(max-content, 0.7fr)
+    minmax(max-content, 1fr)
+    minmax(max-content, 1.15fr)
+    minmax(max-content, 0.7fr)
+    minmax(max-content, 1.45fr);
+  width: min(960px, calc(100vw - 36px));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
@@ -405,11 +405,11 @@ body[data-status="generating"] .connectButton {
 
 .metric {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: max-content max-content;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-width: 0;
+  min-width: max-content;
   min-height: 42px;
   padding: 0 16px;
   border-right: 1px solid rgba(255, 255, 255, 0.11);
@@ -423,17 +423,11 @@ body[data-status="generating"] .connectButton {
 
 .metric span {
   color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .metric strong {
-  min-width: 0;
-  overflow: hidden;
   text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 760;
 }
