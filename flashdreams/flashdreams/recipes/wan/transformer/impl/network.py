@@ -99,6 +99,9 @@ class WanDiTNetworkConfig(InstantiateConfig):
     patch_embedding_type: Literal["linear", "conv3d"] = "conv3d"
     """Type of patch embedding: ``"linear"`` (flattened patch MLP) or ``"conv3d"`` (strided conv)."""
 
+    apply_rope_before_kvcache: bool = True
+    """If True, apply RoPE to keys before storing them in the KV cache."""
+
 
 @dataclass
 class WanDiTNetwork1pt3BConfig(WanDiTNetworkConfig):
@@ -140,6 +143,7 @@ class WanDiTNetwork(nn.Module):
         self.eps = config.eps
         self.concat_padding_mask = config.concat_padding_mask
         self.patch_embedding_type = config.patch_embedding_type
+        self.apply_rope_before_kvcache = config.apply_rope_before_kvcache
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -193,6 +197,7 @@ class WanDiTNetwork(nn.Module):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
+            apply_rope_before_kvcache=self.apply_rope_before_kvcache,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:
@@ -402,8 +407,9 @@ class WanDiTNetwork(nn.Module):
                 layout ``"... (t h w) (c kt kh kw)"``.
             timesteps: Diffusion timesteps, broadcastable to shape ``[...]``.
             cache: Network KV caches.
-            rope_freqs: RoPE frequencies after CP, shape
-                ``[L, 1, 1, head_dim // 2]``.
+            rope_freqs: Full-width RoPE frequencies after CP. Standard mode
+                uses current-chunk frequencies with shape ``[L, 1, 1, d]``;
+                KV-cache-relative mode uses frequencies relative to the KV cache.
             current_chunk_idx: Current chunk index for streaming cache update.
             eager_mode: If ``True``, run cache before/after update hooks.
             block_extra_kwargs: Extra kwargs forwarded to each block.

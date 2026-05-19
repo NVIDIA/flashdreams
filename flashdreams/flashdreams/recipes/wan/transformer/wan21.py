@@ -24,7 +24,10 @@ from typing import Any, overload
 import torch
 from torch import Tensor
 
-from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
+from flashdreams.core.attention.rope import (
+    KVCacheRelativeRotaryPositionEmbedding3D,
+    RotaryPositionEmbedding3D,
+)
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
@@ -60,12 +63,14 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     network_cache_uncond: WanDiTNetworkCache | None = None
     """Unconditional caches; ``None`` disables CFG."""
 
-    rope_adapter: RotaryPositionEmbedding3D
-    """3D RoPE adapter; advances along T per AR step."""
+    rope_adapter: RotaryPositionEmbedding3D | KVCacheRelativeRotaryPositionEmbedding3D
+    """3D RoPE adapter for self-attention position frequencies."""
 
     rope_freqs: Tensor | None = None
     """Self-attention RoPE frequencies for the current AR step.
-    Shape ``[L, 1, 1, head_dim // 2]`` after CP. Recomputed once per
+    Standard mode stores K after applying current-chunk RoPE.
+    KV-cache-relative mode stores unrotated K and applies cache-slot RoPE on cache read.
+    Shape ``[L, 1, 1, head_dim]`` after CP in standard mode. Recomputed once per
     AR step in :meth:`start` and reused across cond and uncond branches
     (and across all scheduler steps within the AR step)."""
 
@@ -98,7 +103,7 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
 class Wan21TransformerConfig(TransformerConfig):
     """Config for the Wan 2.1 transformer.
 
-    Bakes in the temporal layout (``len_t``, ``window_size_t``,
+    Bakes in the temporal layout (``len_t``, ``window_size_t``, optional
     ``sink_size_t``) and the CFG / compile knobs. Per-rollout spatial
     layout (``height``, ``width``) is supplied to
     :meth:`Wan21Transformer.initialize_autoregressive_cache` so one
@@ -149,7 +154,7 @@ class Wan21TransformerConfig(TransformerConfig):
     """Self-attention sliding-window size (pre-patchify T frames)."""
 
     sink_size_t: int = 0
-    """Number of sink tokens preserved across the window."""
+    """Prefix sink size (pre-patchify T frames) for self-attention KV cache."""
 
     h_extrapolation_ratio: float = 1.0
     w_extrapolation_ratio: float = 1.0
@@ -194,12 +199,27 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         else:
             self._cp_size = 1
             self._cp_group = None
-
         # Pre-patchify temporal divisibility check; per-rollout
         # (height, width) is populated by initialize_autoregressive_cache.
         kt, _, _ = config.network.patch_size
         assert config.len_t % kt == 0, (
             f"len_t ({config.len_t}) must be divisible by patch_size[0] ({kt})."
+        )
+        assert config.window_size_t % kt == 0, (
+            f"window_size_t ({config.window_size_t}) must be divisible by "
+            f"patch_size[0] ({kt})."
+        )
+        assert config.sink_size_t % kt == 0, (
+            f"sink_size_t ({config.sink_size_t}) must be divisible by "
+            f"patch_size[0] ({kt})"
+        )
+        len_t = config.len_t // kt
+        window_size_t = config.window_size_t // kt
+        sink_size_t = config.sink_size_t // kt
+        assert (sink_size_t + window_size_t) % len_t == 0, (
+            f"sink_size_t + window_size_t ({sink_size_t + window_size_t}) must be "
+            f"divisible by post-patch len_t ({len_t}) so the BlockKVCache can "
+            f"fit a whole number of AR chunks."
         )
         self._output_height: int | None = None
         self._output_width: int | None = None
@@ -227,13 +247,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         # matches the KV cache's filling -> steady transition so the captured
         # region only sees steady-state paths.
         self._use_cuda_graph = config.use_cuda_graph
-        chunks_total = config.sink_size_t + config.window_size_t
-        assert chunks_total % config.len_t == 0, (
-            f"sink_size_t + window_size_t ({chunks_total}) must be "
-            f"divisible by len_t ({config.len_t}) so the BlockKVCache can "
-            f"fit a whole number of AR chunks."
-        )
-        self._cuda_graph_capture_ar_idx: int = chunks_total // config.len_t
+        chunks_total = sink_size_t + window_size_t
+        self._cuda_graph_capture_ar_idx: int = chunks_total // len_t
         self._network_call: CUDAGraphWrapper | WanDiTNetwork = (
             CUDAGraphWrapper(self.network, warmup_iters=config.cuda_graph_warmup_iters)
             if config.use_cuda_graph
@@ -292,8 +307,18 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         pHW = (self._output_height // kh) * (self._output_width // kw)
         cp_size = self._cp_size
         chunk_size = self.latent_shape[-2]  # already CP-divided
-        window_size = (cfg.window_size_t // kt * pHW) // cp_size
-        sink_size = (cfg.sink_size_t // kt * pHW) // cp_size
+        window_size_t = cfg.window_size_t // kt
+        sink_size_t = cfg.sink_size_t // kt
+        assert (window_size_t * pHW) % cp_size == 0, (
+            f"window_size_t * frame_token_count ({window_size_t * pHW}) must be "
+            f"divisible by cp_size ({cp_size})"
+        )
+        assert (sink_size_t * pHW) % cp_size == 0, (
+            f"sink_size_t * frame_token_count ({sink_size_t * pHW}) must be "
+            f"divisible by cp_size ({cp_size})"
+        )
+        window_size = (window_size_t * pHW) // cp_size
+        sink_size = (sink_size_t * pHW) // cp_size
         return self.network.initialize_cache(
             chunk_size=chunk_size,
             window_size=window_size,
@@ -369,16 +394,22 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             )
 
         head_dim = self.config.network.dim // self.config.network.num_heads
-        rope_adapter = RotaryPositionEmbedding3D(
-            len_t=cfg.len_t // kt,
-            len_h=height // kh,
-            len_w=width // kw,
-            head_dim=head_dim,
-            h_extrapolation_ratio=self.config.h_extrapolation_ratio,
-            w_extrapolation_ratio=self.config.w_extrapolation_ratio,
-            interleaved=True,
-            device=self.device,
-        )
+        rope_kwargs: dict[str, Any] = {
+            "len_t": cfg.len_t // kt,
+            "len_h": height // kh,
+            "len_w": width // kw,
+            "head_dim": head_dim,
+            "h_extrapolation_ratio": self.config.h_extrapolation_ratio,
+            "w_extrapolation_ratio": self.config.w_extrapolation_ratio,
+            "interleaved": True,
+            "device": self.device,
+        }
+        if cfg.network.apply_rope_before_kvcache:
+            rope_adapter = RotaryPositionEmbedding3D(**rope_kwargs)
+        else:
+            rope_kwargs["sink_size_t"] = cfg.sink_size_t // kt
+            rope_kwargs["window_size_t"] = cfg.window_size_t // kt
+            rope_adapter = KVCacheRelativeRotaryPositionEmbedding3D(**rope_kwargs)
         rope_adapter.set_context_parallel_group(cp_group=self._cp_group)
 
         # Reset any prior CUDA graph: it refers to slot pointers from the
@@ -466,6 +497,9 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         assert network_cache is not None, (
             "uncond=True requires cache.network_cache_uncond, but it is None "
             "(CFG was not enabled at cache build time)."
+        )
+        assert cache.rope_freqs is not None, (
+            "Wan21TransformerCache.start() must populate rope_freqs before predict_flow"
         )
         return self._select_network(autoregressive_index, uncond=uncond)(
             x=network_input,
