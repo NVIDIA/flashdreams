@@ -389,12 +389,66 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">ctypes</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">pynvml</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="n">DEFAULT_LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">is_distributed_initialized</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True when torch distributed is available and initialized.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the torch distributed global rank, or 0 outside distributed runs.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">()</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank_from_env</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the launch-provided rank, or 0 when unavailable.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;RANK&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank_for_logging</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the best available global rank for early process logging.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">get_global_rank</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">get_global_rank_from_env</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">world_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Keep rank 0 log levels intact and demote other ranks to DEBUG.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">world_rank</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">world_rank</span> <span class="o">=</span> <span class="n">get_global_rank_for_logging</span><span class="p">()</span>
+
+    <span class="n">log_level</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;LOGURU_LEVEL&quot;</span><span class="p">,</span> <span class="n">DEFAULT_LOG_LEVEL</span><span class="p">)</span>
+    <span class="n">debug_level</span> <span class="o">=</span> <span class="n">logger</span><span class="o">.</span><span class="n">level</span><span class="p">(</span><span class="s2">&quot;DEBUG&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">demote_non_rank0</span><span class="p">(</span><span class="n">record</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">world_rank</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">record</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">])(</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">no</span><span class="p">,</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">icon</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">patcher</span><span class="o">=</span><span class="n">demote_non_rank0</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">log_level</span><span class="p">)</span>
+
+
+<span class="n">configure_loguru_for_distributed</span><span class="p">()</span>
 
 
 <div class="viewcode-block" id="Device">
@@ -460,6 +514,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">timeout</span><span class="o">=</span><span class="n">timeout_timedelta</span><span class="p">,</span>
             <span class="n">device_id</span><span class="o">=</span><span class="n">local_rank</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="n">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">get_global_rank</span><span class="p">())</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Initialized distributed training with local rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2"> with timeout </span><span class="si">{</span><span class="n">timeout_seconds</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
         <span class="p">)</span>
