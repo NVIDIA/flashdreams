@@ -16,16 +16,62 @@
 from __future__ import annotations
 
 import argparse
+import json
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 WEB_DIR = Path(__file__).resolve().parent
+REPO_ROOT = WEB_DIR.parents[4]
+EXAMPLE_DATA_DIR = REPO_ROOT / "assets/example_data/lingbot_world"
+FIRST_FRAME_PATH = EXAMPLE_DATA_DIR / "image.jpg"
+PROMPT_PATH = EXAMPLE_DATA_DIR / "prompt.txt"
 
 
 class MockUIRequestHandler(SimpleHTTPRequestHandler):
     """Serve the static viewer without preloading the Lingbot runtime."""
+
+    def _send_json(self, payload: dict[str, object], *, head_only: bool) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def _send_first_frame(self, *, head_only: bool) -> None:
+        if not FIRST_FRAME_PATH.exists():
+            self.send_error(404, f"Missing first frame: {FIRST_FRAME_PATH}")
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(FIRST_FRAME_PATH.stat().st_size))
+        self.end_headers()
+        if not head_only:
+            with FIRST_FRAME_PATH.open("rb") as handle:
+                self.copyfile(handle, self.wfile)
+
+    def _handle_api(self, *, head_only: bool) -> bool:
+        path = urlsplit(self.path).path
+        if path == "/api/session/initial_scene":
+            prompt = PROMPT_PATH.read_text(encoding="utf-8").splitlines()[0].strip()
+            self._send_json(
+                {
+                    "first_frame_url": "/api/session/first_frame",
+                    "prompt": prompt,
+                    "model": "lingbot-world-fast-flash",
+                    "resolution": {"width": 832, "height": 464},
+                },
+                head_only=head_only,
+            )
+            return True
+        if path == "/api/session/first_frame":
+            self._send_first_frame(head_only=head_only)
+            return True
+        return False
 
     def _rewrite_path(self) -> bool:
         path = urlsplit(self.path).path
@@ -41,11 +87,15 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
         return False
 
     def do_GET(self) -> None:
+        if self._handle_api(head_only=False):
+            return
         if self._rewrite_path():
             return
         super().do_GET()
 
     def do_HEAD(self) -> None:
+        if self._handle_api(head_only=True):
+            return
         if self._rewrite_path():
             return
         super().do_HEAD()

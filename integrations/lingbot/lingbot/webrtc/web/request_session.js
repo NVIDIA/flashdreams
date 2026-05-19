@@ -20,6 +20,9 @@ const eventLog = document.getElementById("eventLog")
 const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
+const firstFramePreview = document.getElementById("firstFramePreview")
+const readyPromptCard = document.getElementById("readyPromptCard")
+const readyPromptText = document.getElementById("readyPromptText")
 const fpsValue = document.getElementById("fpsValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
@@ -36,16 +39,20 @@ const activeKeys = new Set()
 const frameTimes = []
 const pendingActions = []
 const maxPendingActions = 32
+const initialGenerationMessage = "Generating the initial frames, please wait"
 
 let peerConnection = null
 let controlChannel = null
 let statsTimer = null
 let inferenceInFlight = false
 let connected = false
+let actionStarted = false
 let heldKeySequence = 0
 let mockChunkIndex = 0
 let mockGenerationStarted = false
 let mockChunkTimer = null
+let initialScene = null
+let initialScenePromise = null
 
 const metrics = {
   fps: null,
@@ -104,10 +111,97 @@ function logEvent(message, { source = "server", level = "info" } = {}) {
   }
 }
 
+function updateReadyPreview() {
+  const status = document.body.dataset.status
+  const hasVideo = document.body.classList.contains("has-video")
+  const show =
+    connected &&
+    !hasVideo &&
+    initialScene !== null &&
+    (status === "waiting" || status === "generating")
+
+  readyPromptCard.hidden = !show
+  document.body.classList.toggle("is-ready-preview", show)
+  if (show) {
+    const prompt = typeof initialScene.prompt === "string" ? initialScene.prompt : ""
+    readyPromptText.textContent = actionStarted
+      ? initialGenerationMessage
+      : prompt
+  }
+}
+
+function applyInitialScene(payload) {
+  if (!payload || typeof payload !== "object") {
+    return
+  }
+
+  const prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : ""
+  const firstFrameUrl =
+    typeof payload.first_frame_url === "string" ? payload.first_frame_url : ""
+  if (prompt) {
+    readyPromptText.textContent = prompt
+  }
+  if (firstFrameUrl && firstFramePreview.getAttribute("src") !== firstFrameUrl) {
+    firstFramePreview.src = firstFrameUrl
+  }
+
+  metrics.model =
+    typeof payload.model === "string" && payload.model ? payload.model : metrics.model
+  if (payload.resolution && typeof payload.resolution === "object") {
+    const width = Number(payload.resolution.width)
+    const height = Number(payload.resolution.height)
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      metrics.resolution = `${width}x${height}`
+    }
+  }
+  initialScene = payload
+  renderMetrics()
+  updateReadyPreview()
+}
+
+async function loadInitialScene() {
+  if (initialScene !== null) {
+    updateReadyPreview()
+    return initialScene
+  }
+  if (initialScenePromise !== null) {
+    return initialScenePromise
+  }
+
+  initialScenePromise = fetch("/api/session/initial_scene", {
+    headers: { Accept: "application/json" },
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`initial scene failed (${response.status})`)
+      }
+      return response.json()
+    })
+    .then((payload) => {
+      applyInitialScene(payload)
+      return payload
+    })
+    .catch((error) => {
+      logEvent(`initial scene unavailable: ${error.message}`, {
+        source: "client",
+        level: "error",
+      })
+      return null
+    })
+    .finally(() => {
+      initialScenePromise = null
+    })
+  return initialScenePromise
+}
+
 function setStatus(message, state = message.toLowerCase()) {
   statusText.textContent = message
   document.body.dataset.status = state
   logState.textContent = state === "idle" ? "Waiting" : message
+  if (state === "waiting" && connected && !actionStarted) {
+    void loadInitialScene()
+  }
+  updateReadyPreview()
 }
 
 function setFlow(message) {
@@ -116,6 +210,7 @@ function setFlow(message) {
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+  updateReadyPreview()
 }
 
 function renderMetrics() {
@@ -216,6 +311,7 @@ function sendControlAction(action) {
   if (mockMode && connected && !controlChannel) {
     inferenceInFlight = true
     mockGenerationStarted = true
+    actionStarted = true
     recordActionSent(action)
     setStatus("Generating", "generating")
     setFlow(`sent ${actionLabel(action)}, waiting=true`)
@@ -228,6 +324,7 @@ function sendControlAction(action) {
   }
 
   inferenceInFlight = true
+  actionStarted = true
   controlChannel.send(
     JSON.stringify({
       type: "action",
@@ -430,6 +527,9 @@ async function connectSession() {
   }
 
   connectButton.disabled = true
+  actionStarted = false
+  updateReadyPreview()
+  void loadInitialScene()
   setStatus("Connecting", "connecting")
   setFlow("creating peer connection")
   logEvent("connecting to server...", { source: "client" })
@@ -746,6 +846,9 @@ function ensureMockChunks() {
 
 async function startMockSession() {
   connectButton.disabled = true
+  actionStarted = false
+  updateReadyPreview()
+  void loadInitialScene()
   setStatus("Connecting", "connecting")
   setFlow("mock warmup")
   logEvent("connecting to mock server...", { source: "client" })

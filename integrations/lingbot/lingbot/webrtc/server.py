@@ -96,6 +96,23 @@ def create_app(
     async def request_session_page(_: web.Request) -> web.StreamResponse:
         return web.FileResponse(WEB_DIR / "request_session.html")
 
+    async def initial_scene(request: web.Request) -> web.StreamResponse:
+        manager = request.app["session_manager"]
+        try:
+            return web.json_response(manager.get_initial_scene())
+        except FileNotFoundError as exc:
+            raise web.HTTPNotFound(reason=str(exc)) from exc
+        except Exception as exc:
+            LOGGER.exception("Failed to read Lingbot initial scene metadata.")
+            raise web.HTTPInternalServerError(reason=str(exc)) from exc
+
+    async def first_frame(request: web.Request) -> web.StreamResponse:
+        manager = request.app["session_manager"]
+        try:
+            return web.FileResponse(manager.get_first_frame_path())
+        except FileNotFoundError as exc:
+            raise web.HTTPNotFound(reason=str(exc)) from exc
+
     async def offer(request: web.Request) -> web.StreamResponse:
         try:
             payload = await request.json()
@@ -152,6 +169,8 @@ def create_app(
         await manager.shutdown()
 
     app.router.add_get("/request_session", request_session_page)
+    app.router.add_get("/api/session/initial_scene", initial_scene)
+    app.router.add_get("/api/session/first_frame", first_frame)
     app.router.add_post("/api/webrtc/offer", offer)
     app.router.add_get("/healthz", healthz)
     app.router.add_static("/static/", WEB_DIR, show_index=False)

@@ -64,6 +64,7 @@ button {
 
 .mockCanvas,
 .stageVideo,
+.firstFramePreview,
 .stageVignette {
   position: absolute;
   inset: 0;
@@ -88,7 +89,25 @@ body.has-video .stageVideo {
   opacity: 1;
 }
 
-body.has-video .mockCanvas {
+.firstFramePreview {
+  z-index: 1;
+  display: block;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+body.is-ready-preview .firstFramePreview {
+  opacity: 1;
+}
+
+body.has-video .firstFramePreview {
+  opacity: 0;
+}
+
+body.has-video .mockCanvas,
+body.is-ready-preview .mockCanvas {
   opacity: 0;
 }
 
@@ -150,6 +169,34 @@ body.has-video .mockCanvas {
   padding: 16px 18px;
   display: grid;
   gap: 10px;
+}
+
+.readyPromptCard {
+  position: absolute;
+  top: clamp(112px, 16vh, 168px);
+  left: 50%;
+  width: min(620px, calc(100vw - 36px));
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 180ms ease;
+}
+
+body.is-ready-preview .readyPromptCard {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.readyPromptCard p {
+  margin: 0;
+  max-height: 6.6em;
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(0.92rem, 1.4vw, 1.02rem);
+  line-height: 1.48;
 }
 
 .panelLabel {
@@ -465,6 +512,14 @@ body[data-status="generating"] .statusLine strong {
     top: 88px;
     left: 18px;
     right: auto;
+  }
+
+  .readyPromptCard {
+    top: 190px;
+    left: 18px;
+    right: 18px;
+    width: auto;
+    transform: none;
   }
 
   .controlCard,

@@ -560,6 +560,38 @@ class LingbotWebRTCSessionManager:
     def is_runtime_ready(self) -> bool:
         return self._runtime_ready
 
+    def get_initial_scene(self) -> dict[str, Any]:
+        first_frame_path = self.get_first_frame_path()
+        prompt_path = (
+            self.runtime_config.example_data_dir / self.runtime_config.prompt_filename
+        )
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Missing Lingbot prompt: {prompt_path}")
+
+        with prompt_path.open("r", encoding="utf-8") as handle:
+            prompt = handle.readline().strip()
+        if not prompt:
+            raise ValueError("Prompt file is empty.")
+
+        return {
+            "first_frame_url": "/api/session/first_frame",
+            "prompt": prompt,
+            "model": self.runtime_config.config_name,
+            "resolution": {
+                "width": self.runtime_config.video_width,
+                "height": self.runtime_config.video_height,
+            },
+        }
+
+    def get_first_frame_path(self) -> Path:
+        first_frame_path = (
+            self.runtime_config.example_data_dir
+            / self.runtime_config.first_frame_filename
+        )
+        if not first_frame_path.exists():
+            raise FileNotFoundError(f"Missing Lingbot first frame: {first_frame_path}")
+        return first_frame_path
+
     async def preload_runtime(self) -> None:
         if self._runtime_ready:
             return

@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from lingbot.webrtc.server import create_app
@@ -32,12 +34,24 @@ class FakeSessionManager:
         self.offers: list[tuple[str, str]] = []
         self.active = False
         self.runtime_ready = False
+        self.first_frame_path = Path(__file__)
 
     def has_active_session(self) -> bool:
         return self.active
 
     def is_runtime_ready(self) -> bool:
         return self.runtime_ready
+
+    def get_initial_scene(self) -> dict[str, object]:
+        return {
+            "first_frame_url": "/api/session/first_frame",
+            "prompt": "A quiet starting scene ready for control.",
+            "model": "test-lingbot-model",
+            "resolution": {"width": 832, "height": 464},
+        }
+
+    def get_first_frame_path(self) -> Path:
+        return self.first_frame_path
 
     async def preload_runtime(self) -> None:
         self.preload_calls += 1
@@ -77,6 +91,32 @@ async def test_request_session_serves_html() -> None:
         body = await response.text()
         assert response.status == 200
         assert "Lingbot WebRTC Viewer" in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_initial_scene_returns_first_frame_and_prompt() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/session/initial_scene")
+        payload = await response.json()
+        assert response.status == 200
+        assert payload == manager.get_initial_scene()
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_first_frame_route_serves_manager_frame() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/session/first_frame")
+        body = await response.read()
+        assert response.status == 200
+        assert body.startswith(b"# SPDX-FileCopyrightText:")
     finally:
         await client.close()
 
