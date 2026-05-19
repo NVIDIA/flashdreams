@@ -46,3 +46,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["fastvideo_causal_wan22*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

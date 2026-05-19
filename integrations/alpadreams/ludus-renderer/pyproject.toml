@@ -81,3 +81,6 @@ packages = [
     "_cpp/loader/*.cpp",
     "_cpp/loader/*.cu",
 ]
+
+[tool.uv]
+managed = true
