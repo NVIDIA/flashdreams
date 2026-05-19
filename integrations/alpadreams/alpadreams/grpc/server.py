@@ -75,7 +75,9 @@ from alpadreams.transformer import CosmosTransformerConfig
 from loguru import logger
 from ludus_renderer import nvjpeg
 
-from flashdreams.core.distributed import init as distributed_init
+from flashdreams.core.distributed import (
+    init as distributed_init,
+)
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp_object_list,
     split_inputs_cp_object_list,
