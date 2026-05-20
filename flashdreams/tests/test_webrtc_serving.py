@@ -9,6 +9,7 @@ import torch
 
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
+    CameraPoseIntegrator,
     KeyboardResampler,
     KeyboardState,
 )
@@ -38,6 +39,35 @@ def test_wsad_resampler_preserves_held_key() -> None:
 
     assert segments == [(1.0, 1.0 + 2 / 30, frozenset({"w"}))]
     assert frame_times == pytest.approx([1.0 + 1 / 30, 1.0 + 2 / 30])
+
+
+def test_camera_pose_integrator_flu_uses_driving_axes() -> None:
+    integrator = CameraPoseIntegrator(
+        move_speed_per_s=2.0,
+        rotate_speed_rad_per_s=float(np.pi / 2),
+        coordinate_system="FLU",
+    )
+
+    integrator.reset()
+    poses = integrator.integrate_chunk(
+        segments=[(0.0, 1.0, frozenset({"w"}))],
+        frame_times=[1.0],
+    )
+    assert poses[-1][:3, 3] == pytest.approx([2.0, 0.0, 0.0])
+
+    integrator.reset()
+    poses = integrator.integrate_chunk(
+        segments=[(0.0, 1.0, frozenset({"a"}))],
+        frame_times=[1.0],
+    )
+    assert poses[-1][:3, 0] == pytest.approx([0.0, 1.0, 0.0], abs=1e-6)
+
+    integrator.reset()
+    poses = integrator.integrate_chunk(
+        segments=[(0.0, 1.0, frozenset({"d"}))],
+        frame_times=[1.0],
+    )
+    assert poses[-1][:3, 0] == pytest.approx([0.0, -1.0, 0.0], abs=1e-6)
 
 
 def test_tensor_chunk_to_rgb_frames_supports_alpadreams_layout() -> None:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -170,6 +171,15 @@ def _rotation_matrix(axis: str, angle_rad: float) -> np.ndarray:
             ],
             dtype=np.float32,
         )
+    if axis == "z":
+        return np.array(
+            [
+                [cos_t, -sin_t, 0.0],
+                [sin_t, cos_t, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
     return np.eye(3, dtype=np.float32)
 
 
@@ -180,10 +190,18 @@ class CameraPoseIntegrator:
     move_speed_per_s: float = 0.8
     rotate_speed_rad_per_s: float = float(np.deg2rad(32.0))
     pitch_limit_rad: float = float(np.deg2rad(85.0))
+    coordinate_system: Literal["RDF", "FLU"] = "RDF"
     _current_pose: np.ndarray = field(
         default_factory=lambda: np.eye(4, dtype=np.float32),
     )
     _current_pitch: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.coordinate_system not in {"RDF", "FLU"}:
+            raise ValueError(
+                "coordinate_system must be 'RDF' (right-down-forward) "
+                "or 'FLU' (forward-left-up)"
+            )
 
     def reset(self, pose: np.ndarray | None = None) -> None:
         if pose is None:
@@ -193,7 +211,10 @@ class CameraPoseIntegrator:
         if pose.shape != (4, 4):
             raise ValueError(f"Expected pose shape (4, 4), got {pose.shape}")
         self._current_pose = pose.astype(np.float32, copy=True)
-        self._current_pitch = float(np.arctan2(pose[2, 1], pose[1, 1]))
+        if self.coordinate_system == "FLU":
+            self._current_pitch = float(np.arcsin(np.clip(pose[2, 0], -1.0, 1.0)))
+        else:
+            self._current_pitch = float(np.arctan2(pose[2, 1], pose[1, 1]))
 
     def current_pose(self) -> np.ndarray:
         return self._current_pose.copy()
@@ -203,10 +224,16 @@ class CameraPoseIntegrator:
             return
 
         yaw_rate = 0.0
-        if "a" in state or "j" in state:
-            yaw_rate -= self.rotate_speed_rad_per_s
-        if "d" in state or "l" in state:
-            yaw_rate += self.rotate_speed_rad_per_s
+        if self.coordinate_system == "FLU":
+            if "a" in state or "j" in state:
+                yaw_rate += self.rotate_speed_rad_per_s
+            if "d" in state or "l" in state:
+                yaw_rate -= self.rotate_speed_rad_per_s
+        else:
+            if "a" in state or "j" in state:
+                yaw_rate -= self.rotate_speed_rad_per_s
+            if "d" in state or "l" in state:
+                yaw_rate += self.rotate_speed_rad_per_s
         pitch_rate = 0.0
         if "i" in state:
             pitch_rate += self.rotate_speed_rad_per_s
@@ -224,8 +251,12 @@ class CameraPoseIntegrator:
 
         rot = self._current_pose[:3, :3]
         trans = self._current_pose[:3, 3]
-        rot_pitch = _rotation_matrix("x", pitch_delta)
-        rot_yaw = _rotation_matrix("y", yaw_delta)
+        if self.coordinate_system == "FLU":
+            rot_pitch = _rotation_matrix("y", -pitch_delta)
+            rot_yaw = _rotation_matrix("z", yaw_delta)
+        else:
+            rot_pitch = _rotation_matrix("x", pitch_delta)
+            rot_yaw = _rotation_matrix("y", yaw_delta)
         rot_new = rot_yaw @ rot @ rot_pitch
 
         forward_rate = 0.0
@@ -239,10 +270,20 @@ class CameraPoseIntegrator:
         if "q" in state:
             right_rate -= self.move_speed_per_s
 
-        vec_right = rot_new[:, 0]
-        vec_forward = rot_new[:, 2]
-        forward_flat = np.array([vec_forward[0], 0.0, vec_forward[2]], dtype=np.float32)
-        right_flat = np.array([vec_right[0], 0.0, vec_right[2]], dtype=np.float32)
+        if self.coordinate_system == "FLU":
+            vec_forward = rot_new[:, 0]
+            vec_right = -rot_new[:, 1]
+            forward_flat = np.array(
+                [vec_forward[0], vec_forward[1], 0.0], dtype=np.float32
+            )
+            right_flat = np.array([vec_right[0], vec_right[1], 0.0], dtype=np.float32)
+        else:
+            vec_right = rot_new[:, 0]
+            vec_forward = rot_new[:, 2]
+            forward_flat = np.array(
+                [vec_forward[0], 0.0, vec_forward[2]], dtype=np.float32
+            )
+            right_flat = np.array([vec_right[0], 0.0, vec_right[2]], dtype=np.float32)
         forward_norm = np.linalg.norm(forward_flat)
         right_norm = np.linalg.norm(right_flat)
         if forward_norm > 0:

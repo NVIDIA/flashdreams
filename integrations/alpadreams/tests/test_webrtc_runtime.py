@@ -27,7 +27,8 @@ pytestmark = pytest.mark.ci_cpu
 @dataclass
 class _FakeOutput:
     state: Any
-    rgb_frames: torch.Tensor
+    condition_frames: torch.Tensor
+    rgb_frames: torch.Tensor | None
     finalization_state: dict[str, int]
 
 
@@ -38,14 +39,24 @@ class _FakeWrapper:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[int, ...], list[int]]] = []
         self.finalized: list[dict[str, int]] = []
+        self.skip_video_generation_flags: list[bool] = []
 
     def start_generation(self, **kwargs: Any) -> _FakeOutput:
         poses = kwargs["camera_poses_per_view"]["camera_front_wide_120fov"]
         timestamps = kwargs["frame_timestamps_us"]
         self.calls.append(("start", tuple(poses.shape), timestamps))
+        skip_video_generation = bool(kwargs.get("skip_video_generation", False))
+        self.skip_video_generation_flags.append(skip_video_generation)
         return _FakeOutput(
-            state=SimpleNamespace(pipeline_cache=object()),
-            rgb_frames=torch.zeros((1, 1, 2, 3, 4, 5), dtype=torch.uint8),
+            state=SimpleNamespace(
+                pipeline_cache=None if skip_video_generation else object()
+            ),
+            condition_frames=torch.full((1, 1, 2, 3, 4, 5), 31, dtype=torch.uint8),
+            rgb_frames=(
+                None
+                if skip_video_generation
+                else torch.zeros((1, 1, 2, 3, 4, 5), dtype=torch.uint8)
+            ),
             finalization_state={"autoregressive_index": 0},
         )
 
@@ -53,9 +64,16 @@ class _FakeWrapper:
         poses = kwargs["camera_poses_per_view"]["camera_front_wide_120fov"]
         timestamps = kwargs["frame_timestamps_us"]
         self.calls.append(("continue", tuple(poses.shape), timestamps))
+        skip_video_generation = bool(kwargs.get("skip_video_generation", False))
+        self.skip_video_generation_flags.append(skip_video_generation)
         return _FakeOutput(
             state=kwargs["state"],
-            rgb_frames=torch.zeros((1, 1, 3, 3, 4, 5), dtype=torch.uint8),
+            condition_frames=torch.full((1, 1, 3, 3, 4, 5), 47, dtype=torch.uint8),
+            rgb_frames=(
+                None
+                if skip_video_generation
+                else torch.zeros((1, 1, 3, 3, 4, 5), dtype=torch.uint8)
+            ),
             finalization_state={"autoregressive_index": 1},
         )
 
@@ -105,6 +123,32 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.calls[1][0] == "continue"
     assert wrapper.calls[1][1] == (3, 4, 4)
     assert len(wrapper.finalized) == 2
+    assert wrapper.skip_video_generation_flags == [False, False]
+
+
+def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
+    runtime, wrapper = _build_fake_runtime()
+    runtime.config.debug_serve_hdmaps = True
+
+    result0 = runtime._generate_one_chunk_sync(
+        segments=[(0.0, 2 / 30, frozenset({"w"}))],
+        frame_times=[1 / 30, 2 / 30],
+    )
+    result1 = runtime._generate_one_chunk_sync(
+        segments=[(2 / 30, 5 / 30, frozenset({"d"}))],
+        frame_times=[3 / 30, 4 / 30, 5 / 30],
+    )
+
+    assert result0.chunk_index == 0
+    assert result0.num_frames == 2
+    assert result0.video_chunk.shape == (1, 1, 2, 3, 4, 5)
+    assert result0.video_chunk.unique().tolist() == [31]
+    assert result1.chunk_index == 1
+    assert result1.num_frames == 3
+    assert result1.video_chunk.shape == (1, 1, 3, 3, 4, 5)
+    assert result1.video_chunk.unique().tolist() == [47]
+    assert wrapper.skip_video_generation_flags == [True, True]
+    assert wrapper.finalized == []
 
 
 def test_prepare_clipgt_dir_stages_unprefixed_parquets(

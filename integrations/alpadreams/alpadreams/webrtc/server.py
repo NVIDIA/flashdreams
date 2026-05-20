@@ -74,6 +74,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum seconds to wait for synthetic startup warmup chunks.",
     )
     parser.add_argument(
+        "--debug_serve_hdmaps",
+        action="store_true",
+        help=(
+            "Stream rendered HDMap conditioning frames instead of generated RGB "
+            "video. This skips video model generation after initialization."
+        ),
+    )
+    parser.add_argument(
         "--camera_name",
         type=str,
         default="camera_front_wide_120fov",
@@ -109,6 +117,7 @@ def build_runtime_config(
         camera_name=args.camera_name,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
+        debug_serve_hdmaps=args.debug_serve_hdmaps,
     )
 
 

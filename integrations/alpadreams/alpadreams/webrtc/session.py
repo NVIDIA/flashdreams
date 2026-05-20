@@ -117,6 +117,7 @@ class AlpadreamsRuntimeConfig:
     rotate_speed_rad_per_s: float = float(np.deg2rad(35.0))
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
+    debug_serve_hdmaps: bool = False
 
 
 @dataclass(slots=True)
@@ -146,6 +147,7 @@ class AlpadreamsInferenceRuntime:
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
+            coordinate_system="FLU",
         )
         self.autoregressive_index = 0
 
@@ -416,6 +418,7 @@ class AlpadreamsInferenceRuntime:
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
+            coordinate_system="FLU",
         )
         self.pose_integrator.reset(self._initial_ego_pose)
         self.autoregressive_index = 0
@@ -485,6 +488,7 @@ class AlpadreamsInferenceRuntime:
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
+        serve_hdmaps = self.config.debug_serve_hdmaps
         if self._state is None:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
@@ -493,6 +497,7 @@ class AlpadreamsInferenceRuntime:
                 camera_names=camera_names,
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
+                skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
         else:
@@ -501,6 +506,7 @@ class AlpadreamsInferenceRuntime:
                 camera_names=camera_names,
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
+                skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
 
@@ -510,13 +516,17 @@ class AlpadreamsInferenceRuntime:
                 output.finalization_state,
             )
 
-        if output.rgb_frames is None:
+        if serve_hdmaps:
+            video_chunk = output.condition_frames
+        elif output.rgb_frames is None:
             raise AlpadreamsRuntimeError("Alpadreams WebRTC received no RGB frames.")
+        else:
+            video_chunk = output.rgb_frames
 
         result = AlpadreamsStepResult(
             chunk_index=self.autoregressive_index,
-            num_frames=int(output.rgb_frames.shape[2]),
-            video_chunk=output.rgb_frames.detach().cpu(),
+            num_frames=int(video_chunk.shape[2]),
+            video_chunk=video_chunk.detach().cpu(),
             stats=None,
         )
         self.autoregressive_index += 1
@@ -1021,6 +1031,9 @@ class AlpadreamsWebRTCSessionManager:
                             "height": self.runtime_config.video_height,
                         },
                         "model": self.runtime_config.pipeline_config_name,
+                        "stream": (
+                            "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"
+                        ),
                         "gen_ms": round(gen_ms, 1),
                         "enqueue_ms": round(enqueue_ms, 1),
                         "play_ms": round(play_ms, 1),
