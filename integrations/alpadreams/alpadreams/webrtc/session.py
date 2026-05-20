@@ -105,7 +105,13 @@ class AlpadreamsRuntimeConfig:
     pipeline_config_name: str = (
         "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
     )
-    scene_dir: Path = REPO_ROOT / "assets" / "omnidreams"
+    scene_dir: Path = (
+        REPO_ROOT
+        / "assets"
+        / "example_data"
+        / "alpadreams-webrtc"
+        / "0b10bce8-61f1-4350-8577-cf3c9493ffc3"
+    )
     seed: int | None = 42
     device: str = "cuda:0"
     video_height: int = 704

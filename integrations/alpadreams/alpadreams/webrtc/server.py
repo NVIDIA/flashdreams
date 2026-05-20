@@ -56,7 +56,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scene_dir",
         type=Path,
-        default=Path(__file__).resolve().parents[4] / "assets" / "omnidreams",
+        default=Path(__file__).resolve().parents[4]
+        / "assets"
+        / "example_data"
+        / "alpadreams-webrtc"
+        / "0b10bce8-61f1-4350-8577-cf3c9493ffc3",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
