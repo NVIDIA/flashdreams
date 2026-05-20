@@ -336,67 +336,6 @@ uv run python -m torch.distributed.run --nproc_per_node=1 --no-python flashdream
 ```
 
 
-## Instructions to run HY-WorldPlay WAN-5B I2V Inference
-
-reference: [HY-WorldPlay repo](https://github.com/Tencent-Hunyuan/HY-WorldPlay/tree/main/wan)
-
-The HY-WorldPlay WAN-5B I2V slug ships as an out-of-tree plugin
-(`flashdreams/integrations/hy_worldplay/`) -- a phase-1 vendor
-wrapper around upstream's `wan/generate.py` `WanRunner`. A
-recipe-level integration that promotes the slug into a
-`flashdreams-run` subcommand is tracked as phase 2 and depends on a
-flashdreams-side Wan 2.2 5B recipe landing first; see
-`integrations/hy_worldplay/README.md` for the full staging plan.
-
-The heavy upstream deps (sageattention, accelerate, cloudpickle, ...)
-are deliberately **not** in the repo-root `uv.lock`. They live in an
-isolated sub-venv under
-`integrations/hy_worldplay/tests/parity_check/` so they don't bloat
-the env that every other contributor resolves. All GPU invocations
-below route through that sub-venv via `uv run --project ...`.
-
-```bash
-# 0. request interactive node with pre-built container same as above alpadreams demo.
-
-# 1. install the lightweight plugin shim (one-time; declared as a uv
-#    workspace member, so `uv sync` from the repo root is enough --
-#    this line is for clarity).
-uv pip install -e flashdreams/integrations/hy_worldplay
-
-# 2. setup huggingface
-# - (required) huggingface token with read access to tencent/HY-WorldPlay
-export HF_TOKEN=<YOUR-HF-TOKEN>
-# - (optional) huggingface cache path
-export HF_HOME=~/.cache/huggingface # default
-
-# 3. provision the upstream tree + checkpoints AND materialize the
-#    parity / run sub-venv. The parity-check script does both
-#    idempotently:
-bash flashdreams/integrations/hy_worldplay/tests/parity_check/run.sh
-#    -> clones HY-WorldPlay/, downloads wan_transformer +
-#       wan_distilled_model, and runs `uv sync` inside the sub-venv.
-
-# 4. run inference through the flashdreams plugin (from the sub-venv).
-PARITY=flashdreams/integrations/hy_worldplay/tests/parity_check
-uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b \
-    --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
-    --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
-    --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
-    --hy-worldplay-repo-root "${PARITY}/HY-WorldPlay" \
-    --num-chunk 1 --pose 'w-4'
-
-# 5. (optional) multi-GPU via context-parallelism (recommended max 8 GPUs).
-uv run --project "${PARITY}" torchrun \
-    --nproc_per_node=4 --no-python \
-    flashdreams-run hy-worldplay-wan-i2v-5b \
-    --image-path "${PARITY}/HY-WorldPlay/assets/img/test.png" \
-    --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
-    --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
-    --hy-worldplay-repo-root "${PARITY}/HY-WorldPlay" \
-    --num-chunk 4 --pose 'w-16'
-```
-
-
 ## Instructions to run Bidirectional Wan2.1 T2V Inference
 
 reference: [Wan2.1 official repo](https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation)
