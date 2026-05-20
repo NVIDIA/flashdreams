@@ -226,7 +226,7 @@ Priority enum: P0 (Must Implement) / P1 (Will not block GA if not implemented) /
 | Status | Count | FSRs |
 |---|---|---|
 | ✅ As-built contract+stub tests passing upstream (mirror to FlashDreams planned) | 20 | FSR_FD_01, _02, _03, _04, _06, _08, _09, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _23 |
-| 📄 Documented control landed (no test seam needed) | 1 | FSR_FD_22 (README trust-collapse callout) |
+| 📄 Documented control (no test seam needed) | 1 | FSR_FD_22 (trust-collapse callout in FlashDreams `docs/security/SECURITY.md` + upstream interactive-drive README) |
 | ⏳ Externally blocked or operator-side | 3 | FSR_FD_05 (operator guidance — FlashDreams ships no canonical image), FSR_FD_07 (Cosmos-Guardrail real backend — HF egress per OE-6), FSR_FD_24 (OSS-Fuzz post-GA) |
 
 ---

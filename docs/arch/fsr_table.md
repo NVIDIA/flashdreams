@@ -373,18 +373,17 @@ Every row uses the column structure the user supplied:
 
 ### FSR_FD_22 — Trust-collapse docs (OE-1)
 
-- **Functional Security Requirement.** The FlashDreams + omni-dreams README docker-run sections SHALL document the trust-collapse caused by `--network=host` + `--ipc=host` + Wayland-socket mount + SSH-agent forward (OE-1), and SHALL provide a narrower default invocation for non-interactive batch / inference-server runs.
+- **Functional Security Requirement.** Documentation of the FlashDreams TOE and its omni-dreams consumer SHALL flag the trust-collapse caused by `--network=host` + `--ipc=host` + Wayland-socket mount + SSH-agent forward (OE-1). The FlashDreams README + `docs/security/SECURITY.md` SHALL note that the FlashDreams `docker run` flow does NOT require those flags; the upstream omni-dreams interactive-drive README SHALL carry the trust-collapse callout where those flags are still documented.
 - **Risk Level.** Moderate.
 - **Risk Response.** Share.
 - **Responsibility.** Documentation + SIL Engineering.
 - **Priority Level.** P1.
 - **Test / Measurement.**
   - SQA Test Steps:
-    1. Inspect FlashDreams `README.md` → confirm GitHub-flavored `[!IMPORTANT]` callout naming `--network=host`, `--ipc=host`, Wayland socket, SSH-agent forward, citing FSR_FD_22 / OE-1.
-    2. Confirm cross-link to `docs/security/SECURITY.md` (or upstream `omni-dreams/docs/security/SECURITY.md`) for the operator checklist.
-    3. Confirm the narrower non-interactive invocation snippet appears in the README.
-  - PASS: doc review confirms the callout and the narrower snippet.
-  - FAIL: callout missing or trust-collapse not mentioned.
+    1. Confirm `docs/security/SECURITY.md` carries a "container-flag hygiene" section that names `--network=host`, `--ipc=host`, Wayland socket, SSH-agent forward and links to OE-1.
+    2. Confirm `omni-dreams/samples/interactive-drive/README.md` carries the `[!IMPORTANT]` callout citing FSR_FD_22 / OE-1 (upstream invariant).
+  - PASS: both doc sections present.
+  - FAIL: callout missing in either location.
 
 ### FSR_FD_23 — Slurm IMEX banner + collision check
 
@@ -444,7 +443,7 @@ The user-supplied NIM TAVA template enumerates `FSR_<TOE>_01..36`. Slots 25–36
 | Status | Count | FSRs |
 |---|---|---|
 | ✅ As-built contract+stub tests passing upstream (mirror to FlashDreams planned) | 20 | FSR_FD_01, _02, _03, _04, _06, _08, _09, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _23 |
-| 📄 Documented control landed (no test seam needed) | 1 | FSR_FD_22 |
+| 📄 Documented control (no test seam needed) | 1 | FSR_FD_22 (trust-collapse callout) |
 | ⏳ Externally blocked or operator-side | 3 | FSR_FD_05 (operator guidance — FlashDreams ships no canonical image), FSR_FD_07 (Cosmos-Guardrail real backend — HF egress), FSR_FD_24 (OSS-Fuzz post-GA) |
 | 🔁 Mapped onto an existing FSR_FD_NN | 9 | FSR_FD_25, _27, _28, _29, _30, _31, _32, _33, _36 |
 | 🚫 Avoided by FlashDreams TOE architecture invariant | 3 | FSR_FD_26 (no managed SLA), FSR_FD_34, FSR_FD_35 (no Triton in TOE) |

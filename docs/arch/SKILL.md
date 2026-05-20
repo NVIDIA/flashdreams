@@ -119,5 +119,5 @@ Documented in [`tava.md`](tava.md) § 1.3:
 - Do not edit `architecture.md` and forget to update the cross-reference sites above.
 - Do not weaken the architectural invariants asserted in `internal/tests/security/*.py` upstream (e.g. "no inference SHALL run on a rejected verdict"; "untrusted factory MUST NOT be called during refusal"; "loader_fn SHALL NOT be invoked on checksum mismatch") when you mirror them here.
 - Do not approve a control without first articulating the threat it closes (`tava.md` § 2.3).
-- Do not treat OE-1..OE-7 as code-enforced — they are delegations to operator / cluster admin / NVIDIA-internal ACL.
+- Do not treat OE-1..OE-7 as code-enforced — they are delegations to operator / cluster admin / upstream registry.
 - Do not fabricate test counts. Test/Measurement cells in [`fsr_table.md`](fsr_table.md) cite the as-built upstream test file when applicable; if no test exists for an FSR yet, say so explicitly.
