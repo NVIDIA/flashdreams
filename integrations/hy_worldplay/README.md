@@ -169,6 +169,47 @@ Per-runner `--help` lists every overridable field:
 uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b --help
 ```
 
+### Native pipeline (preview)
+
+Phase 2b is migrating the runner off upstream's `WanRunner` onto the
+in-tree `WanInferencePipeline` so HY-WorldPlay shares the KV cache,
+context-parallelism, profiler, and attention dispatch with the rest of
+the `wan*` family. The migration is staged behind a `--use-native-pipeline`
+feature flag and lands incrementally:
+
+- **2b.1 (this release).** Native runner driving
+  `PIPELINE_WAN22_TI2V_5B` for the I2V base case. No
+  action / camera-trajectory / memory conditioning yet.
+- **2b.2.** Scheduler swap (Euler with the upstream-distilled fixed
+  4-step schedule).
+- **2b.3.** Action conditioner (AdaLN modulation).
+- **2b.4.** Camera-trajectory conditioner (PRoPE dual-branch attention).
+- **2b.5.** Reconstituted-context memory + KV prefill; drop the parity
+  sub-venv; flip `--use-native-pipeline` to default.
+
+Try the 2b.1 preview path (single GPU, runs in the main `flashdreams`
+venv -- no parity sub-venv needed):
+
+```bash
+uv run flashdreams-run hy-worldplay-wan-i2v-5b \
+    --use-native-pipeline \
+    --image-path ./assets/img/test.png \
+    --num-chunk 1 \
+    --pose "w-4" \
+    --output-dir outputs
+```
+
+The 2b.1 native path **does not match** the vendor-wrapper baseline
+numerically: the model receives default-zero action/camera/memory
+inputs and runs under `FlowMatchUniPCSchedulerConfig` rather than
+upstream's distilled Euler schedule. For parity with upstream
+`wan/generate.py`, use the default (vendor-wrapper) invocation above.
+The native path is checked in to let early adopters benchmark the
+flashdreams runtime stack on the Wan 2.2 TI2V-5B backbone; full
+parity with HY-WorldPlay's conditioners returns at 2b.5. See
+[`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
+for the full design.
+
 ### Camera control
 
 Same pose-string grammar as upstream:
@@ -288,20 +329,30 @@ land first.
 
 3. **Phase 2b (this directory, follow-up to 2a).** Recipe-level
    integration on top of the new flashdreams Wan 2.2 5B recipe.
-   - Replace the vendor-wrapper runner with the more optimized
-     flashdreams Wan 2.2 5B `WanInferencePipeline` so HY-WorldPlay
-     shares the KV cache, context-parallelism, profiler, and attention
-     dispatch with the rest of the `wan*` family.
-   - Extend that pipeline with HY-WorldPlay's deltas: action inputs,
-     camera-trajectory conditioning, and the reconstituted-context
-     memory module.
-   - Drop the parity sub-venv: the run path collapses back into the
-     main flashdreams venv once the heavy upstream deps (sageattention,
-     cloudpickle, accelerate, ...) are no longer needed. The
-     `flashdreams-run hy-worldplay-wan-i2v-5b` slug already shipped in
-     phase 1 stays as the stable user-facing interface.
-   - Re-run the parity check against the phase-1 baseline so the
-     refactor is gated on a numeric diff, not eyeballs.
+   Staged behind a `--use-native-pipeline` feature flag and shipped
+   across five sub-PRs; the design is captured in
+   [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md).
+
+   - **2b.1 (landed).** Native `HyWorldPlayWanI2VNativeRunner` drives
+     `PIPELINE_WAN22_TI2V_5B` for the I2V base case (no
+     action / camera / memory). Selected by
+     `--use-native-pipeline`; vendor wrapper stays the default so the
+     phase-1 parity bar is preserved. See "Native pipeline (preview)"
+     under [Run](#run).
+   - **2b.2.** Add `FlowMatchEulerDiscreteSchedulerConfig` carrying
+     upstream's distilled 4-step fixed schedule
+     `(1000, 960, 888.89, 727.27, 0)`; swap
+     `PIPELINE_WAN22_TI2V_5B` to use it.
+   - **2b.3.** Port the **action conditioner** (81-class discrete →
+     time-embed AdaLN add) onto a `HyWorldPlayWanDiTNetwork` subclass.
+   - **2b.4.** Port the **camera-trajectory conditioner** (PRoPE
+     dual-branch self-attention) onto a `HyWorldPlayWanBlock` subclass.
+   - **2b.5.** Port the **reconstituted-context-memory** module
+     (frame-index selection policy + KV prefill); re-run the parity
+     check against the phase-1 baseline; drop the parity sub-venv
+     (`sageattention`, `cloudpickle`, `accelerate`, `transformers==4.57.6`
+     are no longer needed once the upstream tree imports are gone);
+     flip `--use-native-pipeline` to default.
 
 4. **Phase 3 — future.** HunyuanVideo-1.5 8B variant
    (`hyvideo/generate.py` upstream). Heavier integration: multiple

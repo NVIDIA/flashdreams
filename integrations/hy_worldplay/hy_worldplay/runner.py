@@ -13,22 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HY-WorldPlay WAN-5B I2V runner (phase-1 vendor wrapper).
+"""HY-WorldPlay WAN-5B I2V runner.
 
-Adapts upstream's :class:`wan.generate.WanRunner` (Wan 2.2 TI2V-5B
-backbone with action + camera-trajectory conditioning and
-reconstituted-context memory) onto a flashdreams :class:`RunnerConfig`
-surface so the slug is dispatchable via
-``flashdreams-run hy-worldplay-wan-i2v-5b``. Pipeline construction
-(``WanRunner.__init__`` -> ``_init_models``) is delegated unchanged to
-upstream so output is bit-for-bit identical to ``torchrun
-wan/generate.py`` with matching flags. The mandatory
-:attr:`RunnerConfig.pipeline` slot is filled with the inert
-:class:`_NoopPipelineConfig` from :mod:`hy_worldplay._vendor_pipeline`.
+Two routing modes share the same user-facing
+:class:`HyWorldPlayWanI2VRunnerConfig` surface:
+
+- **Vendor wrapper (default)** -- :class:`HyWorldPlayWanI2VRunner`
+  delegates inference to upstream's :class:`wan.generate.WanRunner`
+  (Wan 2.2 TI2V-5B backbone with action + camera-trajectory
+  conditioning and reconstituted-context memory). Output is
+  bit-for-bit identical to ``torchrun wan/generate.py`` with matching
+  flags. The mandatory :attr:`RunnerConfig.pipeline` slot is filled
+  with the inert :class:`_NoopPipelineConfig` from
+  :mod:`hy_worldplay._vendor_pipeline`.
+
+- **Native pipeline (preview, opt-in)** -- when
+  :attr:`HyWorldPlayWanI2VRunnerConfig.use_native_pipeline` is
+  ``True``, the config's ``_target`` and ``pipeline`` swap to
+  :class:`HyWorldPlayWanI2VNativeRunner` and a fresh copy of
+  :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` respectively.
+  Phase 2b.1 covers the I2V base case only; action /
+  camera-trajectory / memory conditioning land in 2b.3 / 2b.4 / 2b.5
+  per ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
 """
 
 from __future__ import annotations
 
+import copy
 import importlib
 import os
 import sys
@@ -179,8 +190,50 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     """Path to the cloned upstream
     https://github.com/Tencent-Hunyuan/HY-WorldPlay tree. Required
     because the upstream ``wan/`` package imports siblings by bare
-    name -- we add ``<root>`` and ``<root>/wan`` to ``sys.path`` before
-    constructing the pipeline."""
+    name; ``<root>`` and ``<root>/wan`` are added to ``sys.path``
+    before the pipeline is constructed. Only used in vendor-wrapper
+    mode; the native pipeline does not import the upstream tree."""
+
+    use_native_pipeline: bool = False
+    """Route inference through the in-tree
+    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` instead of
+    upstream's :class:`wan.generate.WanRunner`. Phase 2b feature flag;
+    defaults to ``False`` so the phase-1 vendor wrapper stays the
+    bit-stable baseline. When ``True``, ``__post_init__`` swaps
+    ``_target`` to :class:`HyWorldPlayWanI2VNativeRunner` and replaces
+    the inert ``pipeline`` slot with a fresh copy of
+    ``PIPELINE_WAN22_TI2V_5B``. The native path supports the I2V base
+    case only at 2b.1; action / camera / memory conditioning land in
+    2b.3 / 2b.4 / 2b.5."""
+
+    def __post_init__(self) -> None:
+        """Swap ``_target`` and ``pipeline`` to the native preset when
+        ``use_native_pipeline`` is set.
+
+        Only swaps defaults: a user-supplied ``pipeline=`` override
+        (any non-:class:`_NoopPipelineConfig` instance) or a
+        user-supplied ``_target=`` override (any class other than
+        :class:`HyWorldPlayWanI2VRunner`) is respected as-is so power
+        users can plug in custom pipeline configs without round-tripping
+        through this flag.
+
+        :data:`PIPELINE_WAN22_TI2V_5B` is a module-level singleton; the
+        deepcopy here keeps per-run mutations (``derive_config`` /
+        per-rank seed offset) isolated to this config instance.
+        """
+        if not self.use_native_pipeline:
+            return
+        if isinstance(self.pipeline, _NoopPipelineConfig):
+            from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+
+            self.pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
+        if self._target is HyWorldPlayWanI2VRunner:
+            # Lazy import: the native runner pulls in torch, the Wan
+            # pipeline, and the diffusers stack. Importing eagerly would
+            # break the CPU-only smoke tests in vendor-wrapper mode.
+            from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
+
+            self._target = HyWorldPlayWanI2VNativeRunner
 
 
 class HyWorldPlayWanI2VRunner:

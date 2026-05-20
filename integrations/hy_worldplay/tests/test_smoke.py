@@ -188,6 +188,75 @@ def test_pipeline_is_vendor_wrapper_noop() -> None:
     assert isinstance(pipeline, _NoopPipeline)
 
 
+def test_use_native_pipeline_routes_to_wan_pipeline() -> None:
+    """Phase 2b.1 feature flag: ``use_native_pipeline=True`` swaps the
+    pipeline slot from :class:`_NoopPipelineConfig` to a fresh copy of
+    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` and swaps
+    ``_target`` to :class:`HyWorldPlayWanI2VNativeRunner`.
+
+    Default (``use_native_pipeline=False``) must continue to pin the
+    no-op pipeline so the phase-1 vendor wrapper stays the bit-stable
+    baseline.
+    """
+    from flashdreams.recipes.wan.config import WanInferencePipelineConfig
+    from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
+    from hy_worldplay.runner import HyWorldPlayWanI2VRunner
+
+    wrapper_cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+    )
+    assert isinstance(wrapper_cfg.pipeline, _NoopPipelineConfig)
+    assert wrapper_cfg._target is HyWorldPlayWanI2VRunner
+
+    native_cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+    )
+    assert isinstance(native_cfg.pipeline, WanInferencePipelineConfig), (
+        f"expected WanInferencePipelineConfig, got "
+        f"{type(native_cfg.pipeline).__name__}"
+    )
+    assert native_cfg.pipeline.recipe_name == "wan22-ti2v-5b"
+    assert native_cfg._target is HyWorldPlayWanI2VNativeRunner
+
+
+def test_use_native_pipeline_deepcopies_singleton() -> None:
+    """Two native-mode configs must own distinct pipeline-config
+    instances so per-rank seed offsets / ``derive_config`` mutations on
+    one config cannot leak into another or into the module-level
+    :data:`PIPELINE_WAN22_TI2V_5B` singleton."""
+    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+
+    cfg_a = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+    )
+    cfg_b = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+    )
+    assert cfg_a.pipeline is not cfg_b.pipeline
+    assert cfg_a.pipeline is not PIPELINE_WAN22_TI2V_5B
+
+
+def test_use_native_pipeline_respects_user_override() -> None:
+    """A user-supplied ``pipeline=`` override must not be clobbered by
+    the ``use_native_pipeline`` swap. Lets power users plug in custom
+    pipeline configs (e.g. a derived ``PIPELINE_WAN22_TI2V_5B`` with a
+    different scheduler) without round-tripping through the flag."""
+    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+    from flashdreams.infra.config import derive_config
+
+    custom = derive_config(PIPELINE_WAN22_TI2V_5B, recipe_name="custom-recipe")
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        pipeline=custom,
+    )
+    assert cfg.pipeline is custom
+    assert cfg.pipeline.recipe_name == "custom-recipe"
+
+
 def test_entry_point_registered() -> None:
     """The plugin's ``pyproject.toml`` must publish the runner under the
     ``flashdreams.runner_configs`` entry-point group so
