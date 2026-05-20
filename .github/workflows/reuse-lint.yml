@@ -91,7 +91,7 @@ jobs:
               continue
             fi
             if ! head -n 20 "$f" | grep -q "SPDX-License-Identifier"; then
-              echo "::warning file=$f::missing SPDX-License-Identifier in first 20 lines (covered by REUSE.toml aggregate; prefer inline header)"
+              echo "::error file=$f::missing SPDX-License-Identifier in first 20 lines"
               missing=$((missing + 1))
             fi
           done < <(git ls-files \
@@ -99,13 +99,11 @@ jobs:
                      '*.c' '*.cc' '*.cpp' '*.cxx' \
                      '*.h' '*.hh' '*.hpp' '*.hxx' \
                      '*.cu' '*.cuh' '*.inl')
-          echo "Source files without inline SPDX header: $missing"
-          # Reported as warnings only; tighten to a fail by setting
-          # REUSE_LINT_INLINE_STRICT=1 in the workflow env.
-          if [ "${REUSE_LINT_INLINE_STRICT:-0}" = "1" ] && [ "$missing" -gt 0 ]; then
+          if [ "$missing" -gt 0 ]; then
             echo "::error::$missing source file(s) missing inline SPDX header"
             exit 1
           fi
+          echo "OK: every tracked source file carries an inline SPDX-License-Identifier"
 
       - name: No NVIDIA proprietary banners
         run: |
