@@ -1,0 +1,119 @@
+[project]
+name = "flashvsr-parity-check"
+version = "0.1.0a2"
+description = "Isolated venv for the FlashVSR parity-check benchmark."
+# Match flashdreams' supported Python range exactly (it pins 3.12).
+# Upstream FlashVSR's README pins 3.11.13, but its `pip install -e .` (which
+# adds ``diffsynth``) plus ``requirements.txt`` work fine on 3.12 too, and
+# keeping the same interpreter as flashdreams lets the layered editable
+# install ride along without a parallel build.
+requires-python = ">=3.12,<3.13"
+
+# flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
+# numpy, tqdm, safetensors, etc. FlashVSR layers a small set of extras on
+# top of that:
+# - diffsynth: vendored inside the cloned upstream tree; ``run.sh`` does
+#   ``uv pip install -e ./FlashVSR`` to register it (mirrors upstream's
+#   ``pip install -e .`` instructions). Not declared here because the
+#   editable install only exists after ``run.sh`` clones.
+# - flashdreams-flashvsr: the workspace's FlashVSR integration, layered
+#   on as an editable install so the parity tests can drive the live
+#   ``FlashVSRTransformer`` / ``FlashVSR_TAEHV`` candidates from this
+#   venv. Adds ``mediapy`` + ``opencv-python`` on top of flashdreams
+#   (the integration's only extras beyond ``block-sparse-attn``, already
+#   pinned below). Replaces the previous flow where ``run.sh`` flipped
+#   ``UV_PROJECT_ENVIRONMENT`` back to the workspace venv mid-script to
+#   pick up ``flashvsr``.
+# - omegaconf / easydict: upstream config plumbing.
+# - imageio[ffmpeg]: upstream video I/O (``infer_flashvsr_*.py`` uses it).
+# - peft: optional but pulled by some diffsynth model wrappers.
+# - block-sparse-attn: upstream Locality-Constrained Sparse Attention.
+#   Built from source against the running torch (``setup.py`` does
+#   ``import torch`` and links the CUDA extension); ``uv sync`` handles
+#   it via the ``[tool.uv.extra-build-dependencies]`` seed below, so the
+#   user no longer needs the manual ``python setup.py install`` step
+#   from upstream's README.
+# - pytest: invokes the parity tests from this venv. Previously the
+#   workspace venv supplied it (via ``flashdreams[dev]``) and ``run.sh``
+#   flipped ``UV_PROJECT_ENVIRONMENT`` mid-script; the unified flow runs
+#   pytest from this venv instead.
+dependencies = [
+    "flashdreams",
+    "flashdreams-flashvsr",
+    "omegaconf",
+    "easydict",
+    "imageio[ffmpeg]",
+    "peft",
+    "safetensors",
+    "diffusers",
+    "block-sparse-attn==0.0.2",
+    # diffsynth's ``models/downloader.py`` does
+    # ``from modelscope import snapshot_download`` at module top, so
+    # ``from diffsynth import FlashVSRTinyLongPipeline, ModelManager`` in
+    # the patched ``benchmark.py`` ImportErrors without it -- even though
+    # we never *call* any modelscope download (weights are pre-staged
+    # under ``examples/WanVSR/FlashVSR-v1.1/`` by ``run.sh``'s HF step).
+    # Listed here rather than under upstream's ``requirements.txt`` route
+    # because ``uv pip install --no-deps -e ./FlashVSR`` deliberately
+    # skips that file (see ``run.sh``).
+    "modelscope",
+    "sentencepiece",
+    "pytest>=8.0",
+]
+
+[tool.uv.sources]
+# flashdreams is not on PyPI; install it from the local source tree
+# (../../../../flashdreams relative to this directory).
+flashdreams = { path = "../../../../flashdreams", editable = true }
+# flashdreams-flashvsr (the workspace FlashVSR integration) similarly
+# lives in-tree; ``../..`` from here resolves to ``integrations/flashvsr/``.
+# Its own pyproject sources ``flashdreams = { workspace = true }``, which
+# is a workspace-only directive ignored when ``flashvsr`` is consumed as
+# a plain path dep -- our explicit ``flashdreams`` source above is what
+# wires the editable install instead.
+flashdreams-flashvsr = { path = "../..", editable = true }
+# Upstream Block-Sparse-Attention is not on PyPI. Pull from the public
+# GitHub repo at v0.0.2.post1 -- the latest tag of the
+# ``__version__ = "0.0.2"`` series (``.post1`` is a small ``__init__.py``
+# cleanup), so the ``==0.0.2`` pin above still resolves. Mirrors the
+# source declaration in ``integrations/flashvsr/pyproject.toml``.
+block-sparse-attn = { git = "https://github.com/mit-han-lab/Block-Sparse-Attention", tag = "v0.0.2.post1" }
+
+# ``block-sparse-attn``'s ``setup.py`` ``import torch`` to compile a CUDA
+# extension and (since Python 3.12 dropped setuptools from the stdlib)
+# also needs ``setuptools`` / ``wheel`` / ``packaging`` / ``psutil`` /
+# ``ninja`` available at module load. Listing it under
+# ``no-build-isolation-package`` would also disable
+# ``extra-build-dependencies`` for the package
+# (https://github.com/astral-sh/uv/issues/16243), so instead we keep
+# build isolation on and seed the isolated build env explicitly.
+# ``match-runtime = true`` on torch picks up the CUDA-enabled torch
+# resolved for this venv (via ``flashdreams``), matching what upstream's
+# ``python setup.py install`` instructions implicitly assume. The
+# workspace-root ``pyproject.toml`` carries the same wiring for the main
+# ``integrations/flashvsr`` install -- this is the parity-check copy
+# because parity-check is a standalone uv project, not a workspace
+# member, and doesn't inherit the root config.
+[tool.uv.extra-build-dependencies]
+block-sparse-attn = [
+    { requirement = "torch", match-runtime = true },
+    "setuptools",
+    "wheel",
+    "packaging",
+    "psutil",
+    "ninja",
+]
+
+# ``block-sparse-attn`` is git-sourced and upstream ships no
+# ``pyproject.toml`` / ``PKG-INFO``, so without a hint uv would have to
+# build it just to resolve the venv -- which is the very build that needs
+# the ``extra-build-dependencies`` above to succeed, and ``match-runtime
+# = true`` requires static metadata to function. Declare the metadata
+# upfront, mirroring the upstream ``setup.py``'s ``install_requires``
+# and the ``__version__`` in ``block_sparse_attn/__init__.py``, so uv
+# skips the resolution-time build and defers to install time, when the
+# build env is fully wired.
+[[tool.uv.dependency-metadata]]
+name = "block-sparse-attn"
+version = "0.1.0a2"
+requires-dist = ["torch", "einops"]
