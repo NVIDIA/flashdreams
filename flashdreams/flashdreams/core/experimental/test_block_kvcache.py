@@ -20,6 +20,8 @@ import torch
 
 from flashdreams.core.experimental.kvcache import BlockKVCache
 
+pytestmark = pytest.mark.ci_cpu
+
 
 class _NaiveKVCache:
     """Baseline: full sequence via torch.cat; view = [sink | last window] or full. Shape [B, S, H, D]."""

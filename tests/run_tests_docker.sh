@@ -10,7 +10,7 @@
 #   ./tests/run_tests_docker.sh [TEST_TARGET...]
 #
 # Environment overrides:
-#   FLASHDREAMS_TEST_IMAGE         (default: ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566)
+#   FLASHDREAMS_TEST_IMAGE         (default: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04)
 #   FLASHDREAMS_UV_CACHE_DIR       (default: ${HOME}/.cache/uv)
 #   FLASHDREAMS_HF_CACHE_DIR       (default: ${HOME}/.cache/huggingface)
 #   FLASHDREAMS_CACHE_DIR          (default: ${HOME}/.cache/flashdreams)
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${FLASHDREAMS_TEST_IMAGE:-ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566}"
+IMAGE="${FLASHDREAMS_TEST_IMAGE:-nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04}"
 
 UV_CACHE_HOST="${FLASHDREAMS_UV_CACHE_DIR:-${HOME}/.cache/uv}"
 HF_CACHE_HOST="${FLASHDREAMS_HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
@@ -53,6 +53,15 @@ docker run --rm -i \
     "${IMAGE}" \
     bash -s -- "$@" <<'EOF'
 set -euo pipefail
+
+# -- bootstrap: install system deps + uv into the raw CUDA base image --------
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+  python3 python3-dev python3-venv ffmpeg gcc g++ ninja-build \
+  libnccl-dev curl git ca-certificates unzip
+rm -rf /var/lib/apt/lists/*
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 
 # UV_PROJECT_ENVIRONMENT is set via docker -e so the venv lives outside the
 # bind-mounted workspace, avoiding root-owned .venv on the host.

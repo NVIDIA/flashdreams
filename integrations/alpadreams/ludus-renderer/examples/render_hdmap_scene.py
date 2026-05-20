@@ -69,16 +69,10 @@ def _get_gpu_decoder_flag(args):
 
 
 def _create_context(args, device):
-    """Create the rendering context."""
-    use_cuda = getattr(args, 'cuda', False)
-    if use_cuda:
-        from ludus_renderer.torch import LudusCudaTimestampedContext
-        print("Render backend: CUDA software rasterizer (CudaRaster)")
-        ctx = LudusCudaTimestampedContext(device=device)
-    else:
-        from ludus_renderer.torch import LudusTimestampedContext
-        print("Render backend: OpenGL (GL_NV_mesh_shader)")
-        ctx = LudusTimestampedContext(device=device)
+    """Create the rendering context (CUDA software rasterizer)."""
+    from ludus_renderer.torch import LudusCudaTimestampedContext
+    print("Render backend: CUDA software rasterizer (CudaRaster)")
+    ctx = LudusCudaTimestampedContext(device=device)
     msaa = getattr(args, 'msaa', 0)
     if msaa > 0:
         ctx.set_msaa_samples(msaa)
@@ -109,7 +103,7 @@ def render_single_frame(args):
     
     camera_name = args.camera or DEFAULT_CAMERA
     camera_mode = "BEV" if args.bev else camera_name
-    print(f"Rendering frame {args.frame} (timestamp {timestamps[args.frame].item()}) with {camera_mode} [GL]")
+    print(f"Rendering frame {args.frame} (timestamp {timestamps[args.frame].item()}) with {camera_mode}")
     
     # Create context
     ctx = _create_context(args, device)
@@ -151,8 +145,8 @@ def render_sequence(args, all_cameras: bool = False):
     
     Supports output formats:
     - png: GPU -> CPU transfer -> PNG files (default)
-    - jpg: GPU -> nvJPEG hardware encode -> JPG files (GL only)
-    - mp4: GPU -> H264 hardware encode -> MP4 per camera
+    - jpg: GPU -> nvJPEG hardware encode -> JPG files
+    - mp4: GPU -> ffmpeg libx264 software encode -> MP4 per camera
     """
     from ludus_renderer.util import resample_timestamps
     from ludus_renderer.render_utils import compute_camera_poses
@@ -186,18 +180,18 @@ def render_sequence(args, all_cameras: bool = False):
     total_images = n_frames * n_cameras
     
     camera_desc = camera_names[0] if n_cameras == 1 else f"{n_cameras} cameras"
-    print(f"Rendering {n_frames} frames x {camera_desc} = {total_images} images [GL]")
+    print(f"Rendering {n_frames} frames x {camera_desc} = {total_images} images")
     print(f"  Resolution: {args.width}x{args.height}, fps={fps}, format={output_format.upper()}")
     
     # Create context
     ctx = _create_context(args, device)
     ctx.set_depth_scaling(True)
 
-    gl_max = ctx.max_batch_size
+    max_batch = ctx.max_batch_size
     batch_size = args.batch_size if args.batch_size else n_frames
-    if batch_size > gl_max:
-        print(f"  Clamping batch_size {batch_size} -> {gl_max} (GL_MAX_ARRAY_TEXTURE_LAYERS)")
-        batch_size = gl_max
+    if batch_size > max_batch:
+        print(f"  Clamping batch_size {batch_size} -> {max_batch}")
+        batch_size = max_batch
     
     # Create and upload cameras
     width, height = args.width, args.height
@@ -424,79 +418,59 @@ def _render_jpg_all_cameras(ctx, scene_id, timestamps, all_poses, camera_type_id
                             output_dirs, camera_names, width, height, n_frames, n_cameras,
                             batch_size, device, quality=85):
     """JPG rendering pipeline: GPU -> nvJPEG encode -> JPG files.
-    
-    Uses GL staging path when available, otherwise falls back to the generic
-    nvjpeg.encode() interface which accepts arbitrary GPU tensors.
+
+    Uses the package-level ``ludus_renderer.nvjpeg.encode`` GPU encoder, which
+    accepts an arbitrary CUDA tensor batch.
     """
-    use_staging = hasattr(ctx, 'pack_queries_fast')
-    
-    if use_staging:
-        if not ctx.is_nvjpeg_available():
-            print("Warning: nvJPEG not available, falling back to PNG")
-            return _render_png_all_cameras(
-                ctx, scene_id, timestamps, all_poses, camera_type_id,
-                output_dirs, camera_names, width, height, n_frames, n_cameras,
-                batch_size, device
-            )
-        ctx.set_jpeg_streaming(True, quality=quality)
-    else:
-        from ludus_renderer import nvjpeg
-        if not nvjpeg.is_available():
-            print("Warning: nvJPEG not available, falling back to PNG")
-            return _render_png_all_cameras(
-                ctx, scene_id, timestamps, all_poses, camera_type_id,
-                output_dirs, camera_names, width, height, n_frames, n_cameras,
-                batch_size, device
-            )
-    
+    from ludus_renderer import nvjpeg
+    if not nvjpeg.is_available():
+        print("Warning: nvJPEG not available, falling back to PNG")
+        return _render_png_all_cameras(
+            ctx, scene_id, timestamps, all_poses, camera_type_id,
+            output_dirs, camera_names, width, height, n_frames, n_cameras,
+            batch_size, device
+        )
+
     print(f"\nStep 4: GPU rendering + nvJPEG encoding (quality={quality})...")
     total_images = n_frames * n_cameras
-    gpu_render_time = 0.0
     encode_time = 0.0
     t0 = time.time()
-    
+
     all_jpeg_data = []
-    
+
     for cam_idx, cam_name in enumerate(camera_names):
         camera_poses = all_poses[cam_idx]
         camera_jpegs = []
-        
+
         for i in range(0, n_frames, batch_size):
             end_idx = min(i + batch_size, n_frames)
             batch_n = end_idx - i
-            
+
             scene_ids = torch.full((batch_n,), scene_id, dtype=torch.int32, device=device)
             camera_ids = torch.full((batch_n,), cam_idx, dtype=torch.int32, device=device)
             timestamps_batch = timestamps[i:end_idx].to(torch.int64)
             camera_type_ids = torch.full((batch_n,), camera_type_id, dtype=torch.int32, device=device)
             poses_batch = camera_poses[i:end_idx]
-            
-            if use_staging:
-                queries_tensor = ctx.pack_queries_fast(scene_ids, camera_ids, timestamps_batch, camera_type_ids)
-                staging_idx, _ = ctx.render_batch_to_staging(queries_tensor, poses_batch, (height, width))
-                jpeg_list = ctx.encode_jpeg_batch_staging(staging_idx, quality)
-            else:
-                images = ctx.render(
-                    scene_ids, camera_ids, timestamps_batch, camera_type_ids,
-                    poses_batch, resolution=(height, width)
-                )
-                images_rgb = images[:, :, :, :3]
-                if ctx.needs_vflip:
-                    images_rgb = images_rgb.flip(1)
-                images_rgb = images_rgb.permute(0, 3, 1, 2).contiguous()
-                jpeg_list = nvjpeg.encode(images_rgb, quality=quality)
-            
+
+            images = ctx.render(
+                scene_ids, camera_ids, timestamps_batch, camera_type_ids,
+                poses_batch, resolution=(height, width)
+            )
+            images_rgb = images[:, :, :, :3]
+            if ctx.needs_vflip:
+                images_rgb = images_rgb.flip(1)
+            images_rgb = images_rgb.permute(0, 3, 1, 2).contiguous()
+            jpeg_list = nvjpeg.encode(images_rgb, quality=quality)
+
             camera_jpegs.extend(jpeg_list)
-        
+
         all_jpeg_data.append(camera_jpegs)
-    
+
     torch.cuda.synchronize()
     gpu_render_time = time.time() - t0
     print(f"  Rendered and encoded {total_images} images")
     print(f"  Time: {gpu_render_time*1000:.1f}ms ({total_images/gpu_render_time:.0f} FPS)")
-    
-    encode_time = 0.0
-    
+
     print("\nStep 5: Saving JPG files...")
     t0 = time.time()
     for cam_idx, cam_name in enumerate(camera_names):
@@ -508,10 +482,7 @@ def _render_jpg_all_cameras(ctx, scene_id, timestamps, all_poses, camera_type_id
         print(f"  [{cam_idx+1}/{n_cameras}] {cam_name} -> {output_dir}")
     save_time = time.time() - t0
     print(f"  Time: {save_time:.2f}s")
-    
-    if use_staging:
-        ctx.set_jpeg_streaming(False)
-    
+
     return gpu_render_time, encode_time, save_time
 
 
@@ -531,125 +502,12 @@ def _get_ffmpeg_binary():
         )
 
 
-def _has_hw_video_encoder():
-    """Check if PyNvVideoCodec hardware encoder is available."""
-    try:
-        import PyNvVideoCodec as nvc
-        nvc.CreateEncoder(width=64, height=64, fmt='ABGR',
-                          usecpuinputbuffer=True, codec='h264',
-                          bitrate=1_000_000, fps=1, preset='P4')
-        return True
-    except Exception:
-        return False
-
-
-def _render_mp4_hw(ctx, scene_id, timestamps, all_poses, camera_type_id,
-                   camera_names, output_base, width, height, n_frames, n_cameras,
-                   batch_size, device, fps=30, bitrate=10_000_000):
-    """MP4 via PyNvVideoCodec HW encoder -> raw H264 -> ffmpeg mux."""
-    import subprocess
-    import tempfile
-    import PyNvVideoCodec as nvc
-
-    print(f"\nStep 4: GPU rendering + HW H264 encoding (fps={fps}, bitrate={bitrate//1_000_000}Mbps)...")
-    total_images = n_frames * n_cameras
-    gpu_render_time = 0.0
-    encode_time = 0.0
-
-    temp_dir = tempfile.mkdtemp(prefix='ludus_h264_')
-
-    raw_paths = []
-    output_paths = []
-    for cam_idx, cam_name in enumerate(camera_names):
-        camera_poses = all_poses[cam_idx]
-        cam_subdir = cam_name.replace(':', '_')
-        raw_path = os.path.join(temp_dir, f"{cam_subdir}.h264")
-        output_path = os.path.join(output_base, f"{cam_subdir}.mp4")
-        raw_paths.append(raw_path)
-        output_paths.append(output_path)
-
-        encoder = nvc.CreateEncoder(
-            width=width, height=height, fmt='ABGR',
-            usecpuinputbuffer=False, codec='h264',
-            bitrate=bitrate, fps=fps, preset='P4',
-        )
-
-        h264_file = open(raw_path, 'wb')
-
-        for i in range(0, n_frames, batch_size):
-            end_idx = min(i + batch_size, n_frames)
-            batch_n = end_idx - i
-
-            scene_ids = torch.full((batch_n,), scene_id, dtype=torch.int32, device=device)
-            camera_ids = torch.full((batch_n,), cam_idx, dtype=torch.int32, device=device)
-            timestamps_batch = timestamps[i:end_idx].to(torch.int64)
-            camera_type_ids = torch.full((batch_n,), camera_type_id, dtype=torch.int32, device=device)
-            poses_batch = camera_poses[i:end_idx]
-
-            torch.cuda.synchronize()
-            t_render = time.time()
-            images = ctx.render(
-                scene_ids, camera_ids, timestamps_batch, camera_type_ids,
-                poses_batch, resolution=(height, width)
-            )
-            torch.cuda.synchronize()
-            gpu_render_time += time.time() - t_render
-
-            t_enc = time.time()
-            for frame_idx in range(batch_n):
-                frame = images[frame_idx]
-                if ctx.needs_vflip:
-                    frame = frame.flip(0)
-                frame = frame.contiguous()
-                bs = encoder.Encode(frame)
-                if bs:
-                    h264_file.write(bs)
-            encode_time += time.time() - t_enc
-
-        t_enc = time.time()
-        bs = encoder.EndEncode()
-        if bs:
-            h264_file.write(bs)
-        h264_file.close()
-        encode_time += time.time() - t_enc
-
-    # Mux raw H264 to MP4 using ffmpeg
-    ffmpeg_bin = _get_ffmpeg_binary()
-    print(f"  Muxing {n_cameras} videos to MP4...")
-    t_mux = time.time()
-
-    procs = []
-    for raw_path, output_path in zip(raw_paths, output_paths):
-        cmd = [
-            ffmpeg_bin, '-y', '-hide_banner', '-loglevel', 'error',
-            '-f', 'h264', '-framerate', str(fps), '-i', raw_path,
-            '-c', 'copy', output_path
-        ]
-        procs.append(subprocess.Popen(cmd))
-
-    for proc, raw_path, output_path, cam_name in zip(procs, raw_paths, output_paths, camera_names):
-        proc.wait()
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed for {cam_name}")
-        os.remove(raw_path)
-
-    for cam_idx, (cam_name, output_path) in enumerate(zip(camera_names, output_paths)):
-        print(f"  [{cam_idx+1}/{n_cameras}] {cam_name} -> {output_path}")
-
-    os.rmdir(temp_dir)
-
-    mux_time = time.time() - t_mux
-    total_time = gpu_render_time + encode_time + mux_time
-    print(f"  Rendered and encoded {total_images} images to {n_cameras} MP4 files")
-    print(f"  Time: {total_time:.2f}s (render: {gpu_render_time:.2f}s, encode: {encode_time:.2f}s, mux: {mux_time:.2f}s)")
-
-    return gpu_render_time, encode_time
 
 
 def _render_mp4_ffmpeg(ctx, scene_id, timestamps, all_poses, camera_type_id,
                        camera_names, output_base, width, height, n_frames, n_cameras,
                        batch_size, device, fps=30, bitrate=10_000_000):
-    """MP4 via ffmpeg software encoding (fallback when HW encoder unavailable)."""
+    """MP4 via ffmpeg software encoding."""
     import subprocess
 
     ffmpeg_bin = _get_ffmpeg_binary()
@@ -723,21 +581,12 @@ def _render_mp4_ffmpeg(ctx, scene_id, timestamps, all_poses, camera_type_id,
 def _render_mp4_all_cameras(ctx, scene_id, timestamps, all_poses, camera_type_id,
                             camera_names, output_base, width, height, n_frames, n_cameras,
                             batch_size, device, fps=30, bitrate=10_000_000):
-    """MP4 rendering: tries HW encoder first, falls back to ffmpeg."""
-    if _has_hw_video_encoder():
-        print("  Using PyNvVideoCodec HW encoder")
-        return _render_mp4_hw(
-            ctx, scene_id, timestamps, all_poses, camera_type_id,
-            camera_names, output_base, width, height, n_frames, n_cameras,
-            batch_size, device, fps=fps, bitrate=bitrate,
-        )
-    else:
-        print("  HW encoder unavailable, using ffmpeg software encoding")
-        return _render_mp4_ffmpeg(
-            ctx, scene_id, timestamps, all_poses, camera_type_id,
-            camera_names, output_base, width, height, n_frames, n_cameras,
-            batch_size, device, fps=fps, bitrate=bitrate,
-        )
+    """MP4 rendering via ffmpeg software encoding."""
+    return _render_mp4_ffmpeg(
+        ctx, scene_id, timestamps, all_poses, camera_type_id,
+        camera_names, output_base, width, height, n_frames, n_cameras,
+        batch_size, device, fps=fps, bitrate=bitrate,
+    )
 
 
 def render_overlay_sequence(args):
@@ -851,11 +700,11 @@ def render_overlay_sequence(args):
         os.makedirs(output_dest, exist_ok=True)
 
     # Render + blend in batches
-    gl_max = ctx.max_batch_size
+    max_batch = ctx.max_batch_size
     batch_size = args.batch_size or n_frames
-    if batch_size > gl_max:
-        print(f"  Clamping batch_size {batch_size} -> {gl_max} (GL_MAX_ARRAY_TEXTURE_LAYERS)")
-        batch_size = gl_max
+    if batch_size > max_batch:
+        print(f"  Clamping batch_size {batch_size} -> {max_batch}")
+        batch_size = max_batch
     quality = args.quality
     print("  Rendering and blending...")
     t0 = time.time()
@@ -994,9 +843,7 @@ def main():
                         help='MSAA sample count (0=disabled, 4=4x antialiasing)')
     parser.add_argument('--loader', type=str, default='gpu', choices=['gpu', 'cpu'],
                         help='Scene loader: gpu (GPU-native parquet, default) or cpu (PyArrow)')
-    parser.add_argument('--cuda', action='store_true',
-                        help='Use CUDA software rasterizer instead of OpenGL mesh shaders')
-    
+
     args = parser.parse_args()
     
     

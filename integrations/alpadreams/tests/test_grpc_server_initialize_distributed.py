@@ -19,6 +19,8 @@ import pytest
 import torch
 from alpadreams.grpc import server
 
+pytestmark = pytest.mark.ci_gpu
+
 
 def test_initialize_distributed_single_process_defaults(
     monkeypatch: pytest.MonkeyPatch,

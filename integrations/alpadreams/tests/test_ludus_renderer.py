@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Smoke tests for the vendored ludus-renderer backends.
+"""Smoke tests for the vendored ludus-renderer.
 
 Tests cover:
-- EGL/OpenGL backend (``LudusTimestampedContext``) -- requires Turing+ GPU with EGL
-- CUDA software rasterizer (``LudusCudaTimestampedContext``) -- any CUDA GPU
-- High-level ``LudusRenderer`` wrapper (uses CUDA backend by default)
+- CUDA software rasterizer (``LudusCudaTimestampedContext``)
+- High-level ``LudusRenderer`` wrapper
 
 All tests are excluded from the default test run.  Run explicitly with::
 
@@ -53,68 +52,13 @@ def clipgt_scene_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Low-level: LudusTimestampedContext renders without crashing
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.manual
-def test_ludus_timestamped_context_renders_frame(clipgt_scene_dir: Path) -> None:
-    """JIT-compile the EGL plugin, load a clipgt scene, render one frame."""
-    from ludus_renderer import load_clipgt_scene
-    from ludus_renderer.render_utils import compute_camera_poses, create_camera
-    from ludus_renderer.torch import LudusTimestampedContext
-    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
-    from ludus_renderer.util import resample_timestamps
-
-    device = torch.device("cuda")
-    width, height = 640, 360  # small resolution for speed
-
-    # Load scene
-    scene_raw = load_clipgt_scene(str(clipgt_scene_dir), device=device)
-    from ludus_renderer.render_utils import SceneAdapter
-
-    scene = SceneAdapter(scene_raw)
-
-    # Resample timestamps to 10 Hz, take just the first frame
-    timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100_000, 20_000_000)
-    assert len(timestamps) > 0, "No timestamps after resampling"
-
-    # Create context + camera
-    ctx = LudusTimestampedContext(device=device)
-    ctx.set_depth_scaling(True)
-    camera = create_camera(width, height, device, scene=scene)
-    ctx.upload_cameras([camera])
-    scene_id = ctx.upload_scene(scene.timestamped_scene)
-
-    # Compute pose for first frame
-    poses, _ = compute_camera_poses(scene, timestamps[:1], device)
-
-    # Render
-    images = ctx.render(
-        torch.tensor([scene_id], dtype=torch.int32, device=device),
-        torch.zeros(1, dtype=torch.int32, device=device),
-        timestamps[:1].to(torch.int64),
-        torch.full((1,), CAMERA_TYPE_REGULAR, dtype=torch.int32, device=device),
-        poses,
-        resolution=(height, width),
-    )
-
-    # Validate
-    assert images.shape == (1, height, width, 4), f"Unexpected shape {images.shape}"
-    assert images.dtype == torch.uint8
-    # Ensure the frame is not entirely black (renderer actually produced output)
-    rgb = images[0, :, :, :3]
-    assert rgb.any(), "Rendered frame is entirely black -- renderer may have failed"
-
-
-# ---------------------------------------------------------------------------
 # Low-level: LudusCudaTimestampedContext (CUDA software rasterizer)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.manual
 def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
-    """JIT-compile the CUDA-only plugin, load a clipgt scene, render one frame."""
+    """JIT-compile the CUDA plugin, load a clipgt scene, render one frame."""
     from ludus_renderer import load_clipgt_scene
     from ludus_renderer.render_utils import (
         SceneAdapter,
@@ -126,7 +70,7 @@ def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
     from ludus_renderer.util import resample_timestamps
 
     device = torch.device("cuda")
-    width, height = 640, 360
+    width, height = 640, 360  # small resolution for speed
 
     # Load scene
     scene_raw = load_clipgt_scene(str(clipgt_scene_dir), device=device)
@@ -135,7 +79,7 @@ def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
     timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100_000, 20_000_000)
     assert len(timestamps) > 0
 
-    # Create CUDA context (no EGL/GL dependency)
+    # Create CUDA context
     ctx = LudusCudaTimestampedContext(device=device)
     assert not ctx.needs_vflip, (
         "CUDA backend renders top-down, needs_vflip should be False"
@@ -234,7 +178,7 @@ def test_ludus_renderer_wrapper_renders_frames(
         frame_timestamps_us=timestamps_us,
     )
 
-    # [n_cameras=1, n_frames={1, 2}, 3, H, W]
+    # [n_cameras=1, n_frames={1, 2, 3}, 3, H, W]
     assert output.shape == (1, n_frames, 3, target_h, target_w), f"Got {output.shape}"
     assert output.device.type == "cuda"
 

@@ -39,7 +39,6 @@ public:
     enum Module
     {
         CPU             = 1 << 0,
-        GL              = 1 << 1,
         Cuda            = 1 << 2,
 
         Module_None     = 0,
@@ -49,7 +48,6 @@ public:
     enum Hint
     {
         Hint_PageLock   = 1 << 0,
-        Hint_CudaGL     = 1 << 1,
 
         Hint_None       = 0,
         Hint_All        = (1 << 2) - 1
@@ -64,7 +62,6 @@ public:
     virtual         ~Buffer             (void)                                  { deinit(); }
 
     void            wrapCPU             (void* cpuPtr, S64 size);
-    void            wrapGL              (GLuint glBuffer);
     void            wrapCuda            (CUdeviceptr cudaPtr, S64 size);
 
     S64             getSize             (void) const                            { return m_size; }
@@ -104,15 +101,12 @@ public:
     void            discard             (void)                                  { m_dirty = 0; }
 
     const U8*       getPtr              (S64 ofs = 0)                           { FW_ASSERT(ofs >= 0 && ofs <= m_size); setOwner(CPU, false); return m_cpuPtr + ofs; }
-    GLuint          getGLBuffer         (void)                                  { setOwner(GL, false); return m_glBuffer; }
     CUdeviceptr     getCudaPtr          (S64 ofs = 0)                           { FW_ASSERT(ofs >= 0 && ofs <= m_size); setOwner(Cuda, false); return m_cudaPtr + (U32)ofs; }
 
     U8*             getMutablePtr       (S64 ofs = 0)                           { FW_ASSERT(ofs >= 0 && ofs <= m_size); setOwner(CPU, true); return m_cpuPtr + ofs; }
-    GLuint          getMutableGLBuffer  (void)                                  { setOwner(GL, true); return m_glBuffer; }
     CUdeviceptr     getMutableCudaPtr   (S64 ofs = 0)                           { FW_ASSERT(ofs >= 0 && ofs <= m_size); setOwner(Cuda, true); return m_cudaPtr + (U32)ofs; }
 
     U8*             getMutablePtrDiscard(S64 ofs = 0)                           { discard(); return getMutablePtr(ofs); }
-    GLuint          getMutableGLBufferDiscard(void)                             { discard(); return getMutableGLBuffer(); }
     CUdeviceptr     getMutableCudaPtrDiscard(S64 ofs = 0)                       { discard(); return getMutableCudaPtr(ofs); }
 
     Buffer&         operator=           (Buffer& other)                         { set(other); return *this; }
@@ -136,10 +130,8 @@ private:
 
     static void     cpuAlloc            (U8*& cpuPtr, U8*& cpuBase, S64 size, U32 hints, int align);
     static void     cpuFree             (U8*& cpuPtr, U8*& cpuBase, U32 hints);
-    static void     glAlloc             (GLuint& glBuffer, S64 size, const void* data);
-    static void     glFree              (GLuint& glBuffer, bool& cudaGLReg);
-    static void     cudaAlloc           (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, bool& cudaGLReg, S64 size, GLuint glBuffer, U32 hints, int align);
-    static void     cudaFree            (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, GLuint glBuffer, U32 hints);
+    static void     cudaAlloc           (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, S64 size, int align);
+    static void     cudaFree            (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase);
 
     static void     checkSize           (S64 size, int bits, const String& funcName);
 
@@ -156,10 +148,8 @@ private:
 
     U8*             m_cpuPtr;
     U8*             m_cpuBase;
-    GLuint          m_glBuffer;
     CUdeviceptr     m_cudaPtr;
     CUdeviceptr     m_cudaBase;
-    bool            m_cudaGLReg;
 };
 
 //------------------------------------------------------------------------

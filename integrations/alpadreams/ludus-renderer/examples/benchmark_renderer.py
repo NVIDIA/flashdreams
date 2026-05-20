@@ -90,7 +90,7 @@ def find_scene_dirs(scenes_dir: str) -> List[str]:
 def benchmark_single_scene(args):
     """Benchmark rendering a single scene."""
     from ludus_renderer.util import resample_timestamps
-    from ludus_renderer.torch import LudusTimestampedContext
+    from ludus_renderer.torch import LudusCudaTimestampedContext
     from ludus_renderer.render_utils import render_all_frames
     
     device = torch.device('cuda')
@@ -114,7 +114,7 @@ def benchmark_single_scene(args):
     print(f"  Frames: {n_frames}")
     
     # Create context and camera
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
     
     bev_height = args.bev_height if args.bev else None
@@ -174,7 +174,7 @@ def benchmark_single_scene(args):
 def benchmark_multicam(args):
     """Benchmark multi-camera rendering (all cameras per timestamp)."""
     from ludus_renderer.util import resample_timestamps
-    from ludus_renderer.torch import LudusTimestampedContext
+    from ludus_renderer.torch import LudusCudaTimestampedContext
     from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
     from ludus_renderer.render_utils import (
         get_all_camera_poses, get_all_bev_camera_poses, compute_camera_poses,
@@ -213,7 +213,7 @@ def benchmark_multicam(args):
     print(f"  Total images per iteration: {n_frames * n_cameras}")
     
     # Create context
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
     
     # Create cameras
@@ -300,7 +300,7 @@ def benchmark_multicam(args):
 def benchmark_batch(args):
     """Benchmark multi-scene batch rendering."""
     from ludus_renderer.util import resample_timestamps
-    from ludus_renderer.torch import LudusTimestampedContext
+    from ludus_renderer.torch import LudusCudaTimestampedContext
     
     device = torch.device('cuda')
     width, height = args.width, args.height
@@ -332,7 +332,7 @@ def benchmark_batch(args):
         all_timestamps.append(ts)
     
     # Create unified context
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
     
     camera = create_camera(width, height, device)

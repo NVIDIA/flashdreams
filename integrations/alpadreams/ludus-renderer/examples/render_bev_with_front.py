@@ -16,14 +16,14 @@
 
 """Minimal example: render front camera + BEV in a single batched call.
 
-Outputs JPEG files using the renderer's nvJPEG GPU encoder (no CPU round-trip).
+Outputs JPEG files using nvJPEG GPU encoder (no CPU round-trip for encoding).
 """
 
 import os
 import torch
 
-from ludus_renderer import load_clipgt_scene
-from ludus_renderer.torch import LudusTimestampedContext
+from ludus_renderer import load_clipgt_scene, nvjpeg
+from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
 from ludus_renderer.render_utils import (
     SceneAdapter, create_camera,
@@ -47,7 +47,7 @@ timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100_000, 20_000_00
 print(f"Scene loaded: {len(timestamps)} frames")
 
 # Setup renderer with both cameras: 0=front (scaled to render res), 1=bev
-ctx = LudusTimestampedContext(device=device)
+ctx = LudusCudaTimestampedContext(device=device)
 ctx.set_depth_scaling(True)
 
 front_camera = create_camera(WIDTH, HEIGHT, device, scene=scene, camera_name=FRONT_CAM)
@@ -65,27 +65,41 @@ print(f"Rendering frame {frame_idx} (timestamp {ts.item()})")
 front_pose = get_camera_pose(scene, ts, FRONT_CAM, device)
 bev_pose = get_bev_camera_pose(scene, ts, BEV_HEIGHT, device)
 
-# Render to staging buffer, then encode to JPEG on the GPU via nvJPEG
-queries = ctx.pack_queries_fast(
-    scene_ids=torch.tensor([scene_id, scene_id], dtype=torch.int32, device=device),
-    camera_ids=torch.tensor([0, 1], dtype=torch.int32, device=device),
-    timestamps_us=torch.tensor([ts, ts], dtype=torch.int64, device=device),
-    camera_type_ids=torch.tensor([CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV], dtype=torch.int32, device=device),
-)
-staging_idx, _ = ctx.render_batch_to_staging(
-    queries, torch.stack([front_pose, bev_pose]), (HEIGHT, WIDTH),
-)
-jpeg_list = ctx.encode_jpeg_batch_staging(staging_idx, JPEG_QUALITY)
-print(f"Encoded {len(jpeg_list)} JPEG images on GPU (quality={JPEG_QUALITY})")
+# Render both views in a single batched call
+scene_ids = torch.tensor([scene_id, scene_id], dtype=torch.int32, device=device)
+camera_ids = torch.tensor([0, 1], dtype=torch.int32, device=device)
+timestamps_us = torch.tensor([ts, ts], dtype=torch.int64, device=device)
+camera_type_ids = torch.tensor([CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV], dtype=torch.int32, device=device)
+poses = torch.stack([front_pose, bev_pose])
 
-# Write JPEG bytes to disk
-output_dir = os.path.join(os.path.dirname(__file__), "../_images")
-os.makedirs(output_dir, exist_ok=True)
+images = ctx.render(scene_ids, camera_ids, timestamps_us, camera_type_ids,
+                    poses, resolution=(HEIGHT, WIDTH))
 
-names = ["example_front.jpg", "example_bev.jpg"]
-for jpeg_bytes, name in zip(jpeg_list, names):
-    path = os.path.join(output_dir, name)
-    with open(path, "wb") as f:
-        f.write(jpeg_bytes)
+# Encode to JPEG on GPU via nvJPEG
+if not nvjpeg.is_available():
+    print("WARNING: nvJPEG not available, falling back to PIL")
+    from PIL import Image as PILImage
+    output_dir = os.path.join(os.path.dirname(__file__), "../_images")
+    os.makedirs(output_dir, exist_ok=True)
+    names = ["example_front.png", "example_bev.png"]
+    for i, name in enumerate(names):
+        img_np = images[i, :, :, :3].cpu().numpy()
+        PILImage.fromarray(img_np).save(os.path.join(output_dir, name))
+    print(f"Saved: _images/{names[0]}, _images/{names[1]}")
+else:
+    # Convert [N, H, W, 4] RGBA -> [N, 3, H, W] RGB for nvjpeg
+    images_rgb = images[:, :, :, :3].permute(0, 3, 1, 2).contiguous()
+    jpeg_list = nvjpeg.encode(images_rgb, quality=JPEG_QUALITY)
+    print(f"Encoded {len(jpeg_list)} JPEG images on GPU (quality={JPEG_QUALITY})")
 
-print(f"Saved: _images/{names[0]}, _images/{names[1]}")
+    # Write JPEG bytes to disk
+    output_dir = os.path.join(os.path.dirname(__file__), "../_images")
+    os.makedirs(output_dir, exist_ok=True)
+
+    names = ["example_front.jpg", "example_bev.jpg"]
+    for jpeg_bytes, name in zip(jpeg_list, names):
+        path = os.path.join(output_dir, name)
+        with open(path, "wb") as f:
+            f.write(jpeg_bytes)
+
+    print(f"Saved: _images/{names[0]}, _images/{names[1]}")

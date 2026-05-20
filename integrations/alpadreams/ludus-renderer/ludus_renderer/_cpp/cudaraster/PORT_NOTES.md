@@ -1,7 +1,7 @@
 # CUDA Rasterizer Port Notes
 
 This directory is a port of the HPG-2011 NVIDIA CUDA rasterizer. It has been
-adapted to act as the GL-free backend for the ludus renderer. Most of the
+adapted to act as the backend for the ludus renderer. Most of the
 tile-level pipeline (triangle setup, bin raster, coarse raster, fine raster) is
 upstream code; the host wrapper, the viewport/multi-image plumbing, and the
 deterministic tiebreaker are local deviations.
@@ -233,8 +233,8 @@ Checklist for the audit:
 
 ## Depth Peeling Not Implemented
 
-The public API still exposes depth-peeling controls, but the active GL-free
-draw path does not implement depth peeling end-to-end:
+The public API still exposes depth-peeling controls, but the active draw
+path does not implement depth peeling end-to-end:
 
 - `setRenderModeFlags(RenderModeFlag_EnableDepthPeeling)` records the flag on
   the host, but `CudaRasterKernels.cu` instantiates only the default pipe with

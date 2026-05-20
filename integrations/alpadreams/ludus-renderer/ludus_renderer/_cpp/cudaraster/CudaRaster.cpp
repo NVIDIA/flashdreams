@@ -29,7 +29,6 @@
 #include "cuda/PixelPipe.hpp"
 #include "cuda/PrivateDefs.hpp"
 #include "cuda/Constants.hpp"
-#include "gui/Image.hpp"
 #include "gpu/Buffer.hpp"
 #include <cstddef>
 #include <cstdio>

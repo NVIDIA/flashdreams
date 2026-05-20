@@ -68,31 +68,6 @@ void Buffer::wrapCPU(void* cpuPtr, S64 size)
 
 //------------------------------------------------------------------------
 
-void Buffer::wrapGL(GLuint glBuffer)
-{
-#if FW_USE_GL
-    FW_ASSERT(glBuffer != 0);
-
-    GLint size;
-    {
-        GLint oldBuffer;
-        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-        glBindBuffer(GL_ARRAY_BUFFER, glBuffer);
-        glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &size);
-        glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-        GLContext::checkErrors();
-    }
-
-    m_glBuffer = glBuffer;
-    wrap(GL, size);
-#else
-    FW_UNREF(glBuffer);
-    fail("FW_USE_GL is disabled in this build");
-#endif
-}
-
-//------------------------------------------------------------------------
-
 void Buffer::wrapCuda(CUdeviceptr cudaPtr, S64 size)
 {
     FW_ASSERT(cudaPtr || !size);
@@ -129,10 +104,7 @@ void Buffer::free(Module module)
     switch (module)
     {
     case CPU:   cpuFree(m_cpuPtr, m_cpuBase, m_hints); break;
-#if FW_USE_GL
-    case GL:    glFree(m_glBuffer, m_cudaGLReg); break;
-#endif
-    case Cuda:  cudaFree(m_cudaPtr, m_cudaBase, m_glBuffer, m_hints); break;
+    case Cuda:  cudaFree(m_cudaPtr, m_cudaBase); break;
     }
     m_exists &= ~module;
 }
@@ -150,19 +122,6 @@ void Buffer::getRange(void* dst, S64 srcOfs, S64 size, bool async, CUstream cuda
 
     switch (m_owner)
     {
-#if FW_USE_GL
-    case GL:
-        {
-            GLint oldBuffer;
-            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-            glBindBuffer(GL_ARRAY_BUFFER, m_glBuffer);
-            glGetBufferSubData(GL_ARRAY_BUFFER, (GLintptr)srcOfs, (GLsizeiptr)size, dst);
-            glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-            GLContext::checkErrors();
-        }
-        break;
-#endif
-
     case Cuda:
         memcpyDtoH(dst, m_cudaPtr + (U32)srcOfs, (U32)size, async, cudaStream);
         break;
@@ -187,19 +146,6 @@ void Buffer::setRange(S64 dstOfs, const void* src, S64 size, bool async, CUstrea
 
     switch (m_owner)
     {
-#if FW_USE_GL
-    case GL:
-        {
-            GLint oldBuffer;
-            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-            glBindBuffer(GL_ARRAY_BUFFER, getMutableGLBuffer());
-            glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)dstOfs, (GLsizeiptr)size, src);
-            glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-            GLContext::checkErrors();
-        }
-        break;
-#endif
-
     case Cuda:
         memcpyHtoD(getMutableCudaPtr(dstOfs), src, (U32)size, async, cudaStream);
         break;
@@ -257,22 +203,6 @@ void Buffer::setOwner(Module module, bool modify, bool async, CUstream cudaStrea
         validSize = m_size;
     FW_ASSERT(validSize >= 0);
 
-#if FW_USE_GL
-    // Unmap CudaGL if necessary.
-
-    if ((m_hints & Hint_CudaGL) != 0 && (m_exists & Cuda) != 0)
-    {
-        FW_ASSERT((m_dirty & Cuda) == 0);
-        if ((module != Cuda && modify) ||
-            (module == GL && (m_dirty & GL) != 0))
-        {
-            cudaFree(m_cudaPtr, m_cudaBase, m_glBuffer, m_hints);
-            m_exists &= ~Cuda;
-            m_dirty &= ~GL;
-        }
-    }
-#endif
-
     // Same owner => done.
 
     if (m_owner == module)
@@ -300,52 +230,15 @@ void Buffer::setOwner(Module module, bool modify, bool async, CUstream cudaStrea
         validateCPU(async, cudaStream, validSize);
     }
 
-#if FW_USE_GL
-    // Validate GL.
-
-    bool needGL = (module == GL);
-    if (module == Cuda && (m_hints & Hint_CudaGL) != 0)
-        needGL = true;
-
-    if (needGL && (m_exists & GL) == 0)
-    {
-        validateCPU(false, NULL, validSize);
-        glAlloc(m_glBuffer, m_size, m_cpuPtr);
-        m_exists |= GL;
-        m_dirty &= ~GL;
-    }
-    else if (module == GL && (m_dirty & GL) != 0)
-    {
-        validateCPU(false, NULL, validSize);
-        FW_ASSERT((m_exists & CPU) != 0);
-        if (validSize)
-        {
-            profilePush("glBufferSubData");
-            GLint oldBuffer;
-            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-            glBindBuffer(GL_ARRAY_BUFFER, m_glBuffer);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)validSize, m_cpuPtr);
-            glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-            GLContext::checkErrors();
-            profilePop();
-        }
-        m_dirty &= ~GL;
-    }
-#endif
-
     // Validate Cuda.
 
     if (module == Cuda)
     {
         if ((m_exists & Cuda) == 0)
         {
-            cudaAlloc(m_cudaPtr, m_cudaBase, m_cudaGLReg, m_size, m_glBuffer, m_hints, m_align);
+            cudaAlloc(m_cudaPtr, m_cudaBase, m_size, m_align);
             m_exists |= Cuda;
             m_dirty |= Cuda;
-#if FW_USE_GL
-            if ((m_hints & Hint_CudaGL) != 0 && (m_dirty & GL) == 0)
-                m_dirty &= ~Cuda;
-#endif
         }
 
         if ((m_dirty & Cuda) != 0)
@@ -426,10 +319,8 @@ void Buffer::init(S64 size, U32 hints, int align)
 
     m_cpuPtr    = NULL;
     m_cpuBase   = NULL;
-    m_glBuffer  = 0;
     m_cudaPtr   = NULL;
     m_cudaBase  = NULL;
-    m_cudaGLReg = false;
 }
 
 //------------------------------------------------------------------------
@@ -438,14 +329,11 @@ U32 Buffer::validateHints(U32 hints, int align, Module original)
 {
     FW_ASSERT((hints & ~Hint_All) == 0);
     FW_ASSERT(align > 0);
+    FW_UNREF(align);
 
     U32 res = Hint_None;
     if ((hints & Hint_PageLock) != 0 && original != CPU)
         res |= Hint_PageLock;
-#if FW_USE_GL
-    if ((hints & Hint_CudaGL) != 0 && original != Cuda && align == 1 && isAvailable_cuGLRegisterBufferObject())
-        res |= Hint_CudaGL;
-#endif
     return res;
 }
 
@@ -461,14 +349,7 @@ void Buffer::deinit(void)
     // Free buffers.
 
     if (m_original != Cuda)
-        cudaFree(m_cudaPtr, m_cudaBase, m_glBuffer, m_hints);
-
-#if FW_USE_GL
-    if (m_original != GL)
-        glFree(m_glBuffer, m_cudaGLReg);
-    else if (m_cudaGLReg)
-        checkCudaDriverError("cuGLUnregisterBufferObject", cuGLUnregisterBufferObject(m_glBuffer));
-#endif
+        cudaFree(m_cudaPtr, m_cudaBase);
 
     if (m_original != CPU)
         cpuFree(m_cpuPtr, m_cpuBase, m_hints);
@@ -530,12 +411,11 @@ void Buffer::realloc(S64 size, U32 hints, int align)
 
     // CUDA buffer => device-to-device copy.
 
-    if (m_owner == Cuda && (hints & Hint_CudaGL) == 0)
+    if (m_owner == Cuda)
     {
         CUdeviceptr cudaPtr;
         CUdeviceptr cudaBase;
-        bool cudaGLReg = false;
-        cudaAlloc(cudaPtr, cudaBase, cudaGLReg, size, 0, hints, align);
+        cudaAlloc(cudaPtr, cudaBase, size, align);
         memcpyXtoX(NULL, cudaPtr, NULL, getCudaPtr(), min(size, m_size), false, NULL);
 
         reset(NULL, size, hints, align);
@@ -602,24 +482,8 @@ void Buffer::validateCPU(bool async, CUstream cudaStream, S64 validSize)
 
     // Copy data from the source.
 
-#if FW_USE_GL
-    if (source == GL)
-    {
-        profilePush("glGetBufferSubData");
-        GLint oldBuffer;
-        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-        glBindBuffer(GL_ARRAY_BUFFER, m_glBuffer);
-        glGetBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)validSize, m_cpuPtr);
-        glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-        GLContext::checkErrors();
-        profilePop();
-    }
-    else
-#endif
-    {
-        FW_ASSERT(source == Cuda);
-        memcpyDtoH(m_cpuPtr, m_cudaPtr, (U32)validSize, async, cudaStream);
-    }
+    FW_ASSERT(source == Cuda);
+    memcpyDtoH(m_cpuPtr, m_cudaPtr, (U32)validSize, async, cudaStream);
 }
 
 //------------------------------------------------------------------------
@@ -661,97 +525,25 @@ void Buffer::cpuFree(U8*& cpuPtr, U8*& cpuBase, U32 hints)
 
 //------------------------------------------------------------------------
 
-void Buffer::glAlloc(GLuint& glBuffer, S64 size, const void* data)
-{
-#if FW_USE_GL
-    FW_ASSERT(size >= 0);
-    GLContext::staticInit();
-
-    GLint oldBuffer;
-    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &oldBuffer);
-    glGenBuffers(1, &glBuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, glBuffer);
-    checkSize(size, sizeof(GLsizeiptr) * 8 - 1, "glBufferData");
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)size, data, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, oldBuffer);
-    GLContext::checkErrors();
-#else
-    FW_UNREF(glBuffer); FW_UNREF(size); FW_UNREF(data);
-    fail("FW_USE_GL is disabled in this build");
-#endif
-}
-
-//------------------------------------------------------------------------
-
-void Buffer::glFree(GLuint& glBuffer, bool& cudaGLReg)
-{
-#if FW_USE_GL
-    if (glBuffer)
-    {
-        if (cudaGLReg)
-        {
-            checkCudaDriverError("cuGLUnregisterBufferObject", cuGLUnregisterBufferObject(glBuffer));
-            cudaGLReg = false;
-        }
-        glDeleteBuffers(1, &glBuffer);
-        GLContext::checkErrors();
-        glBuffer = 0;
-    }
-#else
-    FW_UNREF(glBuffer); FW_UNREF(cudaGLReg);
-#endif
-}
-
-//------------------------------------------------------------------------
-
-void Buffer::cudaAlloc(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, bool& cudaGLReg, S64 size, GLuint glBuffer, U32 hints, int align)
+void Buffer::cudaAlloc(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, S64 size, int align)
 {
     staticCudaInit();
-#if FW_USE_GL
-    if ((hints & Hint_CudaGL) == 0)
-#endif
-    {
-        FW_ASSERT(align > 0);
-        checkSize(size, 32, "cuMemAlloc");
-        checkCudaDriverError("cuMemAlloc", cuMemAlloc(&cudaBase,
-            max(1U, (U32)(size + align - 1))));
-        cudaPtr = cudaBase + align - 1;
-        cudaPtr -= (U32)cudaPtr % (U32)align;
-    }
-#if FW_USE_GL
-    else
-    {
-        if (!cudaGLReg)
-        {
-            checkCudaDriverError("cuGLRegisterBufferObject", cuGLRegisterBufferObject(glBuffer));
-            cudaGLReg = true;
-        }
-        CUsize_t size;
-        FW_ASSERT(align == 1);
-        checkCudaDriverError("cuGLMapBufferObject", cuGLMapBufferObject(&cudaBase, &size, glBuffer));
-        cudaPtr = cudaBase;
-    }
-#else
-    FW_UNREF(cudaGLReg); FW_UNREF(glBuffer); FW_UNREF(hints);
-#endif
+    FW_ASSERT(align > 0);
+    checkSize(size, 32, "cuMemAlloc");
+    checkCudaDriverError("cuMemAlloc", cuMemAlloc(&cudaBase,
+        max(1U, (U32)(size + align - 1))));
+    cudaPtr = cudaBase + align - 1;
+    cudaPtr -= (U32)cudaPtr % (U32)align;
 }
 
 //------------------------------------------------------------------------
 
-void Buffer::cudaFree(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, GLuint glBuffer, U32 hints)
+void Buffer::cudaFree(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase)
 {
     FW_ASSERT((cudaPtr == NULL) == (cudaBase == NULL));
     if (cudaPtr)
     {
-#if FW_USE_GL
-        if ((hints & Hint_CudaGL) == 0)
-            checkCudaDriverError("cuMemFree", cuMemFree(cudaBase));
-        else
-            checkCudaDriverError("cuGLUnmapBufferObject", cuGLUnmapBufferObject(glBuffer));
-#else
-        FW_UNREF(glBuffer); FW_UNREF(hints);
         checkCudaDriverError("cuMemFree", cuMemFree(cudaBase));
-#endif
         cudaPtr = NULL;
         cudaBase = NULL;
     }

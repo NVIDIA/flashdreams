@@ -26,8 +26,9 @@ EXAMPLE_SCENE_ZIP = REPO_ROOT / "assets" / "example_data" / "alpadreams" / "clip
 @pytest.fixture(scope="session")
 def example_scene_zip_path() -> Path:
     if not EXAMPLE_SCENE_ZIP.exists():
-        raise FileNotFoundError(
-            f"Missing integration-test scene archive at {EXAMPLE_SCENE_ZIP}."
+        pytest.skip(
+            f"Missing integration-test scene archive at {EXAMPLE_SCENE_ZIP}. "
+            "Run assets/download.sh to fetch test data."
         )
     return EXAMPLE_SCENE_ZIP
 

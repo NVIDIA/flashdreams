@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 import os
@@ -9,6 +24,8 @@ import pytest
 import torch
 import torch.distributed as dist
 from lingbot.webrtc import session
+
+pytestmark = pytest.mark.ci_gpu
 
 
 def _write_minimal_assets(data_dir: Path) -> None:
@@ -89,16 +106,16 @@ def _patch_pipeline_factory(
     derive_calls: list[dict[str, Any]],
     pipeline_events: list[tuple[Any, ...]],
 ) -> None:
-    """Register a fake entry in ``LINGBOT_WORLD_CONFIGS`` for
-    ``config_name`` and swap :func:`session.derive_config` with a
-    capturing stub that returns a :class:`_FakePipelineConfig`.
+    """Register a fake entry in ``PIPELINE_CONFIGS`` for ``config_name``
+    and swap :func:`session.derive_config` with a capturing stub that
+    returns a :class:`_FakePipelineConfig`.
 
     The runtime path under test is::
 
-        derive_config(base_config=LINGBOT_WORLD_CONFIGS[name], ...)
+        derive_config(base_config=PIPELINE_CONFIGS[name], ...)
             .setup().to(device=...)
     """
-    monkeypatch.setitem(session.LINGBOT_WORLD_CONFIGS, config_name, object())
+    monkeypatch.setitem(session.PIPELINE_CONFIGS, config_name, object())
 
     def _fake_derive_config(**kwargs: Any) -> _FakePipelineConfig:
         derive_calls.append(kwargs)
@@ -177,6 +194,7 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
     assert derive_calls[0]["diffusion_model"]["seed"] == 10
 
 
+@pytest.mark.manual
 def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

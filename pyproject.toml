@@ -15,8 +15,14 @@ members = [
 # compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
 # cuBLAS 13.4 is backwards compatible with 13.1.
 [tool.uv]
+managed = true
 required-version = ">=0.11.8"
-override-dependencies = ["nvidia-cublas>=13.4"]
+override-dependencies = [
+    "nvidia-cublas>=13.4",
+    # Keep transitive HTTP clients off urllib3 versions with sensitive-header
+    # redirect handling vulnerabilities.
+    "urllib3>=2.7.0",
+]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
 # the project's PyTorch + system CUDA. uv's default per-package build isolation
@@ -90,6 +96,14 @@ invalid-method-override = "ignore"
 # imports as Any.
 replace-imports-with-any = ["transformer_engine.**", "triton.**"]
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]
+
 [dependency-groups]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]
 
@@ -116,5 +130,5 @@ docs-ci = [
     "torch>=2.11",
     "torchvision>=0.22",
     "tqdm>=4.60",
-    "transformers==4.57.6",
+    "transformers>=5.0,<6",
 ]

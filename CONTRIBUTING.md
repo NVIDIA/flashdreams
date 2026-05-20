@@ -148,14 +148,16 @@ The short version:
 1. Fork the repo on GitHub and create a feature branch from `main`.
 2. Make your changes. Keep PRs small and focused; a 200-line PR that
    does one thing reviews much faster than a 2000-line PR that does ten.
-3. Add or update tests where it makes sense. CPU-only tests are
-   preferred for portability; GPU tests are welcome and gated with the
-   `manual` pytest marker.
+3. Add or update tests where it makes sense. Every test must carry
+   exactly one CI tier marker (`@pytest.mark.ci_cpu`,
+   `@pytest.mark.ci_gpu`, or `@pytest.mark.manual`); see
+   [Testing](#testing) below. The project enforces this at collection
+   time -- pytest will error if a test is missing a marker.
 4. Run the project's checks locally:
 
    ```bash
    uv run pre-commit run -a       # format + lint + type-check
-   uv run pytest -m "not manual"  # CPU tests
+   uv run pytest -m ci_cpu         # CPU tests (no GPU required)
    ```
 
 5. Sign off your commits (`git commit --signoff`) and push to your fork.
@@ -194,7 +196,8 @@ short ping comment.
 - Prefer small, well-named functions over long functions with comments
   explaining each block. Comments should explain *why*, not *what*.
 - Tests live in `flashdreams/tests/` and `integrations/*/tests/`. Use
-  `pytest` and prefer existing fixtures over hand-rolled setup.
+  `pytest` and prefer existing fixtures over hand-rolled setup. See
+  [Testing](#testing) for marker requirements.
 - Every source file added by a contribution must include the SPDX
   header used elsewhere in the project:
 
@@ -218,6 +221,48 @@ short ping comment.
   External contributors should add their own copyright line *above* the
   NVIDIA line if they wish to be attributed; both attributions are
   retained.
+
+## Testing
+
+Every test function must be marked with exactly one **CI tier marker**.
+A pytest plugin (`flashdreams._pytest_plugins.marker_enforcement`)
+enforces this at collection time -- tests without a marker are
+rejected, and tests with both `ci_cpu` and `ci_gpu` are rejected.
+
+| Marker | When to use | CI runner |
+|--------|-------------|-----------|
+| `@pytest.mark.ci_cpu` | Pure CPU logic, no GPU or `libGL` needed | CPU runner |
+| `@pytest.mark.ci_gpu` | Needs CUDA, `libGL`, or transitive `cv2` | GPU runner (RTX Pro 6000) |
+| `@pytest.mark.manual` | Heavy (OOM risk), flaky, needs credentials or large downloads | Not run in CI |
+
+Use a module-level `pytestmark` when every test in a file shares the
+same marker:
+
+```python
+import pytest
+
+pytestmark = pytest.mark.ci_cpu
+```
+
+Use per-function markers when tests in the same file have different
+tiers:
+
+```python
+@pytest.mark.ci_cpu
+def test_basic_math(): ...
+
+@pytest.mark.ci_gpu
+def test_cudagraph_path(): ...
+```
+
+Running tests locally:
+
+```bash
+uv run pytest -m ci_cpu          # CPU-safe tests only
+uv run pytest -m ci_gpu          # GPU tests only (needs CUDA)
+uv run pytest -m "not manual"    # everything that runs in CI
+uv run pytest                    # all tests including manual
+```
 
 ## Licensing of contributions
 

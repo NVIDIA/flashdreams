@@ -12,7 +12,7 @@
 - [] YUME: https://github.com/stdstu12/YUME
 - [] LightX2V: https://github.com/ModelTC/LightX2V
 - [] OpenWorldLLib: https://github.com/OpenDCAI/OpenWorldLib
-- [] lingbot-world: https://github.com/Robbyant/lingbot-world
+- [x] lingbot-world: https://github.com/Robbyant/lingbot-world
 - [] Helios: https://github.com/PKU-YuanGroup/Helios
 - [] open-oasis: https://github.com/etched-ai/open-oasis
 - [] WHAM: https://huggingface.co/microsoft/wham
@@ -80,7 +80,7 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-causal-forcing | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
 | flash-alpadreams | git only | synced |
-| flash-lingbot | git only | synced |
+| flashdreams-lingbot | git only | synced |
 | ludus-renderer | git only | independent (0.9.0) |
 
 ## CI secrets required

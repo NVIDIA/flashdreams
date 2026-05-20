@@ -262,7 +262,7 @@ void LudusCudaStateWrapper::uploadColorPalette(torch::Tensor colors)
 }
 
 //------------------------------------------------------------------------
-// Forward op: CUDA-only f-theta rendering.
+// Forward op: f-theta rendering.
 
 torch::Tensor ludus_render_fwd_cuda(
     LudusCudaStateWrapper& stateWrapper,
@@ -338,7 +338,7 @@ torch::Tensor ludus_render_fwd_cuda(
 }
 
 //------------------------------------------------------------------------
-// Forward op: CUDA-only f-theta rendering with timestamped cube pools.
+// Forward op: f-theta rendering with timestamped cube pools.
 // cube_pool_list: list of tuples (track_ts, prefix_sum, translations, quaternions,
 //                                  scales, colors, query_ts_us, max_extrap_us, render_flags)
 

@@ -39,6 +39,8 @@ from alpadreams.conditioning.conditioning_wrapper import (
 )
 from torch import nn
 
+pytestmark = pytest.mark.ci_gpu
+
 
 class _FakePipeline:
     def __init__(self) -> None:

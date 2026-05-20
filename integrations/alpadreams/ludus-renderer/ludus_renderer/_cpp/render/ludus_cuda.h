@@ -21,8 +21,7 @@
 #include <cuda_runtime.h>
 
 //------------------------------------------------------------------------
-// Fully CUDA-based Ludus renderer state.
-// No OpenGL dependency. Uses CudaRaster (HPG 2011) for triangle rasterization.
+// Ludus renderer state. Uses CudaRaster (HPG 2011) for triangle rasterization.
 //------------------------------------------------------------------------
 
 //------------------------------------------------------------------------

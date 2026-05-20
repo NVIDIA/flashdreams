@@ -1,11 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Focused invariants for the CudaRaster cleanroom port.
 
 These tests pin small, risky porting assumptions that are easier to verify
 directly than through the broad API contract suite.
 """
 
+import sys
 from pathlib import Path
 from typing import Any
+
+# Allow bare import of the sibling test module under --import-mode=importlib
+# (pytest's importlib mode does not add the test directory to sys.path).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import pytest
@@ -21,13 +41,15 @@ from test_cudaraster_api import (
     _to_vertices,
 )
 
+pytestmark = pytest.mark.ci_gpu
+
 ROOT = Path(__file__).resolve().parents[1] / "ludus_renderer" / "_cpp" / "cudaraster"
 
 
 @pytest.fixture(scope="module")
 def cudaraster_plugin() -> Any:
     _require_cuda()
-    return _get_plugin(gl=False)
+    return _get_plugin()
 
 
 @pytest.fixture
@@ -450,7 +472,9 @@ def test_per_tile_emit_imbalance_does_not_misroute_triangles(
 
 
 @pytest.mark.gpu
-def test_many_overlapping_triangles_do_not_overflow_tile_segments(harness: CudaRasterHarness) -> None:
+def test_many_overlapping_triangles_do_not_overflow_tile_segments(
+    harness: CudaRasterHarness,
+) -> None:
     triangle_count = 4096
     vertices = torch.empty((triangle_count * 3, 4), device="cuda", dtype=torch.float32)
     vertices[0::3, 0] = -0.2
@@ -469,7 +493,9 @@ def test_many_overlapping_triangles_do_not_overflow_tile_segments(harness: CudaR
     assert harness.draw(clear_color=0, flags=0, deterministic_tiebreaker=False)
 
     color = harness.read().color
-    assert np.count_nonzero(color) > 0, "overlapping triangles produced no visible coverage"
+    assert np.count_nonzero(color) > 0, (
+        "overlapping triangles produced no visible coverage"
+    )
 
 
 @pytest.mark.gpu

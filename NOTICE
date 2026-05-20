@@ -6,11 +6,13 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 ================================================================================
 
 This product includes or depends on software from third-party projects.
-Each dependency is consumed unmodified at runtime through Python's import
-system (i.e. dynamic linking via the interpreter); none of the third-party
-source listed below is redistributed in this repository. The licenses
-named below are SPDX identifiers; the full text of each license is
-available from the upstream project's URL.
+Most dependencies are consumed unmodified at runtime through Python's
+import system (i.e. dynamic linking via the interpreter); their source
+is not redistributed in this repository. The licenses named below are
+SPDX identifiers; the full text of each license is available from the
+upstream project's URL. Source-level redistributions (third-party source
+code physically present in this repository) are disclosed in the
+"Source-level redistributions" section at the end of this file.
 
 --------------------------------------------------------------------------------
 Direct runtime dependencies
@@ -65,5 +67,47 @@ Optional integration: integrations/lingbot
 aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
 aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
+
+================================================================================
+Source-level redistributions
+================================================================================
+
+The following third-party source is physically present in this repository
+(not just consumed at runtime). Each file retains its original copyright
+notice inline; license texts are reproduced under LICENSES/.
+
+--------------------------------------------------------------------------------
+HPG-2011 NVIDIA CUDA Rasterizer port
+--------------------------------------------------------------------------------
+
+Path:    integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
+         Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved.
+
+The cudaraster subtree is a port of NVIDIA Research's HPG-2011 CUDA
+Rasterizer (Laine & Karras). It is NVIDIA-authored and is redistributed
+under the 3-clause BSD license carried in
+ludus_renderer/_cpp/cudaraster/LICENSE. The tile-level rasterization
+pipeline (triangle setup, bin / coarse / fine raster) is upstream code;
+the host wrapper, viewport / multi-image plumbing, and deterministic
+tiebreaker are local modifications. See
+ludus_renderer/_cpp/cudaraster/PORT_NOTES.md for the full list of
+deviations.
+
+--------------------------------------------------------------------------------
+LodePNG
+--------------------------------------------------------------------------------
+
+Path:     integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/
+          cudaraster/framework/3rdparty/lodepng/{lodepng.h, lodepng.cpp}
+License:  Zlib (see LICENSES/Zlib.txt)
+          Copyright (c) 2005-2011 Lode Vandevenne
+Upstream: https://lodev.org/lodepng/
+
+LodePNG is a PNG codec implementation embedded by the upstream
+cudaraster framework. It is the only non-NVIDIA source physically
+redistributed in this repository. The inline notice in lodepng.h
+preserves the upstream copyright notice as required by the Zlib
+license; LICENSES/Zlib.txt reproduces the license text in full.
 
 ================================================================================

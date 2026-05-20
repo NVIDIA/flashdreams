@@ -14,13 +14,15 @@
 # limitations under the License.
 
 """
-Backward compatibility layer for ludus_renderer.torch imports.
+Backward compatibility layer for ``ludus_renderer.torch`` imports.
 
-New code should import directly from ludus_renderer:
-    from ludus_renderer import LudusRenderer, LudusTimestampedContext
+New code should import directly from ``ludus_renderer``::
 
-This module re-exports the same symbols for backward compatibility:
-    from ludus_renderer.torch import LudusTimestampedContext  # Still works
+    from ludus_renderer import LudusCudaTimestampedContext
+
+This module re-exports the same symbols for backward compatibility::
+
+    from ludus_renderer.torch import LudusCudaTimestampedContext  # Still works
 """
 
 # Re-export from _ops for backward compatibility
@@ -41,10 +43,8 @@ from .._ops import (
     Cube,
     CubePool,
     FThetaCamera,
+    # Context
     LudusCudaTimestampedContext,
-    # Contexts
-    LudusGLContext,
-    LudusTimestampedContext,
     ObstaclePool,
     Polygon,
     # Primitives
@@ -53,15 +53,11 @@ from .._ops import (
     # Timestamped pools
     TimestampedPolylinePool,
     TimestampedScene,
-    ludus_render,
 )
 
 __all__ = [
-    # Core
-    "LudusGLContext",
-    "LudusTimestampedContext",
+    # Context
     "LudusCudaTimestampedContext",
-    "ludus_render",
     # Primitives
     "Polyline",
     "Polygon",

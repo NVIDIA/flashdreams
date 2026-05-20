@@ -29,6 +29,8 @@ from flashdreams.core.distributed.rank_orchestration import (
     distributed_op,
 )
 
+pytestmark = pytest.mark.ci_cpu
+
 
 class _Signal(IntEnum):
     STEP = 0

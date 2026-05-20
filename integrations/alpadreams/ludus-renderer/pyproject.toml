@@ -16,7 +16,7 @@
 [project]
 name = "ludus-renderer"
 version = "0.9.0"
-description = "Ludus Renderer - GPU-native F-theta mesh shader rendering"
+description = "Ludus Renderer - GPU-native F-theta CUDA software rasterizer"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -53,7 +53,6 @@ packages = [
     "ludus_renderer",
     "ludus_renderer._ops",
     "ludus_renderer.torch",
-    "ludus_renderer.torch.api",
 ]
 
 [tool.setuptools.package-data]
@@ -61,7 +60,6 @@ packages = [
     "_cpp/common/*.h",
     "_cpp/common/*.cpp",
     "_cpp/render/*.h",
-    "_cpp/render/*.cpp",
     "_cpp/render/*.cu",
     "_cpp/cudaraster/*.hpp",
     "_cpp/cudaraster/*.cpp",
@@ -83,3 +81,6 @@ packages = [
     "_cpp/loader/*.cpp",
     "_cpp/loader/*.cu",
 ]
+
+[tool.uv]
+managed = true

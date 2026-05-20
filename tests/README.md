@@ -44,7 +44,7 @@ is skipped.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FLASHDREAMS_TEST_IMAGE` | `ghcr.io/nvidia/flashdreams:base-v0.3` | Container image used for the run. |
+| `FLASHDREAMS_TEST_IMAGE` | `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04` | Container image used for the run. System deps and uv are installed at container start. |
 | `FLASHDREAMS_UV_CACHE_DIR` | `${HOME}/.cache/uv` | Host dir mounted to `/root/.cache/uv`. |
 | `FLASHDREAMS_HF_CACHE_DIR` | `${HOME}/.cache/huggingface` | Host dir mounted to `/root/.cache/huggingface`. |
 | `FLASHDREAMS_CACHE_DIR` | `${HOME}/.cache/flashdreams` | Host dir mounted to `/root/.cache/flashdreams`. |

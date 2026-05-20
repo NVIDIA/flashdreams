@@ -28,6 +28,7 @@ dependencies = [
     "boto3>=1.35",
     "botocore>=1.35",
     "einops>=0.7",
+    "filelock>=3",
     "ftfy>=6.0",
     "huggingface-hub>=0.33",
     "loguru>=0.7",
@@ -35,8 +36,10 @@ dependencies = [
     "nvidia-ml-py>=12.0",
     "safetensors>=0.4",
     "tqdm>=4.60",
-    "transformers==4.57.6",
+    "transformers>=5.0,<6",
     "torchvision",
+    # Security floor for botocore/requests transitive use.
+    "urllib3>=2.7.0",
     # tyro powers the ``flashdreams-run`` console script (subcommand
     # union over the recipe registry, per-field CLI overrides), so it
     # has to ship as a runtime dependency, not a dev-only one.
@@ -104,7 +107,7 @@ version = {attr = "flashdreams._version.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["flashdreams*"]
-exclude = ["tests"]
+exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 # PyPI's default ``torch`` is the CPU build on Windows. The truesight CUDA
 # extensions (built by ``uv run build-truesight``) need a CUDA-enabled
@@ -126,10 +129,5 @@ torchvision = [
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
 
-[tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
-markers = [
-    "manual: requires GPU and/or network access (opt-in only)",
-    "ci_gpu: GPU test safe to run in CI on RTX Pro 6000 runners",
-    "slow: long-running test",
-]
+[tool.uv]
+managed = true

@@ -14,11 +14,10 @@
 // limitations under the License.
 
 //------------------------------------------------------------------------
-// Fully CUDA-based Ludus renderer.
+// Ludus renderer.
 //
-// Replaces the OpenGL mesh shader pipeline with CUDA kernels for geometry
-// generation, then feeds triangles to CudaRaster (HPG 2011 software
-// rasterizer). No OpenGL, no EGL, no CUDA-GL interop needed.
+// CUDA kernels generate geometry from world-space primitives, then feed
+// triangles to CudaRaster (HPG 2011 software rasterizer).
 //
 // Pipeline (per camera):
 //   1. Geometry kernels: world-space primitives → projected vertices + triangles
@@ -1963,7 +1962,7 @@ void ludusCudaInit(NVDR_CTX_ARGS, LudusCudaState& s)
     CUDA_CHECK(cudaMalloc(&s.atomicVertexCount, sizeof(int)));
     CUDA_CHECK(cudaMalloc(&s.atomicTriangleCount, sizeof(int)));
 
-    printf("LudusCuda: Initialized CUDA-only renderer\n");
+    printf("LudusCuda: Initialized renderer\n");
 }
 
 void ludusCudaDestroy(NVDR_CTX_ARGS, LudusCudaState& s)

@@ -408,7 +408,6 @@ class CosmosDiTNetwork(nn.Module):
         sink_size: int,
         # cross attn
         text_embeddings: Tensor,
-        img_embeddings: Tensor | None = None,
     ) -> CosmosDiTNetworkCache:
         """Build a fresh autoregressive cache for the DiT given the chunk geometry."""
         if self.config.use_crossattn_projection:
@@ -438,7 +437,7 @@ class CosmosDiTNetwork(nn.Module):
         Args:
             x: Patchified video tokens of shape ``[..., L, D_in]``;
                 layout ``"... (t h w) (c kt kh kw)"``.
-            timesteps: Scalar timestep tensor of shape ``()``.
+            timesteps: Scalar shape ``()`` or per-token shape ``[L]``.
             rope_freqs: RoPE cosine/sine embeddings of shape
                 ``[L, 1, 1, head_dim // 2]``.
             cache: Per-block autoregressive cache produced by
@@ -455,25 +454,28 @@ class CosmosDiTNetwork(nn.Module):
             "We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint"
         )
 
-        assert timesteps.ndim == 0, (
-            f"timesteps must be a scalar tensor, got shape {tuple(timesteps.shape)}"
-        )
         timesteps = timesteps * self.config.timestep_scale
         batch_shape = x.shape[:-2]
+        L = x.shape[-2]
 
         # Patch embedding
         x = self.x_embedder(x)
 
-        # Time embedding. ``timesteps`` is scalar so the embedder returns
-        # ``[D]`` and (optionally) ``[3 * D]`` tensors. Broadcast them up to
-        # the leading batch shape so downstream blocks / final layer (which
-        # expect ``[..., D]`` and ``[..., 3 * D]``) work uniformly.
+        # Time embedding
+        if timesteps.ndim == 0:
+            L_slot = 1
+        else:
+            assert timesteps.shape == batch_shape + (L,), (
+                f"per-token timesteps shape {tuple(timesteps.shape)} must equal "
+                f"batch_shape + (L,) = {tuple(batch_shape + (L,))}"
+            )
+            L_slot = L
         t_emb, adaln_lora = self.t_embedder(timesteps)
         t_emb = self.t_embedding_norm(t_emb)
-        t_emb = torch.broadcast_to(t_emb, batch_shape + (t_emb.shape[-1],))
+        t_emb = torch.broadcast_to(t_emb, batch_shape + (L_slot, t_emb.shape[-1]))
         if adaln_lora is not None:
             adaln_lora = torch.broadcast_to(
-                adaln_lora, batch_shape + (adaln_lora.shape[-1],)
+                adaln_lora, batch_shape + (L_slot, adaln_lora.shape[-1])
             )
 
         # In non-eager mode the caller drives ``before_update``/``after_update``

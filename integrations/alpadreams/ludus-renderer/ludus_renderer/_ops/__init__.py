@@ -19,11 +19,14 @@ Low-level rendering operations for Ludus renderer.
 This module re-exports all symbols from the split submodules:
 - _plugin: JIT compilation
 - primitives: Data classes and packing functions
-- context: Ludus rendering contexts (LudusGLContext, LudusTimestampedContext)
+- context: ``LudusCudaTimestampedContext`` rendering context
 """
 
 # JIT compilation
 from ._plugin import _get_plugin, get_log_level, set_log_level
+
+# Ludus rendering context.
+from .context import LudusCudaTimestampedContext
 
 # Primitive data types and packing
 from .primitives import (
@@ -73,9 +76,6 @@ from .primitives import (
     _triangulate_polygon_ear_clipping,
 )
 
-# Ludus context and rendering will be imported from context.py once created
-# For now, we'll import from the old ops.py path until migration is complete
-
 __all__ = [
     # Plugin
     "_get_plugin",
@@ -119,22 +119,6 @@ __all__ = [
     "CubePool",
     "ObstaclePool",
     "TimestampedScene",
-    # Ludus rendering (will be added)
-    "LudusGLContext",
-    "ludus_render",
-    "LudusTimestampedContext",
+    # Ludus rendering context
     "LudusCudaTimestampedContext",
 ]
-
-# Import Ludus context classes (these remain in context.py for now,
-# we'll create this file next)
-try:
-    from .context import (
-        LudusCudaTimestampedContext,
-        LudusGLContext,
-        LudusTimestampedContext,
-        ludus_render,
-    )
-except ImportError:
-    # Fallback during migration - import from old location
-    pass

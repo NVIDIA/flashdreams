@@ -19,10 +19,13 @@ import io
 import zipfile
 from pathlib import Path
 
+import pytest
 from alpadreams.conditioning.world_scenario.data_loaders import (
     list_loaders,
     load_scene,
 )
+
+pytestmark = pytest.mark.ci_gpu
 
 
 def test_load_scene_direct_from_example_zip(

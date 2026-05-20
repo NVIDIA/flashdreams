@@ -15,26 +15,7 @@
 
 #pragma once
 
-// Framework-specific macros to enable code sharing between GL and CUDA-only
-// plugin variants.
-
-//------------------------------------------------------------------------
-// Tensorflow.
-
-#ifdef NVDR_TENSORFLOW
-#define EIGEN_USE_GPU
-#include "tensorflow/core/framework/op.h"
-#include "tensorflow/core/framework/op_kernel.h"
-#include "tensorflow/core/framework/shape_inference.h"
-#include "tensorflow/core/platform/default/logging.h"
-using namespace tensorflow;
-using namespace tensorflow::shape_inference;
-#define NVDR_CTX_ARGS OpKernelContext* _nvdr_ctx
-#define NVDR_CTX_PARAMS _nvdr_ctx
-#define NVDR_CHECK(COND, ERR) OP_REQUIRES(_nvdr_ctx, COND, errors::Internal(ERR))
-#define NVDR_CHECK_CUDA_ERROR(CUDA_CALL) OP_CHECK_CUDA_ERROR(_nvdr_ctx, CUDA_CALL)
-#define NVDR_CHECK_GL_ERROR(GL_CALL) OP_CHECK_GL_ERROR(_nvdr_ctx, GL_CALL)
-#endif
+// Framework-specific macros for the Torch plugin.
 
 //------------------------------------------------------------------------
 // PyTorch.
@@ -54,16 +35,9 @@ using namespace tensorflow::shape_inference;
 #define NVDR_CTX_ARGS void* nvdr_ctx
 #define NVDR_CTX_PARAMS nullptr
 
-// Generic condition check (both GL and CUDA-only paths).
 #define NVDR_CHECK(COND, ERR) do { TORCH_CHECK(COND, ERR) } while(0)
 
-// CUDA error check -- used by the GL backend and the CUDA rasterizer host code.
 #define NVDR_CHECK_CUDA_ERROR(CUDA_CALL) do { cudaError_t err = CUDA_CALL; TORCH_CHECK(!err, "Cuda error: ", cudaGetLastError(), "[", #CUDA_CALL, ";]"); } while(0)
-
-// OpenGL error check -- used only by the GL backend (ludus_gl.cpp,
-// ludus_timestamped_gl.cpp). Harmlessly defined even when compiling the
-// CUDA-only plugin since it is never called there.
-#define NVDR_CHECK_GL_ERROR(GL_CALL) do { GL_CALL; GLenum err = glGetError(); TORCH_CHECK(err == GL_NO_ERROR, "OpenGL error: ", getGLErrorString(err), "[", #GL_CALL, ";]"); } while(0)
 
 // ---- Convenience tensor-check helpers (used by CUDA bindings) ----
 #ifndef __CUDACC__

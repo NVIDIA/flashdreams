@@ -36,6 +36,8 @@ from causal_forcing.config import RUNNER_CONFIGS
 
 from flashdreams.infra.runner import RunnerConfig
 
+pytestmark = pytest.mark.ci_gpu
+
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
 

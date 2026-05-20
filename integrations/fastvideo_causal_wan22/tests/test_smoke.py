@@ -28,6 +28,8 @@ from fastvideo_causal_wan22.config import RUNNER_CONFIGS
 
 from flashdreams.infra.runner import RunnerConfig
 
+pytestmark = pytest.mark.ci_cpu
+
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
 

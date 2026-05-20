@@ -16,8 +16,9 @@
 
 import pytest
 import torch
-
 from ludus_renderer import nvjpeg
+
+pytestmark = pytest.mark.ci_gpu
 
 
 def _nvjpeg_available():

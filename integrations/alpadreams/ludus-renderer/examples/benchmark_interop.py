@@ -16,18 +16,14 @@
 
 """Benchmark the rendering pipeline to identify where time is actually spent.
 
-Measures each phase separately using CUDA events for GPU-accurate timing:
-  1. Query packing (CPU → GPU)
-  2. Scene upload (beginUpload / memcpy / endUpload)  
-  3. Sync before draw (cudaGraphicsMap or semaphore signal/wait)
-  4. GL draw calls
-  5. Sync after draw (glFinish / semaphore signal)
-  6. Color readback (map texture → cudaMemcpy3D → unmap)
-  7. GPU → CPU transfer
+Measures rendering throughput and GPU->CPU transfer cost:
+  1. Full render call timing (kernel launch + rasterization + readback)
+  2. GPU->CPU transfer cost (separate from render)
+  3. Batch size sweep (scaling behavior from 1 to 256 queries)
 
 Usage:
     uv run python examples/benchmark_interop.py --scene example_data/test_hdmap
-    uv run python examples/benchmark_interop.py --scene /path/to/scene.tar --interop extmem
+    uv run python examples/benchmark_interop.py --scene /path/to/scene.tar --sweep
 """
 import argparse
 import time
@@ -43,24 +39,23 @@ def benchmark(args):
     device = torch.device('cuda:0')
     torch.cuda.set_device(device)
 
-    from ludus_renderer.torch import LudusTimestampedContext
+    from ludus_renderer.torch import LudusCudaTimestampedContext
     from ludus_renderer.util import resample_timestamps
     from ludus_renderer.render_utils import (
         load_scene_adapted as load_scene,
         create_camera, get_available_cameras,
         compute_camera_poses,
     )
-    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
 
-    print(f"=== Interop Pipeline Benchmark ===")
-    print(f"Interop mode: {args.interop}")
+    print(f"=== Rendering Pipeline Benchmark ===")
+    print(f"Backend:      CUDA software rasterizer (CudaRaster)")
     print(f"Resolution:   {args.width}x{args.height}")
     print(f"Batch size:   {args.batch_size}")
     print(f"Warmup:       {args.warmup} iterations")
     print(f"Measure:      {args.iterations} iterations")
     print()
 
-    ctx = LudusTimestampedContext(device=device, interop=args.interop)  # ty:ignore[unknown-argument]
+    ctx = LudusCudaTimestampedContext(device=device)
 
     print(f"Loading scene: {args.scene}")
     t0 = time.time()
@@ -99,16 +94,11 @@ def benchmark(args):
     ts_batch = timestamps[:batch]
     poses_batch = all_poses[:batch]
 
-    queries_tensor = ctx.pack_queries_fast(scene_ids, camera_ids, ts_batch, camera_type_ids)
     resolution = (height, width)
 
     print(f"\nUsing camera: {cam_name}")
     print(f"Batch: {batch} queries at {width}x{height}")
     print()
-
-    # Phase timing with CUDA events
-    def make_events(n):
-        return [torch.cuda.Event(enable_timing=True) for _ in range(n)]
 
     # Warmup
     print(f"Warming up ({args.warmup} iterations)...")
@@ -133,7 +123,7 @@ def benchmark(args):
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - t0
         times_full.append(elapsed)
-    
+
     times_full_ms = [t * 1000 for t in times_full]
     print(f"  Full render: {np.median(times_full_ms):.2f}ms median, "
           f"{np.mean(times_full_ms):.2f}ms mean, "
@@ -142,32 +132,31 @@ def benchmark(args):
     print(f"  Throughput:  {batch/np.median(times_full)*1000:.0f} queries/s")
     print()
 
-    # Measure GPU→CPU transfer separately
-    print("Measuring GPU→CPU transfer...")
+    # Measure GPU->CPU transfer separately
+    print("Measuring GPU->CPU transfer...")
     times_transfer = []
     for _ in range(args.iterations):
         torch.cuda.synchronize()
         t0 = time.perf_counter()
-        cpu_images = images.cpu().numpy()
+        cpu_images = images.cpu().numpy()  # noqa: F841
         elapsed = time.perf_counter() - t0
         times_transfer.append(elapsed * 1000)
 
-    print(f"  GPU→CPU:     {np.median(times_transfer):.2f}ms median")
+    print(f"  GPU->CPU:    {np.median(times_transfer):.2f}ms median")
     print(f"  Data size:   {images.numel() * images.element_size() / 1e6:.1f} MB")
     print()
 
-    # Measure render WITHOUT transfer
+    # Summary
     render_only = np.median(times_full_ms)
     transfer_only = np.median(times_transfer)
 
     print("=" * 50)
     print("SUMMARY")
     print("=" * 50)
-    print(f"  Interop:       {args.interop}")
     print(f"  Batch:         {batch} queries @ {width}x{height}")
     print(f"  Full render:   {np.median(times_full_ms):.2f}ms")
-    print(f"  GPU→CPU:       {transfer_only:.2f}ms")
-    print(f"  Render only:   {render_only:.2f}ms (includes upload+sync+draw+readback)")
+    print(f"  GPU->CPU:      {transfer_only:.2f}ms")
+    print(f"  Render only:   {render_only:.2f}ms (kernel launch + rasterize + readback)")
     print(f"  Throughput:    {batch/np.median(times_full)*1000:.0f} queries/s")
     fps = batch / np.median(times_full)
     print(f"  Effective FPS: {fps:.1f}")
@@ -207,9 +196,8 @@ def benchmark(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Benchmark interop pipeline phases')
+    parser = argparse.ArgumentParser(description='Benchmark rendering pipeline timing')
     parser.add_argument('--scene', type=str, required=True)
-    parser.add_argument('--interop', type=str, default='classic', choices=['classic', 'extmem'])
     parser.add_argument('--width', type=int, default=1280)
     parser.add_argument('--height', type=int, default=720)
     parser.add_argument('--batch-size', type=int, default=32)

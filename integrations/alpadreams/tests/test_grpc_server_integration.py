@@ -26,6 +26,7 @@ from pathlib import Path
 
 import grpc
 import numpy as np
+import pytest
 from alpadreams.grpc.protos import (
     camera_pb2,
     common_pb2,
@@ -33,6 +34,8 @@ from alpadreams.grpc.protos import (
     video_model_pb2_grpc,
 )
 from PIL import Image
+
+pytestmark = pytest.mark.ci_gpu
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -166,14 +169,10 @@ def test_grpc_server_start_render_close_roundtrip(
         str(port),
         "--output_format",
         "jpeg",
-        "--n_cameras",
-        "1",
-        "--num_frames_per_block",
-        str(num_frames_per_block),
-        "--local_attn_size",
-        "6",
-        "--denoising_steps",
-        "1000,450",
+        # Single-view chunk2 (len_t=2 -> num_frames_per_block=8), local
+        # attention window 6, denoising_timesteps=[1000, 450].
+        "--pipeline_config_name",
+        "alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
     ]
 
     server_env = os.environ.copy()

@@ -20,6 +20,8 @@ from aiohttp.test_utils import TestClient, TestServer
 from lingbot.webrtc.server import create_app
 from lingbot.webrtc.session import SessionBusyError
 
+pytestmark = pytest.mark.ci_gpu
+
 
 class FakeSessionManager:
     def __init__(self) -> None:

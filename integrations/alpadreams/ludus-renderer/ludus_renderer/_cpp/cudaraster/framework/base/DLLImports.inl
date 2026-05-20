@@ -97,10 +97,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuStreamCreate,                     
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuStreamQuery,                          (CUstream hStream), (hStream))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuStreamSynchronize,                    (CUstream hStream), (hStream))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuStreamDestroy,                        (CUstream hStream), (hStream))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLInit,                               (void), ())
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLRegisterBufferObject,               (GLuint bufferobj), (bufferobj))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLUnmapBufferObject,                  (GLuint bufferobj), (bufferobj))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLUnregisterBufferObject,             (GLuint bufferobj), (bufferobj))
 
 #if (CUDA_VERSION < 3020)
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuDeviceTotalMem,                       (unsigned int* bytes, CUdevice dev), (bytes, dev))
@@ -141,8 +137,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuArray3DCreate,                    
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuArray3DGetDescriptor,                 (CUDA_ARRAY3D_DESCRIPTOR* pArrayDescriptor, CUarray hArray), (pArrayDescriptor, hArray))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuTexRefSetAddress,                     (unsigned int* ByteOffset, CUtexref hTexRef, CUdeviceptr dptr, unsigned int bytes), (ByteOffset, hTexRef, dptr, bytes))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuTexRefGetAddress,                     (CUdeviceptr* pdptr, CUtexref hTexRef), (pdptr, hTexRef))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLCtxCreate,                          (CUcontext* pCtx, unsigned int Flags, CUdevice device), (pCtx, Flags, device))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLMapBufferObject,                    (CUdeviceptr* dptr, unsigned int* size,  GLuint bufferobj), (dptr, size, bufferobj))
 #endif
 
 // CUDA 2.2
@@ -151,7 +145,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLMapBufferObject,                
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuDriverGetVersion,                     (int* driverVersion), (driverVersion))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuMemHostAlloc,                         (void** pp, size_t bytesize, unsigned int Flags), (pp, bytesize, Flags))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuFuncGetAttribute,                     (int* pi, CUfunction_attribute attrib, CUfunction hfunc), (pi, attrib, hfunc))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuWGLGetDevice,                         (CUdevice* pDevice, HGPUNV hGpu), (pDevice, hGpu))
 #endif
 
 #if (CUDA_VERSION >= 2020 && CUDA_VERSION < 3020)
@@ -163,12 +156,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuTexRefSetAddress2D,               
 
 #if (CUDA_VERSION >= 2030)
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuMemHostGetFlags,                      (unsigned int* pFlags, void* p), (pFlags, p))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLSetBufferObjectMapFlags,            (GLuint buffer, unsigned int Flags), (buffer, Flags))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLUnmapBufferObjectAsync,             (GLuint buffer, CUstream hStream), (buffer, hStream))
-#endif
-
-#if (CUDA_VERSION >= 2030 && CUDA_VERSION < 3020)
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLMapBufferObjectAsync,               (CUdeviceptr* dptr, unsigned int* size,  GLuint buffer, CUstream hStream), (dptr, size, buffer, hStream))
 #endif
 
 // CUDA 3.0
@@ -181,8 +168,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGraphicsResourceSetMapFlags,      
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGraphicsMapResources,                 (unsigned int count, CUgraphicsResource* resources, CUstream hStream), (count, resources, hStream))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGraphicsUnmapResources,               (unsigned int count, CUgraphicsResource* resources, CUstream hStream), (count, resources, hStream))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGetExportTable,                       (const void** ppExportTable, const CUuuid* pExportTableId), (ppExportTable, pExportTableId))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGraphicsGLRegisterBuffer,             (CUgraphicsResource* pCudaResource, GLuint buffer, unsigned int Flags), (pCudaResource, buffer, Flags))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGraphicsGLRegisterImage,              (CUgraphicsResource* pCudaResource, GLuint image, GLenum target, unsigned int Flags), (pCudaResource, image, target, Flags))
 #endif
 
 #if (CUDA_VERSION >= 3000 && CUDA_VERSION < 3020)
@@ -241,11 +226,8 @@ FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuArray3DCreate,                    
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuArray3DGetDescriptor,                 (CUDA_ARRAY3D_DESCRIPTOR* pArrayDescriptor, CUarray hArray), (pArrayDescriptor, hArray))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuTexRefSetAddress,                     (size_t* ByteOffset, CUtexref hTexRef, CUdeviceptr dptr, size_t bytes), (ByteOffset, hTexRef, dptr, bytes))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuTexRefGetAddress,                     (CUdeviceptr* pdptr, CUtexref hTexRef), (pdptr, hTexRef))
-FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuGLCtxCreate,                          (CUcontext* pCtx, unsigned int Flags, CUdevice device), (pCtx, Flags, device))
-FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuGLMapBufferObject,                    (CUdeviceptr* dptr, size_t* size,  GLuint bufferobj), (dptr, size, bufferobj))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuMemHostGetDevicePointer,              (CUdeviceptr* pdptr, void* p, unsigned int Flags), (pdptr, p, Flags))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuTexRefSetAddress2D,                   (CUtexref hTexRef, const CUDA_ARRAY_DESCRIPTOR* desc, CUdeviceptr dptr, size_t Pitch), (hTexRef, desc, dptr, Pitch))
-FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuGLMapBufferObjectAsync,               (CUdeviceptr* dptr, size_t* size,  GLuint buffer, CUstream hStream), (dptr, size, buffer, hStream))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuMemcpyDtoDAsync,                      (CUdeviceptr dstDevice, CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream), (dstDevice, srcDevice, ByteCount, hStream))
 FW_DLL_IMPORT_CUV2( CUresult,   CUDAAPI,    cuGraphicsResourceGetMappedPointer,     (CUdeviceptr* pDevPtr, size_t* pSize, CUgraphicsResource resource), (pDevPtr, pSize, resource))
 #endif
@@ -293,7 +275,6 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuIpcOpenEventHandle,               
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuIpcGetMemHandle,                      (CUipcMemHandle* pHandle, CUdeviceptr dptr), (pHandle, dptr))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuIpcOpenMemHandle,                     (CUdeviceptr* pdptr, CUipcMemHandle handle, unsigned int Flags), (pdptr, handle, Flags))
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuIpcCloseMemHandle,                    (CUdeviceptr dptr), (dptr))
-FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuGLGetDevices,                         (unsigned int* pCudaDeviceCount, CUdevice* pCudaDevices, unsigned int cudaDeviceCount, CUGLDeviceList deviceList), (pCudaDeviceCount, pCudaDevices, cudaDeviceCount, deviceList))
 #endif
 
 // CUDA 4.2
@@ -304,144 +285,7 @@ FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuCtxSetSharedMemConfig,            
 FW_DLL_IMPORT_CUDA( CUresult,   CUDAAPI,    cuFuncSetSharedMemConfig,               (CUfunction hfunc, CUsharedconfig config), (hfunc, config))
 #endif
 
-//------------------------------------------------------------------------
-// OpenGL
-//------------------------------------------------------------------------
-
-#if !FW_USE_GLEW
-
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glActiveTexture,                        (GLenum texture), (texture))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glAttachShader,                         (GLuint program, GLuint shader), (program, shader))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBindBuffer,                           (GLenum target, GLuint buffer), (target, buffer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBindFramebuffer,                      (GLenum target, GLuint framebuffer), (target, framebuffer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBindRenderbuffer,                     (GLenum target, GLuint renderbuffer), (target, renderbuffer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBlendEquation,                        (GLenum mode), (mode))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBufferData,                           (GLenum target, GLsizeiptr size, const GLvoid* data, GLenum usage), (target, size, data, usage))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBufferSubData,                        (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid* data), (target, offset, size, data))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCompileShader,                        (GLuint shader), (shader))
-FW_DLL_DECLARE_RETV(GLuint,     APIENTRY,   glCreateProgram,                        (void), ())
-FW_DLL_DECLARE_RETV(GLuint,     APIENTRY,   glCreateShader,                         (GLenum type), (type))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeleteBuffers,                        (GLsizei n, const GLuint* buffers), (n, buffers))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeleteFramebuffers,                   (GLsizei n, const GLuint* framebuffers), (n, framebuffers))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeleteProgram,                        (GLuint program), (program))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeleteRenderbuffers,                  (GLsizei n, const GLuint* renderbuffers), (n, renderbuffers))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeleteShader,                         (GLuint shader), (shader))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDisableVertexAttribArray,             (GLuint v), (v))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDrawBuffers,                          (GLsizei n, const GLenum* bufs), (n, bufs))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glEnableVertexAttribArray,              (GLuint v), (v))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glFramebufferRenderbuffer,              (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer), (target, attachment, renderbuffertarget, renderbuffer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glFramebufferTexture2D,                 (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level), (target, attachment, textarget, texture, level))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGenBuffers,                           (GLsizei n, GLuint* buffers), (n, buffers))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGenFramebuffers,                      (GLsizei n, GLuint* framebuffers), (n, framebuffers))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGenRenderbuffers,                     (GLsizei n, GLuint* renderbuffers), (n, renderbuffers))
-FW_DLL_DECLARE_RETV(GLint,      APIENTRY,   glGetAttribLocation,                    (GLuint program, const GLchar* name), (program, name))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetBufferParameteriv,                 (GLenum target, GLenum pname, GLint* params), (target, pname, params))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetBufferSubData,                     (GLenum target, GLintptr offset, GLsizeiptr size, GLvoid* data), (target, offset, size, data))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetProgramInfoLog,                    (GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog), (program, bufSize, length, infoLog))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetProgramiv,                         (GLuint program, GLenum pname, GLint* param), (program, pname, param))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetShaderInfoLog,                     (GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog), (shader, bufSize, length, infoLog))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetShaderiv,                          (GLuint shader, GLenum pname, GLint* param), (shader, pname, param))
-FW_DLL_DECLARE_RETV(GLint,      APIENTRY,   glGetUniformLocation,                   (GLuint program, const GLchar* name), (program, name))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glLinkProgram,                          (GLhandleARB programObj), (programObj))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glProgramParameteriARB,                 (GLuint program, GLenum pname, GLint value), (program, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glRenderbufferStorage,                  (GLenum target, GLenum internalformat, GLsizei width, GLsizei height), (target, internalformat, width, height))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glShaderSource,                         (GLuint shader, GLsizei count, const GLchar** strings, const GLint* lengths), (shader, count, strings, lengths))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glTexImage3D,                           (GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const GLvoid* pixels), (target, level, internalFormat, width, height, depth, border, format, type, pixels))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform1f,                            (GLint location, GLfloat v0), (location, v0))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform1fv,                           (GLint location, GLsizei count, const GLfloat* value), (location, count, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform1i,                            (GLint location, GLint v0), (location, v0))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform2f,                            (GLint location, GLfloat v0, GLfloat v1), (location, v0, v1))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform2fv,                           (GLint location, GLsizei count, const GLfloat* value), (location, count, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform3f,                            (GLint location, GLfloat v0, GLfloat v1, GLfloat v2), (location, v0, v1, v2))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform4f,                            (GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3), (location, v0, v1, v2, v3))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform4fv,                           (GLint location, GLsizei count, const GLfloat* value), (location, count, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniformMatrix2fv,                     (GLint location, GLsizei count, GLboolean transpose, const GLfloat* value), (location, count, transpose, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniformMatrix3fv,                     (GLint location, GLsizei count, GLboolean transpose, const GLfloat* value), (location, count, transpose, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniformMatrix4fv,                     (GLint location, GLsizei count, GLboolean transpose, const GLfloat* value), (location, count, transpose, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUseProgram,                           (GLuint program), (program))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glVertexAttrib2f,                       (GLuint index, GLfloat x, GLfloat y), (index, x, y))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glVertexAttrib3f,                       (GLuint index, GLfloat x, GLfloat y, GLfloat z), (index, x, y, z))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glVertexAttrib4f,                       (GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w), (index, x, y, z, w))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glVertexAttribPointer,                  (GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* pointer), (index, size, type, normalized, stride, pointer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glWindowPos2i,                          (GLint x, GLint y), (x, y))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBindFragDataLocationEXT,              (GLuint program, GLuint color, const GLchar* name), (program, color, name))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glBlitFramebuffer,                      (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter), (srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glRenderbufferStorageMultisample,       (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height), (target, samples, internalformat, width, height))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glUniform1d,                            (GLint location, GLdouble x), (location, x))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glTexRenderbufferNV,                    (GLenum target, GLuint renderbuffer), (target, renderbuffer))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glRenderbufferStorageMultisampleCoverageNV,(GLenum target, GLsizei coverageSamples, GLsizei colorSamples, GLenum internalformat, GLsizei width, GLsizei height), (target, coverageSamples, colorSamples, internalformat, width, height))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetRenderbufferParameterivEXT,        (GLenum target, GLenum pname, GLint* params), (target, pname, params))
-
-#endif
-
-//------------------------------------------------------------------------
-// GL_NV_path_rendering
-//------------------------------------------------------------------------
-
-FW_DLL_DECLARE_RETV(GLuint,     APIENTRY,   glGenPathsNV,                           (GLsizei range), (range))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glDeletePathsNV,                        (GLuint path, GLsizei range), (path, range))
-FW_DLL_DECLARE_RETV(GLboolean,  APIENTRY,   glIsPathNV,                             (GLuint path), (path))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathCommandsNV,                       (GLuint path, GLsizei numCommands, const GLubyte* commands, GLsizei numCoords, GLenum coordType, const GLvoid* coords), (path, numCommands, commands, numCoords, coordType, coords))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathCoordsNV,                         (GLuint path, GLsizei numCoords, GLenum coordType, const GLvoid* coords), (path, numCoords, coordType, coords))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathSubCommandsNV,                    (GLuint path, GLsizei commandStart, GLsizei commandsToDelete, GLsizei numCommands, const GLubyte* commands, GLsizei numCoords, GLenum coordType, const GLvoid* coords), (path, commandStart, commandsToDelete, numCommands, commands, numCoords, coordType, coords))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathSubCoordsNV,                      (GLuint path, GLsizei coordStart, GLsizei numCoords, GLenum coordType, const GLvoid* coords), (path, coordStart, numCoords, coordType, coords))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathStringNV,                         (GLuint path, GLenum format, GLsizei length, const GLvoid* pathString), (path, format, length, pathString))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathGlyphsNV,                         (GLuint firstPathName, GLenum fontTarget, const GLvoid* fontName, GLbitfield fontStyle, GLsizei numGlyphs, GLenum type, const GLvoid* charcodes, GLenum handleMissingGlyphs, GLuint pathParameterTemplate, GLfloat emScale), (firstPathName, fontTarget, fontName, fontStyle, numGlyphs, type, charcodes, handleMissingGlyphs, pathParameterTemplate, emScale))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathGlyphRangeNV,                     (GLuint firstPathName, GLenum fontTarget, const GLvoid* fontName, GLbitfield fontStyle, GLuint firstGlyph, GLsizei numGlyphs, GLenum handleMissingGlyphs, GLuint pathParameterTemplate, GLfloat emScale), (firstPathName, fontTarget, fontName, fontStyle, firstGlyph, numGlyphs, handleMissingGlyphs, pathParameterTemplate, emScale))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glWeightPathsNV,                        (GLuint resultPath, GLsizei numPaths, const GLuint* paths, const GLfloat* weights), (resultPath, numPaths, paths, weights))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCopyPathNV,                           (GLuint resultPath, GLuint srcPath), (resultPath, srcPath))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glInterpolatePathsNV,                   (GLuint resultPath, GLuint pathA, GLuint pathB, GLfloat weight), (resultPath, pathA, pathB, weight))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glTransformPathNV,                      (GLuint resultPath, GLuint srcPath, GLenum transformType, const GLfloat* transformValues), (resultPath, srcPath, transformType, transformValues))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathParameterivNV,                    (GLuint path, GLenum pname, const GLint* value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathParameteriNV,                     (GLuint path, GLenum pname, GLint value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathParameterfvNV,                    (GLuint path, GLenum pname, const GLfloat* value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathParameterfNV,                     (GLuint path, GLenum pname, GLfloat value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathDashArrayNV,                      (GLuint path, GLsizei dashCount, const GLfloat* dashArray), (path, dashCount, dashArray))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathStencilFuncNV,                    (GLenum func, GLint ref, GLuint mask), (func, ref, mask))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathStencilDepthOffsetNV,             (GLfloat factor, GLfloat units), (factor, units))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glStencilFillPathNV,                    (GLuint path, GLenum fillMode, GLuint mask), (path, fillMode, mask))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glStencilStrokePathNV,                  (GLuint path, GLint reference, GLuint mask), (path, reference, mask))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glStencilFillPathInstancedNV,           (GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLenum fillMode, GLuint mask, GLenum transformType, const GLfloat* transformValues), (numPaths, pathNameType, paths, pathBase, fillMode, mask, transformType, transformValues))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glStencilStrokePathInstancedNV,         (GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLint reference, GLuint mask, GLenum transformType, const GLfloat* transformValues), (numPaths, pathNameType, paths, pathBase, reference, mask, transformType, transformValues))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathCoverDepthFuncNV,                 (GLenum func), (func))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathColorGenNV,                       (GLenum color, GLenum genMode, GLenum colorFormat, const GLfloat* coeffs), (color, genMode, colorFormat, coeffs))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathTexGenNV,                         (GLenum texCoordSet, GLenum genMode, GLint components, const GLfloat* coeffs), (texCoordSet, genMode, components, coeffs))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glPathFogGenNV,                         (GLenum genMode), (genMode))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCoverFillPathNV,                      (GLuint path, GLenum coverMode), (path, coverMode))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCoverStrokePathNV,                    (GLuint path, GLenum coverMode), (path, coverMode))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCoverFillPathInstancedNV,             (GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLenum coverMode, GLenum transformType, const GLfloat* transformValues), (numPaths, pathNameType, paths, pathBase, coverMode, transformType, transformValues))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glCoverStrokePathInstancedNV,           (GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLenum coverMode, GLenum transformType, const GLfloat* transformValues), (numPaths, pathNameType, paths, pathBase, coverMode, transformType, transformValues))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathParameterivNV,                 (GLuint path, GLenum pname, GLint* value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathParameterfvNV,                 (GLuint path, GLenum pname, GLfloat* value), (path, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathCommandsNV,                    (GLuint path, GLubyte* commands), (path, commands))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathCoordsNV,                      (GLuint path, GLfloat* coords), (path, coords))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathDashArrayNV,                   (GLuint path, GLfloat* dashArray), (path, dashArray))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathMetricsNV,                     (GLbitfield metricQueryMask, GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLsizei stride, GLfloat* metrics), (metricQueryMask, numPaths, pathNameType, paths, pathBase, stride, metrics))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathMetricRangeNV,                 (GLbitfield metricQueryMask, GLuint firstPathName, GLsizei numPaths, GLsizei stride, GLfloat* metrics), (metricQueryMask, firstPathName, numPaths, stride, metrics))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathSpacingNV,                     (GLenum pathListMode, GLsizei numPaths, GLenum pathNameType, const GLvoid* paths, GLuint pathBase, GLfloat advanceScale, GLfloat kerningScale, GLenum transformType, GLfloat* returnedSpacing), (pathListMode, numPaths, pathNameType, paths, pathBase, advanceScale, kerningScale, transformType, returnedSpacing))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathColorGenivNV,                  (GLenum color, GLenum pname, GLint* value), (color, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathColorGenfvNV,                  (GLenum color, GLenum pname, GLfloat* value), (color, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathTexGenivNV,                    (GLenum texCoordSet, GLenum pname, GLint* value), (texCoordSet, pname, value))
-FW_DLL_DECLARE_VOID(void,       APIENTRY,   glGetPathTexGenfvNV,                    (GLenum texCoordSet, GLenum pname, GLfloat* value), (texCoordSet, pname, value))
-FW_DLL_DECLARE_RETV(GLboolean,  APIENTRY,   glIsPointInFillPathNV,                  (GLuint path, GLuint mask, GLfloat x, GLfloat y), (path, mask, x, y))
-FW_DLL_DECLARE_RETV(GLboolean,  APIENTRY,   glIsPointInStrokePathNV,                (GLuint path, GLfloat x, GLfloat y), (path, x, y))
-FW_DLL_DECLARE_RETV(GLfloat,    APIENTRY,   glGetPathLengthNV,                      (GLuint path, GLsizei startSegment, GLsizei numSegments), (path, startSegment, numSegments))
-FW_DLL_DECLARE_RETV(GLboolean,  APIENTRY,   glPointAlongPathNV,                     (GLuint path, GLsizei startSegment, GLsizei numSegments, GLfloat distance, GLfloat* x, GLfloat* y, GLfloat* tangentX, GLfloat* tangentY), (path, startSegment, numSegments, distance, x, y, tangentX, tangentY))
-
-//------------------------------------------------------------------------
-// WGL
-//------------------------------------------------------------------------
-
 #if defined(_WIN32)
-
-#if !FW_USE_GLEW
-
-FW_DLL_DECLARE_RETV(BOOL,       WINAPI,     wglChoosePixelFormatARB,                (HDC hdc, const int* piAttribIList, const FLOAT* pfAttribFList, UINT nMaxFormats, int* piFormats, UINT* nNumFormats), (hdc, piAttribIList, pfAttribFList, nMaxFormats, piFormats, nNumFormats))
-FW_DLL_DECLARE_RETV(BOOL,       WINAPI,     wglSwapIntervalEXT,                     (int interval), (interval))
-FW_DLL_DECLARE_RETV(BOOL,       WINAPI,     wglGetPixelFormatAttribivARB,           (HDC hdc, int iPixelFormat, int iLayerPlane, UINT nAttributes, const int* piAttributes, int* piValues), (hdc, iPixelFormat, iLayerPlane, nAttributes, piAttributes, piValues))
-
-#endif
-
 //------------------------------------------------------------------------
 // WinBase
 //------------------------------------------------------------------------

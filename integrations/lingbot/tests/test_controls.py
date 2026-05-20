@@ -26,6 +26,8 @@ from lingbot.webrtc.controls import (
     PoseSegment,
 )
 
+pytestmark = pytest.mark.ci_cpu
+
 ## KeyboardState basics (unchanged from the old design)
 
 

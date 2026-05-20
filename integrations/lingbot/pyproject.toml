@@ -18,15 +18,16 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flash-lingbot"
+name = "flashdreams-lingbot"
 version = "0.1.0a2"
-description = "Lingbot WebRTC integration for flashdreams"
+description = "Lingbot World streaming camera-control I2V recipe + WebRTC server for flashdreams."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "flashdreams",
     "aiohttp>=3.9",
     "aiortc>=1.9",
+    "mediapy>=1.1",
     "opencv-python-headless",
     "scipy>=1.11",
 ]
@@ -40,6 +41,17 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+# Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
+# The discovery layer (``flashdreams.plugins.registry.discover_runners``)
+# scans this group at CLI startup; the entry-point name itself is purely
+# informational, the registry key always comes from ``cfg.runner_name``.
+[project.entry-points."flashdreams.runner_configs"]
+"lingbot-world-fast" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST"
+"lingbot-world-fast-flash" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST_FLASH"
+
 [tool.setuptools.packages.find]
 include = ["lingbot*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

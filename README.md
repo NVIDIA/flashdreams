@@ -121,16 +121,23 @@ non-zero ranks suppress them via tyro's distributed-mode hook.
 
 ## Instructions to run Alpadreams Inference
 
+Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+the `nvidia` Hugging Face org by default (`nvidia/omni-dreams-models` and
+`nvidia/omni-dreams-samples`). Set `OMNI_DREAMS_HF_ORG` before invoking
+`flashdreams-run` if your token can only access another mirror, such as
+`nvidia-omni-dreams-lha`.
+
 ```bash
-# 0. request interactive node with the pre-built container [IPP5 cluster as example].
-# The image is a multi-arch manifest (linux/arm64 + linux/amd64); the runtime picks
-# the right variant automatically. See `docker/README.md` for how it is built.
+# 0. request interactive node with a flashdreams-ready container [IPP5 cluster as example].
+# Build the image locally with `bash docker/build_with_docker.sh <YOUR-REGISTRY/IMAGE:TAG>`
+# or use the CUDA base image directly: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+# See `docker/README.md` for details.
 srun \
     --gpus-per-node=4 -q interactive --exclusive --nodes 1 --cpus-per-gpu 36 --pty \
     --partition=gtc_demo \
     --time=24:00:00  \
     --pty \
-    --container-image=ghcr.io/nvidia/flashdreams:base-v0.3-20260424-55bd566 \
+    --container-image=<YOUR-IMAGE> \
     --container-mounts=/dev/nvidia-caps-imex-channels:/dev/nvidia-caps-imex-channels,/home:/home,/cm:/cm,/usr/share/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d \
     --container-remap-root \
     --container-mount-home \
@@ -142,6 +149,8 @@ srun \
 export HF_TOKEN=<YOUR-HF-TOKEN>
 export HF_HOME=~/.cache/huggingface              # optional; this is the default
 export FLASHDREAMS_CACHE_DIR=~/.cache/flashdreams # optional; this is the default
+# optional: override the Omni Dreams HF org before running/importing FlashDreams
+# export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
 
 # 2. (internal team) flip checkpoint + example-data URLs back to s3://flashdreams.
 #    Skip for external users. Requires the S3 credentials in step 3.
@@ -160,7 +169,7 @@ EOF
 # 4. Run inference. Checkpoints + example data are auto-downloaded on first run.
 #    --example-data fills the per-camera path tuples from a bundled HDMap clip
 #    + first frame; --example-data-uuid <uuid> picks one of the 32 single-view
-#    clips at https://huggingface.co/datasets/nvidia-omni-dreams-lha/omni-dreams-samples/tree/main/data/single_view .
+#    clips at https://huggingface.co/datasets/${OMNI_DREAMS_HF_ORG:-nvidia}/omni-dreams-samples/tree/main/data/single_view .
 # - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
     alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \

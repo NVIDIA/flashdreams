@@ -41,6 +41,8 @@ from flashdreams.plugins import discover_runners
 from flashdreams.plugins.registry import ENV_VAR
 from flashdreams.recipes.template.config import TEMPLATE_OFFLINE_RUNNER
 
+pytestmark = pytest.mark.ci_cpu
+
 
 @pytest.fixture
 def fake_plugin_module() -> Iterator[str]:

@@ -14,14 +14,16 @@
 # limitations under the License.
 
 """
-Backward compatibility layer for ludus_renderer.torch.ops imports.
+Backward compatibility layer for ``ludus_renderer.torch.ops`` imports.
 
-New code should import directly from ludus_renderer:
-    from ludus_renderer import LudusTimestampedContext, CAMERA_TYPE_REGULAR
+New code should import directly from ``ludus_renderer``::
 
-This module re-exports the same symbols for backward compatibility:
+    from ludus_renderer import LudusCudaTimestampedContext, CAMERA_TYPE_REGULAR
+
+This module re-exports the same symbols for backward compatibility::
+
     from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR  # Still works
 """
 
 # Re-export everything from _ops
-from .._ops import *
+from .._ops import *  # noqa: F401,F403

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.core.attention.rope import (
@@ -156,6 +157,11 @@ class CosmosTransformerConfig(TransformerConfig):
 
     guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
+
+    conditional_frame_timestep: float | None = None
+    """Scheduler-scale timestep fed to the network at the conditional frame.
+    ``None`` disables the override.
+    """
 
     @property
     def requires_negative_text_embeddings(self) -> bool:
@@ -346,11 +352,19 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         )
         rope_adapter.set_context_parallel_group(cp_group=self._cp_group)
 
-        # B, _, _, H, W = image_embeddings.shape
-        # assert H == height and W == width, (
-        #     f"image_embeddings spatial dims ({H}, {W}) must match "
-        #     f"(height, width) = ({height}, {width})."
-        # )
+        # for I2V
+        if image_embeddings is not None:
+            H, W = image_embeddings.shape[-2:]
+            assert H == height and W == width, (
+                f"image_embeddings spatial dims ({H}, {W}) must match "
+                f"(height, width) = ({height}, {width})."
+            )
+            # Pad first-frame image latent along T (zeros for steady state).
+            image = F.pad(image_embeddings, (0, 0, 0, 0, 0, 0, 0, cfg.len_t - 1))
+            image_patched = self.patchify_and_maybe_split_cp(image)
+        else:
+            image_patched = None
+
         mask_first_block = torch.zeros(
             *cfg.batch_shape,
             cfg.len_t,
@@ -371,11 +385,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             dtype=cfg.dtype,
         )
 
-        # # Pad first-frame image latent along T (zeros for steady state).
-        # image = F.pad(image_embeddings, (0, 0, 0, 0, 0, 0, 0, cfg.len_t - 1))
-
-        # # Patchify image and masks once at rollout start.
-        # image_patched = self.patchify_and_maybe_split_cp(image)
+        # Patchify masks once at rollout start (image was patchified above).
         mask_first_patched = self.patchify_and_maybe_split_cp(mask_first_block)
         mask_other_patched = self.patchify_and_maybe_split_cp(mask_other_blocks)
 
@@ -391,10 +401,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             network_cache=network_cache,
             network_cache_uncond=network_cache_uncond,
             rope_adapter=rope_adapter,
-            # image=image_patched,
-            # mask_first_block=mask_first_patched,
-            # mask_other_blocks=mask_other_patched,
-            image=None,
+            image=image_patched,
             mask_first_block=mask_first_patched,
             mask_other_blocks=mask_other_patched,
         )
@@ -405,19 +412,15 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         cache: CosmosTransformerCache,
     ) -> Tensor:
         """Replace the first-temporal-frame latent with the encoded image at AR step 0."""
-        if cache.image is None:
-            return latent
-        if cache.autoregressive_index != 0:
+        if cache.image is None or cache.autoregressive_index != 0:
             return latent
         mask = cache.mask_first_block[..., :1]
         return latent * (1.0 - mask) + cache.image * mask
 
     def _select_mask(self, cache: CosmosTransformerCache) -> Tensor:
-        return (
-            cache.mask_first_block
-            if cache.autoregressive_index == 0
-            else cache.mask_other_blocks
-        )
+        if cache.image is None or cache.autoregressive_index != 0:
+            return cache.mask_other_blocks
+        return cache.mask_first_block
 
     def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
         # Filling phase: eager ``.drain`` (drains Inductor autotune and
@@ -435,6 +438,32 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             else network_call
         )
 
+    def _build_per_token_timesteps(
+        self, timestep: Tensor, cache: CosmosTransformerCache
+    ) -> Tensor:
+        """Return scalar (T2V/non-AR0) or per-token (I2V at AR=0) timesteps.
+
+        For the cosmos 2.5 2B base post-trained checkpoint the conditional
+        frame must be fed at ``conditional_frame_timestep`` (~0.1, near-clean)
+        regardless of the current denoising step, because that is how the
+        per-frame adaLN was trained. Other frames keep ``timestep``.
+
+        Note: per-token timesteps is not the most efficient way (should be per-frame).
+        But it is per-token timesteps is convenient to implement.
+        """
+        cft = self.config.conditional_frame_timestep
+        if (
+            cache.image is None
+            or cft is None
+            or cft < 0.0
+            or cache.autoregressive_index != 0
+        ):
+            return timestep
+        # mask_first_block is patchified ``[..., L, D]``.
+        override_mask = cache.mask_first_block[..., 0]
+        override_timestep = timestep.new_tensor(cft)
+        return override_timestep * override_mask + timestep * (1.0 - override_mask)
+
     def _predict_flow(
         self,
         noisy_latent: Tensor,
@@ -450,12 +479,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "Cache.start(autoregressive_index) must be called before "
             "predict_flow (DiffusionModel.generate handles this)."
         )
-        # noisy_latent = self._maybe_inject_image(noisy_latent, cache)
-        # mask = self._select_mask(cache)
-        mask = cache.mask_other_blocks
+        noisy_latent = self._maybe_inject_image(noisy_latent, cache)
+        mask = self._select_mask(cache)
+        timesteps = self._build_per_token_timesteps(timestep, cache)
         return self._select_network(ar_idx, uncond=uncond)(
             x=torch.cat([noisy_latent, mask], dim=-1),
-            timesteps=timestep,
+            timesteps=timesteps,
             rope_freqs=cache.rope_freqs,
             cache=network_cache,
             current_chunk_idx=ar_idx,
@@ -495,8 +524,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         cache: CosmosTransformerCache,
         input: Tensor | None = None,
     ) -> Tensor:
-        return clean_latent
-        # return self._maybe_inject_image(clean_latent, cache)
+        return self._maybe_inject_image(clean_latent, cache)
 
     def finalize_kv_cache(
         self,

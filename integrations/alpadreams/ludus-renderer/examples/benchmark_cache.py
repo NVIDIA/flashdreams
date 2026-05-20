@@ -17,7 +17,7 @@
 """Benchmark the 3-level scene cache under a simulated training loop.
 
 Each iteration picks --num-scenes random scenes and a random 48-frame
-window per scene, loads to L1 and uploads directly to GL, then renders
+window per scene, loads to L1 and uploads to the rendering context, then renders
 the batch. Scenes rotate between iterations to exercise cache eviction.
 
 Example — 50 iterations, 4 scenes/iter, 48 frames/scene:
@@ -44,7 +44,7 @@ from pathlib import Path
 import torch
 
 from ludus_renderer import (
-    LudusTimestampedContext,
+    LudusCudaTimestampedContext,
     CAMERA_TYPE_BEV,
     resample_timestamps,
 )
@@ -137,11 +137,8 @@ def run(args):
     )
     all_keys = db.register_scenes(scene_pool)
 
-    ctx = LudusTimestampedContext(device=device)
+    ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
-    ctx.preallocate_buffers(max_scenes=args.num_scenes,
-                            bytes_per_scene=2 * 1024 * 1024)
-    print(f"Pre-allocated GL buffers: {args.num_scenes} scenes @ 2MB")
     bev = create_bev_camera(args.width, args.height, device,
                             bev_height=args.bev_height, fov_deg=args.bev_fov)
     ctx.upload_cameras([bev])

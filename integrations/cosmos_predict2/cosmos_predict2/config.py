@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from cosmos_predict2.runner import Cosmos2T2VRunnerConfig
+from cosmos_predict2.runner import Cosmos2I2VRunnerConfig, Cosmos2T2VRunnerConfig
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCSchedulerConfig,
@@ -29,9 +29,9 @@ from flashdreams.recipes.cosmos.transformer.impl.network import (
     CosmosDiTNetworkConfig,
     state_dict_transform,
 )
-from flashdreams.recipes.wan import WanVAEDecoderConfig
+from flashdreams.recipes.wan import WanVAEDecoderConfig, WanVAEEncoderConfig
 
-CHECKPOINT_PATH_T2V_2B = (
+CHECKPOINT_PATH_POST_TRAINED_2B = (
     "https://huggingface.co/nvidia/Cosmos-Predict2.5-2B/blob/main/base/post-trained/"
     "81edfebe-bd6a-4039-8c1d-737df1a790bf_ema_bf16.pt"
 )
@@ -46,12 +46,14 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
         seed=42,
         transformer=CosmosTransformerConfig(
             network=CosmosDiTNetworkConfig(),
-            checkpoint_path=CHECKPOINT_PATH_T2V_2B,
+            checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
             state_dict_transform=state_dict_transform,
             batch_shape=(),
             len_t=24,
             window_size_t=24,
-            guidance_scale=7.0,
+            # Official code uses formula with 7.0: cond + guidance * (cond - uncond)
+            # Equivalent to our formula with 8.0: uncond + guidance * (cond - uncond)
+            guidance_scale=8.0,
             compile_network=False,
             use_cuda_graph=False,
         ),
@@ -59,6 +61,7 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
             num_inference_steps=35,
             shift=5.0,
             use_kerras_sigma=True,
+            enable_tqdm=True,
         ),
     ),
 )
@@ -69,6 +72,42 @@ RUNNER_COSMOS2_T2V_2B_720P = Cosmos2T2VRunnerConfig(
 )
 
 
+PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
+    recipe_name="cosmos2-i2v-2b-720p",
+    enable_sync_and_profile=True,
+    encoder=None,
+    decoder=WanVAEDecoderConfig(),
+    diffusion_model=DiffusionModelConfig(
+        seed=42,
+        transformer=CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(),
+            checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
+            state_dict_transform=state_dict_transform,
+            batch_shape=(),
+            len_t=24,
+            window_size_t=24,
+            guidance_scale=8.0,
+            compile_network=False,
+            use_cuda_graph=False,
+            conditional_frame_timestep=0.1,
+        ),
+        scheduler=FlowMatchUniPCSchedulerConfig(
+            num_inference_steps=35,
+            shift=5.0,
+            use_kerras_sigma=True,
+            enable_tqdm=True,
+        ),
+    ),
+    image_encoder=WanVAEEncoderConfig(),
+)
+RUNNER_COSMOS2_I2V_2B_720P = Cosmos2I2VRunnerConfig(
+    runner_name=PIPELINE_COSMOS2_I2V_2B_720P.recipe_name,
+    description="Cosmos-Predict2 2B I2V at 720p (single AR step, prompt + first-frame image).",
+    pipeline=PIPELINE_COSMOS2_I2V_2B_720P,
+)
+
+
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
-    cfg.runner_name: cfg for cfg in (RUNNER_COSMOS2_T2V_2B_720P,)
+    cfg.runner_name: cfg
+    for cfg in (RUNNER_COSMOS2_T2V_2B_720P, RUNNER_COSMOS2_I2V_2B_720P)
 }
