@@ -128,4 +128,18 @@ license notes that files under CUTLASS's python/CuTeDSL subtree are
 subject to separate NVIDIA EULA terms; see the upstream LICENSE.txt for
 details.
 
+--------------------------------------------------------------------------------
+SageAttention
+--------------------------------------------------------------------------------
+
+Path:     integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention/
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+          Copyright 2024 Jintao Zhang, Haofeng Huang
+Upstream: https://github.com/thu-ml/SageAttention
+Pinned:   d1a57a546c3d395b1ffcbeecc66d81db76f3b4b5
+
+SageAttention is redistributed as a pinned source submodule for native
+attention kernels used by the OmniDreams single-view integration. Files
+inside the submodule retain their upstream copyright and license notices.
+
 ================================================================================

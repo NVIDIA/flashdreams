@@ -125,3 +125,12 @@ path = "integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- SageAttention source submodule for the OmniDreams single-view integration.
+#     The submodule contents keep their upstream license notices; this
+#     annotation licenses the top-level gitlink tracked by this repository. ---
+[[annotations]]
+path = "integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2024 Jintao Zhang, Haofeng Huang"
+SPDX-License-Identifier = "Apache-2.0"

@@ -1,3 +1,6 @@
 [submodule "integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass"]
 	path = integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass
 	url = https://github.com/NVIDIA/cutlass.git
+[submodule "integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention"]
+	path = integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention
+	url = https://github.com/thu-ml/SageAttention.git
