@@ -6,7 +6,7 @@ exclude: |
     ^agents/|
     /protos/|
     ^docker/model_specific/cfg_parallel_state\.py$|
-    ^integrations/alpadreams/ludus-renderer/|
+    ^integrations/onmidreams/ludus-renderer/|
     # Patch files reproduce upstream source byte-for-byte in their context
     # lines, including trailing whitespace and newline-at-eof. Any hook that
     # normalizes whitespace (`trailing-whitespace`, `end-of-file-fixer`) will

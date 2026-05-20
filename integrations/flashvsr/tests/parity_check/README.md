@@ -157,7 +157,7 @@ parity-check uv calls. `data_local/docker_interactive.sh` pins
 `UV_PROJECT_ENVIRONMENT=/tmp/venv/flashdreams` on the docker session so
 every workspace `uv sync` lands in one shared venv; without the
 override, `uv sync` from here would manage the shared venv and
-uninstall every workspace integration (`flash-alpadreams`,
+uninstall every workspace integration (`flash-onmidreams`,
 `flashdreams-flashvsr`, …) that this directory's `pyproject.toml`
 doesn't declare.
 

@@ -15,7 +15,7 @@
 
 """3D rotary position embeddings with CP-aware shifting.
 
-Used by DiTs (e.g. Wan, AlpaDreams) that patchify into a (T, H, W) sequence.
+Used by DiTs (e.g. Wan, Onmidreams) that patchify into a (T, H, W) sequence.
 """
 
 from typing import TypeVar

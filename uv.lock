@@ -12,7 +12,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "flash-alpadreams",
+    "flash-onmidreams",
     "flashdreams",
     "flashdreams-causal-forcing",
     "flashdreams-cosmos-predict2",
@@ -583,9 +583,9 @@ wheels = [
 ]
 
 [[package]]
-name = "flash-alpadreams"
+name = "flash-onmidreams"
 version = "0.1.0a2"
-source = { editable = "integrations/alpadreams" }
+source = { editable = "integrations/onmidreams" }
 dependencies = [
     { name = "flashdreams", extra = ["serving"] },
     { name = "grpcio" },
@@ -610,7 +610,7 @@ requires-dist = [
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "imageio" },
-    { name = "ludus-renderer", editable = "integrations/alpadreams/ludus-renderer" },
+    { name = "ludus-renderer", editable = "integrations/onmidreams/ludus-renderer" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "nvidia-cudnn-frontend", specifier = "==1.22.1" },
     { name = "opencv-python-headless" },
@@ -1264,7 +1264,7 @@ wheels = [
 [[package]]
 name = "ludus-renderer"
 version = "0.9.0"
-source = { editable = "integrations/alpadreams/ludus-renderer" }
+source = { editable = "integrations/onmidreams/ludus-renderer" }
 dependencies = [
     { name = "ninja" },
     { name = "numpy" },

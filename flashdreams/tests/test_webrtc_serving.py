@@ -70,7 +70,7 @@ def test_camera_pose_integrator_flu_uses_driving_axes() -> None:
     assert poses[-1][:3, 0] == pytest.approx([0.0, -1.0, 0.0], abs=1e-6)
 
 
-def test_tensor_chunk_to_rgb_frames_supports_alpadreams_layout() -> None:
+def test_tensor_chunk_to_rgb_frames_supports_onmidreams_layout() -> None:
     chunk = torch.zeros((1, 1, 2, 3, 4, 5), dtype=torch.uint8)
     chunk[0, 0, 1, 0] = 255
 

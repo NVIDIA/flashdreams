@@ -35,8 +35,8 @@ from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 from flashdreams.core.io.s3_filesystem import S3FileSystem, S3StorageReader
 
-_ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
-_ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
+_ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
+_ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
     os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")
 )
 
@@ -303,7 +303,7 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
 
 
 def get_storage_reader(
-    checkpoint_path: str, credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH
+    checkpoint_path: str, credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH
 ) -> FileSystemReader:
     """Return the right storage reader for an S3 or local checkpoint path.
 
@@ -324,8 +324,8 @@ def load_distributed_checkpoint(
     model: torch.nn.Module,
     checkpoint_path: str,
     check_success: bool = False,
-    local_cache_dir: str | None = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str | None = _ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
 ) -> torch.nn.Module:
     """Load a DCP checkpoint into ``model`` in-place.
 
@@ -410,8 +410,8 @@ def load_distributed_checkpoint(
 
 def load_single_checkpoint(
     checkpoint_path: str,
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
     """Load a single-file checkpoint from local disk, S3, or a Hugging Face URL.
@@ -534,8 +534,8 @@ def load_checkpoint(
     checkpoint_path: str,
     model: None = None,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor]: ...
@@ -546,8 +546,8 @@ def load_checkpoint(
     checkpoint_path: str,
     model: torch.nn.Module,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> torch.nn.Module: ...
@@ -557,8 +557,8 @@ def load_checkpoint(
     checkpoint_path: str,
     model: torch.nn.Module | None = None,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _ONMIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _ONMIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cosmos DiT network for streaming alpadreams inference."""
+"""Cosmos DiT network for streaming onmidreams inference."""
 
 import re
 from dataclasses import dataclass, field

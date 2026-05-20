@@ -9,7 +9,7 @@ FlashVSR-v1.1 streaming video super-resolution (LR projector + distilled
 Wan 2.1 DiT + TC decoder + AdaIN color corrector), packaged as a
 [`flashdreams`](../..) plugin, in a standalone repo. Wraps everything in
 a `StreamInferencePipeline` so the same `generate` / `finalize`
-lifecycle as the other recipes (`alpadreams`, `lingbot_world`, `wan2_1`)
+lifecycle as the other recipes (`onmidreams`, `lingbot_world`, `wan2_1`)
 applies.
 
 This is a worked example of the
@@ -84,9 +84,9 @@ uv run flashdreams-run flashvsr-v1.1-full-attn --input-path /path/to/clip.mp4
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip.mp4 \
     --chunk-size 8
 
-# Strip the HDMap visualization off Alpadreams outputs before upscaling.
+# Strip the HDMap visualization off Onmidreams outputs before upscaling.
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 \
-    --input-path /path/to/alpadreams.mp4 \
+    --input-path /path/to/onmidreams.mp4 \
     --crop-region bottom_half
 
 # Pick a different upscale factor (the only resolution-side knob; the

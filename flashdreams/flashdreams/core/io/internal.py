@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """``FLASHDREAMS_INTERNAL_STORAGE=1`` flips ``AVAILABLE_*_CHECKPOINT_PATHS`` and
-the alpadreams ``--example-data`` source from the public HF URLs to their
+the onmidreams ``--example-data`` source from the public HF URLs to their
 ``s3://flashdreams`` counterparts the team iterates on. Default unset = public.
 """
 

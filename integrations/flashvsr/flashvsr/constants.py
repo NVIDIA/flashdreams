@@ -19,7 +19,7 @@ Numbers that pin the FlashVSR-v1.1 streaming contract: the chunk-target
 table that the encoder accepts, the TC decoder's latent-channel split
 (noise + bicubic-conditioning packing), and the noise/conditioning patch
 size for the decoder's pixel-shuffle. Mirrors ``wan/constants.py`` and
-``alpadreams/constants.py``.
+``onmidreams/constants.py``.
 """
 
 FLASHVSR_CHUNK_FRAME_TARGETS: dict[int, int] = {5: 8, 13: 16, 8: 8, 16: 16}

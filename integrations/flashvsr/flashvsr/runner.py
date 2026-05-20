@@ -186,7 +186,7 @@ class FlashVSRRunnerConfig(RunnerConfig):
     """Output frame rate; ``None`` uses the input fps, falling back to ``30.0``."""
 
     crop_region: Literal["none", "bottom_half", "top_half"] = "none"
-    """Input crop before upsampling. ``bottom_half`` keeps Alpadreams RGB
+    """Input crop before upsampling. ``bottom_half`` keeps RGB
     frames below the HDMap visualization."""
 
     sparse_ratio: float = 2.0
