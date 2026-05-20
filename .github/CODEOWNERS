@@ -1,102 +1,64 @@
 # FlashDreams CODEOWNERS
 #
-# This file declares the GitHub teams responsible for approving changes
-# in each part of the repository. It is the source of truth for code
-# review responsibility, as described in CONTRIBUTING.md and in
-# docs/code_review.md.
+# Declares the GitHub teams responsible for approving changes in each
+# part of the repository. Source of truth for code review
+# responsibility, per CONTRIBUTING.md and docs/code_review.md.
 #
 # Format reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/managing-repository-settings/about-code-owners
 #
+# Teams (kept intentionally small):
+#   @NVIDIA/flashdreams-maintainers  — default owners; cover core,
+#                                      infra, recipes, plugins, configs,
+#                                      tests, CI, docs, container, and
+#                                      workspace metadata.
+#   @NVIDIA/flashdreams-integrations — per-recipe maintainers under
+#                                      integrations/.
+#   @NVIDIA/flashdreams-security     — additional sign-off on licensing
+#                                      and dependency-manifest files.
+#
 # Notes:
-#   * GitHub only honours ONE CODEOWNERS file per repository. This is
-#     that file. "Delegation" between subsystems is expressed by
-#     path-prefix rules below — each section behaves like its own
-#     CODEOWNERS for the subtree it covers.
-#   * The last matching rule wins, so more specific paths appear below
-#     more general ones.
+#   * GitHub honours one CODEOWNERS file per repository; this is it.
+#     "Delegation" between subsystems is expressed by path-prefix rules
+#     below. The last matching rule wins, so more specific paths appear
+#     below more general ones.
 #   * Owners listed here are the project's qualified "+2" reviewers.
 #     They apply the +2 Security Review Checklist on every review (see
 #     docs/code_review.md) and are trained as required by NVIDIA PLC.
-#     Branch protection on `main` requires at least one approving
-#     review from a CODEOWNER for the touched paths. On
-#     security-sensitive paths, the `@NVIDIA/flashdreams-security`
-#     team's sign-off is additionally required.
+#     Branch protection on `main` requires at least one approving review
+#     from a CODEOWNER for the touched paths. On security-sensitive
+#     paths, the security team's sign-off is additionally required.
 #   * External contributors are welcome on every path. CODEOWNERS does
 #     not gate who may *open* a PR — only who must *approve* it.
 #   * The PLC gate cannot be bypassed or waived; any exception requires
 #     a documented audit trail approved by the Security PIC.
 
 # ---------------------------------------------------------------------
-# Default owners (fallback for any path not matched below)
+# Default owners
 # ---------------------------------------------------------------------
 *                                       @NVIDIA/flashdreams-maintainers
 
 # ---------------------------------------------------------------------
-# Core library — flashdreams/
-# ---------------------------------------------------------------------
-/flashdreams/                           @NVIDIA/flashdreams-maintainers
-/flashdreams/flashdreams/core/          @NVIDIA/flashdreams-core
-/flashdreams/flashdreams/infra/         @NVIDIA/flashdreams-infra
-/flashdreams/flashdreams/recipes/       @NVIDIA/flashdreams-recipes
-/flashdreams/flashdreams/plugins/       @NVIDIA/flashdreams-core
-/flashdreams/flashdreams/configs/       @NVIDIA/flashdreams-recipes
-/flashdreams/flashdreams/_pytest_plugins/ @NVIDIA/flashdreams-maintainers
-/flashdreams/tests/                     @NVIDIA/flashdreams-maintainers
-
-# ---------------------------------------------------------------------
-# Integrations — integrations/<recipe>/
-#
-# Each integration is a workspace member with its own pyproject.toml.
-# The integration's lead reviewers own their subdirectory; the
-# integrations team is added as a backstop so no integration is
-# orphaned if its lead is unavailable.
+# Integrations
 # ---------------------------------------------------------------------
 /integrations/                          @NVIDIA/flashdreams-integrations
-/integrations/alpadreams/               @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-alpadreams-owners
-/integrations/alpadreams/ludus-renderer/ @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-ludus-renderer-owners
-/integrations/causal_forcing/           @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-causal-forcing-owners
-/integrations/cosmos_predict2/          @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-cosmos-owners
-/integrations/fastvideo_causal_wan22/   @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-wan-owners
-/integrations/lingbot/                  @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-lingbot-owners
-/integrations/self_forcing/             @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-causal-forcing-owners
-/integrations/wan21/                    @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-wan-owners
 
 # ---------------------------------------------------------------------
-# Documentation — docs/
-# ---------------------------------------------------------------------
-/docs/                                  @NVIDIA/flashdreams-docs
-/docs/source/apis/                      @NVIDIA/flashdreams-docs @NVIDIA/flashdreams-maintainers
-/docs/code_review.md                    @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
-
-# ---------------------------------------------------------------------
-# Build, container, and CI plumbing
-# ---------------------------------------------------------------------
-/docker/                                @NVIDIA/flashdreams-infra @NVIDIA/flashdreams-ci
-/.github/                               @NVIDIA/flashdreams-ci
-/.github/workflows/                     @NVIDIA/flashdreams-ci @NVIDIA/flashdreams-maintainers
-/.github/CODEOWNERS                     @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
-
-# ---------------------------------------------------------------------
-# Workspace / dependency / packaging metadata
+# Licensing, attribution, and dependency manifests
 #
-# Changes here ripple across every subsystem, so they require sign-off
-# from the maintainers team.
-# ---------------------------------------------------------------------
-/pyproject.toml                         @NVIDIA/flashdreams-maintainers
-/uv.lock                                @NVIDIA/flashdreams-maintainers
-/flashdreams/pyproject.toml             @NVIDIA/flashdreams-maintainers
-/integrations/*/pyproject.toml          @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-maintainers
-
-# ---------------------------------------------------------------------
-# Licensing, attribution, and security policy
-#
-# These files touch our Apache-2.0 obligations and our coordinated
-# disclosure posture. They require the security/licensing team in
-# addition to maintainers.
+# Security review is required in addition to maintainers because these
+# files touch Apache-2.0 obligations and the dependency / SBOM surface.
 # ---------------------------------------------------------------------
 /LICENSE                                @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
 /LICENSES/                              @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
 /NOTICE                                 @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
 /reuse.toml                             @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
-/CONTRIBUTING.md                        @NVIDIA/flashdreams-maintainers
-/README.md                              @NVIDIA/flashdreams-maintainers
+/pyproject.toml                         @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
+/uv.lock                                @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
+/flashdreams/pyproject.toml             @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
+/integrations/*/pyproject.toml          @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-security
+
+# ---------------------------------------------------------------------
+# Review-policy files themselves
+# ---------------------------------------------------------------------
+/.github/CODEOWNERS                     @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
+/docs/code_review.md                    @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security

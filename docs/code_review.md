@@ -119,23 +119,20 @@ find the right reviewer without reading the whole file.
 
 ### Subsystems
 
+We keep ownership intentionally lean — three teams cover the whole
+repository.
+
 | Area | Paths | Qualified +2 reviewers |
 |------|-------|------------------------|
-| **Core library** | `flashdreams/flashdreams/core/`, `plugins/` | `@NVIDIA/flashdreams-core` |
-| **Infra** | `flashdreams/flashdreams/infra/` | `@NVIDIA/flashdreams-infra` |
-| **Recipes & configs** | `flashdreams/flashdreams/recipes/`, `configs/` | `@NVIDIA/flashdreams-recipes` |
-| **Tests & pytest plugins** | `flashdreams/tests/`, `_pytest_plugins/` | `@NVIDIA/flashdreams-maintainers` |
-| **Integrations** | `integrations/<recipe>/` | `@NVIDIA/flashdreams-integrations` + per-recipe owners |
-| **Documentation** | `docs/` | `@NVIDIA/flashdreams-docs` |
-| **Container & CI** | `docker/`, `.github/` | `@NVIDIA/flashdreams-ci` |
-| **Workspace metadata** | `pyproject.toml`, `uv.lock`, per-package `pyproject.toml` | `@NVIDIA/flashdreams-maintainers` |
-| **Licensing & security** | `LICENSE`, `LICENSES/`, `NOTICE`, `reuse.toml`, `CODEOWNERS` itself, `docs/code_review.md` | `@NVIDIA/flashdreams-maintainers` + `@NVIDIA/flashdreams-security` |
-| **Fallback (anything else)** | `*` | `@NVIDIA/flashdreams-maintainers` |
+| **Core, infra, recipes, plugins, configs, tests, docs, CI, container, workspace metadata** | everything not listed below | `@NVIDIA/flashdreams-maintainers` |
+| **Integrations** | `integrations/` (all recipes) | `@NVIDIA/flashdreams-integrations` |
+| **Licensing & dependency manifests** (additional reviewer) | `LICENSE`, `LICENSES/`, `NOTICE`, `reuse.toml`, `pyproject.toml`, `uv.lock`, per-package `pyproject.toml` | `@NVIDIA/flashdreams-security` (in addition to maintainers / integrations) |
+| **Review-policy files** (additional reviewer) | `.github/CODEOWNERS`, `docs/code_review.md` | `@NVIDIA/flashdreams-security` (in addition to maintainers) |
 
-Each integration under `integrations/` additionally has a per-recipe
-owners team (for example, `@NVIDIA/flashdreams-cosmos-owners` for
-`integrations/cosmos_predict2/`). The integrations team is added as a
-backstop so no recipe is orphaned if its lead is unavailable.
+`@NVIDIA/flashdreams-maintainers` is the default owner for any path not
+explicitly matched. We can split out additional teams later if any
+subsystem grows enough to deserve its own ownership boundary, but the
+current shape keeps the review surface small and easy to staff.
 
 ### Reading the file
 
