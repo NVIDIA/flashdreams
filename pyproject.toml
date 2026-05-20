@@ -130,5 +130,5 @@ docs-ci = [
     "torch>=2.11",
     "torchvision>=0.22",
     "tqdm>=4.60",
-    "transformers==5.8.1",
+    "transformers>=5.0,<6",
 ]
