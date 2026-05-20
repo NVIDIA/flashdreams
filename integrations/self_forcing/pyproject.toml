@@ -48,3 +48,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["self_forcing*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

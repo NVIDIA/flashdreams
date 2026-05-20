@@ -16,9 +16,15 @@ dependencies = [
     "imageio[ffmpeg]",
     "easydict",
     "lmdb",
+    # Stay on the patched stable protobuf line; 7.34.x is flagged for the
+    # ParseDict recursion-depth bypass.
+    "protobuf>=6.33.6,<7",
 ]
 
 [tool.uv.sources]
 # flashdreams is not on PyPI; install it from the local source tree
 # (../../../../flashdreams relative to this directory).
 flashdreams = { path = "../../../../flashdreams", editable = true }
+
+[tool.uv]
+managed = true

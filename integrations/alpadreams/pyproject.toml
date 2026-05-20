@@ -67,3 +67,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["alpadreams*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

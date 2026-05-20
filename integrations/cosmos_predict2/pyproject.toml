@@ -47,3 +47,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["cosmos_predict2*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true
