@@ -76,6 +76,10 @@ uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip
 # Faster preset (sparse_ratio=1.5).
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-1.5 --input-path /path/to/clip.mp4
 
+# Dense full-attention preset. This changes model behavior, enables DiT
+# torch.compile + CUDA graph by default, and supports multi-GPU CP.
+uv run flashdreams-run flashvsr-v1.1-full-attn --input-path /path/to/clip.mp4
+
 # Reduce per-chunk peak VRAM (single DiT iter per chunk: first=5, subseq=8).
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip.mp4 \
     --chunk-size 8
@@ -94,7 +98,20 @@ uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip
 
 ## Multi-GPU Run via context-parallelism:
 
-Not yet supported due to the use of block-sparse attention.
+Supported only by the dense full-attention preset. The legacy sparse presets
+remain single-GPU because `block_sparse_attn` is not context-parallel aware
+and is intentionally not being extended here.
+
+```bash
+uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
+    flashvsr-v1.1-full-attn --input-path /path/to/clip.mp4
+```
+
+Full attention uses the existing CP-aware Wan dense attention stack with DiT
+compile + CUDA graph enabled by default, so peak memory is much higher than the
+sparse presets. Use smaller inputs, `--chunk-size 8`, fewer GPUs, or override
+`--pipeline.diffusion-model.transformer.use-cuda-graph False` if the dense run
+OOMs.
 
 
 ## Streaming chunk contract

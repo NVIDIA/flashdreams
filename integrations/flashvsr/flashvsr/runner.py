@@ -13,20 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashVSR streaming video super-resolution runner.
-
-Pipeline construction is deferred from ``Runner.__init__`` to
-:meth:`FlashVSRRunner.run` so the encoder's ``input_H`` / ``input_W``
-can be set to the input video's native pixel dims. The
-``PIPELINE_FLASHVSR_V1_1_SPARSE_*`` literals in :mod:`flashvsr.config`
-therefore act as a scaffold supplying every non-resolution knob; the
-runner overrides ``encoder.input_H`` / ``encoder.input_W`` per video
-via ``derive_config`` before calling ``setup()``, and also re-derives
-``diffusion_model.transformer.topk_ratio`` from the per-video
-post-crop target dims so it matches upstream FlashVSR's
-``sparse_ratio * 768*1280 / (th*tw)`` formula (the placeholder value
-baked at builder time is stale for every non-scaffold input).
-"""
+"""FlashVSR streaming video super-resolution runner."""
 
 from __future__ import annotations
 
@@ -51,6 +38,7 @@ from flashvsr.pipeline import (
     FlashVSRPipelineCache,
     FlashVSRPipelineConfig,
 )
+from flashvsr.transformer import FlashVSRTransformerConfig
 
 __all__ = [
     "FlashVSRRunnerConfig",
@@ -58,14 +46,19 @@ __all__ = [
 ]
 
 
-def _chunk_modes() -> dict[int, tuple[int, int]]:
-    """``{steady_size: (cold_size, steady_size)}`` derived from the encoder.
+## Chunk planning helpers
 
-    Single-source-of-truth: invert :data:`FlashVSREncoder._CHUNK_FRAME_TARGETS`
-    (``{raw -> padded}``) into a ``{padded -> raw_cold}`` map and pair each
-    ``padded`` with itself as the steady size. Currently yields
-    ``{8: (5, 8), 16: (13, 16)}`` -- the legacy
-    ``_CHUNK_TARGET = {5: 8, 13: 16, 8: 8, 16: 16}`` table.
+
+def _chunk_modes() -> dict[int, tuple[int, int]]:
+    """Return supported runner chunk modes from the encoder contract.
+
+    :data:`FlashVSREncoder._CHUNK_FRAME_TARGETS` maps each accepted raw frame
+    count to the padded frame count consumed by the projector. Runner modes are
+    keyed by the steady-state size and store the corresponding cold-start size:
+    ``{steady_size: (cold_size, steady_size)}``.
+
+    Returns:
+        Mapping such as ``{8: (5, 8), 16: (13, 16)}``.
     """
     targets = FlashVSREncoder._CHUNK_FRAME_TARGETS
     cold_for: dict[int, int] = {}
@@ -85,11 +78,21 @@ _CHUNK_MODES: dict[int, tuple[int, int]] = _chunk_modes()
 def _build_chunks(
     total_frames: int, first_size: int, subseq_size: int
 ) -> list[tuple[int, int]]:
-    """Return list of (start, size) pairs for each AR step.
+    """Build contiguous ``(start, size)`` chunks for one rollout.
 
-    The first chunk is ``first_size`` frames (cold-start; pad-left
-    replicated by the encoder); subsequent chunks are ``subseq_size`` each.
-    A trailing partial chunk is dropped with a warning.
+    The first chunk uses the cold-start size, which the encoder pad-left
+    replicates to the matching steady-state length. Subsequent chunks use the
+    steady-state size. Any trailing partial chunk is dropped because the
+    encoder accepts only the fixed FlashVSR chunk sizes.
+
+    Args:
+        total_frames: Number of frames available in the input video.
+        first_size: Raw frame count for the cold-start chunk.
+        subseq_size: Raw frame count for each steady-state chunk.
+
+    Returns:
+        Start offsets and raw frame counts to pass to
+        :meth:`FlashVSRPipeline.generate`.
     """
     chunks: list[tuple[int, int]] = []
     pos = 0
@@ -112,19 +115,25 @@ def _build_chunks(
 def _resolve_target_and_topk_ratio(
     *, input_H: int, input_W: int, scale: int, sparse_ratio: float
 ) -> tuple[int, int, float]:
-    """Post-crop target dims + matching ``topk_ratio`` for one input.
+    """Resolve cropped target dimensions and FlashVSR ``topk_ratio``.
 
-    Mirrors the encoder's bicubic-then-128-multiple-crop rule (see
-    :class:`flashvsr.encoder.FlashVSREncoder`) plus upstream's per-input
-    ``topk_ratio = sparse_ratio * 768*1280 / (th*tw)`` formula (every
-    upstream inference script under ``examples/WanVSR/`` uses this
-    exact constant; see e.g. ``infer_flashvsr_v1.1_tiny.py:222``). Kept
-    as a free function so the test suite can exercise the math without
-    spinning up an actual rollout.
+    The encoder bicubic-upsamples to ``(input_H * scale, input_W * scale)``
+    and center-crops each axis down to the largest 128-multiple. The sparse
+    attention budget follows upstream FlashVSR:
+    ``topk_ratio = sparse_ratio * 768 * 1280 / (target_H * target_W)``.
 
-    Returns ``(target_H, target_W, topk_ratio)``. Raises
-    :class:`AssertionError` if either axis is too small to fit one
-    128-multiple post-scale.
+    Args:
+        input_H: Low-resolution input height after any runner-side crop.
+        input_W: Low-resolution input width after any runner-side crop.
+        scale: Pixel upsample factor.
+        sparse_ratio: User-facing sparse-attention budget multiplier.
+
+    Returns:
+        ``(target_H, target_W, topk_ratio)`` for the per-video pipeline config.
+
+    Raises:
+        AssertionError: Either scaled axis is too small to fit one
+            128-multiple target.
     """
     target_H = ((input_H * scale) // 128) * 128
     target_W = ((input_W * scale) // 128) * 128
@@ -138,7 +147,14 @@ def _resolve_target_and_topk_ratio(
 
 
 def _probe_input_fps(path: Path) -> float:
-    """Best-effort fps probe; falls back to 30.0 on failure."""
+    """Probe the input video's frame rate.
+
+    Args:
+        path: Video path readable by ``mediapy``.
+
+    Returns:
+        Probed frame rate, or ``30.0`` if metadata probing fails.
+    """
     try:
         # ``mediapy`` ships without type stubs so ty cannot see the
         # ``VideoMetadata.from_path`` classmethod (added in mediapy 1.1).
@@ -149,6 +165,9 @@ def _probe_input_fps(path: Path) -> float:
         return 30.0
 
 
+## Runner config
+
+
 @dataclass(kw_only=True)
 class FlashVSRRunnerConfig(RunnerConfig):
     """Runner config for the FlashVSR streaming video super-resolution pipeline."""
@@ -156,58 +175,75 @@ class FlashVSRRunnerConfig(RunnerConfig):
     _target: type = field(default_factory=lambda: FlashVSRRunner)
 
     input_path: Path = Path()
-    """Path to a low-resolution input video readable by ``mediapy``
-    (``.mp4`` and friends). Required; pass via ``--input-path <path>``.
-    The pipeline encoder's ``input_H`` / ``input_W`` are auto-set to
-    the video's native dimensions; non-128-aligned upres dims are
-    handled by the encoder via a symmetric crop (see
-    :class:`flashvsr.encoder.FlashVSREncoderConfig`)."""
+    """Low-resolution input video path. Must be readable by ``mediapy``."""
 
     chunk_size: Literal[8, 16] = 16
-    """Steady-state frames per AR step (cold-start uses ``chunk_size - 3``).
-    ``16`` (default) packs two DiT iters per ``pipeline.generate()`` call
-    (first=13, subseq=16). ``8`` runs one DiT iter per call (first=5,
-    subseq=8) and roughly halves per-chunk peak VRAM at the cost of
-    more boundary stitching overhead."""
+    """Steady-state frames per AR step; ``8`` uses one DiT iteration and
+    ``16`` uses two. The matching cold-start size is derived from the encoder
+    chunk table."""
 
     output_fps: float | None = None
-    """Output frame rate. ``None`` (default) falls back to the input
-    video's probed fps (30.0 if probing fails)."""
+    """Output frame rate; ``None`` uses the input fps, falling back to ``30.0``."""
 
     crop_region: Literal["none", "bottom_half", "top_half"] = "none"
-    """Crop input frames before upsampling. Use ``bottom_half`` to drop
-    the HDMap visualization stacked on top of Alpadreams outputs and
-    upscale only the generated RGB."""
+    """Input crop before upsampling. ``bottom_half`` keeps Alpadreams RGB
+    frames below the HDMap visualization."""
 
     sparse_ratio: float = 2.0
-    """Block-sparse attention budget multiplier used to re-derive
-    ``transformer.topk_ratio`` from the per-video post-crop target dims
-    inside :meth:`FlashVSRRunner.run` (mirrors upstream's
-    ``topk_ratio = sparse_ratio * 768*1280 / (th*tw)`` at every call
-    site in ``examples/WanVSR/infer_flashvsr_v1.1_tiny.py`` and
-    siblings). The shipped runners (``flashvsr-v1.1-sparse-ratio-1.5``,
-    ``flashvsr-v1.1-sparse-ratio-2.0``) set this to match their slug;
-    callers building a runner config by hand should set it to the
-    ``sparse_ratio`` they passed into :func:`build_flashvsr_v1_1`."""
+    """Sparse-attention budget multiplier used to re-derive
+    ``transformer.topk_ratio`` from each video's post-crop target area."""
+
+
+def _ensure_mgpu_config_supported(
+    config: FlashVSRRunnerConfig, world_size: int
+) -> None:
+    """Reject FlashVSR configs that cannot run with multiple GPUs.
+
+    Args:
+        config: Runner config about to be used.
+        world_size: Distributed world size; ``1`` means single-GPU or CPU.
+
+    Raises:
+        ValueError: ``world_size > 1`` with sparse ``block_sparse_attn``.
+    """
+    if world_size <= 1:
+        return
+
+    pipeline_cfg = config.pipeline
+    assert isinstance(pipeline_cfg, FlashVSRPipelineConfig)
+    transformer_cfg = pipeline_cfg.diffusion_model.transformer
+    assert isinstance(transformer_cfg, FlashVSRTransformerConfig)
+    if transformer_cfg.attention_mode == "full":
+        return
+
+    raise ValueError(
+        "FlashVSR multi-GPU execution is supported only by the "
+        "flashvsr-v1.1-full-attn preset (attention_mode='full'). Sparse "
+        "FlashVSR presets use block_sparse_attn, which is not "
+        "context-parallel aware and does not support multi-GPU execution. "
+        f"Got runner_name={config.runner_name!r}, "
+        f"attention_mode={transformer_cfg.attention_mode!r}."
+    )
+
+
+## Runner
 
 
 class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
     """FlashVSR streaming video super-resolution driver.
 
-    Overrides :meth:`Runner.__init__` to skip the parent's eager
-    ``config.pipeline.setup()`` call: the encoder's ``input_H`` /
-    ``input_W`` must track the input video's native pixel dims, so the
-    pipeline can only be built inside :meth:`run` once the video has
-    been read.
+    Unlike the base :class:`Runner`, this driver builds its pipeline in
+    :meth:`run` after reading the input video. The shipped pipeline literals are
+    scaffolds for every non-resolution knob; the runner fills in
+    ``encoder.input_H``, ``encoder.input_W``, and ``transformer.topk_ratio`` for
+    each video before calling ``setup()``.
     """
 
     config: FlashVSRRunnerConfig
 
     def __init__(self, config: FlashVSRRunnerConfig) -> None:
-        # Mirrors :meth:`flashdreams.infra.runner.Runner.__init__` minus
-        # the final ``self.pipeline = config.pipeline.setup()`` step.
-        # The pipeline is built in :meth:`run` once the input video's
-        # native ``(H, W)`` is known.
+        # Mirror ``Runner.__init__`` until pipeline construction; this runner
+        # needs video dimensions before ``config.pipeline.setup()`` is valid.
         if _is_torchrun_env() and not torch.distributed.is_initialized():
             init_distributed()
 
@@ -237,17 +273,22 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 ),
             )
         self.config = effective_config
+        _ensure_mgpu_config_supported(self.config, self.world_size)
         # ``self.pipeline`` intentionally unset until :meth:`run` reads
         # the input video and derives the per-video pipeline config.
 
     def _load_input_video(self) -> tuple[torch.Tensor, int, int, float]:
-        """Read the input video at native dims (no resize).
+        """Read the input video at native dimensions.
 
-        Returns ``(video_t, H, W, fps)`` where ``video_t`` is
-        ``[1, C, T, H, W]`` in ``[-1, 1]`` on CPU/float32, and ``(H, W)``
-        is the (post-crop) native pixel size. Conversion to the pipeline
-        device + dtype happens in :meth:`run` after the pipeline has
-        been built (we don't have ``self.pipeline.device`` yet here).
+        Cropping is applied before tensor conversion so the returned ``H`` and
+        ``W`` match the dimensions used to derive the per-video pipeline config.
+        Device and dtype placement are deferred until :meth:`run`, after the
+        pipeline has been constructed.
+
+        Returns:
+            ``(video_t, H, W, fps)`` where ``video_t`` is
+            ``[1, C, T, H, W]`` in ``[-1, 1]`` on CPU/float32, and ``H`` /
+            ``W`` are post-crop low-resolution pixel dimensions.
         """
         config = self.config
         path = config.input_path
@@ -281,43 +322,38 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         return video_t, H, W, fps
 
     def _initialize_cache(self) -> FlashVSRPipelineCache:
-        """Build a fresh per-rollout cache.
+        """Build a fresh FlashVSR pipeline cache.
 
-        FlashVSR loads its frozen UMT5 prompt embedding from
-        ``config.pipeline.prompt_path`` at construction time, so the cache
-        seed is empty here."""
+        The configured prompt tensor is loaded during pipeline construction, so
+        the runner does not pass an explicit ``prompt_tensor`` here.
+
+        Returns:
+            Fresh cache for one video rollout.
+        """
         return self.pipeline.initialize_cache()
 
     def run(self) -> None:
         """Drive the FlashVSR rollout end-to-end.
 
-        Read the input video, build the pipeline at the video's native
-        ``(H, W)``, then loop the ``generate`` / ``finalize`` pair over
-        the per-AR-step chunks.
+        Reads the input video, builds the pipeline at the post-crop native
+        ``(H, W)``, loops over chunked ``generate`` / ``finalize`` calls, and
+        writes the assembled RGB video on rank zero.
         """
         config = self.config
-        # Narrow from the inherited ``RunnerConfig.pipeline:
-        # StreamInferencePipelineConfig`` to the FlashVSR-specific subclass
-        # so subsequent ``encoder.scale`` / ``transformer.topk_ratio``
-        # lookups type-check, and so ``derive_config`` (generic in the
-        # base type) returns ``FlashVSRPipelineConfig`` directly without
-        # a cast.
+        # Narrow the inherited pipeline field once so the FlashVSR-specific
+        # encoder scale and transformer top-k fields are visible below.
         pipeline_cfg = config.pipeline
         assert isinstance(pipeline_cfg, FlashVSRPipelineConfig)
+        transformer_cfg = pipeline_cfg.diffusion_model.transformer
+        assert isinstance(transformer_cfg, FlashVSRTransformerConfig)
 
         first_size, subseq_size = _CHUNK_MODES[config.chunk_size]
         video_t_cpu, H, W, fps = self._load_input_video()
         total_frames = video_t_cpu.shape[2]
 
-        # Build the pipeline at the input video's native (H, W). The
-        # encoder's bicubic-then-128-multiple-crop handles non-aligned
-        # dims internally (see :class:`flashvsr.encoder.FlashVSREncoder`);
-        # we mirror upstream's per-input ``topk_ratio = sparse_ratio *
-        # 768*1280 / (th*tw)`` (with ``(th, tw)`` the **post-crop**
-        # target) by overriding ``transformer.topk_ratio`` here, since
-        # the placeholder value baked at builder time used the recipe's
-        # scaffold ``input_H=704, input_W=1280`` and is stale for every
-        # other input.
+        # Build the pipeline for this video's post-crop dimensions. The encoder
+        # handles 128-multiple target cropping; top-k must be recomputed from
+        # that cropped target area to match upstream FlashVSR.
         target_H, target_W, topk_ratio = _resolve_target_and_topk_ratio(
             input_H=H,
             input_W=W,
@@ -325,10 +361,14 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             sparse_ratio=config.sparse_ratio,
         )
         if self.is_rank_zero:
+            mode_note = (
+                f"topk_ratio={topk_ratio:.6f}"
+                if transformer_cfg.attention_mode == "sparse"
+                else "full attention (topk ignored)"
+            )
             logger.info(
                 f"Building FlashVSR pipeline at input_H={H}, input_W={W} "
-                f"(post-crop target {target_H}x{target_W}, "
-                f"topk_ratio={topk_ratio:.6f}) ..."
+                f"(post-crop target {target_H}x{target_W}, {mode_note}) ..."
             )
         pipeline_config = derive_config(
             pipeline_cfg,
@@ -367,16 +407,8 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             )
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
             if stats is not None:
-                # Per-chunk throughput. ``video_chunk.shape[2]`` is the
-                # post-trim output frame count (cold-start drops
-                # ``frames_to_trim`` frames so the cold + steady chunks
-                # both report their visible frame counts here);
-                # ``total_ms`` is the sum of pipeline.finalize's stage
-                # events, so this is the per-chunk realised FPS.
-                #
-                # Named ``chunk_fps`` (not ``fps``) so we don't shadow
-                # the outer ``fps`` that ``media.write_video`` consumes
-                # below.
+                # Report throughput against the visible output frames for this
+                # chunk. ``fps`` is reserved for the output video's frame rate.
                 chunk_frames = int(video_chunk.shape[2])
                 chunk_total_ms = stats["total_ms"]
                 chunk_fps = (

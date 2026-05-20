@@ -26,7 +26,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention
+from flashdreams.core.attention import BlockKVCache, NativeAttention, RingAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 
 
@@ -133,6 +133,8 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     """Multi-head attention with KV cache and optional RoPE."""
+
+    attn_op: NativeAttention
 
     def __init__(
         self,

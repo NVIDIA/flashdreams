@@ -52,6 +52,7 @@ dev = [
 [project.entry-points."flashdreams.runner_configs"]
 "flashvsr-v1.1-sparse-ratio-2.0" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_SPARSE_2_0"
 "flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_SPARSE_1_5"
+"flashvsr-v1.1-full-attn" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_FULL_ATTN"
 
 [tool.setuptools.packages.find]
 include = ["flashvsr*"]

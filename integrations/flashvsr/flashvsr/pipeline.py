@@ -13,32 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashVSR streaming inference pipeline (LR projector + DiT + TC decoder).
-
-Subclasses :class:`StreamInferencePipeline`; one
-``pipeline.generate(autoregressive_index, cache, input)`` call processes
-one full FlashVSR chunk. The 5-step algorithm (encoder -> sample noise
--> per-iter DiT -> noise - flow -> decoder) mirrors the legacy
-``UltraFlashVSRUpsampler.forward`` exactly. See the sibling ``README.md``
-for the full streaming chunk contract and per-component knob list.
-
-Three FlashVSR-specific quirks the abstract pipeline doesn't natively
-handle, and why ``generate`` is fully inlined instead of calling
-``super().generate``:
-
-- The encoder's output is a ``list[Tensor]`` of per-block LR latent
-  slices; :class:`FlashVSRTransformer` overrides
-  ``patchify_and_maybe_split_cp`` to pass lists through.
-- The TC decoder needs the bicubic upres as ``cond``; the encoder
-  stashes it on its own cache and the pipeline forwards it.
-- Sampling noise once per chunk (then slicing pre-patchify) is needed
-  for parity with the legacy ``generate_noise(n_latent)`` -- the
-  inherited ``DiffusionModel.generate`` re-samples per AR step.
-
-FlashVSR's distilled DiT was trained with KV cache K/V derived from the
-**noisy** latent (sigma=1, t=1000); we preserve this by overriding
-:meth:`FlashVSRTransformer.finalize_kv_cache` to a no-op.
-"""
+"""FlashVSR streaming inference pipeline."""
 
 from __future__ import annotations
 
@@ -50,6 +25,7 @@ from typing import TypeAlias
 import torch
 from torch import Tensor
 
+from flashdreams.core.distributed.context_parallel import cat_outputs_cp
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.diffusion.model import DiffusionModel
 from flashdreams.infra.pipeline import (
@@ -85,18 +61,24 @@ PROMPT_CACHE_DIR = (
     Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
     / "flashvsr"
 )
-"""User-writable cache for the precomputed UMT5 prompt tensor."""
+"""User-writable cache for downloaded frozen UMT5 prompt tensors."""
 
 
 def _load_prompt_tensor(prompt_path: str) -> Tensor:
-    """Load FlashVSR's frozen UMT5 prompt tensor from a local path or HTTP URL.
+    """Load FlashVSR's frozen UMT5 prompt tensor.
 
-    ``http(s)://`` strings are atomically fetched into
-    :data:`PROMPT_CACHE_DIR` (via :func:`download_to_cache`) on first use;
-    local paths pass through unchanged. ``posi_prompt.pth`` pickles a
-    bare ``Tensor`` (not a state dict), so we deserialize with
-    ``torch.load`` directly rather than routing through
-    ``load_checkpoint``.
+    URL inputs are downloaded once into :data:`PROMPT_CACHE_DIR` through
+    :func:`download_to_cache`; filesystem paths are loaded directly.
+    ``posi_prompt.pth`` is a bare ``Tensor`` saved with ``torch.save`` rather
+    than a checkpoint state dict, so the pipeline deserializes it with
+    ``torch.load`` and validates the object type here.
+
+    Args:
+        prompt_path: Local filesystem path or HTTP(S) URL for
+            ``posi_prompt.pth``.
+
+    Returns:
+        Prompt embedding loaded on CPU.
     """
     if prompt_path.startswith(("http://", "https://")):
         local_path = download_to_cache(prompt_path, cache_dir=PROMPT_CACHE_DIR)
@@ -113,11 +95,12 @@ def _load_prompt_tensor(prompt_path: str) -> Tensor:
 class FlashVSRPipelineConfig(StreamInferencePipelineConfig):
     """Configuration for :class:`FlashVSRPipeline`.
 
-    Required fields are inherited from :class:`StreamInferencePipelineConfig`
-    (``diffusion_model``); the encoder / decoder slots are pinned to the
-    FlashVSR-specific configs because the pipeline subclass relies on the
-    encoder's ``last_upres`` side-channel and the decoder's
-    ``cond``-aware forward.
+    The required ``diffusion_model`` field is inherited from
+    :class:`StreamInferencePipelineConfig`. The encoder and decoder fields are
+    narrowed to the FlashVSR implementations because :class:`FlashVSRPipeline`
+    relies on their cache side channels: the encoder records the chunk's
+    bicubic upres and internal-iteration count, and the decoder consumes that
+    upres as both conditioning and color reference.
     """
 
     _target: type["FlashVSRPipeline"] = field(  # type: ignore[assignment]
@@ -135,12 +118,14 @@ class FlashVSRPipelineConfig(StreamInferencePipelineConfig):
     """TC decoder + AdaIN color corrector."""
 
     prompt_path: str | None = None
-    """Path to ``posi_prompt.pth`` (``[1, 512, 4096]`` UMT5 embedding).
-    Loaded once at pipeline construction and forwarded to
-    :meth:`FlashVSRTransformer.initialize_autoregressive_cache` via the
-    ``text_embeddings=`` kwarg on every :meth:`FlashVSRPipeline.initialize_cache`
-    call. Set to ``None`` to require callers to pass ``prompt_tensor``
-    explicitly."""
+    """Path or URL for ``posi_prompt.pth``.
+
+    The tensor is the frozen UMT5 prompt embedding used by the FlashVSR DiT,
+    typically shaped ``[1, 512, 4096]`` for the shipped checkpoint. When this
+    is set, the pipeline loads the tensor once during construction and reuses
+    it for every :meth:`FlashVSRPipeline.initialize_cache` call. Leave it as
+    ``None`` only when callers will pass ``prompt_tensor=...`` explicitly.
+    """
 
 
 class FlashVSRPipeline(
@@ -151,6 +136,12 @@ class FlashVSRPipeline(
     ]
 ):
     """FlashVSR streaming video super-resolution pipeline.
+
+    Construct through ``flashvsr.config.build_flashvsr_v1_1`` or one of the
+    shipped config literals so the encoder dimensions, prompt tensor, DiT
+    checkpoint, and decoder checkpoint stay in sync. A cache represents one
+    rollout over a video; call :meth:`generate` and then :meth:`finalize` for
+    each chunk in increasing ``autoregressive_index`` order.
 
     Examples:
 
@@ -185,11 +176,9 @@ class FlashVSRPipeline(
             f"{type(self.decoder).__name__}."
         )
 
-        # Loaded once on CPU and reused on every ``initialize_cache`` call;
-        # ``initialize_cache`` moves it to ``self.device``. ``posi_prompt.pth``
-        # is a precomputed UMT5 prompt tensor (a bare Tensor pickled with
-        # ``torch.save``), not a checkpoint state dict, so we deserialize via
-        # ``download_to_cache`` + ``torch.load`` rather than ``load_checkpoint``.
+        # Keep the configured prompt on CPU and move/cast it per rollout in
+        # ``initialize_cache``. Callers that pass ``prompt_tensor=...`` bypass
+        # this cached copy.
         self._prompt_tensor: Tensor | None = (
             _load_prompt_tensor(config.prompt_path)
             if config.prompt_path is not None
@@ -201,13 +190,27 @@ class FlashVSRPipeline(
         self,
         prompt_tensor: Tensor | None = None,
     ) -> FlashVSRPipelineCache:
-        """Build a fresh per-rollout cache.
+        """Build the cache state for one FlashVSR rollout.
+
+        The returned cache owns the encoder projector tail buffers, the rolling
+        transformer KV cache, the decoder streaming state, and the per-step
+        side-channel slots used inside :meth:`generate`. A cache should be
+        threaded through all chunks from one video stream and not reused for an
+        unrelated stream.
+
+        The prompt tensor is moved to ``self.device`` and cast to the DiT dtype
+        before it is forwarded as ``text_embeddings``. The transformer's latent
+        height and width are derived from the encoder's cropped high-resolution
+        target dimensions using Wan's 8x spatial compression.
 
         Args:
-            prompt_tensor: Optional ``[1, text_len, text_dim]`` UMT5 prompt
-                embedding to seed the DiT cross-attention KV cache. Falls
-                back to the prompt tensor loaded from ``config.prompt_path``
-                if not provided. Required if neither is set.
+            prompt_tensor: UMT5 prompt embedding
+                ``[1, text_len, text_dim]`` for the DiT cross-attention cache;
+                ``None`` uses the tensor loaded from ``config.prompt_path``.
+                One of these two sources must be available.
+
+        Returns:
+            Fresh cache to thread through one video stream.
         """
         prompt = prompt_tensor if prompt_tensor is not None else self._prompt_tensor
         assert prompt is not None, (
@@ -215,10 +218,7 @@ class FlashVSRPipeline(
             "pass prompt_tensor=... or set FlashVSRPipelineConfig.prompt_path."
         )
         prompt = prompt.to(device=self.device, dtype=self.diffusion_model.dtype)
-        # Per-rollout latent (height, width) for the DiT cache, derived from
-        # the encoder's pixel-space upres dims via Wan VAE's 8x spatial
-        # compression. ``Wan21Transformer.initialize_autoregressive_cache``
-        # consumes them via ``transformer_context``.
+        # The Wan cache stores latent spatial size, not pixel size.
         latent_height = self.encoder.target_H // 8
         latent_width = self.encoder.target_W // 8
         return super().initialize_cache(
@@ -238,25 +238,37 @@ class FlashVSRPipeline(
         cache: FlashVSRPipelineCache,
         input: Tensor,
     ) -> Tensor:
-        """Process one full FlashVSR chunk (8 or 16 raw frames).
+        """Upsample one complete FlashVSR chunk.
 
-        See module docstring for the 5-step algorithm. The profiler emits
-        seven events (``pad`` / ``bicubic`` / ``projector`` / ``dit_concat``
-        / ``denoise`` / ``decoder`` / ``color``) because steps 1 and 3 each
-        record sub-stages. Mirrors the legacy
-        ``UltraFlashVSRUpsampler.forward`` exactly.
+        The first chunk may contain 5 or 13 raw frames; steady-state chunks
+        contain 8 or 16 raw frames. The encoder pads cold-start chunks
+        internally, reports whether the padded chunk requires one or two
+        internal DiT iterations, and leaves the bicubic upres on its cache for
+        the decoder.
+
+        Callers must invoke :meth:`finalize` with the same
+        ``autoregressive_index`` after consuming the returned tensor. For
+        FlashVSR, finalization advances the transformer's rolling KV cache and,
+        when profiling is enabled, records the final timing event.
 
         Args:
             autoregressive_index: Must be ``cache.autoregressive_index + 1``,
                 or ``0`` for the first call after ``initialize_cache``.
             cache: Per-rollout cache from ``initialize_cache``.
             input: Low-resolution frames ``[B, 3, T, H, W]`` in ``[-1, 1]``.
-                See :class:`FlashVSREncoderConfig` for the per-step ``T``
-                contract.
+                ``T`` must be one of the chunk sizes accepted by
+                :class:`FlashVSREncoderConfig`.
 
         Returns:
             Upsampled RGB frames ``[B, 3, T_out, target_H, target_W]`` in
-            ``[-1, 1]``. ``T_out`` matches the un-padded input frame count.
+            ``[-1, 1]``. ``T_out`` matches the unpadded input frame count.
+
+        Note:
+            With ``enable_sync_and_profile=True``, this method contributes
+            ``pad``, ``bicubic``, ``projector``, ``dit_concat``, ``denoise``,
+            ``decoder``, and ``color`` events. The inherited
+            :meth:`StreamInferencePipeline.finalize` appends ``finalize`` and
+            returns the summarized timings.
         """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
@@ -266,23 +278,17 @@ class FlashVSRPipeline(
         )
         cache.autoregressive_index = autoregressive_index
 
-        # Profiling. Allocate one shared :class:`EventProfiler` on the
-        # parent cache; both encoder and decoder receive it as an explicit
-        # ``event_profiler`` kwarg below (no per-sub-cache duplication).
-        # Per-AR-step record order is the legacy 7-stage breakdown
-        # (``pad`` -> ``bicubic`` -> ``projector`` -> ``dit_concat``
-        # -> ``denoise`` -> ``decoder`` -> ``color``); the inherited
-        # :meth:`StreamInferencePipeline.finalize` appends the ``finalize``
-        # event and sync-summarizes, so the runner's existing summary
-        # block consumes it unchanged.
+        # One profiler lives on the parent cache for the whole public AR step.
+        # The encoder and decoder record into it through explicit kwargs.
         if self.config.enable_sync_and_profile:
             cache.event_profiler = EventProfiler()
         event_profiler = cache.event_profiler
 
-        # ----- 1. Encoder -----
-        # Bicubic + projector. Side-stashes ``last_upres`` and
-        # ``last_n_iters`` on cache.encoder_cache. Records ``pad``,
-        # ``bicubic`` and ``projector`` against the shared profiler.
+        ## Encoder
+
+        # Produces per-block LR token tensors and records two side channels:
+        # ``last_n_iters`` for the DiT loop below and ``last_upres`` for the
+        # decoder conditioning path.
         assert cache.encoder_cache is not None  # invariant: paired with encoder
         per_block_latents = self.encoder(
             input=input,
@@ -295,29 +301,25 @@ class FlashVSRPipeline(
             f"FlashVSREncoder.last_n_iters must be 1 or 2 (got {n_iters})."
         )
 
-        # Forward the encoder's upres to the decoder cache. The TC decoder
-        # reads ``last_upres`` as ``cond`` and the color corrector uses it
-        # as the AdaIN reference.
+        # The decoder reads this as both TC-decoder conditioning and the AdaIN
+        # color reference. Keep the tensor unpadded so output length matches
+        # the user-visible input length.
         assert cache.decoder_cache is not None  # invariant: paired with decoder
         cache.decoder_cache.last_upres = cache.encoder_cache.last_upres
 
-        # ----- 2. Sample noise once for the full chunk -----
-        # Pre-patchify shape ``[B, in_dim, n_latent, latent_H, latent_W]``,
-        # matching the legacy ``UltraFlashVSRUpsampler.generate_noise(n_latent)``.
-        # Sampling once and slicing in pre-patchify space (vs sampling per
-        # iter post-patchify) is required for parity with the legacy: the
-        # patchify rearrange interleaves spatial + temporal axes, so the
-        # per-iter noise vectors differ between the two approaches.
+        ## Chunk noise
+
+        # Legacy FlashVSR samples ``[B, C, n_latent, H, W]`` before patchify.
+        # Preserve that order; patchify interleaves space and time, so slicing
+        # a previously patchified full-chunk noise tensor would not be equal.
         transformer = self.diffusion_model.transformer
-        # Narrow from the abstract base ``Wan21Transformer`` (with
-        # ``config: InstantiateConfig[Any]``) to the concrete subclass
-        # asserted in ``__init__``. Required for ty + readability.
+        # Narrow from the abstract Wan base to the subclass asserted in
+        # ``__init__`` so the FlashVSR-specific config fields are visible.
         assert isinstance(transformer, FlashVSRTransformer)
         cfg = transformer.config
         assert isinstance(cfg, FlashVSRTransformerConfig)
-        # Per-rollout latent (height, width) and patchified (pH, pW) live on
-        # the transformer instance after ``initialize_autoregressive_cache``;
-        # ``initialize_cache`` above seeds them via ``transformer_context``.
+        # ``initialize_cache`` seeds these per-rollout latent dimensions via
+        # ``transformer_context``.
         latent_h = transformer._output_height
         latent_w = transformer._output_width
         assert latent_h is not None and latent_w is not None, (
@@ -336,36 +338,23 @@ class FlashVSRPipeline(
             generator=self.diffusion_model.rng,
         )
 
-        # ----- 3. Loop n_iters internal DiT iterations -----
-        # Each iter consumes a 2-latent-frame slice of the noise and a
-        # ``L_per_iter``-token slice of the per-block LR latents. The
-        # internal AR step index advances by 1 per iter so the rolling
-        # KV cache rolls at the right cadence (matches legacy
-        # ``cur_process_idx = chunk_idx * n_iters + idx``).
+        ## Internal DiT iterations
+
+        # Each iteration consumes two latent frames and one matching slice of
+        # every per-block LR-token tensor. The internal AR index advances once
+        # per iteration, matching the legacy ``chunk_idx * n_iters + idx``.
         #
-        # ``flow_full`` is pre-allocated once and each iter's flow is
-        # ``copy_``-ed into its slot immediately after ``predict_flow``.
-        # This is required for ``compile_network=True`` paths that fall
-        # back into Inductor cudagraphs (``mode="max-autotune"`` or
-        # similar): the DiT's compiled output lives in a static
-        # cudagraph buffer that gets clobbered by the next iter's call,
-        # so the original ``flow_parts.append(flow)`` + post-loop
-        # ``torch.cat`` pattern crashes with "accessing tensor output
-        # of CUDAGraphs that has been overwritten by a subsequent run".
-        # The slice-copy materialises each iter's flow into a stable,
-        # caller-owned tensor before the next call. Hoisting
-        # ``full_noise_patched`` lets us use it as the ``empty_like``
-        # template and reuse it for the post-loop ``noise - flow``
-        # subtract.
+        # Context parallelism must split each DiT call independently. If a
+        # 16-frame chunk were split after concatenating both iterations, ranks
+        # could receive different iteration ranges instead of shards of the
+        # same iteration. Gather each iteration's clean tokens before joining.
         L_per_iter = len_t * pH * pW
-        # FlashVSR's distilled DiT is fixed at t=1000 every chunk.
+        # FlashVSR's distilled DiT uses the same sigma=1 / t=1000 point for
+        # every internal iteration.
         timestep = torch.tensor(
             [1000.0], device=transformer.device, dtype=transformer.dtype
         )
-        full_noise_patched = transformer.patchify_and_maybe_split_cp(
-            full_noise.transpose(1, 2)
-        )
-        flow_full = torch.empty_like(full_noise_patched)
+        clean_parts: list[Tensor] = []
         for idx in range(n_iters):
             internal_ar_idx = autoregressive_index * n_iters + idx
             cache.transformer_cache.start(autoregressive_index=internal_ar_idx)
@@ -374,15 +363,10 @@ class FlashVSRPipeline(
                 L[:, idx * L_per_iter : (idx + 1) * L_per_iter, :]
                 for L in per_block_latents
             ]
+            per_iter_lq = transformer.patchify_and_maybe_split_cp(per_iter_lq)
 
-            # Slice the chunk-shared noise to this iter's 2 latent frames
-            # (pre-patchify), then route through the transformer's standard
-            # patchify hook to get ``[B, L_per_iter, D]``. Note: this is
-            # *not* equivalent to slicing ``full_noise_patched`` post-
-            # patchify -- the patchify rearrange interleaves spatial and
-            # temporal axes, so per-iter parity with the legacy upsampler
-            # requires slicing pre-patchify and patchifying each slice
-            # independently.
+            # Slice before patchify for legacy parity; the transformer's hook
+            # then rearranges and CP-splits this iteration only.
             noise_slice = full_noise[:, :, idx * len_t : (idx + 1) * len_t, :, :]
             noisy_patched = transformer.patchify_and_maybe_split_cp(
                 noise_slice.transpose(1, 2)
@@ -393,34 +377,32 @@ class FlashVSRPipeline(
                 cache=cache.transformer_cache,
                 input=per_iter_lq,
             )
-            flow_full[..., idx * L_per_iter : (idx + 1) * L_per_iter, :].copy_(flow)
+            clean_iter = noisy_patched - flow
+            clean_parts.append(
+                cat_outputs_cp(clean_iter, seq_dim=-2, cp_group=transformer._cp_group)
+            )
 
-            # Per-iter cache lifecycle: ``start()`` ran before predict_flow
-            # (hoisted ``before_update``); pair it with ``finalize()``
-            # (``after_update``) here for all but the last iter. The last
-            # iter's ``after_update`` is deferred to the inherited
-            # ``StreamInferencePipeline.finalize`` -> ``DiffusionModel.finalize``
-            # -> ``final_state.cache.finalize(...)``, which lands on the
-            # right index thanks to the ``FinalState`` we stash below.
+            # Pair every internal ``start`` with an ``after_update``. The last
+            # one is deferred to the public ``finalize`` call via ``FinalState``
+            # so the caller-facing lifecycle remains generate -> finalize.
             if idx < n_iters - 1:
                 cache.transformer_cache.finalize(autoregressive_index=internal_ar_idx)
 
         record_event(event_profiler, "dit_concat")
 
-        # ----- 4. clean = noise - flow at sigma=1 -----
-        clean_patched = full_noise_patched - flow_full
-        clean_latent = transformer.unpatchify_and_maybe_gather_cp(clean_patched)
+        ## Clean latent reassembly
 
-        # Stash ``FinalState`` so the inherited ``StreamInferencePipeline.finalize``
-        # routes to ``DiffusionModel.finalize``, which for FlashVSR collapses
-        # to a single ``cache.finalize(autoregressive_index)`` call
-        # (``context_noise == 0`` skips re-noise; ``FlashVSRTransformer.finalize_kv_cache``
-        # is a no-op). The ``autoregressive_index`` is the **last internal**
-        # iter index so that call advances the per-block KV cache at the
-        # right cadence (one ``after_update`` per internal iter). ``clean_latent``
-        # is never read by ``DiffusionModel.finalize`` for FlashVSR (both branches
-        # that consume it are short-circuited), but the dataclass requires it; we
-        # pass the patchified clean latent for honesty.
+        clean_patched = torch.cat(clean_parts, dim=-2)
+        clean_latent = transformer.network.unpatchify_and_maybe_gather_cp(
+            pH=pH,
+            pW=pW,
+            x=clean_patched,
+        )
+
+        # Stash enough state for the inherited ``finalize`` to close the final
+        # internal DiT iteration. FlashVSR's ``finalize_kv_cache`` is a no-op
+        # and ``context_noise == 0`` skips re-noising, so the meaningful side
+        # effect is ``cache.finalize(last_internal_ar_idx)``.
         cache.final_state = DiffusionModel.FinalState(
             clean_latent=clean_patched,
             autoregressive_index=autoregressive_index * n_iters + (n_iters - 1),
@@ -428,10 +410,10 @@ class FlashVSRPipeline(
         )
         record_event(event_profiler, "denoise")
 
-        # ----- 5. Decoder -----
-        # TC decoder + color corrector. Reads ``last_upres`` from
-        # cache.decoder_cache. Records ``decoder`` and ``color`` against the
-        # shared profiler from inside :meth:`FlashVSRDecoder.forward`.
+        ## Decoder
+
+        # TC decoder + color corrector. Both consume the bicubic upres that was
+        # forwarded to ``cache.decoder_cache.last_upres`` above.
         return self.decoder(
             input=clean_latent,
             autoregressive_index=autoregressive_index,
