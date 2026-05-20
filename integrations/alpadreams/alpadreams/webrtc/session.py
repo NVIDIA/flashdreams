@@ -173,6 +173,15 @@ class AlpadreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        # Keep every blocking runtime call on the same OS thread. This is not
+        # for throughput: Alpadreams uses CUDA graph capture/replay through
+        # torch.compile/cuDNN, and the captured state appears to depend on
+        # thread-local CUDA/cuDNN context. Replacing this with
+        # ``asyncio.to_thread`` lets the default executor move initialize,
+        # warmup, and generation calls across workers; that was observed to
+        # fail after a few chunks with
+        # CUDNN_STATUS_INTERNAL_ERROR_DEVICE_ALLOCATION_FAILED followed by
+        # cudaErrorStreamCaptureInvalidated during capture_end.
         self._executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="alpadreams-webrtc-runtime",
