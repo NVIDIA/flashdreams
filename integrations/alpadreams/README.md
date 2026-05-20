@@ -38,3 +38,11 @@ export OMNI_DREAMS_HF_ORG=nvidia-omni-dreams-lha
 
 Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
 switches checkpoint and example-data URLs back to `s3://flashdreams`.
+
+## Run WebRTC server
+
+From the workspace root, run:
+
+```bash
+uv run --package flash-alpadreams torchrun --nproc_per_node 1 -m alpadreams.webrtc.server --pipeline_config_name alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --port 8089
+```
