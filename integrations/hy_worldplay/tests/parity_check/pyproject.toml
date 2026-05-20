@@ -90,6 +90,18 @@ dependencies = [
     "einops>=0.7",
 ]
 
+[tool.uv]
+# flashdreams main floors ``transformers>=5.0`` (security PR #116).
+# Upstream HY-WorldPlay's ``wan/`` pipeline pins ``transformers==4.56.0``
+# for parity reproducibility, and the flashdreams code paths exercised
+# here (``UMT5EncoderModel`` + ``T5Tokenizer`` + CLIP) work identically
+# on the patched 4.x line. Override transformers down to the parity
+# version so this isolated dev/test venv resolves; the wider repo keeps
+# the 5.x security floor untouched.
+override-dependencies = [
+    "transformers==4.57.6",
+]
+
 [tool.uv.sources]
 # Neither package is on PyPI; install both from the local source tree.
 # Paths are relative to this directory:
