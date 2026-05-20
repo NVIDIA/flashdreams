@@ -36,6 +36,12 @@ from flashdreams.core.distributed.rank_orchestration import (
     distributed_op,
 )
 from flashdreams.infra.config import derive_config
+from flashdreams.serving.webrtc.controls import (
+    CameraPoseIntegrator,
+    KeyboardResampler,
+    PoseSegment,
+)
+from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
@@ -47,12 +53,6 @@ from lingbot.encoder.utils import (
     get_Ks_transformed,
     preprocess_example_poses,
 )
-from lingbot.webrtc.controls import (
-    CameraPoseIntegrator,
-    KeyboardResampler,
-    PoseSegment,
-)
-from lingbot.webrtc.media import LingbotVideoTrack
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
@@ -463,7 +463,7 @@ class LingbotInferenceRuntime:
 @dataclass(slots=True)
 class _ManagedLingbotSession:
     runtime: LingbotInferenceRuntime
-    video_track: LingbotVideoTrack
+    video_track: BufferedVideoTrack
     peer_connection: Any
     resampler: KeyboardResampler
     """Per-session sparse-edge resampler; produces the per-frame keyboard
@@ -605,7 +605,7 @@ class LingbotWebRTCSessionManager:
         # producing a once-per-chunk ~60 ms playback stall. We
         # therefore size to the steady-state count.
         num_frames = self._runtime.peek_steady_chunk_num_frames()
-        video_track = LingbotVideoTrack(fps=self.fps, maxsize=num_frames)
+        video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
         peer_connection.addTrack(video_track)
         # Start the resampler's virtual clock at 0; the real anchor
         # is set inside the ``on_datachannel`` handler so chunk 0's
@@ -872,7 +872,7 @@ class LingbotWebRTCSessionManager:
         ``arrival_t`` falls inside the chunk has a chance to land in
         the timeline before sampling. The track's bounded queue then
         paces the loop to playback via backpressure on
-        :meth:`LingbotVideoTrack.enqueue_chunk`.
+        :meth:`BufferedVideoTrack.enqueue_chunk`.
         """
         loop = asyncio.get_running_loop()
         runtime = managed_session.runtime
