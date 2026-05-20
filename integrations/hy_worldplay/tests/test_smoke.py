@@ -239,6 +239,44 @@ def test_use_native_pipeline_deepcopies_singleton() -> None:
     assert cfg_a.pipeline is not PIPELINE_WAN22_TI2V_5B
 
 
+def test_use_native_pipeline_swaps_scheduler_to_euler_distilled() -> None:
+    """Phase 2b.2: native mode must swap the base recipe's UniPC
+    scheduler for the upstream-distilled Euler schedule.
+
+    Guards against the pipeline silently falling back to UniPC: at
+    sub-PR 2b.1 the native runner produced visibly drifted output
+    against the vendor wrapper because the schedulers diverged
+    (UniPC 40-step vs Euler 4-step). 2b.2 closes that gap; this test
+    pins both the scheduler class and the exact 5-entry timestep
+    schedule lifted from upstream
+    ``wan/inference/pipeline_wan_w_mem_relative_rope.py``.
+    """
+    from flashdreams.infra.diffusion.scheduler import (
+        FlowMatchEulerDiscreteSchedulerConfig,
+        FlowMatchUniPCSchedulerConfig,
+    )
+    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+
+    # Base recipe stays neutral so non-HY callers of PIPELINE_WAN22_TI2V_5B
+    # keep their existing UniPC scheduler.
+    assert isinstance(
+        PIPELINE_WAN22_TI2V_5B.diffusion_model.scheduler,
+        FlowMatchUniPCSchedulerConfig,
+    )
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+    )
+    sched = cfg.pipeline.diffusion_model.scheduler
+    assert isinstance(sched, FlowMatchEulerDiscreteSchedulerConfig), (
+        f"expected FlowMatchEulerDiscreteSchedulerConfig, got "
+        f"{type(sched).__name__}"
+    )
+    assert sched.num_inference_steps == 4
+    assert sched.fixed_timesteps == (1000.0, 960.0, 888.8889, 727.2728, 0.0)
+
+
 def test_use_native_pipeline_respects_user_override() -> None:
     """A user-supplied ``pipeline=`` override must not be clobbered by
     the ``use_native_pipeline`` swap. Lets power users plug in custom

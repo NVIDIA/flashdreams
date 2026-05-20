@@ -47,7 +47,7 @@ under ~1,000 LoC and each ending in a verifiable state.
 | sub-PR | scope | LoC | depends on |
 |---|---|---|---|
 | **2b.1** | Native runner driving `PIPELINE_WAN22_TI2V_5B`, I2V base case only (no conditioners). Behind a `--use-native-pipeline` feature flag; vendor wrapper stays default. Single-GPU only. | ~300-500 | none |
-| **2b.2** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap `PIPELINE_WAN22_TI2V_5B` to use it. | ~200-300 | 2b.1 |
+| **2b.2** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap the scheduler in HY-WorldPlay's `__post_init__` only; `PIPELINE_WAN22_TI2V_5B` stays neutral with UniPC for non-HY callers. | ~200-300 | 2b.1 |
 | **2b.3** | Action conditioner: `HyWorldPlayActionEmbedderConfig` + `HyWorldPlayWanDiTNetwork` subclass that sums an action embedding into `temb` before AdaLN modulation. Plumb action labels via `network_extra_kwargs`. | ~300-500 | 2b.2 |
 | **2b.4** | Camera-trajectory conditioner: port `prope_qkv` and the dual-branch RoPE+PRoPE attention. New `HyWorldPlayWanBlock` mirroring upstream's Q/K/V split + recombination. Plumb viewmats + intrinsics via streaming encoder. | ~600-1,000 | 2b.3 |
 | **2b.5** | Memory module + KV-prefill hook: port `select_mem_frames_wan` selection policy, extend transformer cache with "prefill from these frame indices" semantics, hook into `Wan21Transformer.predict_flow` for per-chunk prefill at step 0. Drop parity sub-venv. Re-run parity. Flip `--use-native-pipeline` to default. | ~400-700 + cleanup | 2b.4 |
@@ -294,31 +294,40 @@ camera-trajectory, and reconstituted-context-memory conditioning land
 in 2b.3 / 2b.4 / 2b.5 respectively. Use the default (vendor-wrapper)
 path for parity with upstream's `wan/generate.py`."
 
-## Sub-PR 2b.2 design (next session)
+## Sub-PR 2b.2 design (landed)
 
-Add `FlowMatchEulerDiscreteSchedulerConfig` to
-`flashdreams.infra.diffusion.scheduler`. The config carries an optional
-`fixed_timesteps: tuple[float, ...] | None` field; when set, the
-scheduler skips its `set_timesteps()` derivation and uses the fixed
-schedule directly. Default (`None`) preserves the standard
-diffusers `FlowMatchEulerDiscreteScheduler` behaviour.
+Add `FlowMatchEulerDiscreteSchedulerConfig` +
+`FlowMatchEulerDiscreteScheduler` to
+`flashdreams.infra.diffusion.scheduler`. The config carries an
+optional `fixed_timesteps: tuple[float, ...] | None` field; when set,
+the scheduler skips the linspace+warp derivation and uses the
+caller-supplied schedule directly. Default (`None`) reproduces the
+standard diffusers `FlowMatchEulerDiscreteScheduler` behaviour
+(`linspace(sigma_max, sigma_min, N+1)[:-1]` warped by `shift`, with a
+trailing `0.0`).
 
-Swap `PIPELINE_WAN22_TI2V_5B`'s scheduler from
-`FlowMatchUniPCSchedulerConfig` to:
+The scheduler swap is **HY-WorldPlay-scoped**, not a global change to
+`PIPELINE_WAN22_TI2V_5B`. Rationale: the base Wan 2.2 5B recipe is a
+neutral building block other integrations may want; binding it to the
+distilled 4-step Euler schedule would break non-distilled callers
+(40-step UniPC is the right default for the non-distilled
+checkpoint). HY-WorldPlay's `__post_init__` already deep-copies the
+pipeline config; the same hook now swaps the scheduler on the copy:
 
 ```python
-FlowMatchEulerDiscreteSchedulerConfig(
-    num_inference_steps=4,
-    fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
+self.pipeline.diffusion_model.scheduler = (
+    FlowMatchEulerDiscreteSchedulerConfig(
+        num_inference_steps=4,
+        fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
+    )
 )
 ```
 
-Parity bar: with the native runner from 2b.1, the per-frame uint8 RGB
-delta vs the vendor wrapper baseline should drop from "very large"
-(default scheduler mismatch) to ~scheduler-only delta (~no change,
-because we'll now be running the same scheduler). Action / camera /
-memory will still be missing, so parity won't be exact — but the
-scheduler delta is removed from the residual.
+Parity bar: with the native runner from 2b.1 + the scheduler swap
+from 2b.2, the per-frame uint8 RGB delta vs the vendor wrapper
+baseline should narrow by the scheduler component, leaving only the
+conditioner-driven residual (action / camera / memory still missing).
+Sub-PR 2b.3 closes the next slice.
 
 ## Sub-PR 2b.3 design (later)
 

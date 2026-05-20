@@ -177,11 +177,12 @@ context-parallelism, profiler, and attention dispatch with the rest of
 the `wan*` family. The migration is staged behind a `--use-native-pipeline`
 feature flag and lands incrementally:
 
-- **2b.1 (this release).** Native runner driving
-  `PIPELINE_WAN22_TI2V_5B` for the I2V base case. No
-  action / camera-trajectory / memory conditioning yet.
-- **2b.2.** Scheduler swap (Euler with the upstream-distilled fixed
-  4-step schedule).
+- **2b.1.** Native runner driving `PIPELINE_WAN22_TI2V_5B` for the
+  I2V base case. No action / camera-trajectory / memory conditioning.
+- **2b.2 (this release).** Scheduler swap to Euler with the
+  upstream-distilled fixed 4-step schedule. Native mode now uses the
+  same denoising loop as the vendor wrapper, so any remaining drift
+  comes from the missing conditioners + non-distilled checkpoint.
 - **2b.3.** Action conditioner (AdaLN modulation).
 - **2b.4.** Camera-trajectory conditioner (PRoPE dual-branch attention).
 - **2b.5.** Reconstituted-context memory + KV prefill; drop the parity
@@ -199,14 +200,16 @@ uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --output-dir outputs
 ```
 
-The 2b.1 native path **does not match** the vendor-wrapper baseline
-numerically: the model receives default-zero action/camera/memory
-inputs and runs under `FlowMatchUniPCSchedulerConfig` rather than
-upstream's distilled Euler schedule. For parity with upstream
-`wan/generate.py`, use the default (vendor-wrapper) invocation above.
-The native path is checked in to let early adopters benchmark the
-flashdreams runtime stack on the Wan 2.2 TI2V-5B backbone; full
-parity with HY-WorldPlay's conditioners returns at 2b.5. See
+The current native path **does not match** the vendor-wrapper
+baseline numerically: the model still receives default-zero
+action/camera/memory inputs (those conditioners land in 2b.3-2b.5).
+As of 2b.2 the scheduler now mirrors upstream's distilled 4-step
+Euler schedule, so the remaining drift is conditioner-only. For
+parity with upstream `wan/generate.py`, use the default
+(vendor-wrapper) invocation above. The native path is checked in to
+let early adopters benchmark the flashdreams runtime stack on the
+Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
+conditioners returns at 2b.5. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
 
@@ -339,10 +342,13 @@ land first.
      `--use-native-pipeline`; vendor wrapper stays the default so the
      phase-1 parity bar is preserved. See "Native pipeline (preview)"
      under [Run](#run).
-   - **2b.2.** Add `FlowMatchEulerDiscreteSchedulerConfig` carrying
-     upstream's distilled 4-step fixed schedule
-     `(1000, 960, 888.89, 727.27, 0)`; swap
-     `PIPELINE_WAN22_TI2V_5B` to use it.
+   - **2b.2 (landed).** New `FlowMatchEulerDiscreteSchedulerConfig`
+     in `flashdreams.infra.diffusion.scheduler` carries upstream's
+     distilled 4-step fixed schedule
+     `(1000, 960, 888.89, 727.27, 0)`. `HyWorldPlayWanI2VRunnerConfig.__post_init__`
+     swaps it in only when `use_native_pipeline=True`; the base
+     `PIPELINE_WAN22_TI2V_5B` recipe keeps its
+     `FlowMatchUniPCSchedulerConfig` for non-HY callers.
    - **2b.3.** Port the **action conditioner** (81-class discrete →
      time-embed AdaLN add) onto a `HyWorldPlayWanDiTNetwork` subclass.
    - **2b.4.** Port the **camera-trajectory conditioner** (PRoPE

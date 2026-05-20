@@ -219,14 +219,38 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
         :data:`PIPELINE_WAN22_TI2V_5B` is a module-level singleton; the
         deepcopy here keeps per-run mutations (``derive_config`` /
-        per-rank seed offset) isolated to this config instance.
+        per-rank seed offset, and the scheduler swap below) isolated
+        to this config instance.
+
+        After the deepcopy, the base recipe's
+        :class:`FlowMatchUniPCSchedulerConfig` is replaced with
+        :class:`FlowMatchEulerDiscreteSchedulerConfig` pinned to the
+        distilled WAN-5B 4-step schedule (matches upstream's
+        ``few_step=True`` branch). The base recipe stays neutral with
+        UniPC so non-HY callers of ``PIPELINE_WAN22_TI2V_5B`` keep
+        their existing scheduler.
         """
         if not self.use_native_pipeline:
             return
         if isinstance(self.pipeline, _NoopPipelineConfig):
+            from flashdreams.infra.diffusion.scheduler import (
+                FlowMatchEulerDiscreteSchedulerConfig,
+            )
             from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
 
             self.pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
+            self.pipeline.diffusion_model.scheduler = (
+                FlowMatchEulerDiscreteSchedulerConfig(
+                    num_inference_steps=4,
+                    # Distilled WAN-5B fixed-timestep schedule. Lifted
+                    # verbatim from upstream
+                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
+                    # ``few_step=True`` branch; the 4-step distilled
+                    # checkpoint is trained against exactly this
+                    # sigma grid.
+                    fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
+                )
+            )
         if self._target is HyWorldPlayWanI2VRunner:
             # Lazy import: the native runner pulls in torch, the Wan
             # pipeline, and the diffusers stack. Importing eagerly would
