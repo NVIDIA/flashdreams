@@ -6,14 +6,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Protocol
 
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
-
-LOGGER = logging.getLogger(__name__)
+from loguru import logger as loguru_logger
 
 
 class CreateAnswerCallback(Protocol):
@@ -36,14 +34,14 @@ async def run_loopback_warmup_session(
     label: str = "WebRTC",
     channel_open_timeout_s: float = 15.0,
     ice_gathering_timeout_s: float = 15.0,
-    logger: logging.Logger = LOGGER,
+    logger: Any = loguru_logger,
 ) -> None:
     if num_chunks < 0:
         raise ValueError("num_chunks must be >= 0")
     if num_chunks == 0:
         return
 
-    logger.info("Starting %s loopback warmup with %s chunk(s).", label, num_chunks)
+    logger.info("Starting {} loopback warmup with {} chunk(s).", label, num_chunks)
     client_peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     control_channel = client_peer.createDataChannel("controls", ordered=True)
     client_peer.addTransceiver("video", direction="recvonly")
@@ -69,7 +67,7 @@ async def run_loopback_warmup_session(
             return
         received_chunks += 1
         logger.info(
-            "%s loopback warmup chunk done chunk=%s num_frames=%s",
+            "{} loopback warmup chunk done chunk={} num_frames={}",
             label,
             payload.get("chunk_index"),
             payload.get("num_frames"),
@@ -105,7 +103,7 @@ async def run_loopback_warmup_session(
         )
 
         await asyncio.wait_for(channel_open.wait(), timeout=channel_open_timeout_s)
-        logger.info("%s loopback warmup data channel open; sending fake inputs.", label)
+        logger.info("{} loopback warmup data channel open; sending fake inputs.", label)
         for action_payload in action_payloads:
             control_channel.send(json.dumps(action_payload))
         await asyncio.wait_for(warmup_done.wait(), timeout=warmup_timeout_s)
@@ -118,7 +116,7 @@ async def run_loopback_warmup_session(
                 await task
         if close_active_session is not None:
             await close_active_session()
-    logger.info("%s loopback warmup complete.", label)
+    logger.info("{} loopback warmup complete.", label)
 
 
 async def wait_for_ice_gathering_complete(
@@ -138,7 +136,7 @@ async def wait_for_ice_gathering_complete(
     await asyncio.wait_for(ice_complete.wait(), timeout=timeout_s)
 
 
-async def _drain_loopback_track(track: Any, *, logger: logging.Logger = LOGGER) -> None:
+async def _drain_loopback_track(track: Any, *, logger: Any = loguru_logger) -> None:
     try:
         while True:
             await track.recv()
@@ -147,4 +145,4 @@ async def _drain_loopback_track(track: Any, *, logger: logging.Logger = LOGGER) 
     except asyncio.CancelledError:
         raise
     except Exception:
-        logger.debug("Loopback warmup video drain stopped.", exc_info=True)
+        logger.opt(exception=True).debug("Loopback warmup video drain stopped.")

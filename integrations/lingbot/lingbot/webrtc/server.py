@@ -24,8 +24,14 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 from aiohttp import web
+from loguru import logger
 
-from flashdreams.core.distributed import init as distributed_init
+from flashdreams.core.distributed import (
+    configure_loguru_for_distributed,
+)
+from flashdreams.core.distributed import (
+    init as distributed_init,
+)
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.server import create_webrtc_app
 from lingbot.webrtc.session import (
@@ -34,7 +40,12 @@ from lingbot.webrtc.session import (
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
-LOGGER = logging.getLogger(__name__)
+
+
+def configure_logging(*, world_rank: int | None = None) -> None:
+    configure_loguru_for_distributed(world_rank=world_rank)
+    for logger_name in ("aioice", "aioice.ice", "aiortc"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def parse_args() -> argparse.Namespace:
@@ -146,8 +157,9 @@ def initialize_distributed(
             torch_device = torch.device("cuda:0")
     torch.cuda.set_device(torch_device)
 
-    LOGGER.info(
-        "Rank %s initialized Lingbot runtime with context_parallel_size %s",
+    configure_logging(world_rank=world_rank)
+    logger.info(
+        "Rank {} initialized Lingbot runtime with context_parallel_size {}",
         world_rank,
         world_size,
     )
@@ -155,10 +167,7 @@ def initialize_distributed(
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    configure_logging()
     args = parse_args()
 
     runtime_device, world_rank, context_parallel_size = initialize_distributed(
@@ -173,7 +182,7 @@ def main() -> None:
     session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
     if world_rank == 0:
         app = create_app(session_manager=session_manager)
-        print(f"Starting on external IP: {get_external_ip()}")
+        logger.info("Starting on external IP: {}", get_external_ip())
         try:
             web.run_app(app, host=args.host, port=args.port)
         finally:
@@ -182,7 +191,7 @@ def main() -> None:
         try:
             session_manager.wait_for_termination()
         except KeyboardInterrupt:
-            LOGGER.warning("Worker rank interrupted, shutting down.")
+            logger.warning("Worker rank interrupted, shutting down.")
 
     gc.collect()
     if torch.cuda.is_available():
@@ -191,7 +200,7 @@ def main() -> None:
 
     if dist.is_initialized():
         dist.barrier()
-        LOGGER.info("[Rank %s] Destroying process group", world_rank)
+        logger.info("[Rank {}] Destroying process group", world_rank)
         dist.destroy_process_group()
 
 

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable
 from fractions import Fraction
 
@@ -13,8 +12,8 @@ import torch
 from aiortc import MediaStreamTrack
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from loguru import logger
 
-LOGGER = logging.getLogger(__name__)
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
 
@@ -105,8 +104,9 @@ class BufferedVideoTrack(MediaStreamTrack):
         first_frame = self._next_deadline_s is None
         just_stalled = (not first_frame) and get_wait_ms > _STALL_THRESHOLD_MS
         if just_stalled:
-            LOGGER.warning(
-                "Playback stall: pts=%d waited %.1fms for next frame; queue depth now %d.",
+            logger.debug(
+                "Playback stall: pts={} waited {:.1f}ms for next frame; "
+                "queue depth now {}.",
                 self._pts,
                 get_wait_ms,
                 self._frames.qsize(),
@@ -123,9 +123,9 @@ class BufferedVideoTrack(MediaStreamTrack):
                 self._next_deadline_s = proposed
             else:
                 if -wait_s * 1000.0 > _PACING_LAG_LOG_MS:
-                    LOGGER.warning(
-                        "Pacing lag: pts=%d deadline %.1fms behind walltime; "
-                        "re-anchoring to avoid burst (queue depth %d).",
+                    logger.debug(
+                        "Pacing lag: pts={} deadline {:.1f}ms behind walltime; "
+                        "re-anchoring to avoid burst (queue depth {}).",
                         self._pts,
                         -wait_s * 1000.0,
                         self._frames.qsize(),

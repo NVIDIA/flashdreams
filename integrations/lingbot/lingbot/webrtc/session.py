@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -30,6 +29,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -55,7 +55,6 @@ from lingbot.webrtc.controls import (
 from lingbot.webrtc.media import LingbotVideoTrack
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-LOGGER = logging.getLogger(__name__)
 
 
 class LingbotRuntimeError(RuntimeError):
@@ -430,44 +429,8 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError(
                 f"Chunk={self.autoregressive_index} received empty segments."
             )
-        # Union of every state seen in the chunk plus first/last
-        # segment snapshots; one log line summarising the whole chunk.
-        union_keys: set[str] = set().union(*(s for _, _, s in segments))
-        first_keys = segments[0][2]
-        last_keys = segments[-1][2]
         poses = self.pose_integrator.integrate_chunk(
             segments=segments, frame_times=frame_times
-        )
-        first_pose = poses[0]
-        last_pose = poses[-1]
-        first_translation = first_pose[:3, 3].tolist()
-        last_translation = last_pose[:3, 3].tolist()
-        first_heading_y = float(np.arctan2(first_pose[0, 2], first_pose[0, 0]))
-        last_heading_y = float(np.arctan2(last_pose[0, 2], last_pose[0, 0]))
-        LOGGER.info(
-            "Rendering chunk=%s num_frames=%s segments=%d union_keys=%s "
-            "first_keys=%s last_keys=%s first_xyz=%s last_xyz=%s "
-            "first_heading_y=%.5f last_heading_y=%.5f",
-            self.autoregressive_index,
-            num_frames,
-            len(segments),
-            sorted(union_keys),
-            sorted(first_keys),
-            sorted(last_keys),
-            [round(float(x), 5) for x in first_translation],
-            [round(float(x), 5) for x in last_translation],
-            first_heading_y,
-            last_heading_y,
-        )
-        LOGGER.info(
-            "Chunk=%s first_pose=%s",
-            self.autoregressive_index,
-            np.array2string(first_pose, precision=4, suppress_small=True),
-        )
-        LOGGER.info(
-            "Chunk=%s last_pose=%s",
-            self.autoregressive_index,
-            np.array2string(last_pose, precision=4, suppress_small=True),
         )
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
@@ -685,7 +648,7 @@ class LingbotWebRTCSessionManager:
                 raise RuntimeError("Peer connection did not produce local description.")
             return {"sdp": local_description.sdp, "type": local_description.type}
         except Exception:
-            LOGGER.exception("WebRTC negotiation failed while creating an answer.")
+            logger.exception("WebRTC negotiation failed while creating an answer.")
             await managed_session.close()
             self._active_session = None
             raise
@@ -699,7 +662,7 @@ class LingbotWebRTCSessionManager:
             create_answer=self._create_loopback_warmup_answer,
             close_active_session=self.close_active_session,
             label="Lingbot WebRTC",
-            logger=LOGGER,
+            logger=logger,
         )
 
     async def _create_loopback_warmup_answer(
@@ -784,7 +747,7 @@ class LingbotWebRTCSessionManager:
         # generation worker now drives the pipeline directly, so they
         # are accepted silently as no-ops to avoid breaking older clients.
         if event == "step":
-            LOGGER.debug("Ignoring legacy 'step' control payload.")
+            logger.debug("Ignoring legacy 'step' control payload.")
             return
         if event not in ("keydown", "keyup"):
             self._send_json(
@@ -813,8 +776,8 @@ class LingbotWebRTCSessionManager:
         arrival_t = asyncio.get_running_loop().time()
         managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
         managed_session.pending_action_arrivals.append(arrival_t)
-        LOGGER.info(
-            "Logged control event=%s key=%s arrival_t=%.3f log_size=%d",
+        logger.info(
+            "Logged control event={} key={} arrival_t={:.3f} log_size={}",
             event,
             key,
             arrival_t,
@@ -858,17 +821,17 @@ class LingbotWebRTCSessionManager:
         # triggering event with ``arrival_t < now``, so the resampler's
         # drain path folds it into ``carried_state`` and chunk 0's
         # segments reflect the held-key state from frame 0.
-        LOGGER.info("Generation worker idle; waiting for first action.")
+        logger.info("Generation worker idle; waiting for first action.")
         try:
             await managed_session.first_action_received.wait()
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled before first action.")
+            logger.info("Generation worker cancelled before first action.")
             raise
         if managed_session.closed:
             return
         resampler.next_chunk_start_v = loop.time()
-        LOGGER.info(
-            "First action received; starting generation at start_v=%.3f",
+        logger.info(
+            "First action received; starting generation at start_v={:.3f}",
             resampler.next_chunk_start_v,
         )
         try:
@@ -876,7 +839,7 @@ class LingbotWebRTCSessionManager:
                 try:
                     num_frames = runtime.peek_next_chunk_num_frames()
                 except LingbotRuntimeError:
-                    LOGGER.exception("Runtime not ready; stopping generation worker.")
+                    logger.exception("Runtime not ready; stopping generation worker.")
                     return
                 # Trigger when wallclock reaches the chunk's window end
                 # (= the next chunk's start virtual time). Earlier
@@ -906,9 +869,9 @@ class LingbotWebRTCSessionManager:
                 lag = now - (resampler.next_chunk_start_v + chunk_duration)
                 if lag > chunk_duration:
                     skipped_to = now - chunk_duration
-                    LOGGER.warning(
-                        "Resampler virtual clock lagging wall by %.3fs; "
-                        "skipping next_chunk_start_v %.3f -> %.3f to "
+                    logger.warning(
+                        "Resampler virtual clock lagging wall by {:.3f}s; "
+                        "skipping next_chunk_start_v {:.3f} -> {:.3f} to "
                         "track wall and keep input-to-pixel latency bounded.",
                         lag,
                         resampler.next_chunk_start_v,
@@ -932,7 +895,7 @@ class LingbotWebRTCSessionManager:
                         segments=segments, frame_times=frame_times
                     )
                 except Exception as exc:
-                    LOGGER.exception("Chunk generation failed.")
+                    logger.exception("Chunk generation failed.")
                     channel = managed_session.control_channel
                     if channel is not None:
                         self._send_json(channel, {"type": "error", "message": str(exc)})
@@ -957,11 +920,11 @@ class LingbotWebRTCSessionManager:
                     if consumed_action_arrivals
                     else None
                 )
-                LOGGER.info(
-                    "Chunk done chunk=%s num_frames=%s segments=%d "
-                    "enqueued=%s gen_ms=%.1f enqueue_ms=%.1f play_ms=%.1f "
-                    "queue_depth=%d next_v=%.3f wall=%.3f lag_ms=%.1f "
-                    "control_latency_ms=%s consumed_actions=%d",
+                logger.debug(
+                    "Chunk done chunk={} num_frames={} segments={} "
+                    "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
+                    "queue_depth={} next_v={:.3f} wall={:.3f} lag_ms={:.1f} "
+                    "control_latency_ms={} consumed_actions={}",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
@@ -1006,7 +969,7 @@ class LingbotWebRTCSessionManager:
                         payload["consumed_actions"] = len(consumed_action_arrivals)
                     self._send_json(channel, payload)
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled.")
+            logger.info("Generation worker cancelled.")
             raise
 
     @staticmethod

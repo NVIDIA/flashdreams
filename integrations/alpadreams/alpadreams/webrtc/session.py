@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 import os
 import tempfile
 from collections import deque
@@ -32,6 +31,7 @@ from alpadreams.conditioning.world_scenario.data_loaders import load_scene
 from alpadreams.conditioning.world_scenario.settings import SETTINGS
 from alpadreams.config import ALPADREAMS_CONFIGS
 from alpadreams.transformer import CosmosTransformerConfig
+from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -51,7 +51,6 @@ from flashdreams.serving.webrtc.warmup import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
@@ -673,8 +672,8 @@ class AlpadreamsWebRTCSessionManager:
 
         @peer_connection.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
-            LOGGER.info(
-                "Peer connection state changed: %s",
+            logger.info(
+                "Peer connection state changed: {}",
                 peer_connection.connectionState,
             )
             if peer_connection.connectionState in {
@@ -686,22 +685,22 @@ class AlpadreamsWebRTCSessionManager:
 
         @peer_connection.on("iceconnectionstatechange")
         def on_iceconnectionstatechange() -> None:
-            LOGGER.info(
-                "Peer ICE connection state changed: %s",
+            logger.info(
+                "Peer ICE connection state changed: {}",
                 peer_connection.iceConnectionState,
             )
 
         @peer_connection.on("icegatheringstatechange")
         def on_icegatheringstatechange() -> None:
-            LOGGER.debug(
-                "Peer ICE gathering state changed: %s",
+            logger.debug(
+                "Peer ICE gathering state changed: {}",
                 peer_connection.iceGatheringState,
             )
 
         try:
             offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
-            LOGGER.info(
-                "Received WebRTC offer with %s.",
+            logger.info(
+                "Received WebRTC offer with {}.",
                 _summarize_sdp_candidates(offer_sdp),
             )
             await peer_connection.setRemoteDescription(offer)
@@ -711,13 +710,13 @@ class AlpadreamsWebRTCSessionManager:
             local_description = peer_connection.localDescription
             if local_description is None:
                 raise RuntimeError("Peer connection did not produce local description.")
-            LOGGER.info(
-                "Created WebRTC answer with %s.",
+            logger.info(
+                "Created WebRTC answer with {}.",
                 _summarize_sdp_candidates(local_description.sdp),
             )
             return {"sdp": local_description.sdp, "type": local_description.type}
         except Exception:
-            LOGGER.exception("WebRTC negotiation failed while creating an answer.")
+            logger.exception("WebRTC negotiation failed while creating an answer.")
             await managed_session.close()
             self._active_session = None
             raise
@@ -731,7 +730,7 @@ class AlpadreamsWebRTCSessionManager:
             create_answer=self._create_loopback_warmup_answer,
             close_active_session=self.close_active_session,
             label="Alpadreams WebRTC",
-            logger=LOGGER,
+            logger=logger,
         )
 
     async def _create_loopback_warmup_answer(
@@ -847,11 +846,11 @@ class AlpadreamsWebRTCSessionManager:
         resampler = managed_session.resampler
         video_track = managed_session.video_track
 
-        LOGGER.info("Generation worker idle; waiting for first WSAD action.")
+        logger.info("Generation worker idle; waiting for first WSAD action.")
         try:
             await managed_session.first_action_received.wait()
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled before first action.")
+            logger.info("Generation worker cancelled before first action.")
             raise
         if managed_session.closed:
             return
@@ -862,7 +861,7 @@ class AlpadreamsWebRTCSessionManager:
                 try:
                     num_frames = runtime.peek_next_chunk_num_frames()
                 except AlpadreamsRuntimeError:
-                    LOGGER.exception("Runtime not ready; stopping generation worker.")
+                    logger.exception("Runtime not ready; stopping generation worker.")
                     return
                 chunk_duration = num_frames * resampler.dt
                 trigger_wall = resampler.next_chunk_start_v + chunk_duration
@@ -893,7 +892,7 @@ class AlpadreamsWebRTCSessionManager:
                         segments=segments, frame_times=frame_times
                     )
                 except Exception as exc:
-                    LOGGER.exception("Chunk generation failed; closing session.")
+                    logger.exception("Chunk generation failed; closing session.")
                     channel = managed_session.control_channel
                     if channel is not None:
                         self._send_json(channel, {"type": "error", "message": str(exc)})
@@ -912,10 +911,10 @@ class AlpadreamsWebRTCSessionManager:
                     if consumed_action_arrivals
                     else None
                 )
-                LOGGER.info(
-                    "Chunk done chunk=%s num_frames=%s segments=%d "
-                    "enqueued=%s gen_ms=%.1f enqueue_ms=%.1f play_ms=%.1f "
-                    "queue_depth=%d lag_ms=%.1f",
+                logger.info(
+                    "Chunk done chunk={} num_frames={} segments={} "
+                    "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
+                    "queue_depth={} lag_ms={:.1f}",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
@@ -955,7 +954,7 @@ class AlpadreamsWebRTCSessionManager:
                         payload["consumed_actions"] = len(consumed_action_arrivals)
                     self._send_json(channel, payload)
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled.")
+            logger.info("Generation worker cancelled.")
             raise
 
     @staticmethod

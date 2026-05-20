@@ -18,20 +18,22 @@ from alpadreams.webrtc.session import (
     AlpadreamsRuntimeConfig,
     AlpadreamsWebRTCSessionManager,
 )
+from loguru import logger
 
-from flashdreams.core.distributed import init as distributed_init
+from flashdreams.core.distributed import (
+    configure_loguru_for_distributed,
+)
+from flashdreams.core.distributed import (
+    init as distributed_init,
+)
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.server import create_webrtc_app
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
-LOGGER = logging.getLogger(__name__)
 
 
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+def configure_logging(*, world_rank: int | None = None) -> None:
+    configure_loguru_for_distributed(world_rank=world_rank)
     for logger_name in ("aioice", "aioice.ice", "aiortc"):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
@@ -162,8 +164,9 @@ def initialize_distributed(
             torch_device = torch.device("cuda:0")
     torch.cuda.set_device(torch_device)
 
-    LOGGER.info(
-        "Rank %s initialized Alpadreams runtime with context_parallel_size %s",
+    configure_logging(world_rank=world_rank)
+    logger.info(
+        "Rank {} initialized Alpadreams runtime with context_parallel_size {}",
         world_rank,
         world_size,
     )
@@ -192,7 +195,7 @@ def main() -> None:
     session_manager = AlpadreamsWebRTCSessionManager(runtime_config=runtime_config)
     if world_rank == 0:
         app = create_app(session_manager=session_manager)
-        print(f"Starting on external IP: {get_external_ip()}")
+        logger.info("Starting on external IP: {}", get_external_ip())
         try:
             web.run_app(app, host=args.host, port=args.port)
         finally:
@@ -201,7 +204,7 @@ def main() -> None:
         try:
             session_manager.wait_for_termination()
         except KeyboardInterrupt:
-            LOGGER.warning("Worker rank interrupted, shutting down.")
+            logger.warning("Worker rank interrupted, shutting down.")
 
     gc.collect()
     if torch.cuda.is_available():
