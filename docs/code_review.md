@@ -158,7 +158,9 @@ Follow NVIDIA's coordinated disclosure process at
 
 ## What this looks like from a contributor's perspective
 
-You don't need to think about most of this when opening a PR:
+Here's what to expect when you open a pull request — the
+mechanics are straightforward, and you'll see each step on the
+PR page as it happens:
 
 1. Fork, branch, code, sign off, push, open a PR — same flow as in
    [`CONTRIBUTING.md` → Submitting a pull request](../CONTRIBUTING.md#submitting-a-pull-request).
@@ -183,8 +185,14 @@ governance opens up over time (see
 [`CONTRIBUTING.md` → Project governance](../CONTRIBUTING.md#project-governance)).
 Contributors — NVIDIA employee or not — who consistently land
 high-quality work in an area, participate in reviews, and engage
-with the issue tracker can be invited onto the relevant CODEOWNERS
-team.
+with the issue tracker can be invited to become code owners.
+CODEOWNERS supports two ways to be listed: team references such as
+`@NVIDIA/flashdreams-integrations`, and individual GitHub handles
+such as `@username`. The `@NVIDIA/*` teams require NVIDIA
+organization membership, so contributors outside NVIDIA are
+recognised by adding their individual handle to the relevant
+CODEOWNERS rule — they still count as required reviewers for the
+paths they own.
 
 There is no fixed time bar; we look for sustained good judgment
 about when to ship, when to push back, and when to ask for help. If
@@ -201,10 +209,9 @@ Branch protection on `main` is configured so that:
 
 If an operational situation genuinely requires an exception — for
 example, an emergency security patch where the usual reviewer is
-unavailable — the exception must be documented as an issue or
-incident record, approved by the security team in writing, and the
-audit trail retained. We have not needed to use this path, and we
-would prefer to keep it that way.
+unavailable — the exception must be documented as an issue and the
+audit trail of the incident retained. We have not needed to use
+this path, and we would prefer to keep it that way.
 
 ## Security review checklist
 
