@@ -390,7 +390,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">TypedDict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">TypedDict</span><span class="p">,</span> <span class="n">get_args</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -400,7 +400,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.checkpoint.load</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.io.internal</span><span class="w"> </span><span class="kn">import</span> <span class="n">use_internal_storage</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.compile</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_module</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.cuda_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CUDAGraphWrapper</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.cuda_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">CUDAGraphWrapper</span><span class="p">,</span> <span class="n">set_or_copy</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">DecoderConfig</span><span class="p">,</span>
     <span class="n">StreamingDecoderCache</span><span class="p">,</span>
@@ -431,22 +431,6 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="n">CACHE_T</span> <span class="o">=</span> <span class="mi">2</span>
 <span class="n">TEMPORAL_WINDOW</span> <span class="o">=</span> <span class="mi">4</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_set_or_copy</span><span class="p">(</span>
-    <span class="n">state</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">new_value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write ``new_value`` into ``state[key]``, preserving the storage pointer.</span>
-
-<span class="sd">    In-place ``copy_`` once the slot exists at the matching shape, else</span>
-<span class="sd">    allocate a fresh clone. Pointer stability is required for CUDA-graph</span>
-<span class="sd">    capture, since captured kernels reference the slot&#39;s storage address.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">cur</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">cur</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">cur</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">new_value</span><span class="o">.</span><span class="n">shape</span><span class="p">:</span>
-        <span class="n">cur</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">new_value</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">state</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_value</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
 
 
 <span class="n">_LATENT_MEAN</span> <span class="o">=</span> <span class="p">(</span>
@@ -504,15 +488,35 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-block decoder cache.&quot;&quot;&quot;</span>
 
 
+<span class="c1"># Forwarded verbatim to ``F.pad(mode=...)``; using its names avoids a</span>
+<span class="c1"># translation step and keeps a single source of truth for the runtime</span>
+<span class="c1"># check below (``get_args(PadMode)``) and the static type.</span>
+<span class="n">PadMode</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;constant&quot;</span><span class="p">,</span> <span class="s2">&quot;replicate&quot;</span><span class="p">]</span>
+
+
 <span class="k">class</span><span class="w"> </span><span class="nc">CausalConv3d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv3d</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;3D conv with causal time padding and a streaming left-context slot.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;3D conv with causal time padding and a streaming left-context slot.</span>
+
+<span class="sd">    ``pad_mode`` matches ``F.pad`` mode names:</span>
+
+<span class="sd">    - ``&quot;constant&quot;`` (default; Wan VAE): zero-pad spatial + temporal halos.</span>
+<span class="sd">    - ``&quot;replicate&quot;`` (FlashVSR projector): replicate-pad both halos. The</span>
+<span class="sd">      FlashVSR projector relies on this so the cold-start chunk&#39;s first</span>
+<span class="sd">      frames remain bounded at the activation level.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="c1"># Concrete attribute types so callers don&#39;t see ``Tensor | Module``.</span>
     <span class="n">_spatial_pad</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span>
     <span class="n">_has_spatial_pad</span><span class="p">:</span> <span class="nb">bool</span>
     <span class="n">_time_pad</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">_pad_mode</span><span class="p">:</span> <span class="n">PadMode</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">,</span>
+        <span class="n">pad_mode</span><span class="p">:</span> <span class="n">PadMode</span> <span class="o">=</span> <span class="s2">&quot;constant&quot;</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="c1"># ``nn.Conv3d.padding`` is typed as the ``Union[int, _size, str]``</span>
         <span class="c1"># that the constructor accepts; narrow once here so the rest of</span>
@@ -524,6 +528,10 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">_spatial_pad</span> <span class="o">=</span> <span class="p">(</span><span class="n">pw</span><span class="p">,</span> <span class="n">pw</span><span class="p">,</span> <span class="n">ph</span><span class="p">,</span> <span class="n">ph</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_has_spatial_pad</span> <span class="o">=</span> <span class="n">ph</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">pw</span> <span class="o">&gt;</span> <span class="mi">0</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_time_pad</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">pad_mode</span> <span class="ow">in</span> <span class="n">get_args</span><span class="p">(</span><span class="n">PadMode</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;CausalConv3d pad_mode must be one of </span><span class="si">{</span><span class="n">get_args</span><span class="p">(</span><span class="n">PadMode</span><span class="p">)</span><span class="si">}</span><span class="s2">; got </span><span class="si">{</span><span class="n">pad_mode</span><span class="si">!r}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pad_mode</span> <span class="o">=</span> <span class="n">pad_mode</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
@@ -534,7 +542,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">prev</span><span class="p">,</span> <span class="n">x</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
             <span class="n">time_pad</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">time_pad</span> <span class="o">-</span> <span class="n">prev</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
         <span class="k">if</span> <span class="n">time_pad</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_has_spatial_pad</span><span class="p">:</span>
-            <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_spatial_pad</span><span class="p">,</span> <span class="n">time_pad</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_spatial_pad</span><span class="p">,</span> <span class="n">time_pad</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_pad_mode</span><span class="p">)</span>
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">cache_step</span><span class="p">(</span>
@@ -551,24 +559,41 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">new_tail</span> <span class="o">=</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="n">CACHE_T</span><span class="p">:]</span>
         <span class="k">if</span> <span class="n">new_tail</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">CACHE_T</span> <span class="ow">and</span> <span class="n">prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">new_tail</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">prev</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">:],</span> <span class="n">new_tail</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-        <span class="n">_set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">new_tail</span><span class="p">)</span>
+        <span class="n">set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">new_tail</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">out</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">RMS_norm</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;RMS-normalisation with a learnable channel scale (no bias).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;RMS-normalisation with a learnable channel scale and optional bias.</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">channel_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">images</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+<span class="sd">    ``bias=False`` (default; Wan VAE) keeps the parameter count at one</span>
+<span class="sd">    learnable scale per channel. ``bias=True`` adds a matching learnable</span>
+<span class="sd">    offset (FlashVSR projector convention).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">channel_first</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">images</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="n">broadcast</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">images</span> <span class="k">else</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
         <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="o">*</span><span class="n">broadcast</span><span class="p">)</span> <span class="k">if</span> <span class="n">channel_first</span> <span class="k">else</span> <span class="p">(</span><span class="n">dim</span><span class="p">,)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">channel_first</span> <span class="o">=</span> <span class="n">channel_first</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">dim</span><span class="o">**</span><span class="mf">0.5</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">shape</span><span class="p">))</span>
+        <span class="c1"># Sentinel scalar zero when no bias is requested -- avoids a</span>
+        <span class="c1"># branch in ``forward`` and lets ``self.bias`` be a tensor or a</span>
+        <span class="c1"># Python float without changing the call site.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="p">))</span> <span class="k">if</span> <span class="n">bias</span> <span class="k">else</span> <span class="mf">0.0</span>
+        <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="n">dim</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel_first</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span>
-        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_bt_flatten</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -640,7 +665,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="c1"># Steady-state body: in-place write to the existing slot.</span>
             <span class="n">x_up</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_interleave_time</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">time_conv</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">prev</span><span class="p">),</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span>
-            <span class="n">_set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="n">CACHE_T</span><span class="p">:])</span>
+            <span class="n">set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="n">CACHE_T</span><span class="p">:])</span>
             <span class="k">return</span> <span class="n">x_up</span>
 
         <span class="c1"># Eager first-chunk path (shape varies, never captured).</span>
@@ -664,7 +689,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">new_tail</span> <span class="o">=</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">:]</span>
         <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_conv</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">prev</span><span class="p">,</span> <span class="n">x</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
-        <span class="n">_set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">new_tail</span><span class="p">)</span>
+        <span class="n">set_or_copy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">new_tail</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">x</span>
 
     <span class="nd">@staticmethod</span>
