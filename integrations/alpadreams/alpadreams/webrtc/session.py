@@ -20,8 +20,7 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
-from aiortc import RTCPeerConnection, RTCSessionDescription
-from aiortc.mediastreams import MediaStreamError
+from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from alpadreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
     AlpadreamsConditioningState,
@@ -46,6 +45,10 @@ from flashdreams.serving.webrtc.controls import (
 )
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.serving.webrtc.warmup import (
+    run_loopback_warmup_session,
+    wait_for_ice_gathering_complete,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 LOGGER = logging.getLogger(__name__)
@@ -619,7 +622,11 @@ class AlpadreamsWebRTCSessionManager:
             )
 
     async def _create_answer_with_runtime_ready_locked(
-        self, *, offer_sdp: str, offer_type: str
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+        rtc_configuration: RTCConfiguration | None = None,
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
             raise SessionBusyError("An Alpadreams session is already active.")
@@ -628,7 +635,7 @@ class AlpadreamsWebRTCSessionManager:
 
         await self._runtime.reset_for_new_session()
 
-        peer_connection = RTCPeerConnection()
+        peer_connection = RTCPeerConnection(rtc_configuration)
         num_frames = self._runtime.peek_steady_chunk_num_frames()
         video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
         peer_connection.addTrack(video_track)
@@ -700,7 +707,7 @@ class AlpadreamsWebRTCSessionManager:
             await peer_connection.setRemoteDescription(offer)
             answer = await peer_connection.createAnswer()
             await peer_connection.setLocalDescription(answer)
-            await self._wait_for_ice_gathering_complete(peer_connection)
+            await wait_for_ice_gathering_complete(peer_connection)
             local_description = peer_connection.localDescription
             if local_description is None:
                 raise RuntimeError("Peer connection did not produce local description.")
@@ -716,124 +723,26 @@ class AlpadreamsWebRTCSessionManager:
             raise
 
     async def _run_loopback_warmup_session(self, *, num_chunks: int) -> None:
-        if num_chunks < 0:
-            raise ValueError("num_chunks must be >= 0")
-        if num_chunks == 0:
-            return
         if not self._runtime_ready:
             raise AlpadreamsRuntimeError("Runtime is not initialized.")
-
-        LOGGER.info(
-            "Starting Alpadreams WebRTC loopback warmup with %s chunk(s).",
-            num_chunks,
+        await run_loopback_warmup_session(
+            num_chunks=num_chunks,
+            warmup_timeout_s=self.runtime_config.warmup_timeout_s,
+            create_answer=self._create_loopback_warmup_answer,
+            close_active_session=self.close_active_session,
+            label="Alpadreams WebRTC",
+            logger=LOGGER,
         )
-        client_peer = RTCPeerConnection()
-        control_channel = client_peer.createDataChannel("controls", ordered=True)
-        client_peer.addTransceiver("video", direction="recvonly")
-        channel_open = asyncio.Event()
-        warmup_done = asyncio.Event()
-        received_chunks = 0
-        drain_tasks: set[asyncio.Task[Any]] = set()
 
-        @control_channel.on("open")
-        def on_open() -> None:
-            channel_open.set()
-
-        @control_channel.on("message")
-        def on_message(message: Any) -> None:
-            nonlocal received_chunks
-            if not isinstance(message, str):
-                return
-            try:
-                payload = json.loads(message)
-            except json.JSONDecodeError:
-                return
-            if not isinstance(payload, dict) or payload.get("type") != "chunk_done":
-                return
-            received_chunks += 1
-            LOGGER.info(
-                "Loopback warmup chunk done chunk=%s num_frames=%s",
-                payload.get("chunk_index"),
-                payload.get("num_frames"),
+    async def _create_loopback_warmup_answer(
+        self, *, offer_sdp: str, offer_type: str
+    ) -> dict[str, str]:
+        async with self._session_lock:
+            return await self._create_answer_with_runtime_ready_locked(
+                offer_sdp=offer_sdp,
+                offer_type=offer_type,
+                rtc_configuration=RTCConfiguration(iceServers=[]),
             )
-            if received_chunks >= num_chunks:
-                warmup_done.set()
-
-        @client_peer.on("track")
-        def on_track(track: Any) -> None:
-            drain_tasks.add(asyncio.create_task(self._drain_loopback_track(track)))
-
-        try:
-            offer = await client_peer.createOffer()
-            await client_peer.setLocalDescription(offer)
-            await self._wait_for_ice_gathering_complete(client_peer)
-            local_description = client_peer.localDescription
-            if local_description is None:
-                raise RuntimeError("Loopback peer did not produce local description.")
-
-            async with self._session_lock:
-                answer_payload = await self._create_answer_with_runtime_ready_locked(
-                    offer_sdp=local_description.sdp,
-                    offer_type=local_description.type,
-                )
-            await client_peer.setRemoteDescription(
-                RTCSessionDescription(
-                    sdp=answer_payload["sdp"],
-                    type=answer_payload["type"],
-                )
-            )
-
-            await asyncio.wait_for(channel_open.wait(), timeout=15.0)
-            LOGGER.info("Loopback warmup data channel open; sending fake WSAD inputs.")
-            control_channel.send(
-                json.dumps(
-                    {"type": "action", "action": {"event": "keydown", "key": "w"}}
-                )
-            )
-            control_channel.send(
-                json.dumps(
-                    {"type": "action", "action": {"event": "keydown", "key": "d"}}
-                )
-            )
-            await asyncio.wait_for(
-                warmup_done.wait(), timeout=self.runtime_config.warmup_timeout_s
-            )
-        finally:
-            await client_peer.close()
-            for task in drain_tasks:
-                task.cancel()
-            for task in drain_tasks:
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-            await self.close_active_session()
-        LOGGER.info("Alpadreams WebRTC loopback warmup complete.")
-
-    @staticmethod
-    async def _wait_for_ice_gathering_complete(peer_connection: Any) -> None:
-        if peer_connection.iceGatheringState == "complete":
-            return
-        ice_complete = asyncio.Event()
-
-        @peer_connection.on("icegatheringstatechange")
-        def on_icegatheringstatechange() -> None:
-            if peer_connection.iceGatheringState == "complete":
-                ice_complete.set()
-
-        if peer_connection.iceGatheringState == "complete":
-            ice_complete.set()
-        await asyncio.wait_for(ice_complete.wait(), timeout=15.0)
-
-    @staticmethod
-    async def _drain_loopback_track(track: Any) -> None:
-        try:
-            while True:
-                await track.recv()
-        except MediaStreamError:
-            return
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            LOGGER.debug("Loopback warmup video drain stopped.", exc_info=True)
 
     async def close_active_session(self) -> None:
         async with self._session_lock:

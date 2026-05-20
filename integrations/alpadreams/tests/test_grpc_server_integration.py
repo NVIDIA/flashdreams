@@ -177,6 +177,15 @@ def test_grpc_server_start_render_close_roundtrip(
 
     server_env = os.environ.copy()
     server_env["PYTHONUNBUFFERED"] = "1"
+    pythonpath_entries = [
+        str(REPO_ROOT / "flashdreams"),
+        str(REPO_ROOT / "integrations" / "alpadreams"),
+        str(REPO_ROOT / "integrations" / "alpadreams" / "ludus-renderer"),
+    ]
+    existing_pythonpath = server_env.get("PYTHONPATH")
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+    server_env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
 
     with log_path.open("w", encoding="utf-8") as log_file:
         process = subprocess.Popen(

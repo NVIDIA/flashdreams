@@ -63,6 +63,18 @@ def parse_args() -> argparse.Namespace:
         default="cuda:0",
         help="Torch device used for the Lingbot runtime.",
     )
+    parser.add_argument(
+        "--warmup_chunks",
+        type=int,
+        default=10,
+        help="Number of synthetic startup chunks to generate for kernel autotuning.",
+    )
+    parser.add_argument(
+        "--warmup_timeout_s",
+        type=float,
+        default=600.0,
+        help="Maximum seconds to wait for synthetic startup warmup chunks.",
+    )
     return parser.parse_args()
 
 
@@ -89,6 +101,8 @@ def build_runtime_config(
         compile_network=not args.no_compile,
         context_parallel_size=context_parallel_size,
         device=device_override or args.device,
+        warmup_chunks=args.warmup_chunks,
+        warmup_timeout_s=args.warmup_timeout_s,
     )
 
 
