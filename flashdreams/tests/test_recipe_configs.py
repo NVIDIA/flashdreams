@@ -87,7 +87,7 @@ def test_runner_name_mirrors_pipeline_recipe_name() -> None:
     drifted = {
         key: (cfg.runner_name, cfg.pipeline.recipe_name)
         for key, cfg in supported_runners().items()
-        if cfg.runner_name != cfg.pipeline.recipe_name
+        if cfg.pipeline is not None and cfg.runner_name != cfg.pipeline.recipe_name
     }
     assert not drifted, f"runner_name != pipeline.recipe_name (CLI contract): {drifted}"
 

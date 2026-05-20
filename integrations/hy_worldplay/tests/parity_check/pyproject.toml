@@ -1,0 +1,102 @@
+[project]
+name = "hy-worldplay-parity-check"
+version = "0.0.0"
+description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark AND the in-tree plugin CLI."
+# Match flashdreams' supported Python range exactly (it pins 3.12).
+requires-python = ">=3.12,<3.13"
+
+# This sub-venv has *two* jobs and we deliberately collapse them onto
+# the same dep set:
+#   1. Run upstream's ``wan/generate.py`` end-to-end for the parity
+#      baseline (the historical reason this sub-venv exists, mirroring
+#      the ``self_forcing/tests/parity_check`` layout).
+#   2. Run the in-tree plugin --
+#      ``flashdreams-run hy-worldplay-wan-i2v-5b`` -- against the same
+#      dep stack so the parity comparison stays apples-to-apples and so
+#      the heavyweight upstream deps stay out of the repo-root
+#      ``uv.lock``.
+#
+# The plugin workspace member (``flashdreams-hy-worldplay``) only
+# carries the lightweight config / runner shim, so installing it here
+# adds the ``hy_worldplay`` import path without re-resolving anything
+# heavy.
+#
+# flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
+# numpy, tqdm, safetensors, etc. HY-WorldPlay's WAN pipeline only needs a
+# handful of extras layered on top. Transitive deps come along via these
+# top-level entries.
+#
+# Notable upstream dependencies pulled in here:
+#   * diffusers              -- WanPipeline base + AutoencoderKLWan + scheduler
+#   * sageattention          -- "Required for the WAN pipeline" per
+#                               HY-WorldPlay/README.md (top-level import in
+#                               wan/models/dits/arwan_w_action_w_mem_relative_rope.py).
+#                               Wheels ship on PyPI; for non-PyPI-supported
+#                               GPU SMs (e.g. very new Blackwell sm_120),
+#                               build from source per upstream's README.
+#   * cloudpickle / filelock / pyyaml / remote-pdb
+#                            -- top-level imports in wan/utils.py (vendored
+#                               from vLLM's utils module).
+#   * scipy                  -- camera trajectory math (Rotation, etc.)
+#   * moviepy                -- generate.py uses VideoFileClip / VideoClip for
+#                               the optional WASD overlay
+#   * imageio[ffmpeg]        -- export_to_video MP4 writer backend
+#   * opencv-python-headless -- image preprocessing in upstream's pipeline
+#   * easydict / lmdb        -- transitively required by upstream's hyvideo/
+dependencies = [
+    "flashdreams",
+    # Plugin workspace member -- adds the ``hy_worldplay`` import path
+    # and registers the ``flashdreams.runner_configs`` entry-point so
+    # ``flashdreams-run hy-worldplay-wan-i2v-5b`` works from inside
+    # this venv without any extra ``uv pip install`` step. Wired in
+    # via the path source below.
+    "flashdreams-hy-worldplay",
+    # Pinned to match the flashdreams root ``uv.lock`` (currently 2.11.0+cu130).
+    # *Must* stay in lockstep with whatever the flashdreams main venv resolves
+    # to -- otherwise the parity venv ends up on a different cuBLAS / cuDNN /
+    # bf16 reduction path and the upstream baseline drifts from the plugin
+    # output despite both being bit-exact within their own venv.
+    # See ``integrations/hy_worldplay/README.md`` "Parity caveats" for the
+    # diagnostic that surfaced this (torch 2.11 vs 2.12 -> mean |Δ| ≈ 5/255).
+    # Bump this in lockstep with ``flashdreams/uv.lock``.
+    "torch==2.11.*",
+    # ``accelerate`` is required for diffusers' ``low_cpu_mem_usage=True``
+    # path, which is the only loading mode compatible with the Wan VAE's
+    # ``keep_in_fp32_modules=True``. Upstream pulls this in via the
+    # ``transformers[accelerate,tiktoken]`` extra; we pin it explicitly so
+    # bumping transformers later doesn't silently drop it.
+    "accelerate>=0.30",
+    "cloudpickle",
+    "diffusers>=0.34",
+    "easydict",
+    "filelock",
+    "imageio[ffmpeg]>=2.31",
+    "lmdb",
+    "loguru>=0.7",
+    "moviepy>=1.0,<2",
+    "numpy>=1.24",
+    "omegaconf",
+    "opencv-python-headless",
+    "pillow",
+    "pyyaml",
+    "regex",
+    "remote-pdb",
+    "safetensors>=0.4",
+    "sageattention",
+    "scipy>=1.11",
+    "tqdm>=4.60",
+    "transformers==4.57.6",
+    "ftfy>=6.0",
+    "einops>=0.7",
+]
+
+[tool.uv.sources]
+# Neither package is on PyPI; install both from the local source tree.
+# Paths are relative to this directory:
+#   flashdreams              -> ../../../../flashdreams
+#   flashdreams-hy-worldplay -> ../..   (i.e. integrations/hy_worldplay)
+# The workspace member declares ``flashdreams = { workspace = true }`` in
+# its own pyproject; the top-level path source here takes precedence in
+# this resolution context (which is *outside* the flashdreams workspace).
+flashdreams = { path = "../../../../flashdreams", editable = true }
+flashdreams-hy-worldplay = { path = "../..", editable = true }
