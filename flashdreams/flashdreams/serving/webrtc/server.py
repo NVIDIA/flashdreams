@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-import socket
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -28,15 +27,6 @@ class WebRTCSessionManager(Protocol):
 
 
 SESSION_MANAGER_KEY = web.AppKey("session_manager", WebRTCSessionManager)
-
-
-def get_external_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
 
 
 def create_webrtc_app(

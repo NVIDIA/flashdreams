@@ -20,7 +20,8 @@ from alpadreams.webrtc.session import (
 )
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.serving.webrtc.server import create_webrtc_app, get_external_ip
+from flashdreams.serving.network import get_external_ip
+from flashdreams.serving.webrtc.server import create_webrtc_app
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 LOGGER = logging.getLogger(__name__)
@@ -63,8 +64,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--warmup_chunks",
         type=int,
-        default=2,
+        default=10,
         help="Number of synthetic startup chunks to generate for kernel autotuning.",
+    )
+    parser.add_argument(
+        "--warmup_timeout_s",
+        type=float,
+        default=600.0,
+        help="Maximum seconds to wait for synthetic startup warmup chunks.",
     )
     parser.add_argument(
         "--camera_name",
@@ -101,6 +108,7 @@ def build_runtime_config(
         fps=args.fps,
         camera_name=args.camera_name,
         warmup_chunks=args.warmup_chunks,
+        warmup_timeout_s=args.warmup_timeout_s,
     )
 
 

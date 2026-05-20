@@ -10,10 +10,11 @@ import logging
 import os
 import tempfile
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 import cv2
 import numpy as np
@@ -48,6 +49,7 @@ from flashdreams.serving.webrtc.server import SessionBusyError
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 def _summarize_sdp_candidates(sdp: str) -> str:
@@ -113,7 +115,8 @@ class AlpadreamsRuntimeConfig:
     clipgt_dirname: str = "clipgt"
     move_speed_per_s: float = 6.0
     rotate_speed_rad_per_s: float = float(np.deg2rad(35.0))
-    warmup_chunks: int = 2
+    warmup_chunks: int = 10
+    warmup_timeout_s: float = 600.0
 
 
 @dataclass(slots=True)
@@ -158,6 +161,10 @@ class AlpadreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="alpadreams-webrtc-runtime",
+        )
 
         self._step_lock = asyncio.Lock()
         self.rank_coordinator = RankCoordinator(
@@ -182,18 +189,21 @@ class AlpadreamsInferenceRuntime:
     async def initialize(self) -> None:
         if self._wrapper is not None:
             return
-        await asyncio.to_thread(self._initialize_sync_all_ranks)
+        await self._run_on_runtime_thread(self._initialize_sync_all_ranks)
 
     async def reset_for_new_session(self) -> None:
         if self._closed:
             raise AlpadreamsRuntimeError("Runtime is closed.")
         if self._wrapper is None:
             raise AlpadreamsRuntimeError("Runtime is not initialized.")
-        await asyncio.to_thread(self._reset_rollout_sync_all_ranks)
+        await self._run_on_runtime_thread(self._reset_rollout_sync_all_ranks)
 
     async def close(self) -> None:
         self._closed = True
-        await asyncio.to_thread(self._close_sync_all_ranks)
+        try:
+            await self._run_on_runtime_thread(self._close_sync_all_ranks)
+        finally:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     async def generate_chunk(
         self,
@@ -209,9 +219,42 @@ class AlpadreamsInferenceRuntime:
         async with self._step_lock:
             if self._closed:
                 raise AlpadreamsRuntimeError("Session is closed.")
-            return await asyncio.to_thread(
-                self._generate_chunk_sync_all_ranks, segments, frame_times
+            return await self._run_on_runtime_thread(
+                self._generate_chunk_sync_all_ranks,
+                segments,
+                frame_times,
             )
+
+    async def _run_on_runtime_thread(
+        self,
+        func: Callable[..., _T],
+        *args: Any,
+    ) -> _T:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._runtime_thread_entry,
+            func,
+            args,
+        )
+
+    def _runtime_thread_entry(
+        self,
+        func: Callable[..., _T],
+        args: tuple[Any, ...],
+    ) -> _T:
+        device = self._device
+        if device is None:
+            device = torch.device(self.config.device)
+            if device.type == "cuda" and device.index is None:
+                device = torch.device(
+                    f"cuda:{torch.cuda.current_device()}"
+                    if torch.cuda.is_available()
+                    else "cuda:0"
+                )
+        if device.type == "cuda":
+            torch.cuda.set_device(device)
+        return func(*args)
 
     def peek_next_chunk_num_frames(self) -> int:
         if self._wrapper is None:
@@ -503,11 +546,16 @@ class _ManagedAlpadreamsSession:
             return
         self.closed = True
 
-        if self.generation_task is not None and not self.generation_task.done():
+        current_task = asyncio.current_task()
+        if (
+            self.generation_task is not None
+            and self.generation_task is not current_task
+            and not self.generation_task.done()
+        ):
             self.generation_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.generation_task
-            self.generation_task = None
+        self.generation_task = None
 
         await self.video_track.close()
         await self.peer_connection.close()
@@ -737,7 +785,9 @@ class AlpadreamsWebRTCSessionManager:
                     {"type": "action", "action": {"event": "keydown", "key": "d"}}
                 )
             )
-            await asyncio.wait_for(warmup_done.wait(), timeout=120.0)
+            await asyncio.wait_for(
+                warmup_done.wait(), timeout=self.runtime_config.warmup_timeout_s
+            )
         finally:
             await client_peer.close()
             for task in drain_tasks:
@@ -924,11 +974,12 @@ class AlpadreamsWebRTCSessionManager:
                         segments=segments, frame_times=frame_times
                     )
                 except Exception as exc:
-                    LOGGER.exception("Chunk generation failed.")
+                    LOGGER.exception("Chunk generation failed; closing session.")
                     channel = managed_session.control_channel
                     if channel is not None:
                         self._send_json(channel, {"type": "error", "message": str(exc)})
-                    continue
+                    await self.close_active_session()
+                    return
                 t_after_gen = loop.time()
                 enqueued = await video_track.enqueue_chunk(result.video_chunk)
                 t_after_enqueue = loop.time()

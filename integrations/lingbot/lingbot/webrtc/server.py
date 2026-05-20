@@ -26,7 +26,8 @@ import torch.distributed as dist
 from aiohttp import web
 
 from flashdreams.core.distributed import init as distributed_init
-from flashdreams.serving.webrtc.server import create_webrtc_app, get_external_ip
+from flashdreams.serving.network import get_external_ip
+from flashdreams.serving.webrtc.server import create_webrtc_app
 from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,

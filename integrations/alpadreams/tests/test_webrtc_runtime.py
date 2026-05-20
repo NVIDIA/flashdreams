@@ -248,3 +248,92 @@ async def test_loopback_warmup_drives_session_generation(
     assert fake_runtime.reset_calls == 1
     assert len(fake_runtime.generated_segments) == 2
     assert not manager.has_active_session()
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_closes_session_after_generation_failure() -> None:
+    class _FailingRuntime:
+        def __init__(self) -> None:
+            self.generate_calls = 0
+
+        def peek_next_chunk_num_frames(self) -> int:
+            return 1
+
+        async def generate_chunk(
+            self,
+            *,
+            segments: list[tuple[float, float, frozenset[str]]],
+            frame_times: list[float],
+        ) -> AlpadreamsStepResult:
+            del segments, frame_times
+            self.generate_calls += 1
+            raise RuntimeError("boom")
+
+    class _FakeResampler:
+        dt = 0.0
+        next_chunk_start_v = 0.0
+
+        def sample_chunk(
+            self, num_frames: int
+        ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+            assert num_frames == 1
+            return [(0.0, 0.0, frozenset({"w"}))], [0.0]
+
+    class _FakeVideoTrack:
+        fps = 30
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+        def qsize(self) -> int:
+            return 0
+
+    class _FakePeerConnection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class _FakeChannel:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    manager = AlpadreamsWebRTCSessionManager(
+        runtime_config=AlpadreamsRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FailingRuntime()
+    video_track = _FakeVideoTrack()
+    peer_connection = _FakePeerConnection()
+    control_channel = _FakeChannel()
+    first_action_received = asyncio.Event()
+    first_action_received.set()
+    managed_session = session._ManagedAlpadreamsSession(
+        runtime=runtime,  # ty:ignore[invalid-argument-type]
+        video_track=video_track,  # ty:ignore[invalid-argument-type]
+        peer_connection=peer_connection,
+        resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
+        control_channel=control_channel,
+        first_action_received=first_action_received,
+    )
+    manager._active_session = managed_session
+
+    task = asyncio.create_task(
+        manager._generation_worker(managed_session=managed_session)
+    )
+    managed_session.generation_task = task
+
+    await task
+
+    assert runtime.generate_calls == 1
+    assert not manager.has_active_session()
+    assert managed_session.closed
+    assert video_track.closed
+    assert peer_connection.closed
+    assert len(control_channel.messages) == 1
