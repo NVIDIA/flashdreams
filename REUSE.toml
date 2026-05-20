@@ -134,3 +134,12 @@ path = "integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright 2024 Jintao Zhang, Haofeng Huang"
 SPDX-License-Identifier = "Apache-2.0"
+
+# --- SpargeAttn source submodule for the OmniDreams single-view integration.
+#     The submodule contents keep their upstream license notices; this
+#     annotation licenses the top-level gitlink tracked by this repository. ---
+[[annotations]]
+path = "integrations/alpadreams/omnidreams_singleview/3rdparty/SpargeAttn"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2025 Jintao Zhang, Chendong Xiang, Haofeng Huang"
+SPDX-License-Identifier = "Apache-2.0"

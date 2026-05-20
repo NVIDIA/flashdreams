@@ -4,3 +4,6 @@
 [submodule "integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention"]
 	path = integrations/alpadreams/omnidreams_singleview/3rdparty/SageAttention
 	url = https://github.com/thu-ml/SageAttention.git
+[submodule "integrations/alpadreams/omnidreams_singleview/3rdparty/SpargeAttn"]
+	path = integrations/alpadreams/omnidreams_singleview/3rdparty/SpargeAttn
+	url = https://github.com/thu-ml/SpargeAttn.git
