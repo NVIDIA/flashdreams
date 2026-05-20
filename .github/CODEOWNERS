@@ -14,9 +14,9 @@
 #   @NVIDIA/flashdreams-integrations — per-recipe maintainers under
 #                                      integrations/. Maintainers can
 #                                      also review here.
-#   @NVIDIA/flashdreams-security     — sole or additional approver on
-#                                      licensing and dependency-manifest
-#                                      files.
+#   @NVIDIA/flashdreams-security     — sole or alternate approver on
+#                                      licensing, attribution, and
+#                                      dependency-manifest files.
 #
 # Notes:
 #   * GitHub honours one CODEOWNERS file per repository; this is it.
@@ -24,17 +24,17 @@
 #     below. The last matching rule wins, so more specific paths appear
 #     below more general ones.
 #   * When multiple owners are listed on a single rule, GitHub treats
-#     them as alternatives — any *one* of them satisfies the required
-#     review.
-#   * Owners listed here are the project's qualified "+2" reviewers.
-#     They apply the +2 Security Review Checklist on every review (see
-#     docs/code_review.md) and are trained as required by NVIDIA PLC.
-#     Branch protection on `main` requires at least one approving review
-#     from a CODEOWNER for the touched paths.
+#     them as alternatives (OR) — any *one* of them satisfies the
+#     required-review-from-Code-Owners check.
+#   * Owners listed here are the project's qualified code-review
+#     reviewers. They apply the security review checklist in
+#     docs/code_review.md on every review. Branch protection on `main`
+#     requires at least one approving review from a CODEOWNER for the
+#     touched paths.
 #   * External contributors are welcome on every path. CODEOWNERS does
 #     not gate who may *open* a PR — only who must *approve* it.
-#   * The PLC gate cannot be bypassed or waived; any exception requires
-#     a documented audit trail approved by the Security PIC.
+#   * The review requirement cannot be bypassed or waived; any
+#     exception requires a documented audit trail.
 
 # ---------------------------------------------------------------------
 # Default owners
@@ -50,25 +50,36 @@
 /integrations/                          @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-maintainers
 
 # ---------------------------------------------------------------------
-# Security-sensitive files
+# Licensing and attribution
 #
-# These touch Apache-2.0 attribution and the dependency / SBOM surface,
-# and are owned by the security team as sole approver.
+# Apache-2.0 obligations: the project license, per-file SPDX licenses,
+# the NOTICE file, and the REUSE manifest are all security-owned so a
+# trained reviewer signs off on attribution changes.
 # ---------------------------------------------------------------------
 /LICENSE                                @NVIDIA/flashdreams-security
+/LICENSES/                              @NVIDIA/flashdreams-security
+/NOTICE                                 @NVIDIA/flashdreams-security
 /reuse.toml                             @NVIDIA/flashdreams-security
-/uv.lock                                @NVIDIA/flashdreams-security
-/flashdreams/pyproject.toml             @NVIDIA/flashdreams-security
 
 # ---------------------------------------------------------------------
-# Licensing & dependency-manifest files with additional security review
+# Dependency manifests and lockfiles
 #
-# These remain maintainer-owned but require security sign-off too.
+# `pyproject.toml` and `uv.lock` change together (any `uv add`,
+# `uv lock`, or override edit touches both), so they share a single
+# owner. `flashdreams/` and `integrations/*/` are workspace members
+# whose dependencies resolve into the root `uv.lock` — they have no
+# per-package lockfile.
+#
+# Per-integration `pyproject.toml` files keep the integrations team as
+# an alternate owner so recipe-local dep changes don't always need to
+# wait on security.
 # ---------------------------------------------------------------------
-/LICENSES/                              @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
-/NOTICE                                 @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
-/pyproject.toml                         @NVIDIA/flashdreams-maintainers @NVIDIA/flashdreams-security
+/pyproject.toml                         @NVIDIA/flashdreams-security
+/uv.lock                                @NVIDIA/flashdreams-security
+/flashdreams/pyproject.toml             @NVIDIA/flashdreams-security
 /integrations/*/pyproject.toml          @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-security
+/integrations/alpadreams/ludus-renderer/pyproject.toml  @NVIDIA/flashdreams-integrations @NVIDIA/flashdreams-security
+/integrations/alpadreams/ludus-renderer/uv.lock         @NVIDIA/flashdreams-security
 
 # ---------------------------------------------------------------------
 # Review-policy files themselves

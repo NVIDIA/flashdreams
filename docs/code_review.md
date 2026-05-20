@@ -97,8 +97,8 @@ repository.
 |------|-------|-------------|
 | **Default** (core, infra, recipes, plugins, configs, tests, docs, CI, container) | everything not listed below | `@NVIDIA/flashdreams-maintainers` |
 | **Integrations** | `integrations/` (all recipes) | `@NVIDIA/flashdreams-integrations` *or* `@NVIDIA/flashdreams-maintainers` |
-| **Security-sensitive files** | `LICENSE`, `reuse.toml`, `uv.lock`, `flashdreams/pyproject.toml` | `@NVIDIA/flashdreams-security` (sole owner) |
-| **Licensing & dependency manifests with security review** | `LICENSES/`, `NOTICE`, root `pyproject.toml` | `@NVIDIA/flashdreams-maintainers` *or* `@NVIDIA/flashdreams-security` |
+| **Licensing & attribution** | `LICENSE`, `LICENSES/`, `NOTICE`, `reuse.toml` | `@NVIDIA/flashdreams-security` |
+| **Dependency manifests & lockfiles** | `pyproject.toml`, `uv.lock`, `flashdreams/pyproject.toml`, nested `ludus-renderer/{pyproject.toml,uv.lock}` | `@NVIDIA/flashdreams-security` |
 | **Per-integration packaging** | `integrations/*/pyproject.toml` | `@NVIDIA/flashdreams-integrations` *or* `@NVIDIA/flashdreams-security` |
 | **Review-policy files** | `.github/CODEOWNERS`, `docs/code_review.md` | `@NVIDIA/flashdreams-maintainers` *or* `@NVIDIA/flashdreams-security` |
 
