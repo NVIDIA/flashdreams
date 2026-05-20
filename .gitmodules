@@ -1,0 +1,3 @@
+[submodule "integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass"]
+	path = integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass
+	url = https://github.com/NVIDIA/cutlass.git

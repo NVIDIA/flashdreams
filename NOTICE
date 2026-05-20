@@ -111,4 +111,21 @@ redistributed in this repository. The inline notice in lodepng.h
 preserves the upstream copyright notice as required by the Zlib
 license; LICENSES/Zlib.txt reproduces the license text in full.
 
+--------------------------------------------------------------------------------
+CUTLASS
+--------------------------------------------------------------------------------
+
+Path:     integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass/
+License:  BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
+          Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES.
+          All rights reserved.
+Upstream: https://github.com/NVIDIA/cutlass
+Pinned:   f3fde58372d33e9a5650ba7b80fc48b3b49d40c8
+
+CUTLASS is redistributed as a pinned source submodule for native CUDA
+kernels used by the OmniDreams single-view integration. Its upstream
+license notes that files under CUTLASS's python/CuTeDSL subtree are
+subject to separate NVIDIA EULA terms; see the upstream LICENSE.txt for
+details.
+
 ================================================================================

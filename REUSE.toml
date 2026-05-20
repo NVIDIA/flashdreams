@@ -38,6 +38,7 @@ path = [
     ".pre-commit-config.yaml",
     ".pre-commit-config-base.yaml",
     ".gitignore",
+    ".gitmodules",
     ".gitattributes",
     "pyproject.toml",
     "uv.lock",
@@ -115,3 +116,12 @@ path = "integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/fr
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2005-2011 Lode Vandevenne"
 SPDX-License-Identifier = "Zlib"
+
+# --- CUTLASS source submodule for the OmniDreams single-view integration.
+#     The submodule contents keep their upstream license notices; this
+#     annotation licenses the top-level gitlink tracked by this repository. ---
+[[annotations]]
+path = "integrations/alpadreams/omnidreams_singleview/3rdparty/cutlass"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
+SPDX-License-Identifier = "BSD-3-Clause"
