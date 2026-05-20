@@ -644,7 +644,6 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        if not self.config.skip_finalize_kv_cache:
-            super().finalize_kv_cache(*args, **kwargs)
-        else:
-            print("Skipping KV cache finalize")
+        if self.config.skip_finalize_kv_cache:
+            return
+        super().finalize_kv_cache(*args, **kwargs)
