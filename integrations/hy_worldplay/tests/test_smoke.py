@@ -26,6 +26,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from hy_worldplay._vendor_pipeline import (
+    VENDOR_WRAPPER_RECIPE_NAME,
+    _NoopPipeline,
+    _NoopPipelineConfig,
+)
 from hy_worldplay.config import RUNNER_CONFIGS, RUNNER_HY_WORLDPLAY_WAN_I2V_5B
 from hy_worldplay.runner import (
     DEFAULT_NEGATIVE_PROMPT,
@@ -161,13 +166,26 @@ def test_runner_config_is_runner_config_subclass() -> None:
     assert isinstance(RUNNER_HY_WORLDPLAY_WAN_I2V_5B, RunnerConfig)
 
 
-def test_pipeline_is_none() -> None:
-    """Phase-1 wrapper has no flashdreams ``StreamInferencePipeline`` to
-    drive (it delegates to upstream's ``WanRunner.predict()``); the
-    base ``RunnerConfig.pipeline`` field must therefore stay ``None``
-    so ``Runner.__init__`` (when the config is later promoted onto the
-    base ``Runner`` ABC in phase 2b) skips pipeline construction."""
-    assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B.pipeline is None
+def test_pipeline_is_vendor_wrapper_noop() -> None:
+    """Phase-1 ``pipeline`` slot must be the inert :class:`_NoopPipelineConfig`.
+
+    The base :class:`RunnerConfig.pipeline` field is non-optional, so
+    the vendor-wrapper runner pins it to a no-op stand-in instead of a
+    real flashdreams pipeline (upstream's ``WanRunner.predict()`` does
+    all the work). Guards against accidentally swapping in a real
+    :class:`WanInferencePipelineConfig` before the matching recipe
+    lands in :mod:`flashdreams.recipes.wan`.
+    """
+    cfg_pipeline = RUNNER_HY_WORLDPLAY_WAN_I2V_5B.pipeline
+    assert isinstance(cfg_pipeline, _NoopPipelineConfig), (
+        f"expected _NoopPipelineConfig, got {type(cfg_pipeline).__name__}"
+    )
+    assert cfg_pipeline.recipe_name == VENDOR_WRAPPER_RECIPE_NAME
+    # ``cfg.setup()`` must yield the matching no-op pipeline instance --
+    # this is the path ``Runner.__init__`` would take if the runner
+    # were ever promoted onto the base ABC.
+    pipeline = cfg_pipeline.setup()
+    assert isinstance(pipeline, _NoopPipeline)
 
 
 def test_entry_point_registered() -> None:

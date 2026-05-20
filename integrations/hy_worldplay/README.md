@@ -32,11 +32,12 @@ subcommand via the standard `flashdreams.runner_configs` entry-point
 group, just like `self_forcing` / `wan21`. Because the upstream WAN
 pipeline does not slice cleanly into flashdreams'
 `StreamInferencePipeline` 3-stage encode/diffuse/decode interface
-(action + memory + chunked AR + distributed VAE), the runner sets
-`pipeline=None` on its `RunnerConfig` and owns its own `__init__`
-(the base `Runner` skips pipeline construction in that case).
-Promotion onto a real `WanInferencePipeline` is phase 2b (see
-"Staging plan" below).
+(action + memory + chunked AR + distributed VAE), the runner fills
+its mandatory `RunnerConfig.pipeline` slot with an inert
+`_NoopPipelineConfig` (a `StreamInferencePipeline` subclass that
+overrides `__init__` to skip slot construction) and owns its own
+`__init__`. Promotion onto a real `WanInferencePipeline` is phase 2b
+(see "Staging plan" below).
 
 ## Install
 
@@ -252,6 +253,38 @@ land first.
    not implemented yet. Without it, phase 2b has nothing to layer
    onto. This work does not depend on HY-WorldPlay and is a useful
    addition in its own right.
+
+   Landed deliverables (importable from `flashdreams.recipes.wan`):
+   - **VAE.** `Wan22TI2V5BVAEEncoderConfig` /
+     `Wan22TI2V5BVAEDecoderConfig` flip on the 5B-specific
+     16x-spatial, 48-channel, residual + outer-patchify (patch_size
+     = 2) knobs on the generalised `WanVAE`. The diffusers
+     ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/vae`` safetensors loads
+     directly via `wan22_ti2v_5b_vae_state_dict_transform` (no
+     repacking).
+   - **DiT.** `WanDiTNetworkTI2V5BConfig` configures the 3072d / 30-
+     layer / 48-channel-latent / no-CLIP-cross-attention 5B variant
+     on the existing `WanDiTNetwork`. The shared `Block` / `Head`
+     AdaLN modulation path squeezes the modulation axis so both
+     scalar and per-token timesteps broadcast correctly; the network
+     `forward` dispatches between them based on the timestep tensor
+     rank.
+   - **Transformer.** A new
+     `Wan21TransformerConfig.ti2v_first_frame_per_token_timestep`
+     flag composes with the existing `stamp_image_latent` mask-
+     inject path: at AR step 0 the scheduler's scalar timestep is
+     rewritten to a per-token tensor with ``t=0`` at the first-frame
+     conditioning tokens (driven by the I2V mask) and the
+     scheduler ``t`` elsewhere. AR >= 1 keeps the scalar shape so
+     CUDA-graph capture stays stable.
+   - **Pipeline.** No new pipeline module: the existing
+     `WanInferencePipeline` covers TI2V 5B by configuring the I2V
+     control encoder around the 5B VAE plus the transformer flags
+     above. `PIPELINE_WAN22_TI2V_5B` is the pre-rolled config.
+   - **Checkpoint remap.** `wan22_ti2v_5b_dit_state_dict_transform`
+     remaps the diffusers `WanTransformer3DModel` layout to the
+     bare `WanDiTNetwork` keys (same structural mapping the
+     `fastvideo_causal_wan22` integration uses for the 14B MoE).
 
 3. **Phase 2b (this directory, follow-up to 2a).** Recipe-level
    integration on top of the new flashdreams Wan 2.2 5B recipe.

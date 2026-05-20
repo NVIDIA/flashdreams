@@ -55,15 +55,8 @@ class RunnerConfig(InstantiateConfig):
     per-runner ``--help`` (it's metadata, not a knob); a non-empty
     value is enforced for in-tree runners by the registry test."""
 
-    pipeline: StreamInferencePipelineConfig | None = None
-    """Wrapped pipeline config; the runner instantiates and drives it.
-
-    ``None`` is reserved for vendor-wrapper runners that do not yet have
-    a flashdreams :class:`StreamInferencePipeline` to drive (typically a
-    phase-1 plugin wrapping an upstream tree's own pipeline). Such
-    runners must override :meth:`Runner.__init__` -- or supply a
-    bespoke ``_target`` -- because the base ``__init__`` skips
-    pipeline construction and leaves :attr:`Runner.pipeline` unset."""
+    pipeline: StreamInferencePipelineConfig
+    """Wrapped pipeline config; the runner instantiates and drives it."""
 
     output_dir: Path = Path("outputs")
     """Directory the runner writes outputs into. Created on demand."""
@@ -129,32 +122,27 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self.is_rank_zero = self.global_rank == 0
 
         # Keep per-rank RNG streams distinct under torchrun without mutating
-        # the caller's literal config. Vendor-wrapper runners with no
-        # flashdreams pipeline (``config.pipeline is None``) own their
-        # own seed handling -- skip the derive_config + setup path
-        # entirely and let the subclass run() build whatever it needs.
+        # the caller's literal config.
         effective_config = config
-        if config.pipeline is not None:
-            base_seed = config.pipeline.diffusion_model.seed
-            if (
-                config.offset_seed_by_global_rank
-                and base_seed is not None
-                and self.global_rank != 0
-            ):
-                effective_config = cast(
-                    RunnerConfigT,
-                    derive_config(
-                        config,
-                        pipeline=dict(
-                            diffusion_model=dict(seed=base_seed + self.global_rank),
-                        ),
+        base_seed = config.pipeline.diffusion_model.seed
+        if (
+            config.offset_seed_by_global_rank
+            and base_seed is not None
+            and self.global_rank != 0
+        ):
+            effective_config = cast(
+                RunnerConfigT,
+                derive_config(
+                    config,
+                    pipeline=dict(
+                        diffusion_model=dict(seed=base_seed + self.global_rank),
                     ),
-                )  # ty:ignore[redundant-cast]
+                ),
+            )  # ty:ignore[redundant-cast]
         self.config = effective_config
 
-        if self.config.pipeline is not None:
-            pipeline = self.config.pipeline.setup()
-            self.pipeline = pipeline.to(device=device).eval()
+        pipeline = self.config.pipeline.setup()
+        self.pipeline = pipeline.to(device=device).eval()
 
     @abstractmethod
     def run(self) -> None:

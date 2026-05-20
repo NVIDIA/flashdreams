@@ -15,29 +15,16 @@
 
 """HY-WorldPlay WAN-5B I2V runner (phase-1 vendor wrapper).
 
-This module provides a thin shim that adapts the upstream
-HY-WorldPlay :class:`wan.generate.WanRunner` (Wan 2.2 TI2V-5B backbone
-with action + camera-trajectory conditioning and reconstituted-context
-memory) onto a flashdreams :class:`RunnerConfig` surface so the slug
-is dispatchable via ``flashdreams-run hy-worldplay-wan-i2v-5b``.
-
-Phase-1 goal (this module): bit-for-bit reproduction of the upstream
-``wan/generate.py`` invocation, driven from a flashdreams plugin
-package, so the team can iterate on top of a known-good baseline
-without forking the upstream tree. The wrapped pipeline construction
+Adapts upstream's :class:`wan.generate.WanRunner` (Wan 2.2 TI2V-5B
+backbone with action + camera-trajectory conditioning and
+reconstituted-context memory) onto a flashdreams :class:`RunnerConfig`
+surface so the slug is dispatchable via
+``flashdreams-run hy-worldplay-wan-i2v-5b``. Pipeline construction
 (``WanRunner.__init__`` -> ``_init_models``) is delegated unchanged to
-upstream, so any output the wrapper produces matches what
-``torchrun wan/generate.py`` produces with the same flags. Because the
-upstream pipeline does not slice into flashdreams'
-:class:`StreamInferencePipeline` 3-stage interface yet, the runner
-sets ``pipeline=None`` on its :class:`RunnerConfig` and owns its own
-``__init__`` (the base ``Runner`` skips pipeline construction in that
-case).
-
-Phase-2 (tracked in the integration ``README.md``): refactor onto
-``flashdreams.recipes.wan`` infrastructure -- expose action +
-trajectory + memory hooks on ``WanInferencePipeline`` so the recipe
-shares CP / KV-cache / profiler with the rest of the wan family.
+upstream so output is bit-for-bit identical to ``torchrun
+wan/generate.py`` with matching flags. The mandatory
+:attr:`RunnerConfig.pipeline` slot is filled with the inert
+:class:`_NoopPipelineConfig` from :mod:`hy_worldplay._vendor_pipeline`.
 """
 
 from __future__ import annotations
@@ -50,7 +37,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.runner import RunnerConfig
+from hy_worldplay._vendor_pipeline import _NoopPipelineConfig
 
 __all__ = [
     "HyWorldPlayWanI2VRunner",
@@ -108,16 +97,17 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
     Mirrors the upstream ``wan/generate.py`` argparse surface (see
     ``HY-WorldPlay/wan/generate.py`` and ``HY-WorldPlay/wan/README.md``)
-    so users can map directly between the two. Inherits the standard
-    runner knobs (``runner_name``, ``description``, ``output_dir``,
-    ``device``, ``offset_seed_by_global_rank``) from
-    :class:`RunnerConfig`; leaves ``pipeline=None`` because phase-1
-    wraps upstream's ``WanRunner.predict()`` directly rather than a
-    flashdreams :class:`StreamInferencePipeline` (the recipe-level
-    promotion is phase 2 -- see the integration README staging plan).
+    so users can map directly between the two.
     """
 
     _target: type = field(default_factory=lambda: HyWorldPlayWanI2VRunner)
+
+    pipeline: StreamInferencePipelineConfig = field(
+        default_factory=_NoopPipelineConfig,
+    )
+    """Inert :class:`_NoopPipelineConfig` instance. Pinned here because
+    the phase-1 wrapper drives upstream's :class:`wan.generate.WanRunner`
+    directly and has no flashdreams pipeline to construct."""
 
     prompt: str | Path = DEFAULT_PROMPT
     """Inline text prompt or a path to a ``.txt`` file whose first
@@ -196,13 +186,12 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 class HyWorldPlayWanI2VRunner:
     """HY-WorldPlay WAN-5B I2V driver.
 
-    Not a :class:`flashdreams.infra.runner.Runner` subclass because the
-    phase-1 wrapper owns its own distributed setup (deferred to
-    upstream's ``WanRunner``) and has no flashdreams
-    :class:`StreamInferencePipeline` for the base ``Runner.__init__``
-    to construct. The config's ``_target`` points here so
-    ``HyWorldPlayWanI2VRunnerConfig.setup()`` instantiates this class
-    directly.
+    Plain class -- *not* a :class:`flashdreams.infra.runner.Runner`
+    subclass -- because distributed setup is deferred to upstream's
+    :class:`wan.generate.WanRunner`. The matching
+    :class:`HyWorldPlayWanI2VRunnerConfig` pins its ``pipeline`` slot to
+    a :class:`_NoopPipelineConfig`, so the framework contract is
+    satisfied without :meth:`StreamInferencePipeline.__init__` running.
     """
 
     config: HyWorldPlayWanI2VRunnerConfig

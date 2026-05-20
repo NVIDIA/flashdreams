@@ -344,9 +344,13 @@ The HY-WorldPlay WAN-5B I2V slug ships as an out-of-tree plugin
 (`flashdreams/integrations/hy_worldplay/`) -- a phase-1 vendor
 wrapper around upstream's `wan/generate.py` `WanRunner`. A
 recipe-level integration that promotes the slug into a
-`flashdreams-run` subcommand is tracked as phase 2 and depends on a
-flashdreams-side Wan 2.2 5B recipe landing first; see
-`integrations/hy_worldplay/README.md` for the full staging plan.
+`flashdreams-run` subcommand is tracked as phase 2; the phase-2a
+prerequisite (the **Wan 2.2 TI2V 5B recipe** under
+`flashdreams/recipes/wan/`) has landed -- import via
+`from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B` --
+and phase 2b will layer HY-WorldPlay's action + camera + memory
+deltas on top of it. See `integrations/hy_worldplay/README.md` for
+the full staging plan.
 
 The heavy upstream deps (sageattention, accelerate, cloudpickle, ...)
 are deliberately **not** in the repo-root `uv.lock`. They live in an
