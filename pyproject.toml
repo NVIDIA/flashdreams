@@ -22,6 +22,9 @@ override-dependencies = [
     # Keep transitive HTTP clients off urllib3 versions with sensitive-header
     # redirect handling vulnerabilities.
     "urllib3>=2.7.0",
+    # Keep protobuf off the 6.33.x line flagged by BDSA for the ParseDict
+    # recursion-depth follow-up.
+    "protobuf>=7.35.0,<8",
 ]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
