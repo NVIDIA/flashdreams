@@ -136,7 +136,7 @@ Full block diagrams in [Static view](architecture.md#static-view); runtime inter
 1. **Single-host trust collapse** — when consumed from `omni-dreams/samples/interactive-drive`'s documented `docker run`, the container uses `--network=host --ipc=host`, mounts the Wayland socket, and forwards `$SSH_AUTH_SOCK`. The container is effectively trusted-equal-to-host. Acceptable for local dev; documented as OE-1.
 2. **One active session per server process** (lingbot) — simplifies STRIDE-D analysis but is a DoS pinhole if exposed beyond loopback (T-DOS-1).
 3. **No in-process integrity check on downloaded checkpoints** — relies on HTTPS + HF/S3 ACLs; a poisoned cache survives container restarts (FSR_FD_04).
-4. **Default network bind is `0.0.0.0`** in the documented lingbot invocation — an audit hot-spot to be tightened (FSR_FD_10).
+4. **Default network bind is `0.0.0.0`** in both lingbot (`integrations/lingbot/lingbot/webrtc/server.py:66`) and alpadreams gRPC (`integrations/alpadreams/alpadreams/grpc/server.py:1336`, `add_insecure_port`) — an audit hot-spot to be tightened (FSR_FD_10).
 5. **Few-step output anonymizer is the only architecturally viable design**: a full general-purpose face/plate detector would push chunk wall-clock past the interactive budget. The architecture treats per-chunk output anonymization as **opt-in** (FSR_FD_07); the **input content gate** is **on-by-default** (FSR_FD_06).
 6. **Reference implementation for both filters**: [`nvidia/Cosmos-1.0-Guardrail`](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail). Pre-Guard image side serves the CSAM/gore gate; post-Guard (RetinaFace + plate + blur) is the few-step network sized for the ≤50 ms / chunk budget on a small auxiliary GPU slot.
 

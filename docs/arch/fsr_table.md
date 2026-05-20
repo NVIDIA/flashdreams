@@ -58,7 +58,7 @@ Every row uses the column structure the user supplied:
 
 ### FSR_FD_02 — Logs SHALL strip secrets
 
-- **Functional Security Requirement.** Service log data stored locally or transmitted remotely SHALL NOT contain NVIDIA confidential data such as personal and enterprise secrets, API keys, cryptographic keys, or authentication tokens (`HF_TOKEN`, `GITHUB_PAT`, AWS access / secret keys, bearer tokens, full `Authorization` headers).
+- **Functional Security Requirement.** Service log data stored locally or transmitted remotely SHALL NOT contain NVIDIA confidential data such as personal and enterprise secrets, API keys, cryptographic keys, or authentication tokens (`HF_TOKEN`, AWS access / secret keys, bearer tokens, full `Authorization` headers, plus any operator-managed container-registry token now that FlashDreams ships no canonical image per OE-7).
 - **Risk Level.** High.
 - **Risk Response.** Remediate.
 - **Responsibility.** SIL Engineering — Logging (`flashdreams/flashdreams/core/io/`).

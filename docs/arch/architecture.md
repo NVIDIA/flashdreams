@@ -54,7 +54,7 @@ flowchart LR
     FD_INT_LING -.weights.-> HF
     FD_REC -.weights.-> HF
     FD_REC -.optional internal storage.-> S3
-    FD_CORE -.operator-built container · docker/Dockerfile.-> CUDA_BASE
+    CUDA_BASE -.docker build · docker/Dockerfile.-> FD_CORE
 ```
 
 **Key facts:**
@@ -177,7 +177,7 @@ flowchart LR
     ALPA_PROTO -.generate stubs.-> GRPC_CLIENT
 ```
 
-> **Trust boundary preview:** Both adapters expose a **local-server** surface (loopback by default once FSR_FD_10 lands; documented `--host 0.0.0.0` in lingbot README today). See [Data view](#data-view).
+> **Trust boundary preview:** Both adapters expose a **local-server** surface. Today both default to `--host 0.0.0.0` (lingbot per README; alpadreams gRPC via `add_insecure_port`). FSR_FD_10 flips the default to loopback. See [Data view](#data-view).
 
 ### 4. Naming index
 
@@ -621,10 +621,10 @@ flowchart TB
 
 | Component | Default bind (today) | Default port | Auth | Encryption | Recommended target |
 |---|---|---|---|---|---|
-| LING-RTC (HTTP signaling) | `0.0.0.0` per README | `8089` | none | none | **127.0.0.1** (FSR_FD_10); TLS (FSR_FD_01) + token (FSR_FD_12) when public |
+| LING-RTC (HTTP signaling) | `0.0.0.0` (`integrations/lingbot/lingbot/webrtc/server.py:66`) | `8089` | none | none | **127.0.0.1** (FSR_FD_10); TLS (FSR_FD_01) + token (FSR_FD_12) when public |
 | LING-RTC (WebRTC media) | dynamic UDP | ephemeral | DTLS-SRTP (aiortc) | yes | OK as-is |
-| ALPA-GRPC | configurable | configurable | none in dev | none in dev | **127.0.0.1** (FSR_FD_10); mTLS + token interceptor (FSR_FD_12) |
-| ALPA-PROF (profiling) | configurable | configurable | none in dev | none in dev | **127.0.0.1** (FSR_FD_11); separate opt-in from main server |
+| ALPA-GRPC | `0.0.0.0` (`integrations/alpadreams/alpadreams/grpc/server.py:1336`); uses `add_insecure_port` | configurable | none | none | **127.0.0.1** (FSR_FD_10); mTLS + token interceptor (FSR_FD_12) |
+| ALPA-PROF (profiling) | configurable | configurable | none | none | **127.0.0.1** (FSR_FD_11); separate opt-in from main server |
 | torch.distributed | depends on launcher | depends | none | none | trust cluster network only; no public exposure |
 | HF / S3 / upstream `nvidia/cuda` registry | outbound | 443 | token / sigv4 | TLS | OK |
 

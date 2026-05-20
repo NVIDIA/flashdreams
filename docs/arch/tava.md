@@ -22,7 +22,7 @@ FlashDreams is a generative video world-model inference stack (offline recipes +
 The core threat surfaces are:
 
 - **Generative-AI safety surface** — operator-supplied initial frames can drive the model to amplify harmful content (CSAM / gore / non-consensual real-person likenesses) downstream into video output (T-CONT-1 / T-PRIV-1).
-- **Server endpoints exposed by default on `0.0.0.0`** — lingbot WebRTC (`:8089`) and (configurably) the alpadreams gRPC + profiling server — without authentication or encryption in the documented developer flow (T-NET-1 / T-AUTH-1).
+- **Server endpoints exposed by default on `0.0.0.0`** — both lingbot WebRTC (`:8089`, `integrations/lingbot/lingbot/webrtc/server.py:66`) and alpadreams gRPC (`integrations/alpadreams/alpadreams/grpc/server.py:1336`, using `add_insecure_port`) — without authentication or encryption in the documented developer flow (T-NET-1 / T-AUTH-1).
 - **Supply-chain integrity** of model weights (HF `nvidia/omni-dreams-*` and `nvidia/Cosmos-1.0-Guardrail`, S3 `s3://flashdreams`) — `torch.load` on a poisoned `.pt` is arbitrary-code execution (T-CKPT-1). FlashDreams ships **no canonical pre-published container image** (OE-7, commit `ab74b58`); operators build locally from `docker/Dockerfile` against `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`, so the container-image threat shape collapses to "upstream `nvidia/cuda` base image" + "operator-side build pipeline".
 - **Plugin discovery** via Python entry-points (`flashdreams-run`) — third-party packages installed in the operator's venv get imported and executed at module-import time (T-PLUG-1).
 
@@ -54,9 +54,9 @@ The TOE is the **runtime process tree** that executes FlashDreams inference, inc
 **In scope:**
 
 - `flashdreams/flashdreams/` — recipe + core + infra packages and the `flashdreams-run` CLI
-- `flashdreams/integrations/alpadreams/` — gRPC server + Ludus HD-map renderer + profiling server
-- `flashdreams/integrations/lingbot/` — WebRTC server (single active session)
-- `flashdreams/integrations/{cosmos_predict2,wan21,self_forcing,causal_forcing,fastvideo_causal_wan22}/`
+- `integrations/alpadreams/` — gRPC server + Ludus HD-map renderer + profiling server
+- `integrations/lingbot/` — WebRTC server (single active session)
+- `integrations/{cosmos_predict2,wan21,self_forcing,causal_forcing,fastvideo_causal_wan22}/`
 - The supply chain that loads these into memory: HuggingFace, S3 (`pdx.s8k.io`), and the upstream `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04` base image. FlashDreams ships **no canonical pre-published container image** (commit `ab74b58`); operators build locally from `docker/Dockerfile`.
 
 **Out of scope (Operational Environment, OE):**
@@ -109,7 +109,7 @@ Submitted alongside this TAVA: [Static view](architecture.md#static-view), [Dyna
 | A-HDMAP | HD-map raster (Ludus output / cached PNG) | RAM, disk | I | Public synthetic |
 | A-SESSION | Active session state (WebRTC PeerConnection, gRPC session_id) | Server RAM | C+I+A | Operator-confidential |
 | A-RECORDING | Optional session recording (`.pt` + `.json`) | Disk | C+I | Operator-confidential |
-| A-SECRET | HF_TOKEN, GITHUB_PAT, `credentials/s3_checkpoint.secret` | Env, disk | C+I | Secret |
+| A-SECRET | HF_TOKEN, `credentials/s3_checkpoint.secret`, plus any operator-managed container-registry token (post-`ab74b58`) | Env, disk | C+I | Secret |
 | A-IMG | Operator-built FlashDreams container image (from `docker/Dockerfile` on top of upstream `nvidia/cuda:13.2.1`) | Disk, operator's registry | I | Operator-owned (FlashDreams ships no canonical image — see OE-7) |
 | A-LOGS | Logs, profiling traces | Disk | C | Operator-confidential |
 | A-PLUGIN | Plugin registry / entry-point loaded code | Process | I | Code execution surface |
@@ -205,10 +205,10 @@ Likelihood and Impact each scored on 5-level scale (VL, L, M, H, VH). Overall Li
 | ID | Objective | C/I/A/Authenticity/Accountability |
 |---|---|---|
 | SO-1 | Preserve confidentiality of operator-supplied prompts, frames, and session content. | C |
-| SO-2 | Guarantee that only NVIDIA-published model weights and container images execute in the TOE. | I, Authenticity |
+| SO-2 | Guarantee that only NVIDIA-published model weights load in the TOE; if the operator publishes a FlashDreams container, only signed images verified by `cosign` execute. (FlashDreams ships no canonical image; SO-2's container half is operator-side per OE-7.) | I, Authenticity |
 | SO-3 | Prevent the TOE from generating or amplifying CSAM, gore, or disclosing real-person likenesses without consent. | I, accountability (under privacy regulation) |
 | SO-4 | Limit blast radius of any TOE compromise to the operator's session — no privilege escalation to host. | I, A |
-| SO-5 | Protect secrets (HF_TOKEN, S3 keys, GitHub PAT) in transit and at rest. | C |
+| SO-5 | Protect secrets (HF_TOKEN, S3 keys, plus any registry token the operator uses for their FlashDreams container) in transit and at rest. | C |
 | SO-6 | Maintain availability of the single active session under expected operator load. | A |
 
 ### 3.2 Functional Security Requirements (FSRs)
