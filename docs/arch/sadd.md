@@ -243,49 +243,13 @@ See [Dynamic view](architecture.md#dynamic-view) § 4 (checkpoint resolution) an
 
 ### 3.4 Security Design
 
-#### What is an FSR?
-
-A **Functional Security Requirement** (FSR) is a detailed security requirement decomposed from a high-level Security Objective. Each FSR is a SHALL-statement bound to a specific control: it traces back to one or more **threats** (what it mitigates), forward to one or more **Security Objectives** (what it supports), and out to a **Test/Measurement** (how SQA verifies it). FSRs are the actionable contract that the development team owns.
-
-The column layout used in the canonical sheet follows the **Excel-Based Simple TAVA Template** (mirroring the NIM TAVA template column structure used by the broader Product Security community):
-`FSR ID | Functional Security Requirement | Risk Level | Risk Response | Responsibility | Priority Level | Test / Measurement`.
-
-In this program every FSR is prefixed `FSR_FD_NN` (FD = FlashDreams).
+An FSR (Functional Security Requirement) is a SHALL-statement bound to a specific control that traces back to one or more threats (what it mitigates), forward to one or more security objectives (what it supports), and out to a Test/Measurement (how SQA verifies it). FlashDreams uses the **Excel-Based Simple TAVA Template** column structure: `FSR ID | Functional Security Requirement | Risk Level | Risk Response | Responsibility | Priority Level | Test / Measurement`. Every FSR is prefixed `FSR_FD_NN`.
 
 #### Canonical FSR sheet — pointer
 
-The single source of truth is [`fsr_table.md`](fsr_table.md). See [`tava.md`](tava.md) § 3.2 for the cross-references back to threats and security objectives.
+The single source of truth is [`fsr_table.md`](fsr_table.md) — 24 canonical `FSR_FD_NN` rows plus 12 NIM-template mapping rows, in the Excel-Based Simple TAVA Template column structure. See [`tava.md`](tava.md) § 2.4.2 for the per-threat risk levels each FSR mitigates, and § 3.1 for the security objectives each FSR supports.
 
-The 24 FSRs at a glance:
-
-| FSR ID | One-line statement | Priority |
-|---|---|---|
-| FSR_FD_01 | TLS 1.2+ on non-loopback endpoints | P0 (non-loopback) / P1 (loopback) |
-| FSR_FD_02 | Logs SHALL strip secrets (HF / GitHub / AWS / Bearer / Authorization) | P0 |
-| FSR_FD_03 | Logs SHALL strip PII (face / plate / NVIDIA email / Slack ID) | P0 |
-| FSR_FD_04 | `FD-CKPT` SHALL verify checkpoint sha256 / signature before `torch.load` | P0 |
-| FSR_FD_05 | When an operator publishes a FlashDreams container image to their registry, the build/publish pipeline SHOULD Sigstore-sign and the pull flow SHOULD `cosign verify`. (Operator guidance — FlashDreams ships no canonical image.) | P2 (operator guidance) |
-| FSR_FD_06 | Session init SHALL run **Cosmos-1.0-Guardrail pre-Guard** on initial RGB | P0 |
-| FSR_FD_07 | `--anonymize` SHALL run **Cosmos-1.0-Guardrail post-Guard** per chunk, ≤50 ms | P1 / P0 (post-GA if regulated) |
-| FSR_FD_08 | `OMNI_DREAMS_HF_ORG` validated against code-resident allowlist | P0 |
-| FSR_FD_09 | Plugin registry SHALL deny third-party plugins absent allowlist | P0 |
-| FSR_FD_10 | Listeners SHALL default to `127.0.0.1`; non-loopback requires opt-in | P0 |
-| FSR_FD_11 | Profiling server SHALL bind loopback by default | P1 |
-| FSR_FD_12 | gRPC + HTTP signaling SHALL support token interceptor (mandatory non-loopback) | P0 (non-loopback) / P1 (loopback) |
-| FSR_FD_13 | Lingbot DataChannel SHALL validate JSON schema; ≤256 B; drop on miss | P0 |
-| FSR_FD_14 | Text input SHALL be length-bounded, Unicode-validated, parameter-typed | P0 |
-| FSR_FD_15 | Media input (USDZ / JPEG / PNG / mp4) SHALL be size + MIME + magic-validated | P0 |
-| FSR_FD_16 | Media parsing libraries SHALL be sandboxed (seccomp / subprocess) | P1 → P0 post-GA |
-| FSR_FD_17 | Media parser SHALL be restricted to the format dispatched | P1 |
-| FSR_FD_18 | Inference state SHALL be deallocated between sessions; GPU mem zeroed | P0 |
-| FSR_FD_19 | Inference responses SHALL be restricted to the originating session | P0 |
-| FSR_FD_20 | Per-client rate limits on signaling endpoints | P1 |
-| FSR_FD_21 | Session recording mode `0600`; off by default; explicit `--record` flag | P1 |
-| FSR_FD_22 | Docs SHALL document `--network=host` + `--ipc=host` trust collapse (OE-1) | P1 |
-| FSR_FD_23 | Slurm launch helper SHALL emit OE-2 banner; refuse colliding IMEX channel | P1 (omni-dreams consumer only) |
-| FSR_FD_24 | Continuous fuzz coverage on SceneLoader USDZ + ALPA-GRPC proto | R2 (post-GA) |
-
-As of upstream station check 2026-05-15, **20 of 24 FSRs have as-built contract+stub tests passing** in `omni-dreams/internal/tests/security/`, **230 / 230** tests in 1.86 s. Coverage is mirrored 1-to-1 into FlashDreams once `flashdreams/tests/security/` lands (planned follow-up MR).
+As of upstream station check 2026-05-15, **20 of 24 FSRs have as-built contract+stub tests passing** in `omni-dreams/internal/tests/security/` (**230 / 230** tests in 1.86 s). FSR_FD_05 is reframed as operator-side guidance because FlashDreams ships no canonical container image (commit `ab74b58`). The FlashDreams-side mirror at `flashdreams/tests/security/` is queued as a follow-up — see [`tava.md`](tava.md) § 6 Q-06.
 
 ### 3.5 Test Automation
 

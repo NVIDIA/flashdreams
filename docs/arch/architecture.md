@@ -5,29 +5,15 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture — FlashDreams
 
-Compact, FlashDreams-scoped four-view architecture (static / dynamic / data / deployment) for the `flashdreams` repo. The broader omni-dreams + flashdreams architecture lives in [`../../../omni-dreams/docs/arch/architecture.md`](../../../omni-dreams/docs/arch/architecture.md); this document carries the **TOE = flashdreams** subset that the TAVA in [`tava.md`](tava.md) and the SADD in [`sadd.md`](sadd.md) reference.
+Compact, FlashDreams-scoped four-view architecture (static / dynamic / data / deployment) for the `flashdreams` repo. The broader omni-dreams + flashdreams architecture lives in [`../../../omni-dreams/docs/arch/architecture.md`](../../../omni-dreams/docs/arch/architecture.md); this document is the **TOE = flashdreams** subset that the [`sadd.md`](sadd.md), [`tava.md`](tava.md), and [`fsr_table.md`](fsr_table.md) reference.
 
-## As-built vs. recommended
+Diagram-marker convention used throughout:
 
-| Marker in diagram | Meaning |
+| Marker | Meaning |
 |---|---|
-| Unannotated node / edge | **As-built** on HEAD (`flashdreams/`, `integrations/`) |
-| Node / edge marked **(FSR_FD_NN)** | **TAVA-recommended** — contract+stub upstream at `../../../omni-dreams/internal/tests/security/<topic>.py`; product-side wiring planned in flashdreams |
-| OE-1..OE-7 callouts | **Operational-environment assumption** — not enforced by the TOE |
-
-> **Companion documents**
-> - [`sadd.md`](sadd.md) — Software Architecture and Design Document per `SWE-PLC-L1-002-BasicPLC-SADD-TMPL`.
-> - [`tava.md`](tava.md) — FlashDreams-scoped TAVA 2.0 (MVSB-32946 subset).
-> - [`fsr_table.md`](fsr_table.md) — canonical FSR sheet in the Excel-Based Simple TAVA Template column structure.
-
----
-
-## Contents
-
-- [Static view](#static-view) — components, classes, integration adapters
-- [Dynamic view](#dynamic-view) — lingbot WebRTC, alpadreams gRPC, offline recipes, checkpoint resolution
-- [Data view](#data-view) — DFDs with trust boundaries
-- [Deployment view](#deployment-view) — single-node serving, container layering, network exposure
+| Unannotated node / edge | As-built on HEAD |
+| Node / edge marked **(FSR_FD_NN)** | TAVA-recommended; contract+stub upstream at `../../../omni-dreams/internal/tests/security/<topic>.py` |
+| OE-1..OE-7 callouts | Operational-environment assumption; not enforced by the TOE |
 
 ---
 

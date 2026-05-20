@@ -6,13 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 # TAVA — FlashDreams (MVSB-32946 subset)
 
 **Document Type:** Threat and Vulnerability Analysis (Manual TAVA 2.0)
-**Process:** TAVA v3 (Oct 31, 2024) Confluence guidance — 4 steps (Assets → Threats → FSRs → POA&M)
-**Based On:** Architecture views in [`architecture.md`](architecture.md) (Static / Dynamic / Data / Deployment) @ commit HEAD; flashdreams `base-v0.3-YYYYMMDD-SHA`; FlashDreams 1.0 GA target tracked by [MVSB-32946](https://jirasw.nvidia.com/browse/MVSB-32946)
-**Calibration peer:** [SDGW-361 AutoGrader Unification TAVA](https://jirasw.nvidia.com/browse/SDGW-361) (structure / risk language / stakeholder sections)
+**Process:** TAVA v3 (Oct 31, 2024) Confluence guidance — Assets → Threats → FSRs → POA&M
+**Based On:** [`architecture.md`](architecture.md) @ HEAD; flashdreams v0.3
 **Author:** Jonathan McCaffrey (TAVA PIC) with AI assist (Claude Opus 4.7, 1M context)
-**Status:** Draft, 2026-05-20. Subject to Security PIC review prior to nSpect acknowledgment under MVSB-32946.
+**Status:** Draft 2026-05-20; pending Security PIC review under MVSB-32946
 
-> **Relationship to the upstream TAVA**: this document is the **FlashDreams-scoped subset** of [`../../../omni-dreams/internal/docs/planning/tava_omni_dreams_flashdreams.md`](../../../omni-dreams/internal/docs/planning/tava_omni_dreams_flashdreams.md). It restates the assets, attacker model, threats, risk analysis, security objectives, and FSRs narrowed to the **flashdreams TOE** (recipes + core + infra + integrations; excluding omni-dreams interactive-drive and post-training). The upstream document remains the single source of truth where the two TOEs overlap. Coverage numbers cited as "as-built on station 2026-05-15" reference the upstream `omni-dreams/internal/tests/security/` package; the FlashDreams test mirror is planned for a follow-up MR.
+> **Relationship to the upstream TAVA**: this is the FlashDreams-scoped subset of [`../../../omni-dreams/internal/docs/planning/tava_omni_dreams_flashdreams.md`](../../../omni-dreams/internal/docs/planning/tava_omni_dreams_flashdreams.md), narrowed to the **flashdreams TOE** (recipes + core + infra + integrations; excluding omni-dreams interactive-drive and post-training). The upstream document remains the source of truth where the two TOEs overlap. Coverage numbers cited as "as-built on station 2026-05-15" reference the upstream `omni-dreams/internal/tests/security/` package; the FlashDreams test mirror is planned for a follow-up MR.
 
 ---
 
@@ -37,17 +36,12 @@ The single highest-leverage residual ask before flashdreams 1.0 GA is to land **
 
 | Field | Value |
 |---|---|
-| NSPECT ID | NSPECT-6O5R-39LY (flashdreams) — from MVSB-32946 comment |
-| Program name | FlashDreams (GA + OSS) |
-| Version | flashdreams v0.3 (`base-v0.3-YYYYMMDD-SHA`) |
-| Jira ticket | [MVSB-32946](https://jirasw.nvidia.com/browse/MVSB-32946) |
-| PLC level | L1 |
-| Risk-indicator hit | Commercially Released; Sensitive Data (pre-release weights, internal HF / S3 endpoints) |
+| NSPECT ID | NSPECT-6O5R-39LY (flashdreams) |
+| Program | FlashDreams (GA + OSS) — v0.3 |
+| Jira | [MVSB-32946](https://jirasw.nvidia.com/browse/MVSB-32946); PLC L1; manual TAVA 2.0 path (gated by MVSB-32940 export classification) |
 | TAVA PIC | Jonathan McCaffrey (Security PIC TBD for ack) |
-| Architecture inputs | [Static view](architecture.md#static-view) · [Dynamic view](architecture.md#dynamic-view) · [Data view](architecture.md#data-view) · [Deployment view](architecture.md#deployment-view) |
-| SADD | [`sadd.md`](sadd.md) |
-| Methodology | NIST SP 800-30r1 qualitative risk; STRIDE for threat ID; AI/ML supplement implicit in pipeline assets |
-| Why manual TAVA 2.0 | Export-control-gated by MVSB-32940; AI-assist content in the draft must be reviewed by Security PIC before nSpect acknowledgment per parent ticket guidance |
+| Inputs | [Static](architecture.md#static-view) · [Dynamic](architecture.md#dynamic-view) · [Data](architecture.md#data-view) · [Deployment](architecture.md#deployment-view) · [`sadd.md`](sadd.md) |
+| Methodology | NIST SP 800-30r1 qualitative risk; STRIDE for threat ID |
 
 ---
 
