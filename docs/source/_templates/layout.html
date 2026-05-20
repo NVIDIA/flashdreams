@@ -4,3 +4,25 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 {% extends "!layout.html" %}
+
+{# Landing-page layout hook.
+
+   Page authors can ask for the "landing" layout by adding ``:layout: landing``
+   as a docinfo field at the top of an RST file. Sphinx surfaces docinfo
+   fields via the ``meta`` template variable. If the field is present we tag
+   the <body> with ``fd-layout-landing`` so custom.css can drop the
+   secondary sidebar, widen the article column, etc.
+
+   We also tag the master document (``index``) unconditionally so the
+   landing CSS still applies even if the directive is dropped — the home
+   page is by convention the only place that needs this treatment.
+#}
+{%- block body_tag %}
+  {%- set fd_body_classes = [] %}
+  {%- if meta is defined and meta is not none and meta.get('layout') == 'landing' %}
+    {%- set _ = fd_body_classes.append('fd-layout-landing') %}
+  {%- elif pagename == master_doc %}
+    {%- set _ = fd_body_classes.append('fd-layout-landing') %}
+  {%- endif %}
+  <body data-default-mode="{{ default_mode }}"{% if fd_body_classes %} class="{{ fd_body_classes | join(' ') }}"{% endif %}>
+{%- endblock %}
