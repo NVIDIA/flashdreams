@@ -49,6 +49,7 @@ async def run_loopback_warmup_session(
     warmup_done = asyncio.Event()
     received_chunks = 0
     drain_tasks: set[asyncio.Task[Any]] = set()
+    heartbeat_task: asyncio.Task[Any] | None = None
 
     @control_channel.on("open")
     def on_open() -> None:
@@ -104,10 +105,15 @@ async def run_loopback_warmup_session(
 
         await asyncio.wait_for(channel_open.wait(), timeout=channel_open_timeout_s)
         logger.info("{} loopback warmup data channel open; sending fake inputs.", label)
+        heartbeat_task = asyncio.create_task(_send_loopback_heartbeats(control_channel))
         for action_payload in action_payloads:
             control_channel.send(json.dumps(action_payload))
         await asyncio.wait_for(warmup_done.wait(), timeout=warmup_timeout_s)
     finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
         await client_peer.close()
         for task in drain_tasks:
             task.cancel()
@@ -117,6 +123,13 @@ async def run_loopback_warmup_session(
         if close_active_session is not None:
             await close_active_session()
     logger.info("{} loopback warmup complete.", label)
+
+
+async def _send_loopback_heartbeats(control_channel: Any) -> None:
+    while True:
+        await asyncio.sleep(2.0)
+        if getattr(control_channel, "readyState", None) == "open":
+            control_channel.send(json.dumps({"type": "heartbeat"}))
 
 
 async def wait_for_ice_gathering_complete(

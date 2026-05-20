@@ -24,6 +24,19 @@ from flashdreams.serving.webrtc.controls import CameraPoseIntegrator
 pytestmark = pytest.mark.ci_cpu
 
 
+class _FakeCloseable:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _fake_runtime_factory(config: AlpadreamsRuntimeConfig) -> object:
+    del config
+    return object()
+
+
 @dataclass
 class _FakeOutput:
     state: Any
@@ -292,6 +305,95 @@ async def test_loopback_warmup_drives_session_generation(
     assert fake_runtime.reset_calls == 1
     assert len(fake_runtime.generated_segments) == 2
     assert not manager.has_active_session()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_message_refreshes_client_liveness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "AlpadreamsInferenceRuntime", _fake_runtime_factory)
+    manager = AlpadreamsWebRTCSessionManager(
+        runtime_config=AlpadreamsRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    managed_session = session._ManagedAlpadreamsSession(
+        runtime=object(),  # ty:ignore[invalid-argument-type]
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=object(),
+        last_client_message_at=0.0,
+    )
+    manager._active_session = managed_session
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"heartbeat"}',
+    )
+
+    assert managed_session.last_client_message_at > 0.0
+    assert manager.has_active_session()
+
+
+@pytest.mark.asyncio
+async def test_client_liveness_timeout_closes_active_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "AlpadreamsInferenceRuntime", _fake_runtime_factory)
+    manager = AlpadreamsWebRTCSessionManager(
+        runtime_config=AlpadreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+        client_liveness_timeout_s=0.01,
+    )
+    video_track = _FakeCloseable()
+    peer_connection = _FakeCloseable()
+    managed_session = session._ManagedAlpadreamsSession(
+        runtime=object(),  # ty:ignore[invalid-argument-type]
+        video_track=video_track,  # ty:ignore[invalid-argument-type]
+        peer_connection=peer_connection,
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        last_client_message_at=asyncio.get_running_loop().time() - 1.0,
+    )
+    manager._active_session = managed_session
+    liveness_task = asyncio.create_task(
+        manager._client_liveness_watchdog(managed_session=managed_session)
+    )
+    managed_session.liveness_task = liveness_task
+
+    await asyncio.wait_for(liveness_task, timeout=1.0)
+
+    assert not manager.has_active_session()
+    assert managed_session.closed
+    assert video_track.closed
+    assert peer_connection.closed
+
+
+@pytest.mark.asyncio
+async def test_disconnect_message_closes_active_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "AlpadreamsInferenceRuntime", _fake_runtime_factory)
+    manager = AlpadreamsWebRTCSessionManager(
+        runtime_config=AlpadreamsRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    video_track = _FakeCloseable()
+    peer_connection = _FakeCloseable()
+    managed_session = session._ManagedAlpadreamsSession(
+        runtime=object(),  # ty:ignore[invalid-argument-type]
+        video_track=video_track,  # ty:ignore[invalid-argument-type]
+        peer_connection=peer_connection,
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=object(),
+    )
+    manager._active_session = managed_session
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"disconnect"}',
+    )
+
+    assert not manager.has_active_session()
+    assert managed_session.closed
+    assert video_track.closed
+    assert peer_connection.closed
 
 
 @pytest.mark.asyncio

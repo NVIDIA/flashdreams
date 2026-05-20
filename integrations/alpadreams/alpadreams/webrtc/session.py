@@ -52,6 +52,8 @@ from flashdreams.serving.webrtc.warmup import (
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 _T = TypeVar("_T")
+DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
+_CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 
 
 def _summarize_sdp_candidates(sdp: str) -> str:
@@ -557,6 +559,8 @@ class _ManagedAlpadreamsSession:
     generation_task: asyncio.Task[Any] | None = None
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
     pending_action_arrivals: deque[float] = field(default_factory=deque)
+    last_client_message_at: float = 0.0
+    liveness_task: asyncio.Task[Any] | None = None
     closed: bool = False
 
     async def close(self) -> None:
@@ -565,6 +569,16 @@ class _ManagedAlpadreamsSession:
         self.closed = True
 
         current_task = asyncio.current_task()
+        if (
+            self.liveness_task is not None
+            and self.liveness_task is not current_task
+            and not self.liveness_task.done()
+        ):
+            self.liveness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.liveness_task
+        self.liveness_task = None
+
         if (
             self.generation_task is not None
             and self.generation_task is not current_task
@@ -586,9 +600,13 @@ class AlpadreamsWebRTCSessionManager:
         self,
         *,
         runtime_config: AlpadreamsRuntimeConfig | None = None,
+        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
+        if client_liveness_timeout_s <= 0:
+            raise ValueError("client_liveness_timeout_s must be > 0")
         self.runtime_config = runtime_config or AlpadreamsRuntimeConfig()
         self.fps = self.runtime_config.fps
+        self.client_liveness_timeout_s = client_liveness_timeout_s
         self._runtime = AlpadreamsInferenceRuntime(config=self.runtime_config)
         self._runtime_ready = False
         self._warmup_complete = False
@@ -649,13 +667,18 @@ class AlpadreamsWebRTCSessionManager:
             start_v=0.0,
             supported_keys=WSAD_SUPPORTED_KEYS,
         )
+        loop = asyncio.get_running_loop()
         managed_session = _ManagedAlpadreamsSession(
             runtime=self._runtime,
             video_track=video_track,
             peer_connection=peer_connection,
             resampler=resampler,
+            last_client_message_at=loop.time(),
         )
         self._active_session = managed_session
+        managed_session.liveness_task = asyncio.create_task(
+            self._client_liveness_watchdog(managed_session=managed_session)
+        )
 
         @peer_connection.on("datachannel")
         def on_datachannel(channel: Any) -> None:
@@ -675,6 +698,11 @@ class AlpadreamsWebRTCSessionManager:
             managed_session.generation_task = asyncio.create_task(
                 self._generation_worker(managed_session=managed_session)
             )
+
+            @channel.on("close")
+            def on_close() -> None:
+                logger.info("Control data channel closed; closing active session.")
+                asyncio.create_task(self.close_active_session())
 
         @peer_connection.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
@@ -757,6 +785,30 @@ class AlpadreamsWebRTCSessionManager:
             self._active_session = None
             await active_session.close()
 
+    async def _client_liveness_watchdog(
+        self, *, managed_session: _ManagedAlpadreamsSession
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            while not managed_session.closed:
+                elapsed_s = loop.time() - managed_session.last_client_message_at
+                if elapsed_s >= self.client_liveness_timeout_s:
+                    logger.warning(
+                        "No client heartbeat/control message for {:.1f}s; "
+                        "closing active session.",
+                        elapsed_s,
+                    )
+                    await self.close_active_session()
+                    return
+                await asyncio.sleep(
+                    min(
+                        _CLIENT_LIVENESS_CHECK_INTERVAL_S,
+                        self.client_liveness_timeout_s - elapsed_s,
+                    )
+                )
+        except asyncio.CancelledError:
+            raise
+
     async def shutdown(self) -> None:
         await self.close_active_session()
         await self._runtime.close()
@@ -778,6 +830,7 @@ class AlpadreamsWebRTCSessionManager:
         channel = managed_session.control_channel
         if channel is None or managed_session.closed:
             return
+        managed_session.last_client_message_at = asyncio.get_running_loop().time()
 
         if not isinstance(raw_message, str):
             self._send_json(
@@ -798,12 +851,20 @@ class AlpadreamsWebRTCSessionManager:
                 channel, {"type": "error", "message": "Payload must be a JSON object."}
             )
             return
-        if payload.get("type") != "action":
+        message_type = str(payload.get("type", "")).strip().lower()
+        if message_type == "heartbeat":
+            return
+        if message_type == "disconnect":
+            logger.info("Client requested disconnect; closing active session.")
+            await self.close_active_session()
+            return
+        if message_type != "action":
             self._send_json(
                 channel,
                 {
                     "type": "error",
-                    "message": "Unsupported message type, expected 'action'.",
+                    "message": "Unsupported message type, expected "
+                    "'action', 'heartbeat', or 'disconnect'.",
                 },
             )
             return

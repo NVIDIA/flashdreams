@@ -24,11 +24,14 @@ const keySources = new Map()
 const activeKeys = new Set()
 const frameTimes = []
 const pendingActions = []
+const heartbeatIntervalMs = 2000
 
 let peerConnection = null
 let controlChannel = null
 let statsTimer = null
 let connected = false
+let heartbeatTimer = null
+let disconnecting = false
 
 const metrics = {
   fps: null,
@@ -234,6 +237,59 @@ function sendControlAction(action) {
   return true
 }
 
+function sendHeartbeat() {
+  if (!controlChannel || controlChannel.readyState !== "open") {
+    return
+  }
+  try {
+    controlChannel.send(JSON.stringify({ type: "heartbeat", t: Date.now() }))
+  } catch (error) {
+    logEvent(`heartbeat failed: ${error.message}`, { source: "client" })
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer !== null) {
+    return
+  }
+  sendHeartbeat()
+  heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs)
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+}
+
+function disconnectSession({ notify = true } = {}) {
+  if (disconnecting) {
+    return
+  }
+  disconnecting = true
+  stopHeartbeat()
+  if (statsTimer !== null) {
+    window.clearInterval(statsTimer)
+    statsTimer = null
+  }
+  connected = false
+  connectButton.disabled = false
+  if (notify && controlChannel && controlChannel.readyState === "open") {
+    try {
+      controlChannel.send(JSON.stringify({ type: "disconnect" }))
+    } catch {
+      // The browser may already be tearing the page down.
+    }
+  }
+  if (controlChannel && controlChannel.readyState !== "closed") {
+    controlChannel.close()
+  }
+  if (peerConnection) {
+    peerConnection.close()
+  }
+}
+
 function setKeyHeld(key, source, held) {
   if (!allowedKeys.has(key)) {
     return
@@ -299,6 +355,7 @@ async function connectSession() {
   connectButton.disabled = true
   setStatus("Connecting", "connecting")
   setFlow("creating peer")
+  disconnecting = false
 
   peerConnection = new RTCPeerConnection()
   controlChannel = peerConnection.createDataChannel("controls", { ordered: true })
@@ -309,6 +366,7 @@ async function connectSession() {
     setStatus("Connected", "connected")
     setFlow("press W A S D")
     logEvent("data channel open")
+    startHeartbeat()
   })
   controlChannel.addEventListener("message", event => handleServerMessage(event.data))
   controlChannel.addEventListener("close", () => {
@@ -316,6 +374,7 @@ async function connectSession() {
     setStatus("Closed", "idle")
     setFlow("closed")
     logEvent("data channel closed", { source: "client" })
+    stopHeartbeat()
   })
 
   peerConnection.addEventListener("track", event => {
@@ -338,6 +397,8 @@ async function connectSession() {
     }
     if (state === "failed" || state === "disconnected" || state === "closed") {
       connected = false
+      connectButton.disabled = false
+      stopHeartbeat()
       setStatus(state, state === "failed" ? "error" : "idle")
       void dumpPeerStats(`connection_state=${state}`)
     }
@@ -441,10 +502,8 @@ renderMetrics()
 logEvent("ready")
 
 window.addEventListener("beforeunload", () => {
-  if (statsTimer !== null) {
-    window.clearInterval(statsTimer)
-  }
-  if (peerConnection) {
-    peerConnection.close()
-  }
+  disconnectSession()
+})
+window.addEventListener("pagehide", () => {
+  disconnectSession()
 })
