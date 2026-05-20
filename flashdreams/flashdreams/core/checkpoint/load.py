@@ -420,12 +420,12 @@ def load_single_checkpoint(
     downloaded via ``hf_hub_download``.
 
     Args:
-        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.safetensors``
-            file, or to an HF-style ``*.safetensors.index.json`` (shards are
-            merged on first load and cached).
+        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.ckpt`` /
+            ``.safetensors`` file, or to an HF-style ``*.safetensors.index.json``
+            (shards are merged on first load and cached).
         local_cache_dir: Directory for S3 / merged-safetensors caches.
         credential_path: S3 credentials path.
-        map_location: Device to map tensors to (``.pt`` / ``.pth`` only).
+        map_location: Device to map tensors to (``.pt`` / ``.pth`` / ``.ckpt`` only).
 
     Returns:
         State dict.
@@ -449,9 +449,10 @@ def load_single_checkpoint(
 
     # Determine file extension
     ext = _get_checkpoint_extension(checkpoint_path)
-    if ext not in (".pt", ".pth", ".safetensors"):
+    if ext not in (".pt", ".pth", ".ckpt", ".safetensors"):
         raise ValueError(
-            f"Unsupported checkpoint extension: {ext}. Supported: .pt, .pth, .safetensors"
+            f"Unsupported checkpoint extension: {ext}. "
+            f"Supported: .pt, .pth, .ckpt, .safetensors"
         )
 
     # For Hugging Face URLs, use HF cache and then load locally.
@@ -563,8 +564,9 @@ def load_checkpoint(
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
     """Load checkpoints from S3, local disk, or Hugging Face.
 
-    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.safetensors``) and
-    distributed checkpoints (DCP). Detection is automatic by default.
+    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.ckpt`` /
+    ``.safetensors``) and distributed checkpoints (DCP). Detection is
+    automatic by default.
 
     Args:
         checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
@@ -596,7 +598,7 @@ def load_checkpoint(
             checkpoint_type = "single"
         else:
             ext = _get_checkpoint_extension(checkpoint_path)
-            if ext in (".pt", ".pth", ".safetensors"):
+            if ext in (".pt", ".pth", ".ckpt", ".safetensors"):
                 checkpoint_type = "single"
             else:
                 checkpoint_type = "distributed"

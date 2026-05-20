@@ -17,6 +17,7 @@ members = [
     "flashdreams-causal-forcing",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
+    "flashdreams-flashvsr",
     "flashdreams-lingbot",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
@@ -50,6 +51,11 @@ lint = [
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "ty", specifier = ">=0.0.33" },
 ]
+
+[[manifest.dependency-metadata]]
+name = "block-sparse-attn"
+version = "0.0.2"
+requires-dist = ["torch", "einops"]
 
 [[package]]
 name = "accessible-pygments"
@@ -243,6 +249,16 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b0/1c6a16426d389813b48d95e26898aff79abbde42ad353958ad95cc8c9b21/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86", size = 627737, upload-time = "2025-11-30T15:08:26.084Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/39/47f9197bdd44df24d67ac8893641e16f386c984a0619ef2ee4c51fbbc019/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb", size = 107721, upload-time = "2025-11-30T15:08:24.087Z" },
+]
+
+[[package]]
+name = "block-sparse-attn"
+version = "0.0.2"
+source = { git = "https://github.com/mit-han-lab/Block-Sparse-Attention?tag=v0.0.2.post1#b346156b69dc2f33911ba390d1867ee3de0f5402" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
 ]
 
 [[package]]
@@ -744,6 +760,32 @@ dev = [
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "mediapy", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-flashvsr"
+version = "0.1.0a2"
+source = { editable = "integrations/flashvsr" }
+dependencies = [
+    { name = "block-sparse-attn" },
+    { name = "flashdreams" },
+    { name = "mediapy" },
+    { name = "opencv-python" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "block-sparse-attn", git = "https://github.com/mit-han-lab/Block-Sparse-Attention?tag=v0.0.2.post1" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "opencv-python", specifier = ">=4.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
