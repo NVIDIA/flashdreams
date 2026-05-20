@@ -19,9 +19,8 @@ limitations under the License.
 
 Welcome — and thank you for sending a pull request to FlashDreams.
 This document explains *who* approves changes in each part of the
-repository, *what* the project's "+2 Code Review" gate actually is,
-and *how* the policy fits alongside the project's broader contributor
-guidance.
+repository, *how* code review works in practice, and *what* a
+contributor or reviewer can expect day-to-day.
 
 It is a companion to [`CONTRIBUTING.md`](../CONTRIBUTING.md), not a
 replacement. If you have not read CONTRIBUTING yet, start there for
@@ -32,114 +31,97 @@ section leaves off.
 
 ## At a glance
 
-- Every PR to `main` requires approval from a **qualified "+2"
-  reviewer** for the touched paths. "+2" describes the reviewer's
-  qualification level, not a head-count — one qualified +2 approval
-  is the bar, not two separate +1 approvals.
-- The +2 reviewers for each subsystem are listed in
-  [`/.github/CODEOWNERS`](../.github/CODEOWNERS). The sections below
-  are a human-readable map of the same file.
-- Reviewers apply the [+2 Security Review Checklist](#2-security-review-checklist)
+- Every PR to `main` requires approval from a **code owner** for the
+  touched paths. The code owners for each area of the repository are
+  listed in [`/.github/CODEOWNERS`](../.github/CODEOWNERS).
+- A single approval from a code owner is the bar. GitHub treats the
+  teams listed on a CODEOWNERS line as alternatives — *any one* of
+  them can approve.
+- Code owners run the [security review checklist](#security-review-checklist)
   at the bottom of this document on every review.
-- For security-sensitive paths, the project's Security PIC (or
-  delegate from `@NVIDIA/flashdreams-security`) signs off in addition
-  to the subsystem CODEOWNER.
 - Outside contributors are welcome everywhere. CODEOWNERS controls
   who must *approve* a change, not who may *open* one.
-- The +2 gate cannot be waived. Any operational exception requires a
-  documented audit trail approved by the Security PIC.
+- The review requirement cannot be bypassed; any operational
+  exception requires a documented audit trail.
 
-## What "+2 Code Review" means here
+## How review and merge work on GitHub
 
-In some review systems "+2" means two separate +1 approvals. In the
-FlashDreams policy it means a **single approval from a reviewer
-qualified at the +2 level**:
+There is no special button for code-owner approval — it's the
+standard GitHub PR flow:
 
-1. **Qualified reviewer.** CODEOWNERS membership is the project's
-   ledger of qualified +2 reviewers. Reviewers are trained as required
-   by NVIDIA PLC before being added.
-2. **Checklist on every review.** Qualified reviewers run the
-   [+2 Security Review Checklist](#2-security-review-checklist) below
-   on every PR — it's a short, stable list, not a fresh checklist per
-   PR.
-3. **Authenticated identity.** Approvals are tied to authenticated
-   GitHub accounts; shared accounts are not permitted.
+1. **A contributor opens a pull request.** GitHub reads
+   [`.github/CODEOWNERS`](../.github/CODEOWNERS), computes which
+   teams own the paths touched, and adds them to the *Reviewers*
+   sidebar under "Reviewers requested by Code owners".
+2. **A code owner clicks "Review changes → Approve"** in the GitHub
+   UI (or runs `gh pr review --approve` from the CLI). That single
+   approval, from a member of a CODEOWNERS team for the touched
+   paths, satisfies the "Require review from Code Owners" branch
+   protection check.
+3. **CI and DCO must also be green** — formatting, type-checks, CI
+   tier markers per [`CONTRIBUTING.md` → Testing](../CONTRIBUTING.md#testing),
+   and a `Signed-off-by` trailer on every commit per
+   [`CONTRIBUTING.md` → DCO](../CONTRIBUTING.md#developer-certificate-of-origin-dco).
+4. **A maintainer squash-merges.** The PR title and description
+   become the squash commit message.
 
-Mechanically on GitHub, the gate is implemented as branch protection
-on `main`:
+A non-CODEOWNER approval is welcome — review feedback from anyone
+helps — but on its own it does not satisfy the protected-branch
+check.
+
+Branch protection on `main` is configured so that:
 
 - **Require pull request reviews before merging** — enabled.
-- **Require review from Code Owners** — enabled. (This is the +2
-  enforcement: only a qualified reviewer can satisfy it.)
+- **Require review from Code Owners** — enabled.
 - **Dismiss stale approvals when new commits are pushed** — enabled.
 - **Restrict who can push to matching branches** — enabled; direct
   pushes are not allowed.
 - **Do not allow bypassing the above settings** — enabled, including
   for administrators.
 
-The CI checks documented in
-[`CONTRIBUTING.md` → Testing](../CONTRIBUTING.md#testing) must also
-be green, and every commit must carry a DCO sign-off per
-[`CONTRIBUTING.md` → DCO](../CONTRIBUTING.md#developer-certificate-of-origin-dco).
-Together these four — qualified +2 approval, green CI, DCO sign-off,
-and no protected-branch bypass — form the PLC release-readiness gate
-for FlashDreams.
-
-## Why this matters
-
-The +2 review gate exists for four reasons, in order of practical
-impact:
-
-- **Correctness.** A second pair of qualified eyes catches the
-  mistakes tests don't: a misplaced `assert`, a config default that
-  changes behaviour on a different GPU, a logging line that leaks
-  something it shouldn't.
-- **Security.** The standing checklist makes common vulnerability
-  classes harder to ship by accident.
-- **Shared ownership.** Each subsystem has named maintainers who
-  understand its trade-offs, so changes don't fall into review limbo
-  and aren't merged by people unfamiliar with the area.
-- **Auditability.** Authenticated approvals on a protected branch
-  give the project a clean audit trail, which matters for shipping
-  FlashDreams as a supported NVIDIA product alongside the public OSS
-  release.
-
-We have kept the policy simple enough that it does not get in a
-community contributor's way: contributors open PRs as normal, and the
-qualified reviewer comes from CODEOWNERS automatically.
-
 ## How ownership is organised
 
 GitHub honours exactly one CODEOWNERS file per repository, so all of
-the rules live in [`/.github/CODEOWNERS`](../.github/CODEOWNERS). To
-keep that file readable, it is divided into **sections by subsystem**,
-with each section behaving like its own delegated CODEOWNERS for the
-subtree it covers. The table below mirrors that structure so you can
-find the right reviewer without reading the whole file.
+the rules live in [`/.github/CODEOWNERS`](../.github/CODEOWNERS). The
+file is divided into sections by subsystem, with each section
+behaving like its own delegated CODEOWNERS for the subtree it
+covers. The table below mirrors that structure so you can find the
+right reviewer without reading the whole file.
 
 ### Subsystems
 
 We keep ownership intentionally lean — three teams cover the whole
 repository.
 
-| Area | Paths | Qualified +2 reviewers |
-|------|-------|------------------------|
-| **Core, infra, recipes, plugins, configs, tests, docs, CI, container, workspace metadata** | everything not listed below | `@NVIDIA/flashdreams-maintainers` |
-| **Integrations** | `integrations/` (all recipes) | `@NVIDIA/flashdreams-integrations` |
-| **Licensing & dependency manifests** (additional reviewer) | `LICENSE`, `LICENSES/`, `NOTICE`, `reuse.toml`, `pyproject.toml`, `uv.lock`, per-package `pyproject.toml` | `@NVIDIA/flashdreams-security` (in addition to maintainers / integrations) |
-| **Review-policy files** (additional reviewer) | `.github/CODEOWNERS`, `docs/code_review.md` | `@NVIDIA/flashdreams-security` (in addition to maintainers) |
+| Area | Paths | Code owners |
+|------|-------|-------------|
+| **Default** (core, infra, recipes, plugins, configs, tests, docs, CI, container) | everything not listed below | `@NVIDIA/flashdreams-maintainers` |
+| **Integrations** | `integrations/` (all recipes) | `@NVIDIA/flashdreams-integrations` *or* `@NVIDIA/flashdreams-maintainers` |
+| **Security-sensitive files** | `LICENSE`, `reuse.toml`, `uv.lock`, `flashdreams/pyproject.toml` | `@NVIDIA/flashdreams-security` (sole owner) |
+| **Licensing & dependency manifests with security review** | `LICENSES/`, `NOTICE`, root `pyproject.toml` | `@NVIDIA/flashdreams-maintainers` *or* `@NVIDIA/flashdreams-security` |
+| **Per-integration packaging** | `integrations/*/pyproject.toml` | `@NVIDIA/flashdreams-integrations` *or* `@NVIDIA/flashdreams-security` |
+| **Review-policy files** | `.github/CODEOWNERS`, `docs/code_review.md` | `@NVIDIA/flashdreams-maintainers` *or* `@NVIDIA/flashdreams-security` |
 
-`@NVIDIA/flashdreams-maintainers` is the default owner for any path not
-explicitly matched. We can split out additional teams later if any
-subsystem grows enough to deserve its own ownership boundary, but the
-current shape keeps the review surface small and easy to staff.
+`@NVIDIA/flashdreams-maintainers` is the default owner for any path
+not explicitly matched. We can split out additional teams later if
+any subsystem grows enough to deserve its own ownership boundary,
+but the current shape keeps the review surface small and easy to
+staff.
+
+**A note on "or" in the table above.** When CODEOWNERS lists
+multiple owners on the same line, GitHub treats them as
+alternatives — approval from *any one* of the listed teams
+satisfies the required-review-from-Code-Owners check. If we ever
+need a path to require sign-off from *both* the subsystem team
+*and* the security team (rather than either), we will raise the
+branch-protection "required approvals" count and split the rule
+across two lines.
 
 ### Reading the file
 
-CODEOWNERS rules are applied in order, with the **last matching line
-winning**. A more specific path overrides a more general one — for
-instance, `integrations/cosmos_predict2/` overrides the catch-all
-`integrations/` line above it. If you are unsure who owns a file:
+CODEOWNERS rules are applied in order, with the **last matching
+line winning**. A more specific path overrides a more general one.
+If you are unsure who owns a file:
 
 ```bash
 # Validate the CODEOWNERS file itself
@@ -151,22 +133,23 @@ git log -1 --format=%H -- <path>
 
 When in doubt, open the PR and request a review from
 `@NVIDIA/flashdreams-maintainers`; they will route it to the right
-qualified reviewer.
+person.
 
 ## Security-sensitive paths
 
-A few paths require an additional approval from
-`@NVIDIA/flashdreams-security` on top of the subsystem CODEOWNER:
+A small set of paths is owned by `@NVIDIA/flashdreams-security`,
+either as sole owner or as an additional approver:
 
 - `LICENSE`, `LICENSES/`, `NOTICE`, `reuse.toml` — Apache-2.0
   attribution and third-party license bookkeeping.
-- `.github/CODEOWNERS` itself — changes to who can approve what.
-- `docs/code_review.md` (this document) — changes to the review
-  policy.
+- `pyproject.toml`, `flashdreams/pyproject.toml`,
+  `integrations/*/pyproject.toml`, `uv.lock` — dependency manifests
+  and lock files.
+- `.github/CODEOWNERS` and `docs/code_review.md` — the review
+  policy itself.
 
-Mistakes in those files are unusually expensive to roll back, so the
-project's Security PIC (or a delegate from the security team) signs
-off on them as a matter of routine.
+Mistakes in these files are unusually expensive to roll back, so the
+security team signs off on them as a matter of routine.
 
 For **vulnerability reports**, do *not* open a public issue or PR.
 Follow NVIDIA's coordinated disclosure process at
@@ -179,42 +162,38 @@ You don't need to think about most of this when opening a PR:
 
 1. Fork, branch, code, sign off, push, open a PR — same flow as in
    [`CONTRIBUTING.md` → Submitting a pull request](../CONTRIBUTING.md#submitting-a-pull-request).
-2. GitHub automatically tags the right CODEOWNERS based on the paths
-   you touched. They appear in the PR sidebar under "Reviewers
-   requested by Code owners".
-3. A qualified +2 reviewer works through the checklist below and
-   approves; if you touched a security-sensitive path above, a
-   security reviewer also approves.
+2. GitHub automatically tags the right code owners based on the
+   paths you touched.
+3. A code owner works through the checklist below and approves.
 4. The squash-merge button lights up, and a maintainer presses it.
 
 If your PR spans multiple subsystems (say, a core change that also
 updates an integration), you will see review requests from each
 affected CODEOWNERS team. That is intentional: cross-subsystem
-changes benefit from a qualified reviewer in each area.
+changes benefit from a reviewer in each area.
 
-We aim for first review within two business days; if a PR is quieter
-than that, please leave a friendly ping comment.
+We aim for first review within two business days; if a PR is
+quieter than that, please leave a friendly ping comment.
 
-## Becoming a +2 reviewer
+## Becoming a code owner
 
 CODEOWNERS membership is how the project formalises long-term
 ownership of a subsystem, and it's the main mechanism by which
-governance opens up over time
-(see [`CONTRIBUTING.md` → Project governance](../CONTRIBUTING.md#project-governance)).
+governance opens up over time (see
+[`CONTRIBUTING.md` → Project governance](../CONTRIBUTING.md#project-governance)).
 Contributors — NVIDIA employee or not — who consistently land
-high-quality work in an area, participate in reviews, and engage with
-the issue tracker can be invited onto the relevant CODEOWNERS team
-once any required NVIDIA PLC training is complete.
+high-quality work in an area, participate in reviews, and engage
+with the issue tracker can be invited onto the relevant CODEOWNERS
+team.
 
-There is no fixed time bar; we look for sustained good judgment about
-when to ship, when to push back, and when to ask for help. If you'd
-like to grow into that role, please say so in a Discussion or to any
-maintainer — we'd rather hear it than not.
+There is no fixed time bar; we look for sustained good judgment
+about when to ship, when to push back, and when to ask for help. If
+you'd like to grow into that role, please say so in a Discussion or
+to any maintainer — we'd rather hear it than not.
 
 ## No bypass, no waiver
 
-The +2 gate is not waivable. Branch protection on `main` is
-configured so that:
+Branch protection on `main` is configured so that:
 
 - Administrators are *not* allowed to bypass review or status checks.
 - Direct pushes to `main` are blocked.
@@ -223,32 +202,32 @@ configured so that:
 If an operational situation genuinely requires an exception — for
 example, an emergency security patch where the usual reviewer is
 unavailable — the exception must be documented as an issue or
-incident record, approved by the Security PIC in writing, and the
+incident record, approved by the security team in writing, and the
 audit trail retained. We have not needed to use this path, and we
 would prefer to keep it that way.
 
-## +2 Security Review Checklist
+## Security review checklist
 
-Reviewers — human or LLM agent — run this checklist on every PR
-before approving. It is the standing checklist from NVIDIA's *PLC:
-Code Review Excellence* training; the items below are the literal
-questions a +2 reviewer is expected to answer.
+Code owners — human or LLM agent — run this checklist on every PR
+before approving. It covers the most common ways a change can
+introduce a security regression.
 
 **How to use the table.** For each item, set **Status** to one of:
 
 - `Pass` — the change clearly satisfies the item.
 - `Fail` — the change clearly violates the item; block until fixed.
-- `N/A` — the item does not apply to this PR (e.g. crypto items on a
-  pure-docs change). Explain why in the *Evidence / finding* column.
+- `N/A` — the item does not apply to this PR (e.g. crypto items on
+  a pure-docs change). Explain why in the *Evidence / finding*
+  column.
 - `Human review` — the item requires judgment beyond what an LLM
-  agent should make alone; flag it for the human +2 reviewer.
+  agent should make alone; flag it for a human code owner.
 
 **Evidence / finding** should cite the relevant `path/to/file.py:LN`
 or quote the specific lines or commit hash that justify the status.
 For `Pass` on a non-trivial item, briefly say *why* (one short
 sentence) rather than just `Pass`. LLM agents should err toward
-`Human review` whenever they are uncertain, and should never mark an
-item `Pass` without concrete evidence.
+`Human review` whenever they are uncertain, and should never mark
+an item `Pass` without concrete evidence.
 
 | # | Category | Item | Question | Status | Evidence / finding |
 |---|----------|------|----------|--------|--------------------|
@@ -276,24 +255,31 @@ item `Pass` without concrete evidence.
 | 22 | Access Control & Concurrency | Race Conditions | Is the code protected against TOCTOU vulnerabilities? | | |
 | 23 | Access Control & Concurrency | No Backdoors | Are there no intentional or accidental bypass mechanisms? | | |
 
-The wording of the items above is reproduced from NVIDIA's *PLC:
-Code Review Excellence* training; it is the authoritative version,
-and changes to it should track the upstream training rather than
-diverging here.
+## NVIDIA PLC compliance note
+
+FlashDreams is released alongside an NVIDIA Product Lifecycle (PLC)
+"+2 Code Review" compliance requirement. The CODEOWNERS-based
+review described above — one approval from a qualified code owner,
+checklist applied, security team on sensitive paths, no bypass —
+is what satisfies that requirement. Code owners are trained as
+required by NVIDIA PLC before being added to a CODEOWNERS team, and
+the checklist questions above are reused from NVIDIA's *PLC: Code
+Review Excellence* training. No separate, parallel process is
+needed.
 
 ## Changing this document or the CODEOWNERS file
 
 Both this file and `.github/CODEOWNERS` are themselves owned by
 `@NVIDIA/flashdreams-maintainers` and `@NVIDIA/flashdreams-security`.
 If you want to propose a change — new subsystem owners, a different
-ownership boundary, a refinement to the +2 policy — please open an
-issue or Discussion first so we can talk through it before the PR.
-The goal is for the review policy to be predictable; we change it
-deliberately rather than incrementally.
+ownership boundary, a refinement to how review works — please open
+an issue or Discussion first so we can talk through it before the
+PR. The goal is for the review policy to be predictable; we change
+it deliberately rather than incrementally.
 
 ---
 
-Thanks for reading this far. The project is healthier when reviewers
-and contributors share a clear picture of how decisions get made; if
-anything above is unclear, that's a bug in the documentation and
-we'd appreciate the issue.
+Thanks for reading this far. The project is healthier when
+reviewers and contributors share a clear picture of how decisions
+get made; if anything above is unclear, that's a bug in the
+documentation and we'd appreciate the issue.
