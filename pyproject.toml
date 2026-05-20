@@ -33,6 +33,36 @@ override-dependencies = [
 # so TE builds against the resolved torch from the project venv.
 no-build-isolation-package = ["transformer-engine-torch"]
 
+# `block-sparse-attn` has the same need (its `setup.py` does `import torch`
+# to compile a CUDA extension) but takes a different route. Listing it under
+# `no-build-isolation-package` would also disable `extra-build-dependencies`
+# for the package (https://github.com/astral-sh/uv/issues/16243). Instead,
+# keep build isolation on and seed the isolated build env with the packages
+# that `setup.py` imports at module load but aren't provided by the default
+# PEP 517 build environment; `match-runtime = true` on torch picks up the
+# CUDA-enabled torch resolved for the project venv.
+[tool.uv.extra-build-dependencies]
+block-sparse-attn = [
+    { requirement = "torch", match-runtime = true },
+    "psutil",
+    "ninja",
+]
+
+# `block-sparse-attn` is git-sourced (override lives next to the dep
+# declaration in `integrations/flashvsr/pyproject.toml`) and upstream ships
+# no `pyproject.toml` / `PKG-INFO`, so without a hint uv would have to build
+# it just to resolve the workspace -- which is the very build that needs the
+# `extra-build-dependencies` above to succeed, and `match-runtime = true`
+# requires static metadata to function. Declare the metadata upfront,
+# mirroring the upstream `setup.py`'s `install_requires` and the `__version__`
+# in `block_sparse_attn/__init__.py` (the `.post1` git tag is an
+# `__init__.py` cleanup with no version bump), so uv skips the resolution-
+# time build and defers to install time, when the build env is fully wired.
+[[tool.uv.dependency-metadata]]
+name = "block-sparse-attn"
+version = "0.0.2"
+requires-dist = ["torch", "einops"]
+
 # The `transformer-engine-torch==2.14.0` sdist on PyPI is missing its
 # `build_tools/` directory, so any from-source build (which is the only option
 # since there is no prebuilt wheel) crashes inside setup.py with
@@ -52,6 +82,7 @@ extraPaths = [
     "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
+    "integrations/flashvsr",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
     "integrations/self_forcing",
@@ -72,6 +103,7 @@ extra-paths = [
     "integrations/alpadreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
+    "integrations/flashvsr",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
     "integrations/self_forcing",

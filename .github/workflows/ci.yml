@@ -42,6 +42,10 @@ jobs:
           cache-suffix: "cpu"
 
       - name: Install lint dependencies
+        env:
+          # Skip compiling CUDA kernels for block-sparse-attn on CPU runners;
+          # the Python interface is enough for CPU-only unit tests.
+          BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD: "TRUE"
         run: |
           # ty needs third-party packages to resolve imports. Skip packages
           # that cannot be installed on CPU-only runners:
@@ -135,6 +139,7 @@ jobs:
       - name: Install dependencies
         env:
           NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
+          BLOCK_SPARSE_ATTN_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
         run: |
           uv venv --clear
           uv sync --extra dev
