@@ -17,7 +17,12 @@ members = [
 [tool.uv]
 managed = true
 required-version = ">=0.11.8"
-override-dependencies = ["nvidia-cublas>=13.4"]
+override-dependencies = [
+    "nvidia-cublas>=13.4",
+    # Keep transitive HTTP clients off urllib3 versions with sensitive-header
+    # redirect handling vulnerabilities.
+    "urllib3>=2.7.0",
+]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
 # the project's PyTorch + system CUDA. uv's default per-package build isolation
@@ -125,5 +130,5 @@ docs-ci = [
     "torch>=2.11",
     "torchvision>=0.22",
     "tqdm>=4.60",
-    "transformers==4.57.6",
+    "transformers>=5.0,<6",
 ]

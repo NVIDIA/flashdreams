@@ -76,7 +76,7 @@ jobs:
 
   gpu:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
-    timeout-minutes: 30
+    timeout-minutes: 120
     container:
       image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
       options: --gpus all
@@ -85,11 +85,25 @@ jobs:
       # the checkout directory owned by the runner.
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
+      # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job
+      # uses ~9GB peak memory).
+      MAX_JOBS: 8
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
         id: get-pr-info
         uses: nv-gha-runners/get-pr-info@main
+
+      - name: Detect GPU architecture
+        id: gpu-arch
+        run: |
+          nvidia-smi
+          # Get compute capability (e.g. "12.0") and strip the dot for nvcc
+          # arch format (e.g. "120").
+          compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+          arch=$(echo "${compute_cap}" | tr -d '.')
+          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+          echo "Detected GPU compute capability: ${compute_cap} -> sm_${arch}"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -112,9 +126,15 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-suffix: "gpu"
+          cache-suffix: "gpu-sm${{ steps.gpu-arch.outputs.arch }}"
+          # Disable default prune --ci which removes pre-built wheels but also
+          # invalidates git-sourced builds (timestamps change on cache restore).
+          # Instead we selectively trim the cache in a post step below.
+          prune-cache: false
 
       - name: Install dependencies
+        env:
+          NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
         run: |
           uv venv --clear
           uv sync --extra dev
@@ -128,6 +148,40 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: uv run --no-sync pytest -m ci_gpu -v
+
+      - name: Trim uv cache for upload
+        if: always()
+        run: |
+          cache_dir="${UV_CACHE_DIR:-/github/home/.cache/uv}"
+          echo "=== Cache size before trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+
+          # Remove pre-built (downloaded) wheels -- these are re-downloaded
+          # quickly from the proxy cache on each run.
+          rm -rf "${cache_dir}/wheels-v6"
+
+          # Remove unzipped wheel archives -- uv can re-extract from .whl
+          # files in sdists-v9/ on next run.
+          rm -rf "${cache_dir}/archive-v0"
+
+          # Remove build artifacts from git checkouts (build/, *.egg-info,
+          # __pycache__) that bloat the cache but aren't needed for reuse.
+          find "${cache_dir}/git-v0/checkouts" \
+            \( -name "build" -o -name "*.egg-info" -o -name "__pycache__" \) \
+            -type d -exec rm -rf {} + 2>/dev/null || true
+
+          # Remove editable installs -- these are in-repo workspace members
+          # that get rebuilt instantly from source on every sync.
+          rm -rf "${cache_dir}/sdists-v9/editable"
+
+          echo ""
+          echo "=== Cache size after trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+          echo ""
+          echo "=== Cached built wheels (sdists-v9) ==="
+          find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
 
   # ===========================================================================
   # Publish to Test PyPI -- runs only on main after cpu + gpu jobs pass.
