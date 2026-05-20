@@ -190,8 +190,6 @@ class OrientedBoxElement(MapElement):
     @property
     def transformation_matrix(self) -> NDArray[np.float32]:
         """Get 4x4 transformation matrix from center and orientation."""
-        from scipy.spatial.transform import Rotation
-
         matrix = np.eye(4, dtype=np.float32)
         matrix[:3, 3] = self.center
         matrix[:3, :3] = Rotation.from_quat(self.orientation).as_matrix()
@@ -500,8 +498,6 @@ class DynamicObject:
             return None
 
         center, _, orientation = pose
-        from scipy.spatial.transform import Rotation
-
         matrix = np.eye(4, dtype=np.float32)
         matrix[:3, 3] = center
         matrix[:3, :3] = Rotation.from_quat(orientation).as_matrix()
@@ -519,8 +515,6 @@ class EgoPose:
     @property
     def transformation_matrix(self) -> NDArray[np.float32]:
         """Get 4x4 transformation matrix."""
-        from scipy.spatial.transform import Rotation
-
         matrix = np.eye(4, dtype=np.float32)
         matrix[:3, 3] = self.position
         matrix[:3, :3] = Rotation.from_quat(self.orientation).as_matrix()

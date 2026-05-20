@@ -36,12 +36,15 @@ const activeKeys = new Set()
 const frameTimes = []
 const pendingActions = []
 const maxPendingActions = 32
+const heartbeatIntervalMs = 2000
 
 let peerConnection = null
 let controlChannel = null
 let statsTimer = null
+let heartbeatTimer = null
 let inferenceInFlight = false
 let connected = false
+let disconnecting = false
 let heldKeySequence = 0
 let mockChunkIndex = 0
 let mockGenerationStarted = false
@@ -423,6 +426,56 @@ function stopStatsPolling() {
   }
 }
 
+function sendHeartbeat() {
+  if (!controlChannel || controlChannel.readyState !== "open") {
+    return
+  }
+  try {
+    controlChannel.send(JSON.stringify({ type: "heartbeat", t: Date.now() }))
+  } catch (error) {
+    logEvent(`heartbeat failed: ${error.message}`, { source: "client" })
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer !== null) {
+    return
+  }
+  sendHeartbeat()
+  heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs)
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+}
+
+function disconnectSession({ notify = true } = {}) {
+  if (disconnecting) {
+    return
+  }
+  disconnecting = true
+  stopHeartbeat()
+  stopStatsPolling()
+  connected = false
+  connectButton.disabled = false
+  if (notify && controlChannel && controlChannel.readyState === "open") {
+    try {
+      controlChannel.send(JSON.stringify({ type: "disconnect" }))
+    } catch {
+      // The browser may already be tearing the page down.
+    }
+  }
+  if (controlChannel && controlChannel.readyState !== "closed") {
+    controlChannel.close()
+  }
+  if (peerConnection) {
+    peerConnection.close()
+  }
+}
+
 async function connectSession() {
   if (mockMode) {
     await startMockSession()
@@ -433,6 +486,7 @@ async function connectSession() {
   setStatus("Connecting", "connecting")
   setFlow("creating peer connection")
   logEvent("connecting to server...", { source: "client" })
+  disconnecting = false
 
   try {
     peerConnection = new RTCPeerConnection()
@@ -442,10 +496,12 @@ async function connectSession() {
     controlChannel.onopen = () => {
       logEvent("control data channel open")
       setFlow("ready for action")
+      startHeartbeat()
     }
     controlChannel.onclose = () => {
       logEvent("control data channel closed")
       setFlow("channel closed")
+      stopHeartbeat()
     }
     controlChannel.onmessage = (event) => {
       handleControlMessage(event.data)
@@ -475,6 +531,8 @@ async function connectSession() {
       }
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
+        connectButton.disabled = false
+        stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
       }
@@ -497,6 +555,10 @@ async function connectSession() {
     await peerConnection.setRemoteDescription(answer)
     logEvent("offer/answer completed")
   } catch (error) {
+    stopHeartbeat()
+    if (peerConnection) {
+      peerConnection.close()
+    }
     connected = false
     setStatus("Error", "error")
     setFlow("failed")
@@ -794,5 +856,11 @@ remoteVideo.addEventListener("emptied", () => {
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
 window.addEventListener("blur", releaseAllKeys)
+window.addEventListener("pagehide", () => {
+  disconnectSession()
+})
+window.addEventListener("beforeunload", () => {
+  disconnectSession()
+})
 
 initialize()

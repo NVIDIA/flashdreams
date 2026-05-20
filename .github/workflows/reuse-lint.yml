@@ -85,22 +85,40 @@ jobs:
           set -euo pipefail
           excludes='^integrations/alpadreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/'
           excludes+='|^integrations/alpadreams/alpadreams/grpc/protos/.*_pb2'
-          missing=0
+          missing_files=()
           while IFS= read -r f; do
             if printf '%s\n' "$f" | grep -qE "$excludes"; then
               continue
             fi
             if ! head -n 20 "$f" | grep -q "SPDX-License-Identifier"; then
-              echo "::error file=$f::missing SPDX-License-Identifier in first 20 lines"
-              missing=$((missing + 1))
+              missing_files+=("$f")
             fi
           done < <(git ls-files \
                      '*.py' '*.pyx' '*.pyi' \
                      '*.c' '*.cc' '*.cpp' '*.cxx' \
                      '*.h' '*.hh' '*.hpp' '*.hxx' \
                      '*.cu' '*.cuh' '*.inl')
-          if [ "$missing" -gt 0 ]; then
-            echo "::error::$missing source file(s) missing inline SPDX header"
+          if [ "${#missing_files[@]}" -gt 0 ]; then
+            # Print the list to the raw log so it shows in the step output,
+            # then emit GitHub annotations so the offending files appear in
+            # the PR "Files changed" review tab too.
+            echo
+            echo "The following ${#missing_files[@]} source file(s) are missing an"
+            echo "inline 'SPDX-License-Identifier' tag in their first 20 lines:"
+            echo
+            for f in "${missing_files[@]}"; do
+              echo "  - $f"
+            done
+            echo
+            echo "Add a header like (Python/shell comment style):"
+            echo "  # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
+            echo "  # SPDX-License-Identifier: Apache-2.0"
+            echo "C/C++/CUDA files use '//' line comments with the same two tags."
+            echo
+            for f in "${missing_files[@]}"; do
+              echo "::error file=$f,line=1,title=Missing SPDX header::Add 'SPDX-License-Identifier: Apache-2.0' (and matching SPDX-FileCopyrightText) to the first 20 lines of this file."
+            done
+            echo "::error title=Missing SPDX headers::${#missing_files[@]} source file(s) missing inline SPDX header"
             exit 1
           fi
           echo "OK: every tracked source file carries an inline SPDX-License-Identifier"

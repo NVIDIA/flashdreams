@@ -29,7 +29,6 @@ Key conversions:
 from __future__ import annotations
 
 import io
-import socket
 import tempfile
 import zipfile
 from pathlib import Path
@@ -48,30 +47,6 @@ from loguru import logger
 from PIL import Image
 from scipy.spatial.transform import Rotation
 from torch import Tensor
-
-# =============================================================================
-# Network Utilities
-# =============================================================================
-
-
-def get_external_ip() -> str:
-    """Get the external IP address of this machine.
-
-    Uses a UDP socket trick to determine which interface would be used
-    to reach an external address. No actual connection is made.
-
-    Returns:
-        The external IP address as a string, or "127.0.0.1" if detection fails.
-    """
-    try:
-        # Create a UDP socket and "connect" to an external address
-        # This doesn't send any data, but tells us which local IP would be used
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-
 
 # =============================================================================
 # Image Encoding/Decoding

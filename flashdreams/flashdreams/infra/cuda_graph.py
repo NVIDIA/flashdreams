@@ -23,6 +23,30 @@ import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 
+def set_or_copy(
+    state: dict,
+    key: Any,
+    new_value: torch.Tensor,
+) -> None:
+    """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
+
+    First write clones into a fresh buffer; subsequent same-shape writes
+    ``copy_`` in place. Pointer stability is required for CUDA-graph
+    capture, since captured kernels reference the slot's storage address.
+
+    ``state`` is intentionally typed as the loose ``dict`` because the
+    three call sites use incompatible parametrisations (``dict[str,
+    Tensor | None]`` for the FlashVSR projector cache, ``dict[int,
+    Tensor]`` for the Wan VAE and TAEHV streaming caches) and
+    ``MutableMapping`` is invariant in its value type.
+    """
+    cur = state.get(key)
+    if cur is not None and cur.shape == new_value.shape:
+        cur.copy_(new_value)
+    else:
+        state[key] = new_value.clone()
+
+
 class CUDAGraphWrapper:
     """Capture a stateful CUDA callable into a replayable graph.
 
@@ -202,10 +226,18 @@ class CUDAGraphWrapper:
         # them — so the static outputs and in-place cache updates are no-ops
         # here. Replay once immediately to actually compute the output and
         # advance the cache.
-        self._graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self._graph):
+        #
+        # Keep the graph local until capture and the first replay both
+        # succeed. If capture fails and the caller catches the exception, a
+        # stored-but-invalid CUDAGraph would make the next call fail with
+        # "replay without a preceding successful capture", hiding the real
+        # capture error.
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
             out = self.fn(*args, **kwargs)
-        out_leaves, self._out_spec = tree_flatten(out)
+        out_leaves, out_spec = tree_flatten(out)
+        graph.replay()
+        self._graph = graph
+        self._out_spec = out_spec
         self._static_out_leaves = out_leaves
-        self._graph.replay()
         return self._clone_output()

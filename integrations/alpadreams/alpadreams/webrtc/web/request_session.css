@@ -1,0 +1,306 @@
+/*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+*/
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #101214;
+  color: #eef2f3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #101214;
+}
+
+button {
+  font: inherit;
+}
+
+.appShell,
+.stage {
+  min-height: 100vh;
+}
+
+.stage {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  background: #15181a;
+}
+
+h1 {
+  position: absolute;
+  z-index: 4;
+  top: 22px;
+  left: 28px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.stageVideo {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  background: #08090a;
+}
+
+.stageShade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.55), transparent 32%, transparent 68%, rgb(0 0 0 / 0.45)),
+    linear-gradient(0deg, rgb(0 0 0 / 0.45), transparent 34%, rgb(0 0 0 / 0.32));
+}
+
+.panel {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 8px;
+  background: rgb(12 14 15 / 0.78);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.32);
+  backdrop-filter: blur(12px);
+}
+
+.panelLabel {
+  display: block;
+  margin-bottom: 8px;
+  color: #9da8ad;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.statusPanel {
+  top: 64px;
+  left: 24px;
+  width: min(280px, calc(100vw - 48px));
+  padding: 14px;
+}
+
+.statusLine {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #9da8ad;
+}
+
+body[data-status="connected"] .statusDot,
+body[data-status="generating"] .statusDot {
+  background: #40d38a;
+}
+
+body[data-status="error"] .statusDot {
+  background: #ff5d5d;
+}
+
+#connectButton {
+  width: 100%;
+  height: 40px;
+  border: 0;
+  border-radius: 6px;
+  color: #08110d;
+  background: #72dfa4;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#connectButton:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.flowLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: #9da8ad;
+  font-size: 12px;
+}
+
+.flowLine strong {
+  max-width: 170px;
+  overflow: hidden;
+  color: #eef2f3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.controlsPanel {
+  right: 24px;
+  bottom: 92px;
+  width: 210px;
+  padding: 14px;
+}
+
+.keyGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(2, 48px);
+  gap: 8px;
+  justify-content: center;
+}
+
+.controlKey {
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 6px;
+  color: #eef2f3;
+  background: rgb(255 255 255 / 0.08);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.controlKey.is-active {
+  color: #07110d;
+  background: #72dfa4;
+}
+
+.keyW {
+  grid-column: 2;
+}
+
+.keyA {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.keyS {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.keyD {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.logPanel {
+  left: 24px;
+  bottom: 92px;
+  width: min(390px, calc(100vw - 48px));
+  max-height: 220px;
+  padding: 14px;
+}
+
+.logList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 164px;
+  padding-right: 4px;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #c6cdd1;
+  scrollbar-color: #566168 transparent;
+}
+
+.logEntry {
+  display: flex;
+  gap: 8px;
+}
+
+.logEntry time {
+  flex: 0 0 auto;
+  color: #7f8b91;
+}
+
+.logEntry.is-error {
+  color: #ff9b9b;
+}
+
+.metricsBar {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(86px, 1fr)) minmax(180px, 2fr);
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(8 9 10 / 0.86);
+  backdrop-filter: blur(14px);
+}
+
+.metric {
+  min-width: 0;
+  padding: 13px 18px;
+  border-right: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.metric span {
+  display: block;
+  color: #9da8ad;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  body {
+    overflow: auto;
+  }
+
+  h1 {
+    top: 14px;
+    left: 16px;
+    font-size: 18px;
+  }
+
+  .statusPanel {
+    top: 48px;
+    left: 12px;
+  }
+
+  .controlsPanel,
+  .logPanel {
+    left: 12px;
+    right: auto;
+    bottom: auto;
+  }
+
+  .controlsPanel {
+    top: 224px;
+  }
+
+  .logPanel {
+    top: 406px;
+  }
+
+  .metricsBar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metricWide {
+    grid-column: span 2;
+  }
+}

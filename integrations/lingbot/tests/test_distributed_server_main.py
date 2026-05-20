@@ -43,6 +43,8 @@ def _args(device: str = "cuda:0") -> Namespace:
         config_name="LingBot-World-Fast",
         no_compile=False,
         device=device,
+        warmup_chunks=10,
+        warmup_timeout_s=600.0,
     )
 
 

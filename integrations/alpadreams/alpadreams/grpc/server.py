@@ -65,7 +65,6 @@ from alpadreams.grpc.utils import (
     decode_image,
     dynamic_state_to_object_info,
     encode_image,
-    get_external_ip,
     load_static_world_from_zip_bytes,
     parse_rig_to_camera,
     proto_to_dict,
@@ -86,6 +85,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
+from flashdreams.serving.network import get_external_ip
 
 VERBOSE = False
 
