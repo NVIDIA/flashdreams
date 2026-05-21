@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>AlpaDreams &#8212; FlashDreams v0.1.0a2</title>
+    <title>Onmidreams &#8212; FlashDreams v0.1.0a2</title>
   
   
   
@@ -56,7 +56,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'examples/alpadreams';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'examples/onmidreams';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
 
     <link rel="icon" href="../_static/favicon.png"/>
@@ -298,7 +298,7 @@ SPDX-License-Identifier: Apache-2.0
   <p class="bd-links__title" role="heading" aria-level="1">Table of Contents</p>
   <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Supported Autoregressive Models</span></p>
 <ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">AlpaDreams</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Onmidreams</a></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-forcing T2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-forcing T2V / I2V (Wan2.1)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">FastVideo CausalWan 2.2</a></li>
@@ -355,7 +355,7 @@ SPDX-License-Identifier: Apache-2.0
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">AlpaDreams</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Onmidreams</span></li>
   </ul>
 </nav>
 </div>
@@ -372,27 +372,27 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="alpadreams">
-<h1>AlpaDreams<a class="headerlink" href="#alpadreams" title="Link to this heading">#</a></h1>
-<p>Driving-scene video generation with the Alpadreams recipe (Cosmos DiT +
+  <section id="onmidreams">
+<h1>Onmidreams<a class="headerlink" href="#onmidreams" title="Link to this heading">#</a></h1>
+<p>Driving-scene video generation with the Onmidreams recipe (Cosmos DiT +
 HDMap conditioning + I2V mask injection). Driver: the unified
 <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI; checkpoints and example data are auto-downloaded
 on first run.</p>
-<p>The runner slug encodes every variant of <code class="xref py py-data docutils literal notranslate"><span class="pre">ALPADREAMS_CONFIGS</span></code>. Pick
+<p>The runner slug encodes every variant of <code class="xref py py-data docutils literal notranslate"><span class="pre">ONMIDREAMS_CONFIGS</span></code>. Pick
 the one matching the camera setup; for example:</p>
 <ul class="simple">
-<li><p>single view -&gt; <code class="docutils literal notranslate"><span class="pre">alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae</span></code></p></li>
-<li><p>single view, perf preset -&gt; <code class="docutils literal notranslate"><span class="pre">alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf</span></code></p></li>
-<li><p>4-camera multi view -&gt; <code class="docutils literal notranslate"><span class="pre">alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae</span></code></p></li>
+<li><p>single view -&gt; <code class="docutils literal notranslate"><span class="pre">onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae</span></code></p></li>
+<li><p>single view, perf preset -&gt; <code class="docutils literal notranslate"><span class="pre">onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf</span></code></p></li>
+<li><p>4-camera multi view -&gt; <code class="docutils literal notranslate"><span class="pre">onmidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae</span></code></p></li>
 </ul>
 <p>Pass <code class="docutils literal notranslate"><span class="pre">--example-data</span></code> to lazy-sync the bundled HDMap clips + first frames
-into <code class="docutils literal notranslate"><span class="pre">assets/example_data/alpadreams/</span></code> and fill the per-camera path tuples.
+into <code class="docutils literal notranslate"><span class="pre">assets/example_data/onmidreams/</span></code> and fill the per-camera path tuples.
 Drop the flag and pass <code class="docutils literal notranslate"><span class="pre">--hdmap-video-paths</span></code> / <code class="docutils literal notranslate"><span class="pre">--first-frame-paths</span></code>
 explicitly for production runs.</p>
 <section id="single-gpu-single-view-perf-preset">
 <h2>Single GPU, single view (perf preset)<a class="headerlink" href="#single-gpu-single-view-perf-preset" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">20</span>
 </pre></div>
 </div>
@@ -400,7 +400,7 @@ explicitly for production runs.</p>
 <section id="multi-gpu-multi-view">
 <h2>Multi GPU, multi view<a class="headerlink" href="#multi-gpu-multi-view" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-mv-2steps-chunk4-loc8-pshuffle-lighttae<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">20</span>
 </pre></div>
 </div>
@@ -410,7 +410,7 @@ across the world.</p>
 <section id="diffusion-forcing-single-view">
 <h2>Diffusion forcing, single view<a class="headerlink" href="#diffusion-forcing-single-view" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">12</span>
 </pre></div>
 </div>
@@ -420,7 +420,7 @@ to 93 frames.</p>
 <section id="bidirectional-single-view">
 <h2>Bidirectional, single view<a class="headerlink" href="#bidirectional-single-view" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pipeline.diffusion-model.transformer.len-t<span class="w"> </span><span class="m">24</span>
 </pre></div>
@@ -435,13 +435,13 @@ trained 48-chunk length, or set it to 24 for a shorter 93-frame run.</p>
 and reuse the embeddings on the AR pass:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Rank-0-only producer: dump text + first-frame embeddings.</span>
 uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--save-embeddings-path<span class="w"> </span>/tmp/alpa_emb.pt
 
 <span class="c1"># Consumer: skip the one-shot encoders, hydrate the cache from .pt.</span>
 uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--embeddings-path<span class="w"> </span>/tmp/alpa_emb.pt<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">20</span>
@@ -450,7 +450,7 @@ uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </
 </section>
 <section id="credentials">
 <h2>Credentials<a class="headerlink" href="#credentials" title="Link to this heading">#</a></h2>
-<p>Alpadreams resolves public Omni Dreams checkpoints and example-data repos from
+<p>Onmidreams resolves public Omni Dreams checkpoints and example-data repos from
 the <code class="docutils literal notranslate"><span class="pre">nvidia</span></code> Hugging Face org by default (<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> and
 <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-samples</span></code>). Set <code class="docutils literal notranslate"><span class="pre">OMNI_DREAMS_HF_ORG</span></code> before invoking
 <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> if your token can only access another mirror, such as
