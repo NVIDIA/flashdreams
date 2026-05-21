@@ -15,7 +15,7 @@
 
 """A/B benchmark: Triton vs TE ``apply_rotary_pos_emb``.
 
-Production shapes observed in the onmidreams pipeline are listed in
+Production shapes observed in the omnidreams pipeline are listed in
 ``_PROD_SHAPES`` below. Run with::
 
     PYTHONPATH=. python tests/perf_rope.py

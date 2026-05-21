@@ -45,10 +45,10 @@ docs/
     ├── apis/
     │   ├── core.rst        # flashdreams.core (attention, distributed, …)
     │   ├── infra.rst       # flashdreams.infra (pipeline, diffusion, …)
-    │   ├── recipes.rst     # flashdreams.recipes (onmidreams, wan, …)
+    │   ├── recipes.rst     # flashdreams.recipes (omnidreams, wan, …)
     │   └── serving.rst     # placeholder for the future serving layer
     └── examples/           # one rst per inference launcher
-        ├── onmidreams.rst
+        ├── omnidreams.rst
         ├── self_forcing.rst
         ├── causal_forcing.rst
         ├── causal_wan22.rst

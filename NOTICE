@@ -44,7 +44,7 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 --------------------------------------------------------------------------------
-Optional integration: integrations/onmidreams
+Optional integration: integrations/omnidreams
 --------------------------------------------------------------------------------
 
 mediapy                Apache-2.0   https://github.com/google/mediapy
@@ -55,7 +55,7 @@ shapely                BSD-3-Clause https://github.com/shapely/shapely
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
 
 Files in
-    integrations/onmidreams/onmidreams/conditioning/world_scenario/
+    integrations/omnidreams/omnidreams/conditioning/world_scenario/
     (camera_base.py, ftheta.py, pinhole.py)
 were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
 (https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
@@ -81,7 +81,7 @@ notice inline; license texts are reproduced under LICENSES/.
 HPG-2011 NVIDIA CUDA Rasterizer port
 --------------------------------------------------------------------------------
 
-Path:    integrations/onmidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+Path:    integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
 License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
          Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved.
 
@@ -99,7 +99,7 @@ deviations.
 LodePNG
 --------------------------------------------------------------------------------
 
-Path:     integrations/onmidreams/ludus-renderer/ludus_renderer/_cpp/
+Path:     integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
           cudaraster/framework/3rdparty/lodepng/{lodepng.h, lodepng.cpp}
 License:  Zlib (see LICENSES/Zlib.txt)
           Copyright (c) 2005-2011 Lode Vandevenne

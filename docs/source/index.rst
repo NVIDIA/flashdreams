@@ -57,7 +57,7 @@ Slurm node.
    :maxdepth: 1
    :caption: Supported Autoregressive Models
 
-   examples/onmidreams
+   examples/omnidreams
    examples/self_forcing
    examples/causal_forcing
    examples/causal_wan22

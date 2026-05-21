@@ -3,12 +3,12 @@ members = [
     "flashdreams",
     # Each populated subdir under ``integrations/`` is a standalone
     # external recipe repo (e.g. ``causal_forcing`` / ``self_forcing``
-    # plugins, ``onmidreams`` / ``lingbot`` integrations); empty stub
+    # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
-    "integrations/onmidreams/ludus-renderer",
+    "integrations/omnidreams/ludus-renderer",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -81,8 +81,8 @@ transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.
 [tool.pyright]
 extraPaths = [
     "flashdreams",
-    "integrations/onmidreams",
-    "integrations/onmidreams/ludus-renderer",
+    "integrations/omnidreams",
+    "integrations/omnidreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
@@ -102,8 +102,8 @@ reportIncompatibleVariableOverride = "none"
 python-version = "3.12"
 extra-paths = [
     "flashdreams",
-    "integrations/onmidreams",
-    "integrations/onmidreams/ludus-renderer",
+    "integrations/omnidreams",
+    "integrations/omnidreams/ludus-renderer",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",

@@ -55,9 +55,9 @@ SPDX-License-Identifier = "Apache-2.0"
 #     modified under the same Apache-2.0 license. ---
 [[annotations]]
 path = [
-    "integrations/onmidreams/onmidreams/conditioning/world_scenario/camera_base.py",
-    "integrations/onmidreams/onmidreams/conditioning/world_scenario/ftheta.py",
-    "integrations/onmidreams/onmidreams/conditioning/world_scenario/pinhole.py",
+    "integrations/omnidreams/omnidreams/conditioning/world_scenario/camera_base.py",
+    "integrations/omnidreams/omnidreams/conditioning/world_scenario/ftheta.py",
+    "integrations/omnidreams/omnidreams/conditioning/world_scenario/pinhole.py",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = [
@@ -70,7 +70,7 @@ SPDX-License-Identifier = "Apache-2.0"
 #     *_pb2.py / *_pb2.pyi / *_pb2_grpc.py outputs inherit the same license
 #     because the regeneration script (compile_protos.sh) is project-owned. ---
 [[annotations]]
-path = "integrations/onmidreams/onmidreams/grpc/protos/*_pb2*"
+path = "integrations/omnidreams/omnidreams/grpc/protos/*_pb2*"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 SPDX-License-Identifier = "Apache-2.0"
@@ -100,7 +100,7 @@ SPDX-License-Identifier = "Apache-2.0"
 #     tag convention). `override` prevents the project-default Apache-2.0
 #     aggregate from being merged in. ---
 [[annotations]]
-path = "integrations/onmidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/**"
+path = "integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/**"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved."
 SPDX-License-Identifier = "BSD-3-Clause"
@@ -111,7 +111,7 @@ SPDX-License-Identifier = "BSD-3-Clause"
 #     in LICENSES/Zlib.txt. This annotation comes after the cudaraster
 #     `override` above so the more specific path wins. ---
 [[annotations]]
-path = "integrations/onmidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/framework/3rdparty/lodepng/**"
+path = "integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/framework/3rdparty/lodepng/**"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2005-2011 Lode Vandevenne"
 SPDX-License-Identifier = "Zlib"

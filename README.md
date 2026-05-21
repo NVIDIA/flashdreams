@@ -119,9 +119,9 @@ source of truth.
 Tyro's `--help` and parse-error banners print exactly once on rank 0;
 non-zero ranks suppress them via tyro's distributed-mode hook.
 
-## Instructions to run Onmidreams Inference
+## Instructions to run Omnidreams Inference
 
-Onmidreams resolves public Omni Dreams checkpoints and example-data repos from
+Omnidreams resolves public Omni Dreams checkpoints and example-data repos from
 the `nvidia` Hugging Face org by default (`nvidia/omni-dreams-models` and
 `nvidia/omni-dreams-samples`). Set `OMNI_DREAMS_HF_ORG` before invoking
 `flashdreams-run` if your token can only access another mirror, such as
@@ -172,24 +172,24 @@ EOF
 #    clips at https://huggingface.co/datasets/${OMNI_DREAMS_HF_ORG:-nvidia}/omni-dreams-samples/tree/main/data/single_view .
 # - single view on single GPU (best-perf preset; fully HF-native)
 uv run flashdreams-run \
-    onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+    omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
     --example-data True --total-blocks 20
 
 # - multi view on 4 GPUs (S3: --example-data still pulls multi-view clips from S3)
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-    onmidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
+    omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
     --example-data True --total-blocks 20
 
 # - diffusion forcing AR model (S3: chunk2 diffusion-forcing checkpoint not on HF yet)
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-    onmidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+    omnidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
     --example-data True --total-blocks 12
 ```
 
-## Instructions to run Onmidreams Bidirectional Model
+## Instructions to run Omnidreams Bidirectional Model
 
 Use the same container, Hugging Face token, and `FLASHDREAMS_CACHE_DIR` setup
-as the Onmidreams inference section above. The bidirectional recipe runs the
+as the Omnidreams inference section above. The bidirectional recipe runs the
 single-view full-block Cosmos2 2B / 720p / HDMap checkpoint; that checkpoint
 is still S3-hosted, so the S3 credentials block from step 3 above is required
 for this recipe.
@@ -201,7 +201,7 @@ generates one full block per run, so keep `--total-blocks 1`.
 
 ```bash
 uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-    onmidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+    omnidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
     --example-data True --total-blocks 1 \
     --pipeline.diffusion-model.transformer.len-t 24
 ```
@@ -248,7 +248,7 @@ The Self-Forcing slugs ship as an out-of-tree plugin
 its slugs through `flashdreams-run`.
 
 ```bash
-# 0. request interactive node with pre-built container save as above onmidreams demo.
+# 0. request interactive node with pre-built container save as above omnidreams demo.
 
 # 1. install the plugin (one-time; declared as a uv workspace member, so
 #    `uv sync` from the repo root is enough — this line is for clarity).
@@ -270,7 +270,7 @@ The Causal-Forcing slugs ship as a separate out-of-tree plugin
 (`flashdreams/plugins/causal_forcing/`).
 
 ```bash
-# 0. request interactive node with pre-built container save as above onmidreams demo.
+# 0. request interactive node with pre-built container save as above omnidreams demo.
 
 # 1. install the plugin.
 uv pip install -e flashdreams/plugins/causal_forcing
@@ -303,7 +303,7 @@ first-frame VAE-seed warmup) doesn't fit the unified streaming pipeline's
 per-AR-step mask-injection I2V and isn't wired here.
 
 ```bash
-# 0. request interactive node with pre-built container save as above onmidreams demo.
+# 0. request interactive node with pre-built container save as above omnidreams demo.
 
 # 1. setup huggingface
 # - (required) huggingface token
@@ -320,7 +320,7 @@ uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
 reference: [Lingbot-World repo](https://github.com/robbyant/lingbot-world?tab=readme-ov-file#fast-inference)
 
 ```bash
-# 0. request interactive node with pre-built container save as above onmidreams demo.
+# 0. request interactive node with pre-built container save as above omnidreams demo.
 
 # 1. setup huggingface
 # - (required) huggingface token
@@ -341,7 +341,7 @@ uv run python -m torch.distributed.run --nproc_per_node=1 --no-python flashdream
 reference: [Wan2.1 official repo](https://github.com/Wan-Video/Wan2.1/tree/main?tab=readme-ov-file#run-text-to-video-generation)
 
 ```bash
-# 0. request interactive node with pre-built container save as above onmidreams demo.
+# 0. request interactive node with pre-built container save as above omnidreams demo.
 
 # 1. setup huggingface
 # - (required) huggingface token

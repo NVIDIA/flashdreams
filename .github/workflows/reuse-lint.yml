@@ -83,8 +83,8 @@ jobs:
       - name: Inline SPDX headers on first-party source files
         run: |
           set -euo pipefail
-          excludes='^integrations/onmidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/'
-          excludes+='|^integrations/onmidreams/onmidreams/grpc/protos/.*_pb2'
+          excludes='^integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/'
+          excludes+='|^integrations/omnidreams/omnidreams/grpc/protos/.*_pb2'
           missing_files=()
           while IFS= read -r f; do
             if printf '%s\n' "$f" | grep -qE "$excludes"; then

@@ -250,7 +250,7 @@ _PERF_SHAPES = [
     (1, 64, 24, 128),
     (1, 21 * 30, 24, 128),
     (4, 21 * 30, 24, 128),
-    # Production shape observed in the lingbot / onmidreams pipeline.
+    # Production shape observed in the lingbot / omnidreams pipeline.
     (1, 7040, 16, 128),
 ]
 

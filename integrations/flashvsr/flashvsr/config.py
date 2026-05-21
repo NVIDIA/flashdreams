@@ -15,7 +15,7 @@
 
 """Pipeline-config builders for FlashVSR.
 
-Mirrors :mod:`flashdreams.recipes.onmidreams.config`: a constants block
+Mirrors :mod:`flashdreams.recipes.omnidreams.config`: a constants block
 listing the canonical FlashVSR-v1.1 weight locations, private sub-config
 helpers (``_scheduler_config``, ``_transformer_config``, etc.), and one
 ``build_*`` function per supported pipeline configuration.
@@ -83,7 +83,7 @@ AVAILABLE_FLASHVSR_CHECKPOINT_PATHS: dict[str, dict[str, str]] = {
 URLs flow through ``hf_hub_download``; the GitHub raw prompt URL flows
 through :func:`flashdreams.core.io.download.download_to_cache` (the
 prompt is a precomputed UMT5 tensor, not a checkpoint). Mirrors
-``onmidreams.config.AVAILABLE_ONMIDREAMS_CHECKPOINT_PATHS``."""
+``omnidreams.config.AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS``."""
 
 
 ## Sub-config helpers
@@ -264,7 +264,7 @@ def build_flashvsr_v1_1(
 FLASHVSR_CONFIG_BUILDERS: dict[str, Callable[..., FlashVSRPipelineConfig]] = {
     "v1.1": build_flashvsr_v1_1,
 }
-"""Slug-keyed builder registry (mirrors ``ONMIDREAMS_CONFIG_BUILDERS``).
+"""Slug-keyed builder registry (mirrors ``OMNIDREAMS_CONFIG_BUILDERS``).
 String-keyed entry point for callers that pick a builder by name."""
 
 
@@ -278,7 +278,7 @@ String-keyed entry point for callers that pick a builder by name."""
 # target); the literals therefore exist to supply every non-resolution
 # knob plus a valid scaffold for programmatic ``PIPELINE_*.setup()``
 # callers. 704x1280 is 128-aligned at ``scale=2`` (-> 1408x2560,
-# no encoder crop) and matches Onmidreams' native output.
+# no encoder crop) and matches Omnidreams' native output.
 
 
 def _build_sparse_ratio_variant(

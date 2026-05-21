@@ -40,7 +40,7 @@ INPUT_PATH="${INPUT_PATH:-${REPO_DIR}/examples/WanVSR/inputs/example4.mp4}"
 # every workspace ``uv sync`` lands in one shared venv. The parity-check
 # is the opposite shape -- an isolated venv pinned to upstream FlashVSR's
 # deps -- and running ``uv sync`` from here against the shared venv
-# uninstalls every workspace integration (flash-onmidreams,
+# uninstalls every workspace integration (flash-omnidreams,
 # flash-lingbot, ..., flashdreams-flashvsr) that this directory's
 # pyproject.toml doesn't declare. Override the inherited variable to the
 # default ``${SCRIPT_DIR}/.venv`` path so:
