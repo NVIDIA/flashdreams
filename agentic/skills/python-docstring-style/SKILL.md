@@ -40,7 +40,7 @@ When **editing an existing file**, leave the existing year alone — the SPDX ye
 
 - `"""Tensor and object splitting/gathering primitives for context parallelism."""`
 - `"""Reusable CUDA-graph capture wrapper for stateful inference callables."""`
-- `"""Multi-view, HDMap-conditioned Cosmos DiT for streaming alpadreams."""`
+- `"""Multi-view, HDMap-conditioned Cosmos DiT for streaming omnidreams."""`
 
 If one line genuinely doesn't fit, use a one-line summary + blank line + wrapped prose, but prefer tightening the summary.
 

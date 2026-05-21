@@ -1,0 +1,342 @@
+{
+  "schema_version": "1.0.0",
+  "updated_at": "2026-05-19T00:00:00Z",
+  "records": [
+    {
+      "benchmark_id": "self-forcing-block6-h100-flashdreams",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "H100",
+      "parallelism": "1xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 425.0,
+        "dit_ms": 344.0,
+        "vae_ms": 7.0,
+        "kv_update_ms": 74.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": "uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7",
+        "commit": null,
+        "notes": "6th block latency breakdown from internal benchmark table."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-h100-official",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "H100",
+      "parallelism": "1xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 570.0,
+        "dit_ms": 432.0,
+        "vae_ms": 30.0,
+        "kv_update_ms": 109.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline measured with same CUDNN attention backend."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-h100-fastvideo",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "H100",
+      "parallelism": "1xGPU",
+      "method": "fastvideo",
+      "status": "missing",
+      "metrics": {
+        "total_ms": null,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "TODO: add FastVideo parity run for same prompt/seed/steps."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-h100-lightx2v",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "H100",
+      "parallelism": "1xGPU",
+      "method": "lightx2v",
+      "status": "missing",
+      "metrics": {
+        "total_ms": null,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "TODO: add LightX2V comparison run."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-gb200-flashdreams",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "GB200",
+      "parallelism": "1xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 244.0,
+        "dit_ms": 203.0,
+        "vae_ms": 4.0,
+        "kv_update_ms": 38.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "6th block latency breakdown from internal benchmark table."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-gb200-official",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "GB200",
+      "parallelism": "1xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 476.0,
+        "dit_ms": 350.0,
+        "vae_ms": 38.0,
+        "kv_update_ms": 87.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline measured with same CUDNN attention backend."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-gb300-flashdreams",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "GB300",
+      "parallelism": "1xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 207.0,
+        "dit_ms": 171.0,
+        "vae_ms": 3.0,
+        "kv_update_ms": 33.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "6th block latency breakdown from internal benchmark table."
+      }
+    },
+    {
+      "benchmark_id": "self-forcing-block6-gb300-official",
+      "workload": "self_forcing_block6",
+      "model": "Self-Forcing Wan2.1 1.3B",
+      "hardware": "GB300",
+      "parallelism": "1xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 340.0,
+        "dit_ms": 251.0,
+        "vae_ms": 39.0,
+        "kv_update_ms": 50.0,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline measured with same CUDNN attention backend."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-h100-flashdreams-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "H100",
+      "parallelism": "4xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 783.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": "uv run torchrun --nproc_per_node=4 --no-python flashdreams-run lingbot-world-fast --example-data True --total-blocks 21",
+        "commit": null,
+        "notes": "4xGPU 6th block total latency."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-h100-official-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "H100",
+      "parallelism": "4xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 1950.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline for same environment; official without torch.compile."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb200-flashdreams-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB200",
+      "parallelism": "4xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 585.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "4xGPU 6th block total latency."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb200-official-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB200",
+      "parallelism": "4xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 1113.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline for same environment; official without torch.compile."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb300-flashdreams-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB300",
+      "parallelism": "4xGPU",
+      "method": "flashdreams",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 509.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "4xGPU 6th block total latency."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb300-official-4gpu",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB300",
+      "parallelism": "4xGPU",
+      "method": "official",
+      "status": "pass",
+      "metrics": {
+        "total_ms": 1032.0,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "Official baseline for same environment; official without torch.compile."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb300-fastvideo",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB300",
+      "parallelism": "4xGPU",
+      "method": "fastvideo",
+      "status": "missing",
+      "metrics": {
+        "total_ms": null,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "TODO: add FastVideo baseline for comparable Lingbot camera-control setup."
+      }
+    },
+    {
+      "benchmark_id": "lingbot-block6-gb300-lightx2v",
+      "workload": "lingbot_world_block6",
+      "model": "Lingbot-World Wan 14B",
+      "hardware": "GB300",
+      "parallelism": "4xGPU",
+      "method": "lightx2v",
+      "status": "missing",
+      "metrics": {
+        "total_ms": null,
+        "dit_ms": null,
+        "vae_ms": null,
+        "kv_update_ms": null,
+        "gpu_mem_gib": null
+      },
+      "provenance": {
+        "command": null,
+        "commit": null,
+        "notes": "TODO: add LightX2V baseline for comparable Lingbot camera-control setup."
+      }
+    }
+  ]
+}

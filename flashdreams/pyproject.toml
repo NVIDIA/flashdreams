@@ -98,6 +98,10 @@ runners = [
     "opencv-python-headless",
     "scipy>=1.11",
 ]
+serving = [
+    "aiohttp>=3.9",
+    "aiortc>=1.9",
+]
 
 [tool.setuptools.dynamic]
 # Resolve version from _version.py (not __init__.py) so setuptools never

@@ -108,26 +108,21 @@ class WanInferencePipeline(
     pass an ``image`` to ``initialize_cache``. The pipeline config's
     ``encoder`` slot must agree (``None`` for T2V, an I2V config for I2V).
 
-    Examples:
+    Example:
+
+    .. code-block:: python
 
         pipeline: WanInferencePipeline = ...
 
-        # T2V: latent (height, width) are required (the pipeline has no
-        # image to derive them from). Convert from a target pixel size
-        # via the decoder's ``spatial_compression_ratio``:
-        #   height = pixel_h // pipeline.decoder.spatial_compression_ratio
+        # T2V: pass latent ``height`` and ``width``.
         cache = pipeline.initialize_cache(
             text=["A cat surfing."], height=60, width=104
         )
-        chunk = pipeline.generate(0, cache)
+        _chunk = pipeline.generate(0, cache)
         pipeline.finalize(0, cache)
-        chunk = pipeline.generate(1, cache)
-        pipeline.finalize(1, cache)  # optional for the last rollout
 
-        # I2V: pass ``image=first_frame``. ``height`` / ``width`` are
-        # derived from the image and the decoder's spatial compression
-        # ratio; passing them is optional (and cross-checked when set).
-        i2v_cache = pipeline.initialize_cache(
+        # I2V: pass the first frame and let sizes derive from it.
+        _i2v_cache = pipeline.initialize_cache(
             text=["A cat surfing."], image=first_frame
         )
     """

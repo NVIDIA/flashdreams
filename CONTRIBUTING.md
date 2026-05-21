@@ -19,9 +19,10 @@ issue and we'll fix it.
 4. [Submitting a pull request](#submitting-a-pull-request)
 5. [Code review and merge](#code-review-and-merge)
 6. [Coding conventions](#coding-conventions)
-7. [Licensing of contributions](#licensing-of-contributions)
-8. [Filing issues and security reports](#filing-issues-and-security-reports)
-9. [Code of Conduct](#code-of-conduct)
+7. [Speeding up local builds](#speeding-up-local-builds)
+8. [Licensing of contributions](#licensing-of-contributions)
+9. [Filing issues and security reports](#filing-issues-and-security-reports)
+10. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -179,6 +180,16 @@ investing implementation effort.
 - We squash-merge to keep `main`'s history readable. The PR title and
   description become the squash commit message — please make them
   descriptive and reviewer-facing.
+- `main` is gated by GitHub's **merge queue**. Once your PR is approved
+  and CI is green, click "Merge when ready" — GitHub will rebase your
+  branch on top of `main` plus any earlier queued PRs, re-run the
+  required checks against that combined state, and only land the merge
+  if everything is still green. You do not need to manually rebase or
+  re-run CI when another PR lands first. PRs that would conflict or
+  fail after rebase are kicked back out of the queue automatically.
+  Maintainers: do not enable "Require branches to be up to date before
+  merging" alongside the queue — they're redundant, and enabling both
+  reintroduces the rebase-storm problem the queue exists to solve.
 - If a review comment is unclear, ask. We'd rather have a 30-second
   clarifying exchange than a misunderstanding turning into rework.
 
@@ -262,6 +273,98 @@ uv run pytest -m ci_cpu          # CPU-safe tests only
 uv run pytest -m ci_gpu          # GPU tests only (needs CUDA)
 uv run pytest -m "not manual"    # everything that runs in CI
 uv run pytest                    # all tests including manual
+```
+
+## Speeding up local builds
+
+The first `uv sync` in a fresh environment compiles several CUDA
+extensions from source (transformer-engine, block-sparse-attn). On a
+workstation this can take 30+ minutes. The environment variables below --
+the same ones used in CI -- dramatically reduce that time by limiting
+compilation to your GPU's architecture and controlling parallelism.
+
+### Detect your GPU architecture
+
+```bash
+# Returns e.g. "12.0" for an RTX 5090 / Blackwell
+nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1
+```
+
+Strip the dot to get the nvcc arch code (e.g. `12.0` -> `120`,
+`8.9` -> `89`).
+
+### Recommended environment variables
+
+```bash
+# Detect arch automatically (paste into your shell or .envrc):
+CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
+  | head -1 | tr -d '.')
+
+# Only compile CUDA kernels for YOUR GPU (instead of all supported archs)
+export NVTE_CUDA_ARCHS="${CUDA_ARCH}"              # transformer-engine
+export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}" # block-sparse-attn
+
+# Limit parallel nvcc jobs to avoid OOM (each job uses ~9GB peak memory).
+# Set this to (available_RAM_GB / 9), capped at your CPU core count.
+export MAX_JOBS=8
+
+# If you don't need block-sparse-attn CUDA kernels at all (e.g. only
+# running CPU tests or working on non-FlashVSR code), skip the build
+# entirely:
+# export BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD=TRUE
+```
+
+| Variable | Effect | Typical speedup |
+|----------|--------|-----------------|
+| `NVTE_CUDA_ARCHS` | Restricts transformer-engine compilation to listed SM arch(es) | ~10min -> ~1min |
+| `BLOCK_SPARSE_ATTN_CUDA_ARCHS` | Restricts block-sparse-attn compilation to listed SM arch(es) | ~80min -> ~8min |
+| `MAX_JOBS` | Caps parallel nvcc processes (prevents OOM) | Avoids killed builds |
+| `BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD` | Skips block-sparse-attn CUDA compilation entirely | ~80min -> seconds |
+
+### Putting it together
+
+A typical developer `.envrc` (if using [direnv](https://direnv.net/)):
+
+```bash
+# .envrc (not committed -- already in .gitignore)
+export CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
+  | head -1 | tr -d '.')
+export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
+export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
+export MAX_JOBS=8
+```
+
+Then `uv sync --extra dev` will only compile for your local GPU.
+
+### Working with a single integration package
+
+The workspace contains many integration packages under `integrations/`.
+A full `uv sync` installs dependencies for *all* of them. If you only
+need one (e.g. you're working on `omnidreams`), use `--package` to sync
+only that package's dependencies:
+
+```bash
+# Only install omnidreams + its deps (skips unrelated heavy packages)
+uv sync --package omnidreams --extra dev
+
+# Run a script/test from that integration only
+uv run --package omnidreams pytest tests/ -m ci_gpu
+```
+
+This avoids pulling in (and compiling) dependencies that other
+integrations require but yours does not, further reducing setup time.
+
+Available integration packages:
+
+```
+integrations/causal_forcing
+integrations/cosmos_predict2
+integrations/fastvideo_causal_wan22
+integrations/flashvsr
+integrations/lingbot
+integrations/omnidreams
+integrations/self_forcing
+integrations/wan21
 ```
 
 ## Licensing of contributions

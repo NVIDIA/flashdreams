@@ -108,8 +108,10 @@ class CosmosReason1TextEncoder(Encoder):
         )
         self.model.eval().requires_grad_(False)
 
-        self.hidden_size = self.model.config.hidden_size  # 3584 for Qwen2.5-7B
-        self.num_layers = self.model.config.num_hidden_layers  # 28 for Qwen2.5-7B
+        # ``transformers>=5.8`` nests LM dims under ``text_config``.
+        text_cfg = getattr(self.model.config, "text_config", self.model.config)
+        self.hidden_size = text_cfg.hidden_size  # 3584 for Cosmos-Reason1-7B
+        self.num_layers = text_cfg.num_hidden_layers  # 28 for Cosmos-Reason1-7B
 
     def _mean_normalize(self, tensor: Tensor) -> Tensor:
         return (tensor - tensor.mean(dim=-1, keepdim=True)) / (
@@ -147,6 +149,12 @@ class CosmosReason1TextEncoder(Encoder):
                 add_vision_id=False,
                 return_tensors="pt",
             )
+            # ``transformers>=5.8`` may return a ``BatchEncoding`` mapping here
+            # instead of a raw tensor; keep backward compatibility with both.
+            if not torch.is_tensor(formatted):
+                formatted = formatted["input_ids"]
+            if formatted.ndim == 1:
+                formatted = formatted.unsqueeze(0)
 
             if formatted.shape[1] < self.max_length:
                 pad_len = self.max_length - formatted.shape[1]
