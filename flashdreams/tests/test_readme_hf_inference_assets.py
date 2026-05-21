@@ -28,12 +28,12 @@ import subprocess
 from pathlib import Path
 
 try:
-    import pytest
+    import pytest as _pytest
 except ModuleNotFoundError:  # pragma: no cover - direct script mode in CD.
-    pytest = None  # type: ignore[assignment]
+    _pytest = None  # ty:ignore[invalid-assignment]
 
-if pytest is not None:
-    pytestmark = [pytest.mark.manual, pytest.mark.slow]
+if _pytest is not None:
+    pytestmark = [_pytest.mark.manual, _pytest.mark.slow]
 else:
     pytestmark = ()
 
@@ -56,8 +56,8 @@ README_COMMANDS = (
 
 
 def _skip(message: str) -> None:
-    if pytest is not None:
-        pytest.skip(message)
+    if _pytest is not None:
+        _pytest.skip(message)
     print(f"SKIP: {message}")
 
 
