@@ -254,7 +254,11 @@ p.fd-hero-title.rubric,
     height: 100%;
 }
 
-.sd-card.fd-feature:hover {
+/* Only lift on hover when the card is actually clickable. sphinx_design
+   adds `.sd-card-hover` to a card only when it has `:link:` set, so
+   cards without a link (e.g. Discord / Discussions placeholders) keep
+   their resting state instead of pretending to be interactive. */
+.sd-card.fd-feature.sd-card-hover:hover {
     transform: translateY(-2px);
     box-shadow: var(--fd-shadow-2);
     border-color: var(--fd-border-strong);
@@ -607,7 +611,46 @@ body.fd-layout-landing .bd-toc {
 }
 
 
+/* Marketing pages drop doc-y header chrome.
+
+   nvidia-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
+   under the logo via `<p class="title logo__title">`, and a docs-search
+   button in the navbar. Both are correct on API reference / tutorials
+   pages but make the landing read as "docs that happen to have a hero".
+   Hide them only where `body.fd-layout-marketing` is set — docs pages
+   keep both. */
+
+body.fd-layout-marketing .navbar-brand .logo__title,
+body.fd-layout-marketing .search-button,
+body.fd-layout-marketing .search-button-field,
+body.fd-layout-marketing .navbar-persistent--container,
+body.fd-layout-marketing .navbar-persistent--mobile {
+    display: none !important;
+}
+
+
 /* ----- 6. Misc upstream tweaks ------------------------------------------- */
+
+/* Hide sibling top-level sections from the left sidebar. The pydata
+   sidebar template renders the whole master toctree; we want it to read
+   as the *current section's* TOC only (e.g., Tutorials on tutorials
+   pages, API on api pages). The top-level section list lives in the
+   navbar; it should not duplicate into the sidebar.
+
+   Each top-level entry is a `<li class="toctree-l1">`; the current
+   one carries `current` (and `active`). Hiding non-current siblings
+   leaves the current section + its expanded children intact. */
+.bd-sidenav > li.toctree-l1:not(.current) {
+    display: none;
+}
+
+/* Drop the "FlashDreams" caption row above the sidebar nav — it just
+   echoes the toctree caption from the root index.rst and adds noise on
+   per-section pages. */
+.bd-sidenav + .caption,
+.bd-toc-item > .caption {
+    display: none;
+}
 
 /* Slightly tighter line height on body text for design-y pages — only when
    inside a .fd-prose wrapper so we don't fight the autodoc-heavy API

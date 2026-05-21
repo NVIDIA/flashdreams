@@ -109,10 +109,13 @@ CLI flag. Pass ``--help`` after a slug to see them:
    uv run flashdreams-run wan21-t2v-1.3b-480p --help
 
 The output is generated dynamically by tyro from the runner config
-dataclass, so flags such as ``--prompt``, ``--output-path``,
-``--total-blocks``, and the nested
+dataclass, so flags such as ``--prompt``, ``--output-dir``,
+``--pixel-height``, and the nested
 ``--pipeline.diffusion-model.transformer.len-t`` are all present
-without any extra glue.
+without any extra glue. Streaming AR runners (e.g.
+``self-forcing-wan2.1-t2v-1.3b-flash``) additionally expose
+``--total-blocks``; the bidirectional ``wan21-*`` and non-streaming
+``cosmos2-*`` runners do not.
 
 Resolve a config without a GPU
 ------------------------------

@@ -30,10 +30,10 @@ FlashDreams
 
    .. container:: fd-hero-lede
 
-      A streaming inference pipeline for diffusion-based video generation —
-      built around autoregressive flow-matching models, KV-cached
-      transformers, ring attention, and CUDA-graph capture of the
-      steady-state forward.
+      Sub-second autoregressive video diffusion on a single GPU.
+      FlashDreams is the streaming inference stack for diffusion-based
+      video — KV-cached transformers, ring attention, and CUDA-graph
+      capture, behind one ``flashdreams-run`` CLI.
 
    .. container:: fd-cta-row
 
@@ -50,6 +50,85 @@ FlashDreams
 
          API Reference
 
+.. grid:: 1 2 2 4
+   :gutter: 3
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Steady-state step (ms)
+
+         .. container:: fd-stat-note
+
+            H100, ``self-forcing-wan2.1-t2v-1.3b-flash``.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            FlashDreams / upstream
+
+         .. container:: fd-stat-note
+
+            Same recipe, same GPU; ratio > 1 means faster.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Peak memory (GiB)
+
+         .. container:: fd-stat-note
+
+            Steady-state, post-graph-capture.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Scaling at 8 GPUs
+
+         .. container:: fd-stat-note
+
+            Ring attention, bidirectional reference.
+
+.. admonition:: PLACEHOLDER — headline stat values
+   :class: placeholder
+
+   **What goes here:** four ≤ 6-character stat values for the grid
+   above, mirroring the canonical grid on :doc:`benchmarks/index`.
+
+   **Source data:** rows of the Results tables on the benchmarks page;
+   do not invent.
+
+   **Reproduce with:** the per-row CLI invocations in *Methodology* on
+   the benchmarks page.
+
 ----
 
 Showcase
@@ -64,8 +143,7 @@ Showcase
    reference, plus a frame of the multi-view Alpadreams output.
 
    **Format:** ``_static/showcase.mp4`` (self-hosted, 16:9, < 10 MB) or a
-   YouTube-nocookie embed ID. Once asset lands, replace this admonition
-   with the §2.3 video-embed snippet from the design system.
+   YouTube-nocookie embed ID.
 
    **Source / coordinate with:** marketing + the recipe maintainers
    (sample prompts already live in each ``examples/*.rst`` walkthrough).

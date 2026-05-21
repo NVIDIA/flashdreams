@@ -76,10 +76,9 @@ Getting started
 Per-recipe walkthroughs
 -----------------------
 
-Each recipe ships with its own end-to-end walkthrough under
-``docs/source/examples/``. The CLI slug each page documents is a real
-``flashdreams-run`` subcommand backed by a
-:class:`~flashdreams.infra.runner.RunnerConfig` literal in the recipe
+Each recipe ships with its own end-to-end walkthrough. The CLI slug
+each page documents is a real ``flashdreams-run`` subcommand backed by
+a :class:`~flashdreams.infra.runner.RunnerConfig` literal in the recipe
 package.
 
 .. toctree::

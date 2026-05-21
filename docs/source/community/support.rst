@@ -37,8 +37,8 @@ Choose a channel
    .. grid-item-card:: I have a question about how to do X
       :class-card: fd-feature
 
-      Use GitHub Discussions (placeholder — see below) or Discord
-      (placeholder — see below) for open-ended "how do I…" questions.
+      Use GitHub Discussions or Discord for open-ended "how do I…"
+      questions.
 
    .. grid-item-card:: I have a feature idea
       :class-card: fd-feature
@@ -62,8 +62,6 @@ Choose a channel
    the "I have a question" card above to
    ``https://github.com/NVIDIA/flashdreams/discussions``.
 
-   **Owner:** repo admin.
-   **Tracking:** TBD.
 
 .. admonition:: PLACEHOLDER — Discord invite
    :class: placeholder
@@ -72,8 +70,6 @@ Choose a channel
    URL once the server is live, and link the "I have a question" card
    to it.
 
-   **Owner:** project lead / community manager.
-   **Tracking:** TBD.
 
 Before you file an issue
 ------------------------
@@ -134,8 +130,6 @@ Triage and labels
    doesn't yet have one: ``bug``, ``enhancement``, ``question``,
    ``good first issue``, ``needs-info``, ``perf``.
 
-   **Owner:** maintainer team.
-   **Tracking:** TBD.
 
 Commercial / NVIDIA-internal support
 ------------------------------------
@@ -153,5 +147,3 @@ tracker.
    Slack channel for NVIDIA employees deploying FlashDreams, link it
    here. Otherwise, remove this section.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.

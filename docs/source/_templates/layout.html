@@ -5,24 +5,42 @@ SPDX-License-Identifier: Apache-2.0
 
 {% extends "!layout.html" %}
 
-{# Landing-page layout hook.
+{# Body-class hooks for the FlashDreams marketing surfaces.
 
-   Page authors can ask for the "landing" layout by adding ``:layout: landing``
-   as a docinfo field at the top of an RST file. Sphinx surfaces docinfo
-   fields via the ``meta`` template variable. If the field is present we tag
-   the <body> with ``fd-layout-landing`` so custom.css can drop the
-   secondary sidebar, widen the article column, etc.
+   Two related but distinct classes are emitted onto <body>:
 
-   We also tag the master document (``index``) unconditionally so the
-   landing CSS still applies even if the directive is dropped — the home
-   page is by convention the only place that needs this treatment.
+   * ``fd-layout-landing`` — the strictest hook. Drops the *secondary*
+     TOC sidebar and widens the article column. Used on pages whose
+     content IS the navigation (the master doc; opt-in via
+     ``:layout: landing`` on any other page).
+
+   * ``fd-layout-marketing`` — the looser hook. Hides docs-y header
+     chrome (logo version subtitle, search button) so a product-y page
+     does not read as "docs that happen to have a hero". Applied to the
+     same set of pages whose primary sidebar is already hidden in
+     ``conf.py``'s ``html_sidebars`` (the master doc, ``benchmarks/**``,
+     ``community/**``). Authors can also opt in via ``:layout:
+     marketing`` on any other page.
+
+   Sphinx surfaces docinfo fields via the ``meta`` template variable, so
+   ``:layout: landing`` / ``:layout: marketing`` at the top of an RST
+   file gets reflected here. Note: ``fd-layout-landing`` implies
+   ``fd-layout-marketing`` — a landing page never wants the docs chrome
+   either — so we append both whenever the landing class is added.
 #}
 {%- block body_tag %}
   {%- set fd_body_classes = [] %}
-  {%- if meta is defined and meta is not none and meta.get('layout') == 'landing' %}
+  {%- set fd_layout = (meta.get('layout') if meta is defined and meta is not none else none) %}
+
+  {# Landing-class trigger: master doc or explicit opt-in. #}
+  {%- if fd_layout == 'landing' or pagename == master_doc %}
     {%- set _ = fd_body_classes.append('fd-layout-landing') %}
-  {%- elif pagename == master_doc %}
-    {%- set _ = fd_body_classes.append('fd-layout-landing') %}
+    {%- set _ = fd_body_classes.append('fd-layout-marketing') %}
+  {%- elif fd_layout == 'marketing'
+           or pagename.startswith('benchmarks/')
+           or pagename.startswith('community/') %}
+    {%- set _ = fd_body_classes.append('fd-layout-marketing') %}
   {%- endif %}
+
   <body data-default-mode="{{ default_mode }}"{% if fd_body_classes %} class="{{ fd_body_classes | join(' ') }}"{% endif %}>
 {%- endblock %}

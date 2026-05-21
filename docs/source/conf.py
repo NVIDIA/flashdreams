@@ -26,6 +26,17 @@ version = release if release[:1].isalpha() else f"v{release}"
 # caught early (locally and in CI).
 warningiserror = True
 
+# Suppress MyST cross-reference warnings for `.. include::`d markdown that
+# uses GitHub-relative file links (e.g. CONTRIBUTING.md links to `LICENSE`,
+# `reuse.toml`). Those resolve fine when GitHub renders the file standalone
+# but have no analog in the Sphinx build.
+suppress_warnings = ["myst.xref_missing"]
+
+# Auto-generate anchors for markdown headings up to H3 so cross-references
+# like `[Project governance](#project-governance)` resolve when MD is
+# included via `.. include:: ... :parser: myst_parser.sphinx_`.
+myst_heading_anchors = 3
+
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -35,6 +46,7 @@ extensions = [
     "sphinx.ext.githubpages",
     "sphinx_copybutton",
     "sphinx_design",
+    "myst_parser",
 ]
 
 intersphinx_mapping = {
@@ -63,8 +75,32 @@ html_theme_options = {
     "pygments_dark_style": "monokai",
     "footer_links": {},
     "github_url": "https://github.com/NVIDIA/flashdreams",
-    "navigation_depth": -1,
-    "collapse_navigation": False,
+    "navigation_depth": 4,
+    "collapse_navigation": True,
+    # -- Top navbar arrangement -----------------------------------------
+    # Logo | centered nav | icon links (GitHub auto-renders from
+    # github_url) | persistent search button.
+    "navbar_start": ["navbar-logo"],
+    "navbar_center": ["navbar-nav"],
+    "navbar_end": ["navbar-icon-links"],
+    "navbar_persistent": ["search-button"],
+    # Sidebar starts at depth 2: depth-1 (the section names) are already
+    # in the navbar; the sidebar should show ONLY the current section's
+    # sub-pages, not duplicate the navbar's section list.
+    "show_nav_level": 2,
+    # The four section indexes (tutorials, benchmarks, api, community)
+    # all promote to the navbar — none get bucketed into a "More"
+    # dropdown.
+    "header_links_before_dropdown": 4,
+}
+
+# Hide the primary (left) sidebar on marketing-style pages. Pages not
+# listed here inherit the theme's default sidebar — that's what we want
+# for tutorials/**, api/**, apis/**, examples/**, developer_guides/**.
+html_sidebars = {
+    "index": [],
+    "benchmarks/**": [],
+    "community/**": [],
 }
 
 html_context = {

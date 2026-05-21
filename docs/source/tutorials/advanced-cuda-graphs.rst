@@ -68,7 +68,7 @@ Each recipe's pipeline config wires the graph wrapper through a
 in-tree template recipe ships three variants — the
 ``template-autoregressive-compiled`` slug
 (``TEMPLATE_AUTOREGRESSIVE_COMPILED`` at
-``flashdreams/flashdreams/recipes/template/config.py:170``) is the one
+``flashdreams/flashdreams/recipes/template/config.py:114``) is the one
 that sets ``use_cuda_graph=True``; ``template-offline`` and
 ``template-autoregressive`` leave it disabled. After warmup (default
 ``warmup_iters=2`` per

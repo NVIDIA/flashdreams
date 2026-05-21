@@ -47,21 +47,17 @@ Channels
    .. grid-item-card:: GitHub Discussions
       :class-card: fd-feature
 
-      Open-ended questions, design proposals, and show-and-tell. See
-      the placeholder below for the canonical link once Discussions is
-      enabled on the repository.
+      Open-ended questions, design proposals, and show-and-tell.
 
    .. grid-item-card:: Discord
       :class-card: fd-feature
 
-      Real-time chat with maintainers and other users. Invite link
-      pending — see the placeholder below.
+      Real-time chat with maintainers and other users.
 
    .. grid-item-card:: Email / mailing list
       :class-card: fd-feature
 
       Low-volume announcements (releases, security advisories).
-      Subscription details pending — see the placeholder below.
 
 .. admonition:: PLACEHOLDER — Discord invite URL
    :class: placeholder
@@ -70,8 +66,6 @@ Channels
    invite URL for the FlashDreams community server. Replace the
    "Discord" card above with a ``:link:`` to that URL.
 
-   **Owner:** project lead / community manager.
-   **Tracking:** TBD.
 
 .. admonition:: PLACEHOLDER — GitHub Discussions
    :class: placeholder
@@ -82,8 +76,6 @@ Channels
    enabled, add ``:link: https://github.com/NVIDIA/flashdreams/discussions``
    to the Discussions card above.
 
-   **Owner:** repo admin.
-   **Tracking:** TBD.
 
 .. admonition:: PLACEHOLDER — mailing list / announcement channel
    :class: placeholder
@@ -94,8 +86,6 @@ Channels
    "Email / mailing list" card and re-balance the grid to
    ``1 2 2 3``.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.
 
 Contributing
 ------------
@@ -138,19 +128,15 @@ the address listed in that document.
    ``CODE_OF_CONDUCT.md`` at the repo root (with a project-specific
    reporting address). If a local file is added, link to it here.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.
 
 Maintainers and governance
 --------------------------
 
 FlashDreams is currently maintained by NVIDIA's Simulation & Imitation
 Learning group, which holds admin rights on the repository, the
-``main`` branch protections, and the package publishing keys.
-``CODEOWNERS`` is the source of truth for per-subsystem review
-responsibility, and the path to becoming a maintainer is sustained,
-high-quality contribution in an area — see the *Project governance*
-section of
+``main`` branch protections, and the package publishing keys. The path
+to becoming a maintainer is sustained, high-quality contribution in an
+area — see the *Project governance* section of
 `CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#project-governance>`__
 for the full statement.
 
@@ -162,8 +148,6 @@ for the full statement.
    preference) and the criteria for promotion. Until that file exists,
    ``CODEOWNERS`` is the de-facto record.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.
 
 Releases and versioning
 -----------------------
@@ -192,17 +176,14 @@ on the runway rather than in production.
    patch releases as needed"). Until that is decided, point readers
    to the Releases page above.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.
 
 Frequently asked questions
 --------------------------
 
-A growing list of FAQ entries lives on the :doc:`faq` page. The
-current entries are placeholders that future maintainers will fill in
-as questions recur on issues, Discord, and Discussions. If a question
-keeps coming up in support channels, propose an FAQ entry via a pull
-request — see :doc:`contributing`.
+Answers to questions that come up repeatedly in issues, Discord, and
+Discussions live on the :doc:`faq` page. If a question keeps coming up
+in support channels, propose an FAQ entry via a pull request — see
+:doc:`contributing`.
 
 Where to next
 -------------

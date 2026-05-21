@@ -24,11 +24,6 @@ those abstractions; and **Serving** fronts the deployable surfaces. The
 :doc:`landing page </index>` sketches the same picture at a higher level
 — start there if you want the motivation before the signatures.
 
-Each section below is generated from the Python docstrings of its
-backing module: this umbrella page is intentionally short and routes
-you to the right module. (The Serving section is a stub today; see the
-Serving card for status.)
-
 .. grid:: 1 2 2 2
    :gutter: 3
    :margin: 0 0 4 0
@@ -69,7 +64,7 @@ Serving card for status.)
       :link-type: doc
 
       Deployable surfaces for shipping a recipe behind a service
-      boundary. **Stub today** — the page is reserved for future content.
+      boundary.
 
       Read the reference →
 

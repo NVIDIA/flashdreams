@@ -16,17 +16,9 @@
 FAQ
 ===
 
-A growing list of answers to questions that come up repeatedly in
-issues, Discord, and Discussions. If you don't see your question here,
-check :doc:`support` for where to ask.
-
-.. admonition:: This page is intentionally seeded with placeholders.
-   :class: fd-callout
-
-   The entries below are stubs that future maintainers will fill in as
-   real recurring questions surface. If a question keeps coming up in
-   support channels, replacing one of these placeholders with the real
-   answer is a great first contribution — see :doc:`contributing`.
+Answers to questions that come up repeatedly in issues, Discord, and
+Discussions. If you don't see your question here, check :doc:`support`
+for where to ask.
 
 Getting started
 ---------------
@@ -43,8 +35,6 @@ What hardware do I need to run FlashDreams?
    </benchmarks/index>` section for concrete numbers. Mention which
    compute capabilities are tested.
 
-   **Owner:** perf / infra maintainer.
-   **Tracking:** TBD.
 
 Which model recipes ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -59,8 +49,6 @@ Which model recipes ship in the box?
    the *Supported Autoregressive Models* and *Supported Bidirectional
    Models* toctrees on the landing page.
 
-   **Owner:** recipe maintainers.
-   **Tracking:** TBD.
 
 Installation and packaging
 --------------------------
@@ -77,8 +65,6 @@ Why can I install ``flashdreams`` from PyPI but not the integration packages?
    "flashdreams-<recipe> @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/<recipe>"``
    example). Cross-link to ``DEV.md`` for the rationale.
 
-   **Owner:** release engineering.
-   **Tracking:** TBD.
 
 Usage
 -----
@@ -95,8 +81,6 @@ How do I plug in a new model recipe?
    abstractions a recipe must implement to plug into
    ``flashdreams-run``.
 
-   **Owner:** infra maintainer.
-   **Tracking:** TBD.
 
 Project and licensing
 ---------------------
@@ -112,8 +96,6 @@ Is FlashDreams the same project as Cosmos / NeMo / NIM?
    generative stacks. If there are integration points or shared
    components, name them and link out.
 
-   **Owner:** project lead.
-   **Tracking:** TBD.
 
 Can I use FlashDreams commercially?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

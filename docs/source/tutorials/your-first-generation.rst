@@ -94,8 +94,8 @@ Run with the bundled prompt
 ---------------------------
 
 Defaults are sufficient for the first run — the runner ships a
-default prompt, an output path under ``outputs/``, and a sensible
-total block count. Just call the slug:
+default prompt, an output path under ``outputs/``, and sensible
+generation parameters (resolution, frames, FPS). Just call the slug:
 
 .. code-block:: bash
 
@@ -196,8 +196,8 @@ pipeline:
    ``outputs/``.
 
 If you want to see the same control flow written out as code, the
-canonical reference is ``flashdreams/recipes/template/runner.py`` —
-the minimal end-to-end runner — and ``integrations/wan21/wan21/``
+canonical reference is ``flashdreams/flashdreams/recipes/template/runner.py``
+— the minimal end-to-end runner — and ``integrations/wan21/wan21/``
 for the Wan2.1-specific specialisations.
 
 Next

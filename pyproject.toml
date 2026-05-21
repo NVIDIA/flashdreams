@@ -107,6 +107,7 @@ docs = [
     "sphinx",
     "sphinx-copybutton",
     "sphinx-design",
+    "myst-parser",
 ]
 
 # CPU-only runtime deps needed by autodoc to import flashdreams on CI.
