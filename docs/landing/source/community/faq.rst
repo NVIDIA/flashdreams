@@ -44,10 +44,9 @@ Which model recipes ship in the box?
 
    **What goes here:** A concise list with one-line descriptions of
    each shipped recipe (causal-forcing, self-forcing, wan21,
-   alpadreams, lingbot-world, fastvideo causal wan22, …) and a link
-   into the corresponding tutorial or example page. Keep in sync with
-   the *Supported Autoregressive Models* and *Supported Bidirectional
-   Models* toctrees on the landing page.
+   omnidreams, lingbot-world, fastvideo causal wan22, …) and a link
+   into the corresponding model page. Keep in sync with the
+   *Supported models* grid on the landing page.
 
 
 Installation and packaging
@@ -75,10 +74,10 @@ How do I plug in a new model recipe?
 .. admonition:: PLACEHOLDER — new-recipe pointer
    :class: placeholder
 
-   **What goes here:** A one-paragraph orientation followed by a
-   ``:doc:`` link to the developer guide at
-   ``../developer_guides/new_recipes``. Mention the smallest set of
-   abstractions a recipe must implement to plug into
+   **What goes here:** A one-paragraph orientation followed by a link
+   to the developer guide at
+   ``../docs/developer_guides/new_recipes.html``. Mention the smallest
+   set of abstractions a recipe must implement to plug into
    ``flashdreams-run``.
 
 

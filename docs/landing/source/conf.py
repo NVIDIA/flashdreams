@@ -3,8 +3,19 @@
 #
 # Sphinx configuration for the FlashDreams documentation site.
 
+import os
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+
+# Top-navbar "Documentation" link target. The reference docs are a
+# separate Sphinx project that deploys as a sibling under /docs/. In CI,
+# `DOCS_SUBDIR` is set to e.g. `main` or `versions/0.5.0` and the docs
+# are deployed at `<site>/<DOCS_SUBDIR>/docs/`, so root-relative
+# `/<DOCS_SUBDIR>/docs/` is the only URL that resolves from every page
+# depth. Local dev (no env var) falls back to the depth-0 relative form,
+# which works from the landing page only.
+_docs_subdir = os.environ.get("DOCS_SUBDIR", "").strip("/")
+_docs_url = f"/{_docs_subdir}/docs/" if _docs_subdir else "docs/index.html"
 
 # -- Project information -----------------------------------------------------
 
@@ -88,15 +99,17 @@ html_theme_options = {
     # in the navbar; the sidebar should show ONLY the current section's
     # sub-pages, not duplicate the navbar's section list.
     "show_nav_level": 2,
-    # The four section indexes (tutorials, benchmarks, api, community)
-    # all promote to the navbar — none get bucketed into a "More"
-    # dropdown.
+    # The landing toctree promotes Benchmarks and Community to the
+    # navbar. "Documentation" is an external link to the docs/ Sphinx
+    # project, which deploys as a sibling under /docs/.
     "header_links_before_dropdown": 4,
+    "external_links": [
+        {"name": "Documentation", "url": _docs_url},
+    ],
 }
 
-# Hide the primary (left) sidebar on marketing-style pages. Pages not
-# listed here inherit the theme's default sidebar — that's what we want
-# for tutorials/**, api/**, apis/**, examples/**, developer_guides/**.
+# Hide the primary (left) sidebar on marketing-style pages. Every page
+# in the landing project uses that layout, so this covers them all.
 html_sidebars = {
     "index": [],
     "benchmarks/**": [],
@@ -107,7 +120,7 @@ html_context = {
     "github_user": "NVIDIA",
     "github_repo": "flashdreams",
     "github_version": "main",
-    "doc_path": "docs/source",
+    "doc_path": "docs/landing/source",
     "default_mode": "light",
 }
 

@@ -37,14 +37,12 @@ FlashDreams
 
    .. container:: fd-cta-row
 
-      .. button-ref:: tutorials/index
-         :ref-type: doc
+      .. button-link:: docs/getting_started/index.html
          :color: primary
 
          Get started
 
-      .. button-ref:: api/index
-         :ref-type: doc
+      .. button-link:: docs/apis/index.html
          :color: secondary
          :outline:
 
@@ -140,7 +138,7 @@ Showcase
    **What goes here:** A 10–30s reel showing FlashDreams generating video
    end-to-end — ideally a side-by-side of one of the streaming recipes
    (e.g. ``self-forcing-wan2.1-t2v-1.3b-flash``) against its upstream
-   reference, plus a frame of the multi-view Alpadreams output.
+   reference, plus a frame of the multi-view OmniDreams output.
 
    **Format:** ``_static/showcase.mp4`` (self-hosted, 16:9, < 10 MB) or a
    YouTube-nocookie embed ID.
@@ -155,7 +153,8 @@ Why FlashDreams
 
 Diffusion video generators are getting fast enough to be interactive, but
 only if the inference stack is built for it. FlashDreams is organised
-around a few sharp abstractions (:doc:`api/index`) that every recipe
+around a few sharp abstractions — documented in the
+`API reference <docs/apis/index.html>`_ — that every recipe
 plugs into: **KV-cached transformers** so each autoregressive chunk
 re-uses prior context instead of recomputing it, **ring attention**
 across context-parallel ranks for long sequences without OOM, and
@@ -171,7 +170,8 @@ plugin, with every overridable field exposed as a flag. The same command
 that does a single-GPU debug run scales to multi-GPU context-parallelism
 under ``torchrun``; recipes auto-detect their CP size from the world
 group, so there is no separate distributed-launcher config to maintain.
-See the :doc:`tutorials/index` for an annotated walkthrough.
+The `getting started guide <docs/getting_started/index.html>`_ has the
+annotated walkthrough.
 
 ----
 
@@ -184,8 +184,7 @@ What's inside
 
    .. grid-item-card:: KV-cached transformers
       :class-card: fd-feature
-      :link: apis/infra
-      :link-type: doc
+      :link: docs/apis/infra.html
 
       First-class support for autoregressive flow-matching models with
       self-forcing and causal-forcing training regimes; prior chunks
@@ -193,24 +192,21 @@ What's inside
 
    .. grid-item-card:: Ring attention
       :class-card: fd-feature
-      :link: apis/core
-      :link-type: doc
+      :link: docs/apis/core.html
 
       Context-parallel attention across ranks, so long-horizon
       generation scales out instead of OOM-ing on a single GPU.
 
    .. grid-item-card:: CUDA-graph capture
       :class-card: fd-feature
-      :link: apis/recipes
-      :link-type: doc
+      :link: docs/apis/recipes.html
 
       The steady-state forward is captured into a CUDA graph after warmup,
       eliminating Python and launch overhead from the per-step hot path.
 
    .. grid-item-card:: Unified ``flashdreams-run`` CLI
       :class-card: fd-feature
-      :link: tutorials/index
-      :link-type: doc
+      :link: docs/reference/cli.html
 
       One console script dispatches over every in-tree and plugin-provided
       recipe. Each overridable field is a CLI flag; ``--help`` lists every
@@ -218,8 +214,7 @@ What's inside
 
    .. grid-item-card:: Multi-GPU by default
       :class-card: fd-feature
-      :link: apis/infra
-      :link-type: doc
+      :link: docs/apis/infra.html
 
       Recipes auto-detect CP size from ``torch.distributed``'s world
       group. The launcher is the single source of truth — no ``cp_size``
@@ -227,8 +222,7 @@ What's inside
 
    .. grid-item-card:: Plugin-friendly recipes
       :class-card: fd-feature
-      :link: developer_guides/new_recipes
-      :link-type: doc
+      :link: docs/developer_guides/new_recipes.html
 
       Recipes can ship in-tree or as out-of-tree plugins discovered
       through entry points. Self-Forcing and Causal-Forcing ship as
@@ -249,47 +243,41 @@ into **streaming / autoregressive** (KV-cached, per-AR-step output) and
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
-      :link: examples/self_forcing
-      :link-type: doc
+      :link: docs/models/self_forcing.html
 
       Streaming Wan 2.1 T2V via the Self-Forcing plugin. AR steps after
       warmup are sub-second on H100 / GB200.
 
    .. grid-item-card:: Causal-Forcing
       :class-card: fd-feature
-      :link: examples/causal_forcing
-      :link-type: doc
+      :link: docs/models/causal_forcing.html
 
       Causal-forcing framewise T2V and I2V variants of Wan 2.1 via the
       Causal-Forcing plugin.
 
    .. grid-item-card:: Causal Wan 2.2
       :class-card: fd-feature
-      :link: examples/causal_wan22
-      :link-type: doc
+      :link: docs/models/fastvideo_wan22.html
 
       FastVideo Wan 2.2 14B causal T2V recipe.
 
    .. grid-item-card:: Lingbot-World
       :class-card: fd-feature
-      :link: examples/lingbot_world
-      :link-type: doc
+      :link: docs/models/lingbot_world.html
 
       Camera-controlled I2V with bundled prompt + first-frame + camera
       arrays.
 
-   .. grid-item-card:: Alpadreams
+   .. grid-item-card:: OmniDreams
       :class-card: fd-feature
-      :link: examples/alpadreams
-      :link-type: doc
+      :link: docs/models/omnidreams.html
 
-      Single-view and multi-view streaming recipes against the Omni
-      Dreams checkpoints, including a diffusion-forcing AR variant.
+      Single-view and multi-view streaming recipes against the OmniDreams
+      checkpoints, including a diffusion-forcing AR variant.
 
    .. grid-item-card:: Wan 2.1 (bidirectional)
       :class-card: fd-feature
-      :link: examples/wan21
-      :link-type: doc
+      :link: docs/models/wan21.html
 
       Single bidirectional reference model used for parity testing —
       T2V 1.3B / 480p and I2V 14B / 480p.
@@ -315,10 +303,10 @@ extra whenever you want to actually generate videos:
 .. admonition:: New to streaming diffusion?
    :class: fd-callout
 
-   Read :doc:`tutorials/index` for the annotated quickstart, an
-   end-to-end first-generation walkthrough, and the advanced guides on
-   CUDA-graph capture, distributed launching, and authoring a custom
-   recipe.
+   The `getting started guide <docs/getting_started/index.html>`_ has the
+   annotated quickstart, an end-to-end first-generation walkthrough, and
+   pointers into the developer guides for CUDA-graph capture, distributed
+   launching, and authoring a custom recipe.
 
 ----
 
@@ -361,7 +349,5 @@ FlashDreams is developed in the open at
    :maxdepth: 1
    :caption: FlashDreams
 
-   tutorials/index
    benchmarks/index
-   api/index
    community/index

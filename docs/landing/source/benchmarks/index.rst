@@ -31,9 +31,10 @@ this page is the **measurement** counterpart, not a duplicate.
 .. admonition:: New to streaming inference?
    :class: fd-callout
 
-   Start with :doc:`../index` for an overview, then walk a recipe in
-   :doc:`../tutorials/index` before reading these numbers in context.
-   The architectural rationale lives in :doc:`../api/index`.
+   Start with :doc:`../index` for an overview, then walk a recipe in the
+   `getting started guide <../docs/getting_started/index.html>`_ before
+   reading these numbers in context. The architectural rationale lives
+   in the `API reference <../docs/apis/index.html>`_.
 
 Headline metrics
 ----------------
@@ -164,7 +165,7 @@ remaining ``total(w/o finalize)`` values.
 
 ``--total-blocks`` is defined on streaming-runner subclasses
 (``self_forcing``, ``causal_forcing``, ``fastvideo_causal_wan22``,
-``lingbot``, ``alpadreams``); bidirectional and non-streaming runners
+``lingbot``, ``omnidreams``); bidirectional and non-streaming runners
 (``wan21-*``, ``cosmos2-*``) drop the flag and emit a single end-to-end
 output.
 
@@ -343,7 +344,7 @@ Autoregressive — steady-state step (ms)
         - —
         - —
         - —
-      * - ``alpadreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
+      * - ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
         - H100 80GB
         - —
         - —
@@ -521,12 +522,14 @@ How we got here
 
 The point of this page is *what* — *why* lives elsewhere:
 
-- :doc:`../api/index` orients you to the four library surfaces and
-  links to the design notes for ring attention, KV-cache management,
-  and CUDA-graph capture of the steady-state forward.
-- :doc:`../tutorials/index` walks the recipes you can run today; the
-  *Advanced CUDA graphs* and *Advanced distributed* tutorials are the
-  shortest path to a reproducible local measurement of your own.
+- The `API reference <../docs/apis/index.html>`_ orients you to the four
+  library surfaces and links to the design notes for ring attention,
+  KV-cache management, and CUDA-graph capture of the steady-state
+  forward.
+- The `developer guides <../docs/developer_guides/index.html>`_ cover
+  the architectural concerns behind the recipes you can run today;
+  *interactive serving* and *new recipes* are the shortest paths to a
+  reproducible local measurement of your own.
 - `PERFORMANCE.md <https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md>`_
   is the rolling perf narrative: it carries the raw stdout from the
   three GPUs we've profiled so far, before the numbers were aggregated

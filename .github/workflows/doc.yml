@@ -59,12 +59,29 @@ jobs:
           sed -i 's/^__version__ = ".*"/__version__ = "main"/' flashdreams/flashdreams/_version.py
           echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
 
-      - name: Sphinx build
-        # --no-project: the "Override version" step above rewrites the version
-        # field to "main" which is not PEP 440 compliant. Without --no-project
-        # uv would try to parse the workspace pyproject.toml and fail.
+      # The site is two Sphinx projects served from one GitHub Pages
+      # deployment:
+      #   - docs/landing/source → nvidia-sphinx-theme front-of-site
+      #     pages (landing, benchmarks, community) at the version root.
+      #   - docs/source           → furo-themed reference docs (getting
+      #     started, models, developer guides, API, CLI) under /docs/.
+      #
+      # --no-project: the "Override version" step above rewrites the version
+      # field to "main" which is not PEP 440 compliant. Without --no-project
+      # uv would try to parse the workspace pyproject.toml and fail.
+      - name: Sphinx build — landing site (root)
         run: |
-          uv run --no-project sphinx-build -b html docs/source _build
+          uv run --no-project sphinx-build -W -b html docs/landing/source _build/landing
+
+      - name: Sphinx build — reference docs (under /docs/)
+        run: |
+          uv run --no-project sphinx-build -W -b html docs/source _build/docs
+
+      - name: Assemble combined site (landing at root, docs under /docs/)
+        run: |
+          mkdir -p _build/site
+          cp -R _build/landing/. _build/site/
+          cp -R _build/docs _build/site/docs
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -73,7 +90,7 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: _build/
+          publish_dir: _build/site
           destination_dir: ${{ env.DOCS_SUBDIR }}
           keep_files: false  # only erases the destination subdirectory
           # Uncomment + set if you wire up a custom domain later:
