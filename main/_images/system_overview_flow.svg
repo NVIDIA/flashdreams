@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-label="FlashDreams high-level system flow">
+  <defs>
+    <style>
+      .box { fill: #f7f7f8; stroke: #3b3f45; stroke-width: 2; rx: 14; ry: 14; }
+      .title { font: 700 24px Arial, sans-serif; fill: #111; }
+      .label { font: 600 18px Arial, sans-serif; fill: #111; }
+      .desc { font: 400 15px Arial, sans-serif; fill: #333; }
+      .arrow { stroke: #2f3338; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#2f3338" />
+    </marker>
+  </defs>
+
+  <text x="600" y="42" text-anchor="middle" class="title">FlashDreams Inference Flow (High Level)</text>
+
+  <rect class="box" x="40" y="110" width="250" height="125"/>
+  <text x="165" y="152" text-anchor="middle" class="label">CLI + Registry</text>
+  <text x="165" y="178" text-anchor="middle" class="desc">Resolve runner slug</text>
+  <text x="165" y="200" text-anchor="middle" class="desc">built-in + plugins</text>
+
+  <rect class="box" x="335" y="110" width="250" height="125"/>
+  <text x="460" y="152" text-anchor="middle" class="label">Runner</text>
+  <text x="460" y="178" text-anchor="middle" class="desc">Parse CLI overrides</text>
+  <text x="460" y="200" text-anchor="middle" class="desc">create pipeline instance</text>
+
+  <rect class="box" x="630" y="110" width="250" height="125"/>
+  <text x="755" y="152" text-anchor="middle" class="label">Pipeline</text>
+  <text x="755" y="178" text-anchor="middle" class="desc">initialize_cache</text>
+  <text x="755" y="200" text-anchor="middle" class="desc">generate/finalize loop</text>
+
+  <rect class="box" x="925" y="110" width="235" height="125"/>
+  <text x="1042" y="152" text-anchor="middle" class="label">Outputs</text>
+  <text x="1042" y="178" text-anchor="middle" class="desc">video / stats / logs</text>
+  <text x="1042" y="200" text-anchor="middle" class="desc">persist on rank 0</text>
+
+  <rect class="box" x="190" y="315" width="300" height="145"/>
+  <text x="340" y="355" text-anchor="middle" class="label">Diffusion Model</text>
+  <text x="340" y="381" text-anchor="middle" class="desc">Scheduler + Transformer</text>
+  <text x="340" y="403" text-anchor="middle" class="desc">flow prediction over timesteps</text>
+  <text x="340" y="425" text-anchor="middle" class="desc">KV/AR cache updates</text>
+
+  <rect class="box" x="535" y="315" width="300" height="145"/>
+  <text x="685" y="355" text-anchor="middle" class="label">Integration Components</text>
+  <text x="685" y="381" text-anchor="middle" class="desc">Transformer network</text>
+  <text x="685" y="403" text-anchor="middle" class="desc">optional Encoder/Decoder</text>
+  <text x="685" y="425" text-anchor="middle" class="desc">integration-specific configs</text>
+
+  <rect class="box" x="880" y="315" width="260" height="145"/>
+  <text x="1010" y="355" text-anchor="middle" class="label">Distributed Runtime</text>
+  <text x="1010" y="381" text-anchor="middle" class="desc">torchrun world size/rank</text>
+  <text x="1010" y="403" text-anchor="middle" class="desc">context parallel sharding</text>
+  <text x="1010" y="425" text-anchor="middle" class="desc">multi-GPU execution</text>
+
+  <path class="arrow" d="M290 172 L335 172"/>
+  <path class="arrow" d="M585 172 L630 172"/>
+  <path class="arrow" d="M880 172 L925 172"/>
+
+  <path class="arrow" d="M755 235 L755 295"/>
+  <path class="arrow" d="M640 388 L500 388"/>
+  <path class="arrow" d="M835 388 L880 388"/>
+</svg>

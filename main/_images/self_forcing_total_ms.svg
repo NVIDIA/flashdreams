@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="460" viewBox="0 0 1080 460" role="img" aria-label="Self-Forcing DiT runtime by GPU and method">
+<rect width="100%" height="100%" fill="#eeeeee"/>
+<line x1="90" y1="60" x2="90" y2="380" stroke="#333" stroke-width="1.4"/>
+<line x1="90" y1="380" x2="1040" y2="380" stroke="#333" stroke-width="1.4"/>
+<line x1="86" y1="380" x2="1040" y2="380" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="385" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">0</text>
+<line x1="86" y1="316" x2="1040" y2="316" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="321" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">100</text>
+<line x1="86" y1="252" x2="1040" y2="252" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="257" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">200</text>
+<line x1="86" y1="188" x2="1040" y2="188" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="193" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">300</text>
+<line x1="86" y1="124" x2="1040" y2="124" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="129" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">400</text>
+<line x1="86" y1="60" x2="1040" y2="60" stroke="#b7b7b7" stroke-width="1.2" stroke-dasharray="7,5"/>
+<text x="78" y="65" text-anchor="end" font-size="24" font-family="Times New Roman, serif" fill="#333">500</text>
+<text x="24" y="220" transform="rotate(-90, 24, 220)" text-anchor="middle" font-size="28" font-family="Times New Roman, serif" fill="#222">DiT (ms)</text>
+
+<rect x="227" y="103.52" width="66" height="276.48" fill="#3b82f6"/>
+<text x="260" y="96.12" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">432</text>
+<rect x="307" y="159.84" width="66" height="220.16" fill="#2fbf71"/>
+<text x="340" y="152.44" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">344</text>
+<text x="300" y="410" text-anchor="middle" font-size="22" font-family="Times New Roman, serif" fill="#222">H100</text>
+
+<rect x="467" y="156.0" width="66" height="224.0" fill="#3b82f6"/>
+<text x="500" y="148.6" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">350</text>
+<rect x="547" y="250.08" width="66" height="129.92" fill="#2fbf71"/>
+<text x="580" y="242.68" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">203</text>
+<text x="540" y="410" text-anchor="middle" font-size="22" font-family="Times New Roman, serif" fill="#222">GB200</text>
+
+<rect x="707" y="219.36" width="66" height="160.64" fill="#3b82f6"/>
+<text x="740" y="211.96" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">251</text>
+<rect x="787" y="270.56" width="66" height="109.44" fill="#2fbf71"/>
+<text x="820" y="263.16" text-anchor="middle" font-size="21" font-family="Times New Roman, serif" fill="#222">171</text>
+<text x="780" y="410" text-anchor="middle" font-size="22" font-family="Times New Roman, serif" fill="#222">GB300</text>
+
+<rect x="790" y="22" width="238" height="98" fill="#efefef" stroke="#b8b8b8" stroke-width="1.2" rx="8"/>
+<rect x="812" y="42" width="14" height="14" fill="#3b82f6" stroke="#666" stroke-width="0.7"/>
+<text x="838" y="57" font-size="24" font-family="Times New Roman, serif" fill="#222">official</text>
+<rect x="812" y="80" width="14" height="14" fill="#2fbf71" stroke="#666" stroke-width="0.7"/>
+<text x="838" y="95" font-size="24" font-family="Times New Roman, serif" fill="#222">flashdreams</text>
+</svg>

@@ -13,78 +13,128 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-flashdreams
+FlashDreams
 ===================================
 
-Overview
---------
+.. raw:: html
 
-*flashdreams* is a streaming inference pipeline for diffusion-based video
-generation. It targets autoregressive ("self-forcing" / "causal-forcing")
-flow-matching models with first-class support for KV-cached transformers,
-ring attention across context-parallel ranks, and CUDA-graph capture for
-the steady-state forward, plus a single bidirectional reference model
-for parity testing.
+   <style>
+     #furo-main-content > section > h1 { display: none; }
+   </style>
+   <div class="homepage-logo-wrap">
+     <img src="_static/flashdreams_logo_horizontal.png" alt="FlashDreams">
+   </div>
 
-The library is organised around a few sharp abstractions
-(:doc:`apis/infra`) that every recipe (:doc:`apis/recipes`) plugs into;
-shared low-level kernels and distributed helpers live under
-:doc:`apis/core`. The unified ``flashdreams-run`` CLI fronts every
-shipped recipe; per-recipe usage is walked through in the sections below.
+FlashDreams is a high-performance streaming inference stack for world and
+video models. It focuses on long-rollout autoregressive generation, efficient
+multi-GPU execution, and practical model serving.
 
-Installation
-------------
+Highlights
+----------
 
-The repository is a `uv <https://docs.astral.sh/uv/>`_ workspace:
+- FlashDreams is built for **streaming long-rollout world-model inference**
+  with per-step cache updates and low overhead in autoregressive loops.
+- The unified ``flashdreams-run`` CLI exposes both built-in and plugin models
+  behind a single launch interface, from Self-Forcing and Causal-Forcing to
+  Lingbot-World and Causal Wan2.2.
+- FlashDreams is designed for **multi-GPU context-parallel execution** with
+  torchrun-based scaling and integration-level support for efficient transformer
+  attention/cache pipelines.
+- The framework is **modular and extensible**: pipelines and runner configs can
+  be added as external integration packages via entry points without forking
+  core infra.
+- Current benchmarks show strong practical speedups in matched environments,
+  including up to **2.49x** on Lingbot-World (H100, 4xGPU) and up to
+  **1.95x** on Self-Forcing (GB200, block-6 total latency) against official
+  baselines.
+
+.. raw:: html
+
+   <div class="video-slot">
+     <strong>Project overview media</strong><br>
+     See model-specific pages under ``Models`` for runnable commands and
+     available qualitative assets.
+   </div>
+
+Quick install
+-------------
 
 .. code-block:: bash
 
-   uv sync --extra dev
-   uv run pytest flashdreams/tests
+   # Library usage
+   pip install flashdreams
 
-The ``flashdreams-run`` CLI runners lazy-import ``mediapy`` + ``opencv``
-for image / video I/O; install the ``runners`` extra to enable them:
+   # Latest main branch
+   pip install "git+https://github.com/NVIDIA/flashdreams.git"
 
-.. code-block:: bash
-
+   # Codebase workflow
+   git clone https://github.com/NVIDIA/flashdreams.git
+   cd flashdreams
    uv sync --extra dev --extra runners
    uv run flashdreams-run --help
 
-See the project ``README.md`` for the full container-based workflow on a
-Slurm node.
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: Getting Started
+      :link: getting_started/index
+      :link-type: doc
+
+      Installation, first model launch, and supported model overview.
+
+   .. grid-item-card:: Developer Guides
+      :link: developer_guides/index
+      :link-type: doc
+
+      Architecture, model integration, configs, and serving guidance.
+
+   .. grid-item-card:: Reference
+      :link: reference/index
+      :link-type: doc
+
+      CLI usage and API surfaces.
+
+   .. grid-item-card:: Models
+      :link: models/index
+      :link-type: doc
+
+      Model catalog with per-model run commands and links.
 
 .. toctree::
    :maxdepth: 1
-   :caption: Supported Autoregressive Models
+   :caption: Getting Started
+   :hidden:
 
-   examples/omnidreams
-   examples/self_forcing
-   examples/causal_forcing
-   examples/causal_wan22
-   examples/lingbot_world
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Supported Bidirectional Models
-
-   examples/wan21
-
-.. toctree::
-   :maxdepth: 1
-   :caption: FlashDreams Inference API
-
-   apis/core
-   apis/infra
-   apis/recipes
-
-.. toctree::
-   :maxdepth: 1
-   :caption: FlashDreams Serving API
-
-   apis/serving
+   getting_started/installation
+   getting_started/first_world_model
+   getting_started/supported_models
 
 .. toctree::
    :maxdepth: 1
    :caption: Developer Guides
+   :hidden:
 
    developer_guides/new_recipes
+   developer_guides/system_overview
+   developer_guides/configs
+   developer_guides/interactive_serving
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Models
+   :hidden:
+
+   models/omnidreams
+   models/self_forcing
+   models/causal_forcing
+   models/fastvideo_wan22
+   models/lingbot_world
+   models/wan21
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+   :hidden:
+
+   CLI <reference/cli>
+   API <apis/index>
