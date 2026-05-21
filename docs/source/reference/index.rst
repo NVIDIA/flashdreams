@@ -18,8 +18,7 @@
 Reference
 ===================================
 
-Reference pages for CLI usage, API surfaces, serving interfaces, and evaluation
-artifacts.
+Reference pages for CLI usage, API surfaces, and serving interfaces.
 
 CLI
 ---
@@ -35,7 +34,6 @@ API
 - :doc:`Pipelines and runners </apis/recipes>`
 - :doc:`Serving </apis/serving>`
 
-Performance
------------
-
-- :doc:`Performance </reference/evaluation>`
+Benchmark charts are published in model-specific pages (for example
+``/models/self_forcing`` and ``/models/lingbot_world``), with data sources
+under ``docs/benchmarks/``.

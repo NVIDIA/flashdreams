@@ -36,7 +36,7 @@ Highlights
   with per-step cache updates and low overhead in autoregressive loops.
 - The unified ``flashdreams-run`` CLI exposes both built-in and plugin models
   behind a single launch interface, from Self-Forcing and Causal-Forcing to
-  Lingbot-World and Casual Wan2.2.
+  Lingbot-World and Causal Wan2.2.
 - FlashDreams is designed for **multi-GPU context-parallel execution** with
   torchrun-based scaling and integration-level support for efficient transformer
   attention/cache pipelines.
@@ -51,8 +51,9 @@ Highlights
 .. raw:: html
 
    <div class="video-slot">
-     <strong>Promo Video</strong><br>
-     Add a YouTube embed for your product overview here.
+     <strong>Project overview media</strong><br>
+     See model-specific pages under ``Models`` for runnable commands and
+     available qualitative assets.
    </div>
 
 Quick install
@@ -91,13 +92,13 @@ Quick install
       :link: reference/index
       :link-type: doc
 
-      CLI usage, API surfaces, and evaluation assets.
+      CLI usage and API surfaces.
 
    .. grid-item-card:: Models
       :link: models/index
       :link-type: doc
 
-      Model catalog with per-model run commands and placeholders.
+      Model catalog with per-model run commands and links.
 
 .. toctree::
    :maxdepth: 1
@@ -137,5 +138,4 @@ Quick install
 
    CLI <reference/cli>
    API <apis/index>
-   Performance <reference/evaluation>
 

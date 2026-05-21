@@ -16,27 +16,22 @@
 Self-Forcing
 ===================================
 
-Overview
---------
-
-Self-Forcing focuses on long autoregressive rollout quality and speed for Wan2.1
-text-to-video generation, with FlashDreams optimizations for decode and cache flow.
-
-Links
------
-
-- Project page: `Self-Forcing GitHub <https://github.com/liruilong940607/Self-Forcing>`_
-- Paper link (placeholder): ``TODO: add arXiv link``
-
-Model figure
-------------
-
 .. raw:: html
 
-   <div class="video-slot">
-     <strong>Figure Placeholder</strong><br>
-     Add method/pipeline figure from the Self-Forcing paper.
+   <div class="model-link-row">
+     <a class="model-link-button" href="https://self-forcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://arxiv.org/abs/2506.08009" target="_blank" rel="noopener noreferrer">arXiv paper</a>
+     <a class="model-link-button" href="https://github.com/guandeh17/Self-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
+
+Self-Forcing here is a Wan2.1-based text-to-video (T2V) model.
+It uses a training paradigm for autoregressive video diffusion that simulates
+inference-time rollout during training with KV caching, reducing the train-test
+gap and enabling efficient streaming generation quality.
+
+.. image:: https://self-forcing.github.io/static/teaser.jpg
+   :alt: Self-Forcing teaser figure.
+   :width: 100%
 
 Run this model
 --------------
@@ -45,14 +40,8 @@ Run this model
 
    uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
 
-Results
--------
+.. figure:: /_static/perf/self_forcing_total_ms.svg
+   :class: benchmark-figure
+   :alt: Self-Forcing total latency bar chart by hardware and method.
 
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Results Placeholder</strong><br>
-     Add qualitative clips and latency summary snapshots.
-   </div>
-
-For more model pages, see :doc:`/models/index`.
+   DiT runtime at 6-th autoregressive rollout on a signle GPU.

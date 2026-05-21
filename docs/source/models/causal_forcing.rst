@@ -26,17 +26,7 @@ Links
 -----
 
 - Project page: `Causal-Forcing GitHub <https://github.com/LiRunyi2001/causal-forcing>`_
-- Paper link (placeholder): ``TODO: add arXiv link``
-
-Model figure
-------------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Figure Placeholder</strong><br>
-     Add model overview figure from Causal-Forcing publication.
-   </div>
+- Integration package: `flashdreams/integrations/causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
 
 Run this model
 --------------
@@ -56,15 +46,3 @@ I2V:
        causal-wan21-causal-forcing-framewise-i2v --total-blocks 21 \
        --image-path assets/example_data/i2v/image.jpg \
        --prompt-path assets/example_data/i2v/prompt.txt
-
-Results
--------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Results Placeholder</strong><br>
-     Add T2V vs I2V qualitative outputs and runtime snapshots.
-   </div>
-
-For more model pages, see :doc:`/models/index`.

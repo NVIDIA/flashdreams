@@ -34,6 +34,20 @@ uv run --group docs sphinx-build -b html docs/source docs/_build/html
 The rendered site lands in `docs/_build/html/index.html`. Open it with
 any browser, e.g. `xdg-open docs/_build/html/index.html`.
 
+## Live preview (auto rebuild)
+
+Use Sphinx live-reload to avoid rerunning build + HTTP server commands on every edit:
+
+```bash
+# from the repo root
+uv run --group docs sphinx-autobuild docs/source docs/_build/html --port 8000
+```
+
+Then keep this process running and open:
+`http://127.0.0.1:8000`
+
+Any changes under `docs/source/` rebuild automatically and refresh the page.
+
 ## Layout
 
 ```
@@ -52,7 +66,7 @@ docs/
     │   └── interactive_serving.rst
     ├── reference/
     │   ├── cli.rst
-    │   └── evaluation.rst
+    │   └── index.rst
     ├── apis/
     │   ├── core.rst        # flashdreams.core (attention, distributed, …)
     │   ├── infra.rst       # flashdreams.infra (pipeline, diffusion, …)

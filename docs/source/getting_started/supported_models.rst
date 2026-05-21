@@ -23,9 +23,9 @@ Autoregressive / streaming models
 
 - `Self-Forcing <https://github.com/liruilong940607/Self-Forcing>`_
 - `Causal-Forcing <https://github.com/LiRunyi2001/causal-forcing>`_
-- `Casual Wan2.2 <https://github.com/hao-ai-lab/FastVideo>`_
+- `Causal Wan2.2 <https://github.com/hao-ai-lab/FastVideo>`_
 - `Lingbot-World <https://github.com/robbyant/lingbot-world>`_
-- `Omnidreams <https://huggingface.co/nvidia/omni-dreams-models>`_
+- `OmniDreams <https://huggingface.co/nvidia/omni-dreams-models>`_
 
 Bidirectional models
 --------------------

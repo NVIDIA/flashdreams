@@ -26,17 +26,7 @@ Links
 -----
 
 - Project page: `Lingbot-World GitHub <https://github.com/robbyant/lingbot-world>`_
-- Paper link (placeholder): ``TODO: add arXiv link``
-
-Model figure
-------------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Figure Placeholder</strong><br>
-     Add camera-control pipeline figure from the project/paper.
-   </div>
+- Integration package: `flashdreams/integrations/lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
 
 Run this model
 --------------
@@ -46,14 +36,8 @@ Run this model
    uv run flashdreams-run \
        lingbot-world-fast --example-data True --total-blocks 21
 
-Results
--------
+.. figure:: /_static/perf/lingbot_total_ms.svg
+   :class: benchmark-figure
+   :alt: Lingbot-World total latency bar chart by hardware and method.
 
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Results Placeholder</strong><br>
-     Add camera trajectory demos and serving screenshots.
-   </div>
-
-For more model pages, see :doc:`/models/index`.
+   DiT runtime at 6-th autoregressive rollout on 4x GPUs.

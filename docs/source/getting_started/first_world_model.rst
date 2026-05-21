@@ -48,8 +48,9 @@ Multi GPU (context parallel):
 .. raw:: html
 
    <div class="video-slot">
-     <strong>Inference Video Placeholder</strong><br>
-     Add a YouTube embed demonstrating long-rollout output quality and speed.
+     <strong>Inference walkthrough</strong><br>
+     Run the commands above, then compare output and runtime knobs in the
+     corresponding page under :doc:`/models/index`.
    </div>
 
 Run model serving (Lingbot-World)
@@ -72,8 +73,9 @@ Multi GPU:
 .. raw:: html
 
    <div class="video-slot">
-     <strong>Serving Video Placeholder</strong><br>
-     Add a YouTube embed for interactive camera-control serving.
+     <strong>Serving walkthrough</strong><br>
+     For full serving architecture and deployment guidance, see
+     :doc:`/developer_guides/interactive_serving`.
    </div>
 
 Next steps

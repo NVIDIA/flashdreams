@@ -58,10 +58,10 @@ Reference integration folders
 - `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
 
-Omnidreams
+OmniDreams
 ----------
 
-Omnidreams now ships as a plugin under ``integrations/omnidreams``; it
+OmniDreams now ships as a plugin under ``integrations/omnidreams``; it
 registers its runners via the ``flashdreams.runner_configs`` entry-point
 group and is no longer part of the in-tree ``flashdreams.recipes`` API
 surface. See ``integrations/omnidreams/README.md`` for the plugin entry

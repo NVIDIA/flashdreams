@@ -13,13 +13,13 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Omnidreams
+OmniDreams
 ===================================
 
 Overview
 --------
 
-Omnidreams in FlashDreams targets HDMap-conditioned world-model generation for
+OmniDreams in FlashDreams targets HDMap-conditioned world-model generation for
 single-view and multi-view driving scenarios, with optimized presets for both
 quality and throughput.
 
@@ -28,17 +28,7 @@ Links
 
 - Project page: `Omni Dreams models on Hugging Face <https://huggingface.co/nvidia/omni-dreams-models>`_
 - Sample data: `Omni Dreams samples <https://huggingface.co/datasets/nvidia/omni-dreams-samples>`_
-- Paper link (placeholder): ``TODO: add arXiv link``
-
-Model figure
-------------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Figure Placeholder</strong><br>
-     Add architecture/system figure from the Omnidreams paper/project page.
-   </div>
+- Integration package: `flashdreams/integrations/omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
 
 Run this model
 --------------
@@ -65,8 +55,12 @@ Results
 .. raw:: html
 
    <div class="video-slot">
-     <strong>Results Placeholder</strong><br>
-     Add side-by-side qualitative outputs and benchmark snapshots.
+     <strong>Qualitative outputs and benchmark snapshots</strong><br>
+     <a href="https://github.com/user-attachments/assets/94be56d9-2d89-4691-90c4-95faf5c02fe7" target="_blank" rel="noopener noreferrer">
+       Open OmniDreams results asset (GitHub hosted)
+     </a>
+     <br>
+     Inline playback requires a direct public media URL (for example, a ``.mp4`` URL from a public CDN).
    </div>
 
 Real-time serving recording
@@ -75,8 +69,7 @@ Real-time serving recording
 .. raw:: html
 
    <div class="video-slot">
-     <strong>Serving Recording Placeholder</strong><br>
-     Add screen recording of real-time Omnidreams serving here.
+     <strong>Serving demo</strong><br>
+     WebRTC serving launch and runtime details are documented in
+     ``integrations/omnidreams/README.md``.
    </div>
-
-For more model pages, see :doc:`/models/index`.

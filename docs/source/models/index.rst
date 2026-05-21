@@ -37,10 +37,10 @@ Examples:
 Implemented models
 ------------------
 
-- :doc:`Omnidreams </models/omnidreams>`
+- :doc:`OmniDreams </models/omnidreams>`
 - :doc:`Self-Forcing </models/self_forcing>`
 - :doc:`Causal-Forcing </models/causal_forcing>`
-- :doc:`Casual Wan2.2 </models/fastvideo_wan22>`
+- :doc:`Causal Wan2.2 </models/fastvideo_wan22>`
 - :doc:`Lingbot-World </models/lingbot_world>`
 - :doc:`Wan2.1 </models/wan21>`
 

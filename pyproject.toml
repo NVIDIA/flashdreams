@@ -146,6 +146,7 @@ lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]
 docs = [
     "furo",
     "sphinx",
+    "sphinx-autobuild",
     "sphinx-copybutton",
     "sphinx-design",
 ]

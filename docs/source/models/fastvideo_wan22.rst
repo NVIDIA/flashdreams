@@ -13,7 +13,7 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Casual Wan2.2
+Causal Wan2.2
 ===================================
 
 Overview
@@ -27,17 +27,7 @@ Links
 
 - Project page: `FastVideo GitHub <https://github.com/hao-ai-lab/FastVideo>`_
 - Reference script: `FastVideo Wan2.2 inference example <https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py>`_
-- Paper link (placeholder): ``TODO: add arXiv link``
-
-Model figure
-------------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Figure Placeholder</strong><br>
-     Add architecture figure from FastVideo paper/project assets.
-   </div>
+- Integration package: `flashdreams/integrations/fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
 
 Run this model
 --------------
@@ -45,15 +35,3 @@ Run this model
 .. code-block:: bash
 
    uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
-
-Results
--------
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Results Placeholder</strong><br>
-     Add quality/performance comparison with FlashDreams baselines.
-   </div>
-
-For more model pages, see :doc:`/models/index`.
