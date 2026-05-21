@@ -320,9 +320,22 @@ uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </
 <span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">  </span><span class="c1"># optional</span>
 </pre></div>
 </div>
+<section id="speeding-up-cuda-builds">
+<span id="build-performance"></span><h3>Speeding up CUDA builds<a class="headerlink" href="#speeding-up-cuda-builds" title="Link to this heading">¶</a></h3>
+<p>The first <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> compiles CUDA extensions from source, which can be
+slow. Set these variables to only compile for your local GPU architecture:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">CUDA_ARCH</span><span class="o">=</span><span class="k">$(</span>nvidia-smi<span class="w"> </span>--query-gpu<span class="o">=</span>compute_cap<span class="w"> </span>--format<span class="o">=</span>csv,noheader<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;.&#39;</span><span class="k">)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NVTE_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">BLOCK_SPARSE_ATTN_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">MAX_JOBS</span><span class="o">=</span><span class="m">8</span>
+</pre></div>
+</div>
+<p>See the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds">Contributing Guide</a>
+for full details on each variable and recommended <code class="docutils literal notranslate"><span class="pre">.envrc</span></code> setup.</p>
 <p>For more environment and container details, see the project
 <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/README.md">README</a> and
 the model pages under <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>.</p>
+</section>
 </section>
 </section>
 
@@ -383,7 +396,10 @@ the model pages under <a class="reference internal" href="../models/index.html">
 <li><a class="reference internal" href="#">Installation</a><ul>
 <li><a class="reference internal" href="#use-flashdreams-as-a-library">Use FlashDreams as a library</a></li>
 <li><a class="reference internal" href="#run-models-directly-in-this-codebase">Run models directly in this codebase</a></li>
-<li><a class="reference internal" href="#environment-variables">Environment variables</a></li>
+<li><a class="reference internal" href="#environment-variables">Environment variables</a><ul>
+<li><a class="reference internal" href="#speeding-up-cuda-builds">Speeding up CUDA builds</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>

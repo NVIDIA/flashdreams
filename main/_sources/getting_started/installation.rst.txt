@@ -64,6 +64,24 @@ Most model runs need Hugging Face authentication:
    export HF_TOKEN=<your-hf-token>
    export HF_HOME=~/.cache/huggingface  # optional
 
+.. _build-performance:
+
+Speeding up CUDA builds
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The first ``uv sync`` compiles CUDA extensions from source, which can be
+slow. Set these variables to only compile for your local GPU architecture:
+
+.. code-block:: bash
+
+   CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.')
+   export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
+   export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
+   export MAX_JOBS=8
+
+See the `Contributing Guide <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds>`_
+for full details on each variable and recommended ``.envrc`` setup.
+
 For more environment and container details, see the project
 `README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_ and
 the model pages under :doc:`/models/index`.
