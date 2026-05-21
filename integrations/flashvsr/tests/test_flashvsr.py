@@ -30,6 +30,7 @@ import pytest
 import torch
 from flashvsr.config import (
     AVAILABLE_FLASHVSR_CHECKPOINT_PATHS,
+    RUNNER_FLASHVSR_V1_1_FULL_ATTN,
     RUNNER_FLASHVSR_V1_1_SPARSE_1_5,
     RUNNER_FLASHVSR_V1_1_SPARSE_2_0,
     build_flashvsr_v1_1,
@@ -38,9 +39,11 @@ from flashvsr.encoder import FlashVSREncoderConfig
 from flashvsr.pipeline import FlashVSRPipelineConfig
 from flashvsr.runner import (
     FlashVSRRunnerConfig,
+    _ensure_mgpu_config_supported,
     _resolve_target_and_topk_ratio,
 )
 from flashvsr.transformer import FlashVSRTransformerConfig
+from flashvsr.transformer.network import FlashVSRDiTNetworkConfig, SparseSelfAttention
 
 from flashdreams.infra.config import derive_config
 
@@ -70,6 +73,7 @@ def test_build_flashvsr_v1_1_wires_default_resolution() -> None:
     assert isinstance(transformer_config, FlashVSRTransformerConfig)
     assert transformer_config.len_t == 2
     assert transformer_config.kv_ratio == 3
+    assert transformer_config.attention_mode == "sparse"
     # Inherited Wan21 sizing: KV cache holds (kv_ratio + 1) * len_t pre-patchify frames.
     assert transformer_config.window_size_t == (3 + 1) * 2
 
@@ -78,6 +82,41 @@ def test_build_flashvsr_v1_1_wires_default_resolution() -> None:
     assert config.encoder.projector_checkpoint_path == _V1_1_PATHS["encoder"]
     assert config.decoder.tcdecoder_checkpoint_path == _V1_1_PATHS["decoder"]
     assert transformer_config.checkpoint_path == _V1_1_PATHS["dit"]
+
+
+def test_build_flashvsr_v1_1_wires_full_attention_mode() -> None:
+    """Full attention is an opt-in mode that also reaches the network config."""
+    config = build_flashvsr_v1_1(
+        input_H=384,
+        input_W=640,
+        attention_mode="full",
+        sparse_ratio=2.0,
+    )
+
+    transformer_config = config.diffusion_model.transformer
+    assert isinstance(transformer_config, FlashVSRTransformerConfig)
+    assert transformer_config.attention_mode == "full"
+    assert isinstance(transformer_config.network, FlashVSRDiTNetworkConfig)
+    assert transformer_config.network.attention_mode == "full"
+    # The legacy top-k knob is still populated so runner derivation remains
+    # stable, but the dense block ignores it at forward time.
+    assert transformer_config.topk_ratio == pytest.approx(2.0)
+
+    network = derive_config(
+        transformer_config.network,
+        dim=16,
+        ffn_dim=32,
+        num_heads=2,
+        num_layers=1,
+        in_dim=4,
+        out_dim=4,
+        text_dim=8,
+        freq_dim=8,
+        text_len=4,
+    ).setup()
+    block = network.blocks[0]
+    assert block.attention_mode == "full"
+    assert not isinstance(block.self_attn, SparseSelfAttention)
 
 
 def test_build_flashvsr_v1_1_crops_misaligned_resolution_to_128_multiple() -> None:
@@ -203,6 +242,24 @@ def test_shipped_runners_carry_their_sparse_ratio() -> None:
     assert RUNNER_FLASHVSR_V1_1_SPARSE_2_0.sparse_ratio == pytest.approx(2.0)
     assert isinstance(RUNNER_FLASHVSR_V1_1_SPARSE_1_5, FlashVSRRunnerConfig)
     assert RUNNER_FLASHVSR_V1_1_SPARSE_1_5.sparse_ratio == pytest.approx(1.5)
+    assert isinstance(RUNNER_FLASHVSR_V1_1_FULL_ATTN, FlashVSRRunnerConfig)
+    full_transformer = (
+        RUNNER_FLASHVSR_V1_1_FULL_ATTN.pipeline.diffusion_model.transformer
+    )
+    assert isinstance(full_transformer, FlashVSRTransformerConfig)
+    assert full_transformer.attention_mode == "full"
+
+
+def test_mgpu_guard_rejects_sparse_flashvsr_presets() -> None:
+    """Only the full-attention FlashVSR preset supports multi-GPU."""
+    for sparse_runner in (
+        RUNNER_FLASHVSR_V1_1_SPARSE_2_0,
+        RUNNER_FLASHVSR_V1_1_SPARSE_1_5,
+    ):
+        with pytest.raises(ValueError, match="block_sparse_attn"):
+            _ensure_mgpu_config_supported(sparse_runner, world_size=2)
+        _ensure_mgpu_config_supported(sparse_runner, world_size=1)
+    _ensure_mgpu_config_supported(RUNNER_FLASHVSR_V1_1_FULL_ATTN, world_size=2)
 
 
 @pytest.mark.parametrize(

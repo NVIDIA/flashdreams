@@ -7,6 +7,13 @@ on:
       - "pull-request/[0-9]+"
     tags:
       - '**'
+  # `merge_group` fires when a PR enters GitHub's merge queue. GitHub creates
+  # a temporary `gh-readonly-queue/main/pr-<n>-<sha>` ref containing the PR
+  # rebased on top of `main` + any earlier queued PRs and runs the required
+  # checks against it. The job names below must match the required-check
+  # names configured in branch protection.
+  merge_group:
+    branches: [main]
 
 jobs:
   cpu:

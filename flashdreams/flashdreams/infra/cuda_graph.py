@@ -226,10 +226,18 @@ class CUDAGraphWrapper:
         # them — so the static outputs and in-place cache updates are no-ops
         # here. Replay once immediately to actually compute the output and
         # advance the cache.
-        self._graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self._graph):
+        #
+        # Keep the graph local until capture and the first replay both
+        # succeed. If capture fails and the caller catches the exception, a
+        # stored-but-invalid CUDAGraph would make the next call fail with
+        # "replay without a preceding successful capture", hiding the real
+        # capture error.
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
             out = self.fn(*args, **kwargs)
-        out_leaves, self._out_spec = tree_flatten(out)
+        out_leaves, out_spec = tree_flatten(out)
+        graph.replay()
+        self._graph = graph
+        self._out_spec = out_spec
         self._static_out_leaves = out_leaves
-        self._graph.replay()
         return self._clone_output()

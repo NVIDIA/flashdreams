@@ -33,11 +33,12 @@ used here).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import torch
 from torch import Tensor
 
+from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
@@ -70,6 +71,8 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
       self-attention KV cache (the just-written chunk is also visible at
       attention time, so the buffer holds ``kv_ratio + 1`` chunks).
     - ``local_range``: spatial window radius for the local-block mask.
+    - ``attention_mode``: ``"sparse"`` preserves the legacy block-sparse path;
+      ``"full"`` uses the dense CP-aware Wan self-attention path.
 
     ``__post_init__`` enforces the parent's invariants and additionally:
 
@@ -102,6 +105,9 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
 
     local_range: int = 11
     """Local-block window radius (in window units) for the draft mask."""
+
+    attention_mode: Literal["sparse", "full"] = "sparse"
+    """Self-attention implementation. Multi-GPU is supported only with ``"full"``."""
 
     use_cuda_graph: bool = False
     """Capture the **steady-state** DiT call into a CUDA graph and replay it.
@@ -136,6 +142,13 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
             "FlashVSR does not support classifier-free guidance; "
             f"set guidance_scale=1.0 (got {self.guidance_scale})."
         )
+        if self.attention_mode not in ("sparse", "full"):
+            raise ValueError(
+                f"Unsupported attention_mode={self.attention_mode!r}; "
+                "expected 'sparse' or 'full'."
+            )
+        if isinstance(self.network, FlashVSRDiTNetworkConfig):
+            self.network.attention_mode = self.attention_mode
         # FlashVSR's KV cache holds ``kv_ratio + 1`` chunks at attention time
         # (the cached prior chunks plus the just-written one). Map this onto
         # the parent's pre-patchify frame-window knob so the inherited
@@ -151,6 +164,16 @@ class FlashVSRTransformer(Wan21Transformer):
     network: FlashVSRDiTNetwork
 
     def __init__(self, config: FlashVSRTransformerConfig) -> None:
+        if (
+            config.attention_mode == "sparse"
+            and torch.distributed.is_initialized()
+            and torch.distributed.get_world_size() > 1
+        ):
+            raise ValueError(
+                "FlashVSR attention_mode='sparse' is single-GPU only because "
+                "block_sparse_attn is not context-parallel aware. Use "
+                "attention_mode='full' for multi-GPU context parallelism."
+            )
         super().__init__(config)
 
         # CUDA-graph wrapper for the steady-state DiT call. Lazy-initialised
@@ -167,20 +190,19 @@ class FlashVSRTransformer(Wan21Transformer):
         """No-op: FlashVSR keys its KV cache from the **noisy** forward."""
 
     def patchify_and_maybe_split_cp(self, x):  # type: ignore[override]
-        """Pass through ``list`` payloads; defer tensors to the standard path.
+        """CP-split LR-latent lists; defer tensors to the standard path.
 
         ``FlashVSREncoder.forward`` returns the per-block low-resolution
         latent slices as a ``list[Tensor]`` already in ``[B, L, D]``
         post-patchify space (the projector emits them that way). The
         infra ``DiffusionModel.generate`` calls
-        ``transformer.patchify_and_maybe_split_cp(input)`` unconditionally
-        on the encoder output; we pass the list straight through so the
-        per-block contract survives, while plain tensor inputs (e.g. an
-        unpatchified noisy latent in tests) still take the parent's
-        rearrange + linear path.
+        ``transformer.patchify_and_maybe_split_cp(input)`` unconditionally on
+        the encoder output; lists therefore only need token-axis CP splitting.
+        Plain tensor inputs (e.g. an unpatchified noisy latent in tests) still
+        take the parent's rearrange + linear path.
         """
         if isinstance(x, list):
-            return x
+            return [split_inputs_cp(t, seq_dim=-2, cp_group=self._cp_group) for t in x]
         return super().patchify_and_maybe_split_cp(x)
 
     def _is_steady_state(self, ar_idx: int) -> bool:

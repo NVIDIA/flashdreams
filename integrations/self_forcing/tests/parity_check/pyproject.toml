@@ -16,9 +16,9 @@ dependencies = [
     "imageio[ffmpeg]",
     "easydict",
     "lmdb",
-    # Stay on the patched stable protobuf line; 7.34.x is flagged for the
-    # ParseDict recursion-depth bypass.
-    "protobuf>=6.33.6,<7",
+    # Stay off the 6.33.x protobuf line flagged by BDSA for the ParseDict
+    # recursion-depth follow-up.
+    "protobuf>=7.35.0,<8",
 ]
 
 [tool.uv.sources]

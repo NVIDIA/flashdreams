@@ -1,0 +1,182 @@
+diff --git a/examples/inference/basic/benchmark_cosmos2_5_t2w.py b/examples/inference/basic/benchmark_cosmos2_5_t2w.py
+new file mode 100644
+index 00000000..24282e6e
+--- /dev/null
++++ b/examples/inference/basic/benchmark_cosmos2_5_t2w.py
+@@ -0,0 +1,90 @@
++#!/usr/bin/env python
++# SPDX-License-Identifier: Apache-2.0
++"""Cosmos 2.5 T2W benchmark with parity-style timing output."""
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++from fastvideo import VideoGenerator
++from fastvideo.api.sampling_param import SamplingParam
++
++DEFAULT_PROMPT = (
++    "A high-definition video captures the precision of robotic welding in an industrial setting. "
++    "The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. "
++    "The welding process is in full swing, with bright sparks and intense light illuminating the scene, "
++    "creating a vivid display of blue and white hues. "
++    "A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. "
++    "The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, "
++    "indicating a busy and functional industrial workspace. "
++    "As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. "
++    "The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. "
++    "The metal surface beneath the torch shows ongoing signs of heating and melting. "
++    "The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, "
++    "underscoring the ongoing nature of the welding operation."
++)
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--model_name", type=str, default="KyleShao/Cosmos-Predict2.5-2B-Diffusers")
++    parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
++    parser.add_argument("--seed", type=int, default=42)
++    parser.add_argument("--output", type=str, default="./videos/offline.mp4")
++    parser.add_argument("--stats_output", type=str, default="./videos/stats_offline.json")
++    parser.add_argument("--num_gpus", type=int, default=1)
++    parser.add_argument("--enable_torch_compile", action="store_true")
++    return parser.parse_args()
++
++
++def configure_runtime(stats_output: str) -> None:
++    os.environ["FASTVIDEO_ATTENTION_BACKEND"] = "TORCH_SDPA"
++    os.environ["FASTVIDEO_FORCE_CUDNN_SDPA"] = "1"
++    os.environ["FASTVIDEO_PARITY_STATS_PATH"] = stats_output
++
++
++def main() -> None:
++    args = parse_args()
++    configure_runtime(stats_output=args.stats_output)
++
++    output_path = Path(args.output)
++    output_path.parent.mkdir(parents=True, exist_ok=True)
++    stats_path = Path(args.stats_output)
++    stats_path.parent.mkdir(parents=True, exist_ok=True)
++
++    generator = VideoGenerator.from_pretrained(
++        args.model_name,
++        num_gpus=args.num_gpus,
++        use_fsdp_inference=False,
++        dit_cpu_offload=False,
++        vae_cpu_offload=False,
++        text_encoder_cpu_offload=False,
++        pin_cpu_memory=False,
++        enable_torch_compile=args.enable_torch_compile,
++        torch_compile_kwargs={"mode": "max-autotune-no-cudagraphs"},
++    )
++
++    sampling_param = SamplingParam.from_pretrained(args.model_name)
++    sampling_param.update(
++        {
++            "seed": args.seed,
++            "output_path": str(output_path),
++            "save_video": True,
++            "return_frames": False,
++        }
++    )
++    result = generator.generate_video(args.prompt, sampling_param=sampling_param)
++    print(f"Video saved to: {result.get('video_path')}")
++
++    if not stats_path.exists():
++        raise RuntimeError(f"Expected timing stats at {stats_path}, but file was not generated")
++    with stats_path.open("r", encoding="utf-8") as f:
++        stats = json.load(f)
++    print(f"Per-run stats saved to: {stats_path} ({len(stats)} entries)")
++
++    generator.shutdown()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/fastvideo/attention/backends/sdpa.py b/fastvideo/attention/backends/sdpa.py
+index 5d9b2159..55c14263 100644
+--- a/fastvideo/attention/backends/sdpa.py
++++ b/fastvideo/attention/backends/sdpa.py
+@@ -1,5 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import os
++from contextlib import nullcontext
++
+ import torch
+ from dataclasses import dataclass
+ from fastvideo.attention.backends.abstract import (  # FlashAttentionMetadata,
+@@ -90,6 +93,12 @@ class SDPAImpl(AttentionImpl):
+         }
+         if query.shape[1] != key.shape[1]:
+             attn_kwargs["enable_gqa"] = True
+-        output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
++        force_cudnn = os.getenv("FASTVIDEO_FORCE_CUDNN_SDPA", "0") == "1"
++        if force_cudnn:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++        with context_manager:
++            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
+         output = output.transpose(1, 2)
+         return output
+diff --git a/fastvideo/pipelines/stages/denoising.py b/fastvideo/pipelines/stages/denoising.py
+index c112f48c..e9fa2b65 100644
+--- a/fastvideo/pipelines/stages/denoising.py
++++ b/fastvideo/pipelines/stages/denoising.py
+@@ -4,6 +4,8 @@ Denoising stage for diffusion pipelines.
+ """
+ 
+ import inspect
++import json
++import os
+ import weakref
+ from collections.abc import Iterable
+ from typing import Any
+@@ -41,6 +43,8 @@ except ImportError:
+ 
+ logger = init_logger(__name__)
+ 
++from flashdreams.infra.profiler import EventProfiler
++
+ 
+ class DenoisingStage(PipelineStage):
+     """
+@@ -879,6 +883,9 @@ class Cosmos25DenoisingStage(CosmosDenoisingStage):
+         init_noise_4d = init_noise_4d.to(state_dtype)
+ 
+         clamp_every_step = bool(getattr(cfg, "cosmos25_clamp_every_step", True)) if is_conditioned else False
++        stats_path = os.getenv("FASTVIDEO_PARITY_STATS_PATH", "").strip()
++        collect_timing = bool(stats_path)
++        denoise_profiler = EventProfiler() if collect_timing else None
+ 
+         with self.progress_bar(total=len(timesteps)) as progress_bar:
+             for i, t in enumerate(timesteps):
+@@ -960,6 +967,26 @@ class Cosmos25DenoisingStage(CosmosDenoisingStage):
+ 
+                 progress_bar.update()
+ 
++        if denoise_profiler is not None:
++            denoise_profiler.record("denoise")
++            stages_ms = denoise_profiler.sync_and_summarize()
++            total_ms = float(sum(stages_ms.values()))
++            stats: dict[str, float | int] = {f"{stage}_ms": float(ms) for stage, ms in stages_ms.items()}
++            stats["kv_update_ms"] = 0.0
++            stats["decode_ms"] = 0.0
++            stats["total_ms"] = total_ms
++            stats["total_ms_wo_finalize"] = total_ms
++            if torch.cuda.is_available():
++                device = torch.cuda.current_device()
++                gib = 1024**3
++                stats["mem_alloc_gib"] = torch.cuda.memory_allocated(device) / gib
++                stats["mem_reserved_gib"] = torch.cuda.memory_reserved(device) / gib
++                stats["mem_peak_gib"] = torch.cuda.max_memory_allocated(device) / gib
++            stats_dir = os.path.dirname(stats_path) or "."
++            os.makedirs(stats_dir, exist_ok=True)
++            with open(stats_path, "w", encoding="utf-8") as f:
++                json.dump([{"autoregressive_index": 0, **stats}], f, indent=2)
++
+         batch.latents = latents_4d.to(target_dtype).unsqueeze(0)
+         return batch
+ 

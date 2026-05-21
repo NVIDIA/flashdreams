@@ -1,0 +1,46 @@
+[project]
+name = "self-forcing-fastvideo-parity-check"
+version = "0.0.0"
+description = "Isolated venv for FastVideo Self-Forcing parity benchmark."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flashdreams",
+    "imageio[ffmpeg]",
+    "accelerate",
+    "aiofiles",
+    "aiohttp",
+    "av",
+    "cloudpickle",
+    "datasets",
+    "diffusers",
+    "fastapi",
+    "flask",
+    "flask_restful",
+    "gpustat",
+    "gradio",
+    "h5py",
+    "moviepy",
+    "omegaconf",
+    "opencv-python",
+    "peft",
+    "pyarrow",
+    "protobuf>=7.35.0,<8",
+    "ray",
+    "remote-pdb",
+    "requests",
+    "scipy",
+    "sentencepiece",
+    "test-tube",
+    "timm",
+    "torchcodec",
+    "torchdata",
+    "uvicorn",
+    "wandb",
+    "watch",
+]
+
+[tool.uv.sources]
+flashdreams = { path = "../../../../flashdreams", editable = true }
+
+[tool.uv]
+managed = true

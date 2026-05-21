@@ -211,10 +211,13 @@ class FlowMatchUniPCScheduler(Scheduler):
     Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless
     of ``module.to(dtype)``.
 
-    Examples:
+    Example:
+
+    .. code-block:: python
 
         scheduler = FlowMatchUniPCSchedulerConfig(
-            num_inference_steps=50, shift=5.0,
+            num_inference_steps=50,
+            shift=5.0,
         ).setup().to("cuda")
         clean = scheduler.sample(initial_noise=noise, predict_flow=fn)
     """

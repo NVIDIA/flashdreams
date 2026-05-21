@@ -74,7 +74,7 @@ def _build_projector(
     compile_mode: str = "default",
     compile_dynamic: bool | None = True,
 ) -> Causal_LQ4x_Proj:
-    """Match ``UltraFlashVSRUpsampler.__init__`` (layer_num=1 in production).
+    """Match ``FlashVSRUpsampler.__init__`` (layer_num=1 in production).
 
     ``compile_mode`` / ``compile_dynamic`` default to the cheap-CI settings
     (skip max-autotune, allow symbolic shapes). Production uses
@@ -108,7 +108,7 @@ def _make_upres(
     device: torch.device,
     seed: int,
 ) -> torch.Tensor:
-    """Mirror the shape `UltraFlashVSRUpsampler.forward` hands the projector."""
+    """Mirror the shape `FlashVSRUpsampler.forward` hands the projector."""
     gen = torch.Generator(device=device).manual_seed(seed + chunk_idx)
     return torch.randn(
         (1, 3, chunk_size, target_H, target_W),

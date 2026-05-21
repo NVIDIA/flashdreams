@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -29,36 +28,39 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
 from flashdreams.infra.config import derive_config
+from flashdreams.serving.webrtc.controls import (
+    CameraPoseIntegrator,
+    KeyboardResampler,
+    PoseSegment,
+)
+from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.serving.webrtc.warmup import (
+    run_loopback_warmup_session,
+    wait_for_ice_gathering_complete,
+)
 from lingbot.config import PIPELINE_CONFIGS
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
     get_Ks_transformed,
     preprocess_example_poses,
 )
-from lingbot.webrtc.controls import (
-    CameraPoseIntegrator,
-    KeyboardResampler,
-    PoseSegment,
-)
-from lingbot.webrtc.media import LingbotVideoTrack
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-LOGGER = logging.getLogger(__name__)
+DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
+_CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 
 
 class LingbotRuntimeError(RuntimeError):
     """Raised when the Lingbot runtime is used incorrectly."""
-
-
-class SessionBusyError(RuntimeError):
-    """Raised when a second peer tries to open a session."""
 
 
 class LingbotControlSignal(IntEnum):
@@ -79,6 +81,8 @@ class LingbotRuntimeConfig:
     video_height: int = 464
     video_width: int = 832
     world_scale: float | None = None
+    warmup_chunks: int = 10
+    warmup_timeout_s: float = 600.0
 
     example_data_dir: Path = REPO_ROOT / "assets/example_data/lingbot_world"
     first_frame_filename: str = "image.jpg"
@@ -427,44 +431,8 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError(
                 f"Chunk={self.autoregressive_index} received empty segments."
             )
-        # Union of every state seen in the chunk plus first/last
-        # segment snapshots; one log line summarising the whole chunk.
-        union_keys: set[str] = set().union(*(s for _, _, s in segments))
-        first_keys = segments[0][2]
-        last_keys = segments[-1][2]
         poses = self.pose_integrator.integrate_chunk(
             segments=segments, frame_times=frame_times
-        )
-        first_pose = poses[0]
-        last_pose = poses[-1]
-        first_translation = first_pose[:3, 3].tolist()
-        last_translation = last_pose[:3, 3].tolist()
-        first_heading_y = float(np.arctan2(first_pose[0, 2], first_pose[0, 0]))
-        last_heading_y = float(np.arctan2(last_pose[0, 2], last_pose[0, 0]))
-        LOGGER.info(
-            "Rendering chunk=%s num_frames=%s segments=%d union_keys=%s "
-            "first_keys=%s last_keys=%s first_xyz=%s last_xyz=%s "
-            "first_heading_y=%.5f last_heading_y=%.5f",
-            self.autoregressive_index,
-            num_frames,
-            len(segments),
-            sorted(union_keys),
-            sorted(first_keys),
-            sorted(last_keys),
-            [round(float(x), 5) for x in first_translation],
-            [round(float(x), 5) for x in last_translation],
-            first_heading_y,
-            last_heading_y,
-        )
-        LOGGER.info(
-            "Chunk=%s first_pose=%s",
-            self.autoregressive_index,
-            np.array2string(first_pose, precision=4, suppress_small=True),
-        )
-        LOGGER.info(
-            "Chunk=%s last_pose=%s",
-            self.autoregressive_index,
-            np.array2string(last_pose, precision=4, suppress_small=True),
         )
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
@@ -495,7 +463,7 @@ class LingbotInferenceRuntime:
 @dataclass(slots=True)
 class _ManagedLingbotSession:
     runtime: LingbotInferenceRuntime
-    video_track: LingbotVideoTrack
+    video_track: BufferedVideoTrack
     peer_connection: Any
     resampler: KeyboardResampler
     """Per-session sparse-edge resampler; produces the per-frame keyboard
@@ -519,6 +487,10 @@ class _ManagedLingbotSession:
     pending_action_arrivals: deque[float] = field(default_factory=deque)
     """Accepted control-edge arrival times not yet reported in latency telemetry."""
 
+    last_client_message_at: float = 0.0
+    liveness_task: asyncio.Task[Any] | None = None
+    """Watchdog that closes the session when browser heartbeats stop."""
+
     closed: bool = False
 
     async def close(self) -> None:
@@ -526,11 +498,26 @@ class _ManagedLingbotSession:
             return
         self.closed = True
 
-        if self.generation_task is not None and not self.generation_task.done():
+        current_task = asyncio.current_task()
+        if (
+            self.liveness_task is not None
+            and self.liveness_task is not current_task
+            and not self.liveness_task.done()
+        ):
+            self.liveness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.liveness_task
+        self.liveness_task = None
+
+        if (
+            self.generation_task is not None
+            and self.generation_task is not current_task
+            and not self.generation_task.done()
+        ):
             self.generation_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.generation_task
-            self.generation_task = None
+        self.generation_task = None
 
         await self.video_track.close()
         await self.peer_connection.close()
@@ -544,14 +531,20 @@ class LingbotWebRTCSessionManager:
         *,
         runtime_config: LingbotRuntimeConfig | None = None,
         fps: int = 16,
+        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be > 0")
+        if client_liveness_timeout_s <= 0:
+            raise ValueError("client_liveness_timeout_s must be > 0")
         self.runtime_config = runtime_config or LingbotRuntimeConfig()
         self.fps = fps
+        self.client_liveness_timeout_s = client_liveness_timeout_s
         self._runtime = LingbotInferenceRuntime(config=self.runtime_config)
         self._runtime_ready = False
+        self._warmup_complete = False
         self._active_session: _ManagedLingbotSession | None = None
+        self._preload_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
 
     def has_active_session(self) -> bool:
@@ -561,108 +554,161 @@ class LingbotWebRTCSessionManager:
         return self._runtime_ready
 
     async def preload_runtime(self) -> None:
-        if self._runtime_ready:
-            return
-        await self._runtime.initialize()
-        self._runtime_ready = True
+        async with self._preload_lock:
+            if not self._runtime_ready:
+                await self._runtime.initialize()
+                self._runtime_ready = True
+            if not self._warmup_complete:
+                await self._run_loopback_warmup_session(
+                    num_chunks=self.runtime_config.warmup_chunks
+                )
+                self._warmup_complete = True
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
+        if not self._runtime_ready or not self._warmup_complete:
+            await self.preload_runtime()
+
         async with self._session_lock:
             if self._active_session is not None and not self._active_session.closed:
                 raise SessionBusyError("A Lingbot session is already active.")
 
-            if not self._runtime_ready:
-                await self._runtime.initialize()
-                self._runtime_ready = True
-            await self._runtime.reset_for_new_session()
-
-            peer_connection = RTCPeerConnection()
-            # Bounded queue sized to one *steady-state* chunk: ``put``
-            # blocks only when the queue holds a full steady-state chunk
-            # already, which throttles the producer to the consumer's
-            # drain rate.
-            #
-            # Important: AR step 0 emits fewer frames than every
-            # subsequent step (e.g. 9 vs 12 here) due to the decoder's
-            # causal first-frame padding. Sizing the queue to AR 0 would
-            # force the producer to block 3 times on *every* steady-state
-            # chunk, leaving < 1 chunk of buffer at gen-start and
-            # producing a once-per-chunk ~60 ms playback stall. We
-            # therefore size to the steady-state count.
-            num_frames = self._runtime.peek_steady_chunk_num_frames()
-            video_track = LingbotVideoTrack(fps=self.fps, maxsize=num_frames)
-            peer_connection.addTrack(video_track)
-            # Start the resampler's virtual clock at 0; the real anchor
-            # is set inside the ``on_datachannel`` handler so chunk 0's
-            # window starts at the moment input can actually arrive.
-            # Anchoring earlier (at offer time) would make the first few
-            # chunks integrate over an empty pre-channel window.
-            resampler = KeyboardResampler(fps=self.fps, start_v=0.0)
-            managed_session = _ManagedLingbotSession(
-                runtime=self._runtime,
-                video_track=video_track,
-                peer_connection=peer_connection,
-                resampler=resampler,
+            return await self._create_answer_with_runtime_ready_locked(
+                offer_sdp=offer_sdp,
+                offer_type=offer_type,
             )
-            self._active_session = managed_session
 
-            @peer_connection.on("datachannel")
-            def on_datachannel(channel: Any) -> None:
-                managed_session.control_channel = channel
-                # Belt-and-braces reset of the resampler at channel
-                # open: the resampler is freshly constructed in
-                # ``create_answer`` so this is normally a no-op, but
-                # clearing here guarantees a clean event log even if
-                # the resampler lifecycle ever changes. The real
-                # virtual-clock anchor happens inside
-                # ``_generation_worker`` once the first keyboard event
-                # arrives so chunk 0's window starts at the moment of
-                # first interaction, not at data-channel open.
-                channel_open_v = asyncio.get_running_loop().time()
-                managed_session.resampler.reset(start_v=channel_open_v)
+    async def _create_answer_with_runtime_ready_locked(
+        self,
+        *,
+        offer_sdp: str,
+        offer_type: str,
+        rtc_configuration: RTCConfiguration | None = None,
+    ) -> dict[str, str]:
+        if self._active_session is not None and not self._active_session.closed:
+            raise SessionBusyError("A Lingbot session is already active.")
+        if not self._runtime_ready:
+            raise LingbotRuntimeError("Runtime is not initialized.")
 
-                @channel.on("message")
-                def on_message(message: Any) -> None:
-                    asyncio.create_task(
-                        self._handle_datachannel_message(
-                            managed_session=managed_session,
-                            raw_message=message,
-                        )
+        await self._runtime.reset_for_new_session()
+
+        peer_connection = RTCPeerConnection(rtc_configuration)
+        # Bounded queue sized to one *steady-state* chunk: ``put``
+        # blocks only when the queue holds a full steady-state chunk
+        # already, which throttles the producer to the consumer's
+        # drain rate.
+        #
+        # Important: AR step 0 emits fewer frames than every
+        # subsequent step (e.g. 9 vs 12 here) due to the decoder's
+        # causal first-frame padding. Sizing the queue to AR 0 would
+        # force the producer to block 3 times on *every* steady-state
+        # chunk, leaving < 1 chunk of buffer at gen-start and
+        # producing a once-per-chunk ~60 ms playback stall. We
+        # therefore size to the steady-state count.
+        num_frames = self._runtime.peek_steady_chunk_num_frames()
+        video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
+        peer_connection.addTrack(video_track)
+        # Start the resampler's virtual clock at 0; the real anchor
+        # is set inside the ``on_datachannel`` handler so chunk 0's
+        # window starts at the moment input can actually arrive.
+        # Anchoring earlier (at offer time) would make the first few
+        # chunks integrate over an empty pre-channel window.
+        resampler = KeyboardResampler(fps=self.fps, start_v=0.0)
+        loop = asyncio.get_running_loop()
+        managed_session = _ManagedLingbotSession(
+            runtime=self._runtime,
+            video_track=video_track,
+            peer_connection=peer_connection,
+            resampler=resampler,
+            last_client_message_at=loop.time(),
+        )
+        self._active_session = managed_session
+        managed_session.liveness_task = asyncio.create_task(
+            self._client_liveness_watchdog(managed_session=managed_session)
+        )
+
+        @peer_connection.on("datachannel")
+        def on_datachannel(channel: Any) -> None:
+            managed_session.control_channel = channel
+            # Belt-and-braces reset of the resampler at channel
+            # open: the resampler is freshly constructed in
+            # ``create_answer`` so this is normally a no-op, but
+            # clearing here guarantees a clean event log even if
+            # the resampler lifecycle ever changes. The real
+            # virtual-clock anchor happens inside
+            # ``_generation_worker`` once the first keyboard event
+            # arrives so chunk 0's window starts at the moment of
+            # first interaction, not at data-channel open.
+            channel_open_v = asyncio.get_running_loop().time()
+            managed_session.resampler.reset(start_v=channel_open_v)
+
+            @channel.on("message")
+            def on_message(message: Any) -> None:
+                asyncio.create_task(
+                    self._handle_datachannel_message(
+                        managed_session=managed_session,
+                        raw_message=message,
                     )
-
-                # Spawn the generation worker once the data channel has
-                # been wired up so ``chunk_done`` notifications have a
-                # channel to land on. The worker is per-session and
-                # cancelled in :meth:`_ManagedLingbotSession.close`.
-                managed_session.generation_task = asyncio.create_task(
-                    self._generation_worker(managed_session=managed_session)
                 )
 
-            @peer_connection.on("connectionstatechange")
-            async def on_connectionstatechange() -> None:
-                if peer_connection.connectionState in {
-                    "failed",
-                    "disconnected",
-                    "closed",
-                }:
-                    await self.close_active_session()
+            # Spawn the generation worker once the data channel has
+            # been wired up so ``chunk_done`` notifications have a
+            # channel to land on. The worker is per-session and
+            # cancelled in :meth:`_ManagedLingbotSession.close`.
+            managed_session.generation_task = asyncio.create_task(
+                self._generation_worker(managed_session=managed_session)
+            )
 
-            try:
-                offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
-                await peer_connection.setRemoteDescription(offer)
-                answer = await peer_connection.createAnswer()
-                await peer_connection.setLocalDescription(answer)
-                local_description = peer_connection.localDescription
-                if local_description is None:
-                    raise RuntimeError(
-                        "Peer connection did not produce local description."
-                    )
-                return {"sdp": local_description.sdp, "type": local_description.type}
-            except Exception:
-                LOGGER.exception("WebRTC negotiation failed while creating an answer.")
-                await managed_session.close()
-                self._active_session = None
-                raise
+            @channel.on("close")
+            def on_close() -> None:
+                logger.info("Control data channel closed; closing active session.")
+                asyncio.create_task(self.close_active_session())
+
+        @peer_connection.on("connectionstatechange")
+        async def on_connectionstatechange() -> None:
+            if peer_connection.connectionState in {
+                "failed",
+                "disconnected",
+                "closed",
+            }:
+                await self.close_active_session()
+
+        try:
+            offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
+            await peer_connection.setRemoteDescription(offer)
+            answer = await peer_connection.createAnswer()
+            await peer_connection.setLocalDescription(answer)
+            await wait_for_ice_gathering_complete(peer_connection)
+            local_description = peer_connection.localDescription
+            if local_description is None:
+                raise RuntimeError("Peer connection did not produce local description.")
+            return {"sdp": local_description.sdp, "type": local_description.type}
+        except Exception:
+            logger.exception("WebRTC negotiation failed while creating an answer.")
+            await managed_session.close()
+            self._active_session = None
+            raise
+
+    async def _run_loopback_warmup_session(self, *, num_chunks: int) -> None:
+        if not self._runtime_ready:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        await run_loopback_warmup_session(
+            num_chunks=num_chunks,
+            warmup_timeout_s=self.runtime_config.warmup_timeout_s,
+            create_answer=self._create_loopback_warmup_answer,
+            close_active_session=self.close_active_session,
+            label="Lingbot WebRTC",
+            logger=logger,
+        )
+
+    async def _create_loopback_warmup_answer(
+        self, *, offer_sdp: str, offer_type: str
+    ) -> dict[str, str]:
+        async with self._session_lock:
+            return await self._create_answer_with_runtime_ready_locked(
+                offer_sdp=offer_sdp,
+                offer_type=offer_type,
+                rtc_configuration=RTCConfiguration(iceServers=[]),
+            )
 
     async def close_active_session(self) -> None:
         async with self._session_lock:
@@ -672,10 +718,35 @@ class LingbotWebRTCSessionManager:
             self._active_session = None
             await active_session.close()
 
+    async def _client_liveness_watchdog(
+        self, *, managed_session: _ManagedLingbotSession
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            while not managed_session.closed:
+                elapsed_s = loop.time() - managed_session.last_client_message_at
+                if elapsed_s >= self.client_liveness_timeout_s:
+                    logger.warning(
+                        "No client heartbeat/control message for {:.1f}s; "
+                        "closing active session.",
+                        elapsed_s,
+                    )
+                    await self.close_active_session()
+                    return
+                await asyncio.sleep(
+                    min(
+                        _CLIENT_LIVENESS_CHECK_INTERVAL_S,
+                        self.client_liveness_timeout_s - elapsed_s,
+                    )
+                )
+        except asyncio.CancelledError:
+            raise
+
     async def shutdown(self) -> None:
         await self.close_active_session()
         await self._runtime.close()
         self._runtime_ready = False
+        self._warmup_complete = False
 
     def wait_for_termination(self) -> None:
         self._runtime.wait_for_termination()
@@ -692,6 +763,7 @@ class LingbotWebRTCSessionManager:
         channel = managed_session.control_channel
         if channel is None or managed_session.closed:
             return
+        managed_session.last_client_message_at = asyncio.get_running_loop().time()
 
         if not isinstance(raw_message, str):
             self._send_json(
@@ -712,12 +784,20 @@ class LingbotWebRTCSessionManager:
                 channel, {"type": "error", "message": "Payload must be a JSON object."}
             )
             return
-        if payload.get("type") != "action":
+        message_type = str(payload.get("type", "")).strip().lower()
+        if message_type == "heartbeat":
+            return
+        if message_type == "disconnect":
+            logger.info("Client requested disconnect; closing active session.")
+            await self.close_active_session()
+            return
+        if message_type != "action":
             self._send_json(
                 channel,
                 {
                     "type": "error",
-                    "message": "Unsupported message type, expected 'action'.",
+                    "message": "Unsupported message type, expected "
+                    "'action', 'heartbeat', or 'disconnect'.",
                 },
             )
             return
@@ -735,7 +815,7 @@ class LingbotWebRTCSessionManager:
         # generation worker now drives the pipeline directly, so they
         # are accepted silently as no-ops to avoid breaking older clients.
         if event == "step":
-            LOGGER.debug("Ignoring legacy 'step' control payload.")
+            logger.debug("Ignoring legacy 'step' control payload.")
             return
         if event not in ("keydown", "keyup"):
             self._send_json(
@@ -764,8 +844,8 @@ class LingbotWebRTCSessionManager:
         arrival_t = asyncio.get_running_loop().time()
         managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
         managed_session.pending_action_arrivals.append(arrival_t)
-        LOGGER.info(
-            "Logged control event=%s key=%s arrival_t=%.3f log_size=%d",
+        logger.info(
+            "Logged control event={} key={} arrival_t={:.3f} log_size={}",
             event,
             key,
             arrival_t,
@@ -792,7 +872,7 @@ class LingbotWebRTCSessionManager:
         ``arrival_t`` falls inside the chunk has a chance to land in
         the timeline before sampling. The track's bounded queue then
         paces the loop to playback via backpressure on
-        :meth:`LingbotVideoTrack.enqueue_chunk`.
+        :meth:`BufferedVideoTrack.enqueue_chunk`.
         """
         loop = asyncio.get_running_loop()
         runtime = managed_session.runtime
@@ -809,17 +889,17 @@ class LingbotWebRTCSessionManager:
         # triggering event with ``arrival_t < now``, so the resampler's
         # drain path folds it into ``carried_state`` and chunk 0's
         # segments reflect the held-key state from frame 0.
-        LOGGER.info("Generation worker idle; waiting for first action.")
+        logger.info("Generation worker idle; waiting for first action.")
         try:
             await managed_session.first_action_received.wait()
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled before first action.")
+            logger.info("Generation worker cancelled before first action.")
             raise
         if managed_session.closed:
             return
         resampler.next_chunk_start_v = loop.time()
-        LOGGER.info(
-            "First action received; starting generation at start_v=%.3f",
+        logger.info(
+            "First action received; starting generation at start_v={:.3f}",
             resampler.next_chunk_start_v,
         )
         try:
@@ -827,7 +907,7 @@ class LingbotWebRTCSessionManager:
                 try:
                     num_frames = runtime.peek_next_chunk_num_frames()
                 except LingbotRuntimeError:
-                    LOGGER.exception("Runtime not ready; stopping generation worker.")
+                    logger.exception("Runtime not ready; stopping generation worker.")
                     return
                 # Trigger when wallclock reaches the chunk's window end
                 # (= the next chunk's start virtual time). Earlier
@@ -857,9 +937,9 @@ class LingbotWebRTCSessionManager:
                 lag = now - (resampler.next_chunk_start_v + chunk_duration)
                 if lag > chunk_duration:
                     skipped_to = now - chunk_duration
-                    LOGGER.warning(
-                        "Resampler virtual clock lagging wall by %.3fs; "
-                        "skipping next_chunk_start_v %.3f -> %.3f to "
+                    logger.warning(
+                        "Resampler virtual clock lagging wall by {:.3f}s; "
+                        "skipping next_chunk_start_v {:.3f} -> {:.3f} to "
                         "track wall and keep input-to-pixel latency bounded.",
                         lag,
                         resampler.next_chunk_start_v,
@@ -883,7 +963,7 @@ class LingbotWebRTCSessionManager:
                         segments=segments, frame_times=frame_times
                     )
                 except Exception as exc:
-                    LOGGER.exception("Chunk generation failed.")
+                    logger.exception("Chunk generation failed.")
                     channel = managed_session.control_channel
                     if channel is not None:
                         self._send_json(channel, {"type": "error", "message": str(exc)})
@@ -908,11 +988,11 @@ class LingbotWebRTCSessionManager:
                     if consumed_action_arrivals
                     else None
                 )
-                LOGGER.info(
-                    "Chunk done chunk=%s num_frames=%s segments=%d "
-                    "enqueued=%s gen_ms=%.1f enqueue_ms=%.1f play_ms=%.1f "
-                    "queue_depth=%d next_v=%.3f wall=%.3f lag_ms=%.1f "
-                    "control_latency_ms=%s consumed_actions=%d",
+                logger.debug(
+                    "Chunk done chunk={} num_frames={} segments={} "
+                    "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
+                    "queue_depth={} next_v={:.3f} wall={:.3f} lag_ms={:.1f} "
+                    "control_latency_ms={} consumed_actions={}",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
@@ -957,7 +1037,7 @@ class LingbotWebRTCSessionManager:
                         payload["consumed_actions"] = len(consumed_action_arrivals)
                     self._send_json(channel, payload)
         except asyncio.CancelledError:
-            LOGGER.info("Generation worker cancelled.")
+            logger.info("Generation worker cancelled.")
             raise
 
     @staticmethod

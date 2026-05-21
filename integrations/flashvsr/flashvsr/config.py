@@ -15,7 +15,7 @@
 
 """Pipeline-config builders for FlashVSR.
 
-Mirrors :mod:`flashdreams.recipes.alpadreams.config`: a constants block
+Mirrors :mod:`flashdreams.recipes.omnidreams.config`: a constants block
 listing the canonical FlashVSR-v1.1 weight locations, private sub-config
 helpers (``_scheduler_config``, ``_transformer_config``, etc.), and one
 ``build_*`` function per supported pipeline configuration.
@@ -48,9 +48,11 @@ from flashvsr.transformer.network import FlashVSRDiTNetworkConfig
 __all__ = [
     "AVAILABLE_FLASHVSR_CHECKPOINT_PATHS",
     "FLASHVSR_CONFIG_BUILDERS",
+    "PIPELINE_FLASHVSR_V1_1_FULL_ATTN",
     "PIPELINE_FLASHVSR_V1_1_SPARSE_1_5",
     "PIPELINE_FLASHVSR_V1_1_SPARSE_2_0",
     "RUNNER_CONFIGS",
+    "RUNNER_FLASHVSR_V1_1_FULL_ATTN",
     "RUNNER_FLASHVSR_V1_1_SPARSE_1_5",
     "RUNNER_FLASHVSR_V1_1_SPARSE_2_0",
     "build_flashvsr_v1_1",
@@ -81,7 +83,7 @@ AVAILABLE_FLASHVSR_CHECKPOINT_PATHS: dict[str, dict[str, str]] = {
 URLs flow through ``hf_hub_download``; the GitHub raw prompt URL flows
 through :func:`flashdreams.core.io.download.download_to_cache` (the
 prompt is a precomputed UMT5 tensor, not a checkpoint). Mirrors
-``alpadreams.config.AVAILABLE_ALPADREAMS_CHECKPOINT_PATHS``."""
+``omnidreams.config.AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS``."""
 
 
 ## Sub-config helpers
@@ -116,6 +118,7 @@ def _transformer_config(
     compile_network: bool,
     use_cuda_graph: bool,
     dtype: torch.dtype,
+    attention_mode: Literal["sparse", "full"],
 ) -> FlashVSRTransformerConfig:
     """FlashVSR transformer config at a given target resolution.
 
@@ -128,7 +131,8 @@ def _transformer_config(
     :meth:`FlashVSRPipeline.initialize_cache`, not baked in here.
     """
     return FlashVSRTransformerConfig(
-        network=FlashVSRDiTNetworkConfig(),  # ``flashvsr_tiny_long`` defaults
+        # ``flashvsr_tiny_long`` defaults, with the requested attention backend.
+        network=FlashVSRDiTNetworkConfig(attention_mode=attention_mode),
         dtype=dtype,
         checkpoint_path=dit_checkpoint_path,
         batch_shape=(1,),
@@ -137,6 +141,7 @@ def _transformer_config(
         topk_ratio=sparse_ratio * 768 * 1280 / (target_H * target_W),
         kv_ratio=kv_ratio,
         local_range=local_range,
+        attention_mode=attention_mode,
         compile_network=compile_network,
         use_cuda_graph=use_cuda_graph,
     )
@@ -160,6 +165,7 @@ def build_flashvsr_v1_1(
     dtype: torch.dtype = torch.bfloat16,
     seed: int = 0,
     recipe_name: str = "flashvsr-v1.1",
+    attention_mode: Literal["sparse", "full"] = "sparse",
 ) -> FlashVSRPipelineConfig:
     """Default FlashVSR-v1.1 streaming VSR pipeline.
 
@@ -172,6 +178,9 @@ def build_flashvsr_v1_1(
         kv_ratio: Prior chunks kept in streaming self-attn KV; buffer
             holds ``kv_ratio + 1`` at attention time.
         local_range: Local-block window radius for the top-k draft mask.
+        attention_mode: ``"sparse"`` preserves FlashVSR's legacy block-sparse
+            self-attention. ``"full"`` uses dense Wan self-attention and is the
+            supported path for multi-GPU context parallelism.
         compile_network: Single ``torch.compile`` switch for DiT +
             encoder projector + decoder. Maps to
             :attr:`FlashVSRTransformerConfig.compile_network` plus the
@@ -245,6 +254,7 @@ def build_flashvsr_v1_1(
                 compile_network=compile_network,
                 use_cuda_graph=use_cuda_graph,
                 dtype=dtype,
+                attention_mode=attention_mode,
             ),
             scheduler=_scheduler_config(),
         ),
@@ -254,7 +264,7 @@ def build_flashvsr_v1_1(
 FLASHVSR_CONFIG_BUILDERS: dict[str, Callable[..., FlashVSRPipelineConfig]] = {
     "v1.1": build_flashvsr_v1_1,
 }
-"""Slug-keyed builder registry (mirrors ``ALPADREAMS_CONFIG_BUILDERS``).
+"""Slug-keyed builder registry (mirrors ``OMNIDREAMS_CONFIG_BUILDERS``).
 String-keyed entry point for callers that pick a builder by name."""
 
 
@@ -268,7 +278,7 @@ String-keyed entry point for callers that pick a builder by name."""
 # target); the literals therefore exist to supply every non-resolution
 # knob plus a valid scaffold for programmatic ``PIPELINE_*.setup()``
 # callers. 704x1280 is 128-aligned at ``scale=2`` (-> 1408x2560,
-# no encoder crop) and matches Alpadreams' native output.
+# no encoder crop) and matches Omnidreams' native output.
 
 
 def _build_sparse_ratio_variant(
@@ -312,11 +322,32 @@ PIPELINE_FLASHVSR_V1_1_SPARSE_1_5, RUNNER_FLASHVSR_V1_1_SPARSE_1_5 = (
     _build_sparse_ratio_variant(sparse_ratio=1.5, preset_label="faster")
 )
 
+PIPELINE_FLASHVSR_V1_1_FULL_ATTN = build_flashvsr_v1_1(
+    recipe_name="flashvsr-v1.1-full-attn",
+    input_H=704,
+    input_W=1280,
+    scale=2,
+    attention_mode="full",
+    compile_network=True,
+    use_cuda_graph=True,
+    enable_sync_and_profile=True,
+)
+RUNNER_FLASHVSR_V1_1_FULL_ATTN = FlashVSRRunnerConfig(
+    runner_name=PIPELINE_FLASHVSR_V1_1_FULL_ATTN.recipe_name,
+    description=(
+        "FlashVSR-v1.1 streaming video super-resolution "
+        "(2x; dense full attention; supports multi-GPU context parallelism; "
+        "pipeline dims track the input video)."
+    ),
+    pipeline=PIPELINE_FLASHVSR_V1_1_FULL_ATTN,
+)
+
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (
         RUNNER_FLASHVSR_V1_1_SPARSE_2_0,
         RUNNER_FLASHVSR_V1_1_SPARSE_1_5,
+        RUNNER_FLASHVSR_V1_1_FULL_ATTN,
     )
 }
 """``{runner_name -> RunnerConfig}`` entry-point map exported under

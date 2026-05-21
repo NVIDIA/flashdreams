@@ -531,10 +531,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        if not self.config.skip_finalize_kv_cache:
-            super().finalize_kv_cache(*args, **kwargs)
-        else:
-            print("Skipping KV cache finalize")
+        if self.config.skip_finalize_kv_cache:
+            return
+        super().finalize_kv_cache(*args, **kwargs)
 
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
         """Patchify and CP-split a video-shaped tensor ``[..., T, C, H, W]``.

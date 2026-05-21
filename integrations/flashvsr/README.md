@@ -9,7 +9,7 @@ FlashVSR-v1.1 streaming video super-resolution (LR projector + distilled
 Wan 2.1 DiT + TC decoder + AdaIN color corrector), packaged as a
 [`flashdreams`](../..) plugin, in a standalone repo. Wraps everything in
 a `StreamInferencePipeline` so the same `generate` / `finalize`
-lifecycle as the other recipes (`alpadreams`, `lingbot_world`, `wan2_1`)
+lifecycle as the other recipes (`omnidreams`, `lingbot_world`, `wan2_1`)
 applies.
 
 This is a worked example of the
@@ -76,13 +76,17 @@ uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip
 # Faster preset (sparse_ratio=1.5).
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-1.5 --input-path /path/to/clip.mp4
 
+# Dense full-attention preset. This changes model behavior, enables DiT
+# torch.compile + CUDA graph by default, and supports multi-GPU CP.
+uv run flashdreams-run flashvsr-v1.1-full-attn --input-path /path/to/clip.mp4
+
 # Reduce per-chunk peak VRAM (single DiT iter per chunk: first=5, subseq=8).
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip.mp4 \
     --chunk-size 8
 
-# Strip the HDMap visualization off Alpadreams outputs before upscaling.
+# Strip the HDMap visualization off Omnidreams outputs before upscaling.
 uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 \
-    --input-path /path/to/alpadreams.mp4 \
+    --input-path /path/to/omnidreams.mp4 \
     --crop-region bottom_half
 
 # Pick a different upscale factor (the only resolution-side knob; the
@@ -94,7 +98,78 @@ uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip
 
 ## Multi-GPU Run via context-parallelism:
 
-Not yet supported due to the use of block-sparse attention.
+Supported only by the dense full-attention preset. The legacy sparse presets
+remain single-GPU because `block_sparse_attn` is not context-parallel aware
+and is intentionally not being extended here.
+
+```bash
+uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
+    flashvsr-v1.1-full-attn --input-path /path/to/clip.mp4
+```
+
+Full attention uses the existing CP-aware Wan dense attention stack with DiT
+compile + CUDA graph enabled by default, so peak memory is much higher than the
+sparse presets. Use smaller inputs, `--chunk-size 8`, fewer GPUs, or override
+`--pipeline.diffusion-model.transformer.use-cuda-graph False` if the dense run
+OOMs.
+
+## gRPC server and browser viewer
+
+The FlashVSR integration also ships a gRPC upsampler service that keeps the
+pipeline warm, accepts incoming frame chunks, and can publish an MJPEG browser
+viewer. The service supports unary chunks (`start_session` / `upscale_chunk` /
+`end_session`) and bidirectional streaming (`upscale_video`). Streaming clients
+may send 8-frame chunks at live-ingest cadence; the server coalesces those into
+FlashVSR-compatible 13-frame cold-start and 16-frame steady-state model calls.
+
+Start a server with an HTTP viewer on port 8080:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_server \
+    --port 50051 \
+    --viewer_port 8080 \
+    --cuda_graph \
+    --attention_mode auto \
+    --sparse_ratio 1.5
+```
+
+Then open `http://<server-host>:8080/` in a browser. The page shows received
+input frames and upsampled frames side by side. By default, viewer mode omits
+raw output frame bytes from gRPC responses to keep server-to-client bandwidth
+low; pass `--viewer_return_grpc_frames` if a client also needs the RGB payloads.
+`--attention_mode auto` uses the sparse backend when `block_sparse_attn` is
+installed and falls back to the dense full-attention backend otherwise. To force
+the dense path in an environment without `block_sparse_attn`, pass
+`--attention_mode full`.
+
+Use the live-ingest client to loop a video into the server at 30 fps:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4
+
+# finite smoke test:
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4 \
+    --max_chunks 4
+```
+
+For a save-to-disk test client, use:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4 \
+    --output /tmp/clip_2x.mp4
+```
 
 
 ## Streaming chunk contract

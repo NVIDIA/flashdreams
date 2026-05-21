@@ -192,7 +192,9 @@ class NullEncoder(Encoder):
     Wire as the transformer's ``context_encoder`` slot to pass already-
     encoded tensors straight to the diffusion model.
 
-    Examples:
+    Example:
+
+    .. code-block:: python
 
         config = TransformerConfig(
             context_encoder=NullEncoderConfig(),

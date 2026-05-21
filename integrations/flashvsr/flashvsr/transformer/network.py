@@ -55,24 +55,13 @@ checkpoint at ``flashvsr_tiny_long/dit_state_dict.pt`` loads drop-in.
 
 from __future__ import annotations
 
+import importlib
 import math
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
-
-# We deliberately import the underlying ``BlockSparseAttnFunc`` autograd
-# function instead of the public ``block_sparse_attn_func`` wrapper. The
-# wrapper unconditionally calls ``replace_ones_with_count(head_mask_type)``
-# which uses ``Tensor.masked_scatter`` -- a pybind C++ method dynamo cannot
-# trace -- forcing a graph break and a recompile cascade on every
-# fill-state shape transition (eventually hitting ``recompile_limit (8)``).
-# We pre-compute the renumbered head-mask in ``initialize_cache`` and call
-# the autograd function directly with all the static knobs spelled out.
-# Tracks ``block_sparse_attn==0.0.2``; bump the pin in ``uv.lock`` if the
-# ``BlockSparseAttnFunc.apply`` signature changes.
-from block_sparse_attn.block_sparse_attn_interface import BlockSparseAttnFunc
 from einops import rearrange
 from torch import Tensor
 
@@ -81,7 +70,9 @@ from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,
+    CrossAttention,
     MultiHeadAttention,
+    SelfAttention,
     sinusoidal_embedding_1d,
 )
 from flashdreams.recipes.wan.transformer.impl.network import (
@@ -100,6 +91,32 @@ __all__ = [
     "_SELF_ATTN_WINDOW",
     "_SELF_ATTN_WINDOW_TOKENS",
 ]
+
+AttentionMode = Literal["sparse", "full"]
+
+
+def _get_block_sparse_attn_func():
+    """Import the sparse CUDA op only when the sparse path actually runs."""
+    try:
+        # We deliberately import the underlying ``BlockSparseAttnFunc`` autograd
+        # function instead of the public ``block_sparse_attn_func`` wrapper. The
+        # wrapper unconditionally calls ``replace_ones_with_count(head_mask_type)``
+        # which uses ``Tensor.masked_scatter`` -- a pybind C++ method dynamo cannot
+        # trace -- forcing a graph break and a recompile cascade on every
+        # fill-state shape transition (eventually hitting ``recompile_limit (8)``).
+        # We pre-compute the renumbered head-mask in ``initialize_cache`` and call
+        # the autograd function directly with all the static knobs spelled out.
+        # Tracks ``block_sparse_attn==0.0.2``; bump the pin in ``uv.lock`` if the
+        # ``BlockSparseAttnFunc.apply`` signature changes.
+        module = importlib.import_module(
+            "block_sparse_attn.block_sparse_attn_interface"
+        )
+        return module.BlockSparseAttnFunc
+    except ImportError as exc:
+        raise RuntimeError(
+            "FlashVSR attention_mode='sparse' requires the block_sparse_attn "
+            "CUDA extension. Use attention_mode='full' to run the dense path."
+        ) from exc
 
 
 ## FlashVSR sparse-attention helpers
@@ -532,7 +549,7 @@ class SparseSelfAttention(MultiHeadAttention):
         # recompile-cache thrash) from the per-layer hot path. All knobs
         # below are static for FlashVSR; spelled out here so a future
         # upstream signature shift fails loudly rather than silently.
-        out = BlockSparseAttnFunc.apply(
+        out = _get_block_sparse_attn_func().apply(
             q_in,
             k_in,
             v_in,
@@ -565,6 +582,9 @@ class SparseSelfAttention(MultiHeadAttention):
 class FlashVSRBlock(Block):
     """Wan 2.1 transformer block + FlashVSR sparse self-attention + LR-latent injection."""
 
+    self_attn: SelfAttention | SparseSelfAttention
+    cross_attn: CrossAttention
+
     def __init__(
         self,
         dim: int,
@@ -573,6 +593,7 @@ class FlashVSRBlock(Block):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         i2v: bool = False,
+        attention_mode: AttentionMode = "sparse",
     ) -> None:
         super().__init__(
             dim=dim,
@@ -582,15 +603,24 @@ class FlashVSRBlock(Block):
             eps=eps,
             i2v=i2v,
         )
-        # Replace the dense ``SelfAttention`` allocated by ``Block.__init__``
-        # with the FlashVSR sparse one. Parameter naming
-        # (``self_attn.{q,k,v,o,norm_q,norm_k}``) is preserved.
-        self.self_attn = SparseSelfAttention(
-            query_dim=dim,
-            n_heads=num_heads,
-            head_dim=dim // num_heads,
-            eps=eps,
-        )
+        self.attention_mode: AttentionMode = attention_mode
+        if attention_mode == "sparse":
+            # Replace the dense ``SelfAttention`` allocated by ``Block.__init__``
+            # with the FlashVSR sparse one. Parameter naming
+            # (``self_attn.{q,k,v,o,norm_q,norm_k}``) is preserved.
+            self.self_attn = SparseSelfAttention(
+                query_dim=dim,
+                n_heads=num_heads,
+                head_dim=dim // num_heads,
+                eps=eps,
+            )
+        elif attention_mode == "full":
+            assert isinstance(self.self_attn, SelfAttention)
+        else:
+            raise ValueError(
+                f"Unsupported FlashVSR attention_mode={attention_mode!r}; "
+                "expected 'sparse' or 'full'."
+            )
 
     def forward(  # type: ignore[override]
         self,
@@ -629,16 +659,24 @@ class FlashVSRBlock(Block):
         e_chunks = (self.modulation + e).chunk(6, dim=-2)
 
         y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
-        y = self.self_attn(
-            y,
-            kv_cache=cache.self_attn,
-            rope_freqs=rope_freqs,
-            f=f,
-            h=h,
-            w=w,
-            topk=topk,
-            local_range=local_range,
-        )
+        if self.attention_mode == "sparse":
+            assert isinstance(self.self_attn, SparseSelfAttention)
+            y = self.self_attn(
+                y,
+                kv_cache=cache.self_attn,
+                rope_freqs=rope_freqs,
+                f=f,
+                h=h,
+                w=w,
+                topk=topk,
+                local_range=local_range,
+            )
+        else:
+            y = self.self_attn(
+                y,
+                kv_cache=cache.self_attn,
+                rope_freqs=rope_freqs,
+            )
         x = x + (y * e_chunks[2])
 
         x = x + self.cross_attn(
@@ -678,6 +716,8 @@ class FlashVSRDiTNetworkConfig(WanDiTNetworkConfig):
     text_len: int = 512
     """Token length of the FlashVSR positive-prompt tensor."""
     patch_embedding_type: str = "conv3d"
+    attention_mode: AttentionMode = "sparse"
+    """Self-attention implementation: legacy block-sparse or dense full attention."""
 
 
 class FlashVSRDiTNetwork(WanDiTNetwork):
@@ -690,6 +730,12 @@ class FlashVSRDiTNetwork(WanDiTNetwork):
     through the block loop.
     """
 
+    attention_mode: AttentionMode
+
+    def __init__(self, config: FlashVSRDiTNetworkConfig) -> None:
+        object.__setattr__(self, "attention_mode", config.attention_mode)
+        super().__init__(config)
+
     def _build_block(self, layer_idx: int) -> Block:
         return FlashVSRBlock(
             dim=self.dim,
@@ -698,6 +744,7 @@ class FlashVSRDiTNetwork(WanDiTNetwork):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
+            attention_mode=self.attention_mode,
         )
 
     def forward(  # type: ignore[override]

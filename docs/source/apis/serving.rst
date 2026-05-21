@@ -15,3 +15,46 @@
 
 Serving
 ===================================
+
+Serving in FlashDreams is currently integration-driven: model-specific serving
+stacks wrap the same runner/pipeline abstractions used for offline inference.
+
+Serving building blocks
+-----------------------
+
+- **Runner config** defines serving-relevant I/O fields (prompts, control
+  tensors, image paths, output transport).
+- **Pipeline** manages model lifecycle and cached state across steps.
+- **Integration transport** (for example WebRTC in Lingbot-World) handles
+  session I/O, request routing, and media responses.
+
+Reference integration
+---------------------
+
+Lingbot-World provides the canonical serving integration:
+
+- runner and pipeline wiring under ``integrations/lingbot/lingbot/``,
+- interactive transport under ``integrations/lingbot/lingbot/webrtc/``.
+
+Launch patterns
+---------------
+
+Single GPU:
+
+.. code-block:: bash
+
+   uv run flashdreams-run \
+       lingbot-world-fast --example-data True --total-blocks 21
+
+Multi GPU:
+
+.. code-block:: bash
+
+   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
+       lingbot-world-fast --example-data True --total-blocks 21
+
+See also
+--------
+
+- :doc:`/developer_guides/interactive_serving`
+- :doc:`/models/lingbot_world`

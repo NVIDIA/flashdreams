@@ -51,20 +51,17 @@ exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "nvidia_sphinx_theme"
+html_theme = "furo"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
-html_static_path = ["_static"]
+html_static_path = ["_static", "../../assets/logo"]
+html_logo = "../../assets/logo/flashdreams_logo_horizontal.png"
 
 html_theme_options = {
-    "secondary_sidebar_items": ["page-toc"],
-    "copyright_override": {"start": 2026},
-    "pygments_light_style": "tango",
-    "pygments_dark_style": "monokai",
-    "footer_links": {},
-    "github_url": "https://github.com/NVIDIA/flashdreams",
-    "navigation_depth": -1,
-    "collapse_navigation": False,
+    "source_repository": "https://github.com/NVIDIA/flashdreams/",
+    "source_branch": "main",
+    "source_directory": "docs/source/",
+    "sidebar_hide_name": True,
 }
 
 html_context = {

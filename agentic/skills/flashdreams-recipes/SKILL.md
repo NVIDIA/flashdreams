@@ -244,7 +244,7 @@ Compressed reference. The first time you touch one of these, also read the match
   }
   ```
 - **No central pipeline-config registry.** Pipeline configs are reachable via direct per-recipe import (`from flashdreams.recipes.<name>.config import <NAME>_CONFIGS`). The only central registry is `flashdreams.configs.registry._SUPPORTED_RUNNERS` (read it via `supported_runners()`; see "Runner layer + `flashdreams-run` CLI" below) — recipes that haven't been wrapped into a runner just don't appear in `flashdreams-run`.
-- **`recipe_name` slug convention.** Lowercase, hyphen-separated, prefixed by the recipe family (`alpadreams-...`, `causal-wan21-...`, `lingbot-world-...`). It's a stable user-facing key — treat it like an HTTP route, not a Python identifier. The matching runner (if any) reuses the same slug as its `runner_name`.
+- **`recipe_name` slug convention.** Lowercase, hyphen-separated, prefixed by the recipe family (`omnidreams-...`, `causal-wan21-...`, `lingbot-world-...`). It's a stable user-facing key — treat it like an HTTP route, not a Python identifier. The matching runner (if any) reuses the same slug as its `runner_name`.
 - **No `build_*(...)` helpers.** If you find yourself writing one, use `derive_config` from a shared base instead. Tiny private factories that just shorten a repeated nested literal (e.g. one for each branch of a Wan 2.2 MoE) are fine — they take no "knobs" and just inline a fixed sub-config.
 - Export builder-side spatial defaults (`DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION`) as **module-level constants without leading underscore** in `config.py`. Examples and integrations import these to compute latent dimensions; keeping them private forces every caller to hard-code the same numbers.
 
@@ -316,7 +316,7 @@ The interaction here is subtle — only opt in once eager works.
   - `ar_idx >=` threshold → `wrapper.__call__` (warmup → capture → replay).
 - Keep the threshold off the *config*. Config is data; this is a derived runtime quantity. Computing it in `__init__` (not `__post_init__`) keeps the config trivially serializable and lets `derive_config` round-trip cleanly.
 - If you see `cudaErrorStreamCaptureUnsupported`, autotune is firing inside capture — re-check the threshold and that `.drain` is used throughout filling.
-- The template defaults `compile_network=False` and `use_cuda_graph=False` for ease of debugging. Production recipes (Wan, Lingbot, Alpadreams) flip `compile_network=True` directly in their literal configs, and ship a separate `*_COMPILED` literal (or, like Alpadreams, a `*_PERF` literal) that additionally turns on `use_cuda_graph` for the encoders / decoder. Mirror whichever default matches the recipe's intended deployment.
+- The template defaults `compile_network=False` and `use_cuda_graph=False` for ease of debugging. Production recipes (Wan, Lingbot, Omnidreams) flip `compile_network=True` directly in their literal configs, and ship a separate `*_COMPILED` literal (or, like Omnidreams, a `*_PERF` literal) that additionally turns on `use_cuda_graph` for the encoders / decoder. Mirror whichever default matches the recipe's intended deployment.
 
 ### 3D RoPE
 

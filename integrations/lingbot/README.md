@@ -17,12 +17,12 @@ limitations under the License.
 
 # flashdreams-lingbot
 
-Lingbot-World streaming camera-control I2V recipe + a minimal WebRTC
+Lingbot-World streaming camera-control I2V integration + a minimal WebRTC
 demo server, packaged as a [`flashdreams`](../..) plugin, in a
 standalone repo.
 
 This is a worked example of the
-[Adding a new recipe](../../docs/source/developer_guides/new_recipes.rst)
+[Adding a new model integration](../../docs/source/developer_guides/new_recipes.rst)
 developer-guide flow, extended with a per-plugin runtime server.
 
 ## Shipped slugs
@@ -134,7 +134,7 @@ for i in range(total_blocks):
 ## Run (WebRTC interactive demo)
 
 The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
-binds the recipe to keyboard input over a DataChannel and streams the
+binds the integration pipeline to keyboard input over a DataChannel and streams the
 generated video back to the browser.
 
 - `GET /request_session` serves a standalone viewer page (HTML/CSS/JS files on disk, not inlined in Python).
