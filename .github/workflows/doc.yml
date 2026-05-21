@@ -16,8 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write       # push to gh-pages (deploy + PR preview deploy)
-  pull-requests: write  # post sticky preview comment on PRs
+  contents: write
 
 jobs:
   docs:
@@ -60,17 +59,6 @@ jobs:
           sed -i 's/^__version__ = ".*"/__version__ = "main"/' flashdreams/flashdreams/_version.py
           echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
 
-      # On a pull_request build, deploy a per-PR preview under
-      # `pr-previews/<PR_NUMBER>/`. Banner reads `pr-<N>` so a reviewer
-      # opening the preview can see which PR they're looking at.
-      # Fork PRs are skipped — they don't get write tokens, so the
-      # deploy + comment steps below also gate on same-repo.
-      - name: Override version + subdirectory for PR previews
-        if: github.event_name == 'pull_request'
-        run: |
-          sed -i 's/^__version__ = ".*"/__version__ = "pr-${{ github.event.pull_request.number }}"/' flashdreams/flashdreams/_version.py
-          echo "DOCS_SUBDIR=pr-previews/${{ github.event.pull_request.number }}" >> $GITHUB_ENV
-
       # The site is two Sphinx projects served from one GitHub Pages
       # deployment:
       #   - docs/landing/source → nvidia-sphinx-theme front-of-site
@@ -97,9 +85,8 @@ jobs:
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
-        # Real landings on main, releases, or manual runs — never from
-        # `merge_group` queue runs. PR previews are published by the
-        # dedicated step below.
+        # Only publish for real landings on main, releases, or manual runs —
+        # never from `pull_request` previews or `merge_group` queue runs.
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -108,34 +95,6 @@ jobs:
           keep_files: false  # only erases the destination subdirectory
           # Uncomment + set if you wire up a custom domain later:
           # cname: docs.flashdreams.nvidia.com
-
-      # Per-PR preview deploys to `pr-previews/<PR_NUMBER>/` on gh-pages
-      # so reviewers can click through the rendered docs without a local
-      # build. Same-repo PRs only — fork PRs don't get GITHUB_TOKEN write
-      # access, so the action would fail. The `doc-preview-cleanup.yml`
-      # workflow removes the subdir when the PR closes.
-      - name: Deploy PR preview to gh-pages
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: _build/site
-          destination_dir: ${{ env.DOCS_SUBDIR }}
-          keep_files: false  # only erases this PR's subdirectory
-
-      - name: Comment preview URL on PR
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: docs-preview
-          message: |
-            📖 **Docs preview** for this PR:
-
-            - Landing: https://flashdreams.org/pr-previews/${{ github.event.pull_request.number }}/
-            - Reference docs: https://flashdreams.org/pr-previews/${{ github.event.pull_request.number }}/docs/
-
-            Built from `${{ github.event.pull_request.head.sha }}`. The
-            preview updates on every push and is removed when the PR closes.
 
       # Maintain root-level files on the gh-pages branch in a single clone:
       # - `.nojekyll`        — disables Jekyll so Sphinx's _static/ assets are
