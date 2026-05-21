@@ -179,21 +179,28 @@ feature flag and lands incrementally:
 
 - **2b.1.** Native runner driving `PIPELINE_WAN22_TI2V_5B` for the
   I2V base case. No action / camera-trajectory / memory conditioning.
-- **2b.2 (this release).** Scheduler swap to Euler with the
-  upstream-distilled fixed 4-step schedule. Native mode now uses the
-  same denoising loop as the vendor wrapper, so any remaining drift
-  comes from the missing conditioners + non-distilled checkpoint.
-- **2b.3.** Action conditioner (AdaLN modulation).
+- **2b.2.** Scheduler swap to Euler with the upstream-distilled fixed
+  4-step schedule. Native mode now uses the same denoising loop as
+  the vendor wrapper, so any remaining drift comes from the missing
+  conditioners + non-distilled checkpoint.
+- **2b.3 (this release).** Action conditioner: 81-class discrete
+  labels (`trans * 9 + rotate`) embedded by a dedicated MLP and
+  summed into the time embedding before the AdaLN modulation
+  projection. Activated by `--use-action-conditioning` alongside
+  `--use-native-pipeline`. The action MLP's residual head is
+  zero-initialised, so flipping the flag on without HY-WorldPlay's
+  distilled weights is a strict identity (no parity regression).
 - **2b.4.** Camera-trajectory conditioner (PRoPE dual-branch attention).
 - **2b.5.** Reconstituted-context memory + KV prefill; drop the parity
   sub-venv; flip `--use-native-pipeline` to default.
 
-Try the 2b.1 preview path (single GPU, runs in the main `flashdreams`
+Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
 
 ```bash
 uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --use-native-pipeline \
+    --use-action-conditioning \
     --image-path ./assets/img/test.png \
     --num-chunk 1 \
     --pose "w-4" \
@@ -201,11 +208,12 @@ uv run flashdreams-run hy-worldplay-wan-i2v-5b \
 ```
 
 The current native path **does not match** the vendor-wrapper
-baseline numerically: the model still receives default-zero
-action/camera/memory inputs (those conditioners land in 2b.3-2b.5).
-As of 2b.2 the scheduler now mirrors upstream's distilled 4-step
-Euler schedule, so the remaining drift is conditioner-only. For
-parity with upstream `wan/generate.py`, use the default
+baseline numerically: the action MLP / camera PRoPE / memory KV
+prefill weights from HY-WorldPlay's distilled checkpoint are not
+loaded yet (those land alongside 2b.5's weight remapping pass). As
+of 2b.3 the architecture is in place -- once the distilled checkpoint
+loads on top, the conditioner becomes active automatically. For
+parity with upstream `wan/generate.py` today, use the default
 (vendor-wrapper) invocation above. The native path is checked in to
 let early adopters benchmark the flashdreams runtime stack on the
 Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
@@ -349,8 +357,12 @@ land first.
      swaps it in only when `use_native_pipeline=True`; the base
      `PIPELINE_WAN22_TI2V_5B` recipe keeps its
      `FlowMatchUniPCSchedulerConfig` for non-HY callers.
-   - **2b.3.** Port the **action conditioner** (81-class discrete →
-     time-embed AdaLN add) onto a `HyWorldPlayWanDiTNetwork` subclass.
+   - **2b.3 (landed).** Action conditioner (81-class discrete →
+     time-embed AdaLN add) on a `HyWorldPlayWanDiTNetwork` subclass
+     plus an action-aware encoder / transformer pair, gated behind
+     `--use-action-conditioning`. The action MLP's residual head
+     ships zero-initialised so the conditioner is a strict identity
+     until HY-WorldPlay's distilled checkpoint is layered on top.
    - **2b.4.** Port the **camera-trajectory conditioner** (PRoPE
      dual-branch self-attention) onto a `HyWorldPlayWanBlock` subclass.
    - **2b.5.** Port the **reconstituted-context-memory** module

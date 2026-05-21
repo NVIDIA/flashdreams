@@ -46,9 +46,9 @@ under ~1,000 LoC and each ending in a verifiable state.
 
 | sub-PR | scope | LoC | depends on |
 |---|---|---|---|
-| **2b.1** | Native runner driving `PIPELINE_WAN22_TI2V_5B`, I2V base case only (no conditioners). Behind a `--use-native-pipeline` feature flag; vendor wrapper stays default. Single-GPU only. | ~300-500 | none |
-| **2b.2** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap the scheduler in HY-WorldPlay's `__post_init__` only; `PIPELINE_WAN22_TI2V_5B` stays neutral with UniPC for non-HY callers. | ~200-300 | 2b.1 |
-| **2b.3** | Action conditioner: `HyWorldPlayActionEmbedderConfig` + `HyWorldPlayWanDiTNetwork` subclass that sums an action embedding into `temb` before AdaLN modulation. Plumb action labels via `network_extra_kwargs`. | ~300-500 | 2b.2 |
+| **2b.1 (landed)** | Native runner driving `PIPELINE_WAN22_TI2V_5B`, I2V base case only (no conditioners). Behind a `--use-native-pipeline` feature flag; vendor wrapper stays default. Single-GPU only. | ~300-500 | none |
+| **2b.2 (landed)** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap the scheduler in HY-WorldPlay's `__post_init__` only; `PIPELINE_WAN22_TI2V_5B` stays neutral with UniPC for non-HY callers. | ~200-300 | 2b.1 |
+| **2b.3 (landed)** | Action conditioner: `HyWorldPlayWanDiTNetworkConfig` + `HyWorldPlayWanDiTNetwork` subclass with a zero-init `action_embedding` MLP summed into `temb` before AdaLN modulation. Companion `HyWorldPlayWanCtrlEncoder` slices per-AR-step labels; `HyWorldPlayWan21Transformer` threads them via `network_extra_kwargs`. Gated by `--use-action-conditioning`. | ~300-500 | 2b.2 |
 | **2b.4** | Camera-trajectory conditioner: port `prope_qkv` and the dual-branch RoPE+PRoPE attention. New `HyWorldPlayWanBlock` mirroring upstream's Q/K/V split + recombination. Plumb viewmats + intrinsics via streaming encoder. | ~600-1,000 | 2b.3 |
 | **2b.5** | Memory module + KV-prefill hook: port `select_mem_frames_wan` selection policy, extend transformer cache with "prefill from these frame indices" semantics, hook into `Wan21Transformer.predict_flow` for per-chunk prefill at step 0. Drop parity sub-venv. Re-run parity. Flip `--use-native-pipeline` to default. | ~400-700 + cleanup | 2b.4 |
 
@@ -329,36 +329,59 @@ baseline should narrow by the scheduler component, leaving only the
 conditioner-driven residual (action / camera / memory still missing).
 Sub-PR 2b.3 closes the next slice.
 
-## Sub-PR 2b.3 design (later)
+## Sub-PR 2b.3 design (landed)
 
 **Action conditioner.** Upstream represents action as a discrete
 81-class label per latent (`trans_class * 9 + rotate_class`), embedded
 via a sinusoidal timestep projection + `TimestepEmbedding` MLP, and
 added to the time embedding `temb` before AdaLN modulation.
 
-Native implementation:
+Native implementation (shipped in `integrations/hy_worldplay/hy_worldplay/_action.py`):
 
-- New `HyWorldPlayActionEmbedderConfig` dataclass owning the
-  `action_embedder` MLP (in_dim=`network.dim`, out_dim=`network.dim`).
-- New `HyWorldPlayWanDiTNetwork` subclass of `WanDiTNetwork` that
-  - owns the action embedder,
-  - in `forward()`, reads `action` from `block_extra_kwargs` (or a
-    dedicated kwarg), runs it through the sinusoidal projection + MLP,
-    and adds the result to `temb` before the AdaLN modulation pass.
-- New `HyWorldPlayWanCtrlEncoder` (extends `WanI2VCtrlEncoder`) that
-  produces a structured payload including the per-chunk action slice.
-- `Wan21Transformer.predict_flow` already supports
-  `network_extra_kwargs`; the action tensor flows through this path
-  via a new `HyWorldPlayWanTransformerConfig` subclass.
+- `HyWorldPlayWanDiTNetworkConfig` / `HyWorldPlayWanDiTNetwork` subclass
+  the Wan 2.2 TI2V 5B DiT, adding an `action_embedding` MLP (same
+  shape as `time_embedding`: ``Linear(freq_dim, dim) → SiLU → Linear(dim, dim)``)
+  with the residual head zero-initialised. The overridden `forward()`
+  sinusoidally encodes the per-latent labels, runs them through the
+  MLP, and adds the result to the time embedding before the
+  modulation projection. Per-frame embeddings are
+  ``repeat_interleave``d to per-token granularity to match the
+  post-patchify token axis.
+- `HyWorldPlayWanCtrlEncoderConfig` / `HyWorldPlayWanCtrlEncoder`
+  subclass `I2VCtrlEncoder`. The runner binds the per-rollout
+  81-class label tensor via `set_action_labels()`; each AR step
+  slices ``[ar_idx * len_t : (ar_idx + 1) * len_t]`` and attaches it
+  to a `HyWorldPlayCtrl` payload (subclass of `I2VCtrl`).
+- `HyWorldPlayWan21TransformerConfig` / `HyWorldPlayWan21Transformer`
+  subclass `Wan21Transformer` with two thin overrides:
+  `predict_flow` reads `input.action` and forwards it as
+  ``network_extra_kwargs["action"]`` (the base already plumbs that
+  through to the network forward); `patchify_and_maybe_split_cp`
+  rebuilds the payload as a `HyWorldPlayCtrl` so the action slice
+  survives the patchify (the base rebuilds as a plain `I2VCtrl` and
+  would drop it).
 
-Plumbing in the runner: parse the upstream pose string into the same
-81-class labels (port `hyvideo.generate.pose_to_input`'s action
-labelling logic). Slice the per-chunk action tensor before each
-`pipeline.generate()` call.
+Runner plumbing: `HyWorldPlayWanI2VRunnerConfig` gained a
+`use_action_conditioning: bool = False` flag; when set together with
+`use_native_pipeline`, `__post_init__` swaps the deep-copied
+pipeline's encoder + transformer + network slots in-place (only for
+stock instances — user overrides are respected). The native runner's
+`_bind_action_labels()` parses the existing `pose` field via the new
+`hy_worldplay._pose` module (a port of upstream's
+`pose_string_to_json` + `pose_to_input`) and binds the labels on the
+encoder before the AR loop.
 
-Parity target: with action conditioning on top of the 2b.2 scheduler,
-the residual vs vendor wrapper should drop further (action contributes
-the AdaLN shift/scale modulation).
+CP / multi-rank: the action embedding's per-frame → per-token
+expansion currently asserts `cp_size == 1`; multi-rank support is
+introduced together with the PRoPE camera path in 2b.4 (both
+features need the same `split_inputs_cp` wiring).
+
+Parity stance: the residual head's zero-init means the action
+contribution is exactly zero at random / zero init, so the native
+path stays parity-aligned with the 2b.2 baseline even with
+`--use-action-conditioning` on. Real action conditioning becomes
+active once HY-WorldPlay's distilled checkpoint loads on top
+(2b.5 weight remap).
 
 ## Sub-PR 2b.4 design (later)
 

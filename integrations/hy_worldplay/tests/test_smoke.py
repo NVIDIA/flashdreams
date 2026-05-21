@@ -295,6 +295,101 @@ def test_use_native_pipeline_respects_user_override() -> None:
     assert cfg.pipeline.recipe_name == "custom-recipe"
 
 
+def test_use_action_conditioning_off_by_default() -> None:
+    """Phase 2b.3 feature flag defaults off so the 2b.1/2b.2 baseline is untouched.
+
+    Without ``use_action_conditioning=True`` the deep-copied
+    ``PIPELINE_WAN22_TI2V_5B`` must keep its stock
+    :class:`WanI2VCtrlEncoderConfig` / :class:`Wan21TransformerConfig`
+    pair, so a runner that only opts into ``use_native_pipeline`` sees
+    the same encoder + transformer it saw at 2b.2 even after 2b.3 lands.
+    """
+    from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
+    from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+    )
+    assert type(cfg.pipeline.encoder) is WanI2VCtrlEncoderConfig
+    assert type(cfg.pipeline.diffusion_model.transformer) is Wan21TransformerConfig
+
+
+def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
+    """Phase 2b.3 wiring: action flag swaps in the HY encoder / transformer / network.
+
+    The encoder becomes :class:`HyWorldPlayWanCtrlEncoderConfig`, the
+    transformer becomes :class:`HyWorldPlayWan21TransformerConfig`, and
+    the nested network becomes :class:`HyWorldPlayWanDiTNetworkConfig`.
+    All other transformer fields (``len_t``, ``stamp_image_latent``,
+    ``ti2v_first_frame_per_token_timestep``, ...) must be propagated so
+    the subclassed transformer behaves identically apart from the action
+    plumbing.
+    """
+    from hy_worldplay._action import (
+        HyWorldPlayWan21TransformerConfig,
+        HyWorldPlayWanCtrlEncoderConfig,
+        HyWorldPlayWanDiTNetworkConfig,
+    )
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+    )
+    assert isinstance(cfg.pipeline.encoder, HyWorldPlayWanCtrlEncoderConfig)
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert isinstance(transformer, HyWorldPlayWan21TransformerConfig)
+    assert isinstance(transformer.network, HyWorldPlayWanDiTNetworkConfig)
+    # Critical Wan 2.2 TI2V 5B knobs must be propagated, not silently
+    # reset to subclass defaults.
+    assert transformer.len_t == 21
+    assert transformer.stamp_image_latent is True
+    assert transformer.ti2v_first_frame_per_token_timestep is True
+    assert transformer.guidance_scale == 5.0
+    assert transformer.network.in_dim == 48
+    assert transformer.network.out_dim == 48
+    assert transformer.network.dim == 3072
+
+
+def test_use_action_conditioning_requires_native_pipeline() -> None:
+    """``use_action_conditioning`` without ``use_native_pipeline`` is a no-op.
+
+    The vendor-wrapper path drives upstream's runner end-to-end, so the
+    action-aware encoder / transformer swap has nothing to attach to; we
+    leave the inert :class:`_NoopPipelineConfig` in place and let the
+    vendor wrapper carry through its own action conditioning.
+    """
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_action_conditioning=True,
+    )
+    assert isinstance(cfg.pipeline, _NoopPipelineConfig)
+
+
+def test_use_action_conditioning_respects_user_encoder_override() -> None:
+    """User-supplied encoder overrides must not be clobbered by the action swap."""
+    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+    from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
+    from flashdreams.infra.config import derive_config
+
+    # Build a custom pipeline with a custom (subclassed) encoder so the
+    # swap's ``type(...) is WanI2VCtrlEncoderConfig`` guard rejects it.
+    class _CustomEncoderConfig(WanI2VCtrlEncoderConfig):
+        pass
+
+    custom = derive_config(PIPELINE_WAN22_TI2V_5B, recipe_name="custom-recipe")
+    custom.encoder = _CustomEncoderConfig(encoder=custom.encoder.encoder)
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+        pipeline=custom,
+    )
+    assert isinstance(cfg.pipeline.encoder, _CustomEncoderConfig)
+
+
 def test_entry_point_registered() -> None:
     """The plugin's ``pyproject.toml`` must publish the runner under the
     ``flashdreams.runner_configs`` entry-point group so

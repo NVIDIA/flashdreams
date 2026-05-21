@@ -32,9 +32,11 @@ Two routing modes share the same user-facing
   ``True``, the config's ``_target`` and ``pipeline`` swap to
   :class:`HyWorldPlayWanI2VNativeRunner` and a fresh copy of
   :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` respectively.
-  Phase 2b.1 covers the I2V base case only; action /
-  camera-trajectory / memory conditioning land in 2b.3 / 2b.4 / 2b.5
-  per ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
+  Sub-PRs ship the layers incrementally: 2b.1 (I2V base case + 4-step
+  Euler), 2b.2 (distilled scheduler), 2b.3 (action conditioner via
+  :attr:`use_action_conditioning`), and 2b.4 / 2b.5 (camera-trajectory
+  PRoPE and reconstituted-context memory) per
+  ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
 """
 
 from __future__ import annotations
@@ -206,6 +208,21 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     case only at 2b.1; action / camera / memory conditioning land in
     2b.3 / 2b.4 / 2b.5."""
 
+    use_action_conditioning: bool = False
+    """Enable HY-WorldPlay's discrete action conditioner (phase 2b.3).
+    Only honoured when :attr:`use_native_pipeline` is ``True``; in that
+    case ``__post_init__`` swaps the pipeline's I2V encoder for
+    :class:`HyWorldPlayWanCtrlEncoder` and its transformer for the
+    :class:`HyWorldPlayWan21Transformer` + :class:`HyWorldPlayWanDiTNetwork`
+    pair so the per-AR-step :attr:`pose` is parsed into 81-class action
+    labels (``trans * 9 + rotate``) and summed into the AdaLN time
+    embedding. Defaults to ``False`` because the action MLP's residual
+    head is only meaningful once HY-WorldPlay's distilled checkpoint
+    has been loaded; with zero-init weights the conditioner is a strict
+    no-op so flipping this on without those weights stays parity-safe.
+    Camera-trajectory PRoPE and reconstituted-context memory still land
+    in 2b.4 / 2b.5 respectively."""
+
     def __post_init__(self) -> None:
         """Swap ``_target`` and ``pipeline`` to the native preset when
         ``use_native_pipeline`` is set.
@@ -229,6 +246,13 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
         ``few_step=True`` branch). The base recipe stays neutral with
         UniPC so non-HY callers of ``PIPELINE_WAN22_TI2V_5B`` keep
         their existing scheduler.
+
+        When :attr:`use_action_conditioning` is also set, the deep-
+        copied pipeline's encoder and transformer slots are further
+        swapped to the action-aware variants from :mod:`hy_worldplay._action`,
+        which subclass the standard I2V encoder / Wan 2.1 transformer /
+        DiT network to thread the per-AR-step action slice through to
+        the AdaLN modulation path.
         """
         if not self.use_native_pipeline:
             return
@@ -251,6 +275,10 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
                 )
             )
+
+        if self.use_action_conditioning:
+            self._swap_in_action_conditioning_configs()
+
         if self._target is HyWorldPlayWanI2VRunner:
             # Lazy import: the native runner pulls in torch, the Wan
             # pipeline, and the diffusers stack. Importing eagerly would
@@ -258,6 +286,100 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
 
             self._target = HyWorldPlayWanI2VNativeRunner
+
+    def _swap_in_action_conditioning_configs(self) -> None:
+        """Replace the pipeline's I2V encoder + transformer with the action-aware variants.
+
+        Lazy-imported so :mod:`hy_worldplay._action` -- which pulls in
+        ``torch`` and the Wan transformer stack -- is only loaded when
+        the action flag is actually set. Honours user-supplied encoder /
+        transformer overrides by only swapping the stock
+        :class:`WanI2VCtrlEncoderConfig` / :class:`Wan21TransformerConfig`
+        instances we just deep-copied from
+        :data:`PIPELINE_WAN22_TI2V_5B`.
+        """
+        from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
+        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+        from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+
+        from hy_worldplay._action import (
+            HyWorldPlayWan21TransformerConfig,
+            HyWorldPlayWanCtrlEncoderConfig,
+            HyWorldPlayWanDiTNetworkConfig,
+        )
+
+        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
+            "_swap_in_action_conditioning_configs expected a "
+            f"WanInferencePipelineConfig after the deepcopy; got {type(self.pipeline).__name__}"
+        )
+
+        if (
+            isinstance(self.pipeline.encoder, WanI2VCtrlEncoderConfig)
+            and type(self.pipeline.encoder) is WanI2VCtrlEncoderConfig
+        ):
+            self.pipeline.encoder = HyWorldPlayWanCtrlEncoderConfig(
+                encoder=self.pipeline.encoder.encoder,
+            )
+        transformer_cfg = self.pipeline.diffusion_model.transformer
+        if (
+            isinstance(transformer_cfg, Wan21TransformerConfig)
+            and type(transformer_cfg) is Wan21TransformerConfig
+        ):
+            # Mirror every Wan 2.1 knob into the HY subclass; copying
+            # field-by-field keeps any future Wan21TransformerConfig
+            # additions from silently disappearing on the swap.
+            self.pipeline.diffusion_model.transformer = (
+                HyWorldPlayWan21TransformerConfig(
+                    network=HyWorldPlayWanDiTNetworkConfig(
+                        patch_size=transformer_cfg.network.patch_size,
+                        text_len=transformer_cfg.network.text_len,
+                        in_dim=transformer_cfg.network.in_dim,
+                        dim=transformer_cfg.network.dim,
+                        ffn_dim=transformer_cfg.network.ffn_dim,
+                        freq_dim=transformer_cfg.network.freq_dim,
+                        text_dim=transformer_cfg.network.text_dim,
+                        out_dim=transformer_cfg.network.out_dim,
+                        num_heads=transformer_cfg.network.num_heads,
+                        num_layers=transformer_cfg.network.num_layers,
+                        cross_attn_norm=transformer_cfg.network.cross_attn_norm,
+                        cross_attn_enable_img=(
+                            transformer_cfg.network.cross_attn_enable_img
+                        ),
+                        eps=transformer_cfg.network.eps,
+                        concat_padding_mask=(
+                            transformer_cfg.network.concat_padding_mask
+                        ),
+                        patch_embedding_type=(
+                            transformer_cfg.network.patch_embedding_type
+                        ),
+                        apply_rope_before_kvcache=(
+                            transformer_cfg.network.apply_rope_before_kvcache
+                        ),
+                    ),
+                    dtype=transformer_cfg.dtype,
+                    checkpoint_path=transformer_cfg.checkpoint_path,
+                    state_dict_transform=transformer_cfg.state_dict_transform,
+                    batch_shape=transformer_cfg.batch_shape,
+                    len_t=transformer_cfg.len_t,
+                    guidance_scale=transformer_cfg.guidance_scale,
+                    window_size_t=transformer_cfg.window_size_t,
+                    sink_size_t=transformer_cfg.sink_size_t,
+                    h_extrapolation_ratio=transformer_cfg.h_extrapolation_ratio,
+                    w_extrapolation_ratio=transformer_cfg.w_extrapolation_ratio,
+                    compile_network=transformer_cfg.compile_network,
+                    use_cuda_graph=transformer_cfg.use_cuda_graph,
+                    cuda_graph_warmup_iters=(
+                        transformer_cfg.cuda_graph_warmup_iters
+                    ),
+                    stamp_image_latent=transformer_cfg.stamp_image_latent,
+                    concat_image_mask_to_latent=(
+                        transformer_cfg.concat_image_mask_to_latent
+                    ),
+                    ti2v_first_frame_per_token_timestep=(
+                        transformer_cfg.ti2v_first_frame_per_token_timestep
+                    ),
+                )
+            )
 
 
 class HyWorldPlayWanI2VRunner:
