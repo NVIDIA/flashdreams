@@ -14,7 +14,12 @@
 # limitations under the License.
 
 """
-Ludus Renderer - GPU-native F-theta fisheye CUDA software rasterizer.
+Ludus Renderer - GPU-native F-theta fisheye renderer with two backends:
+
+- ``LudusCudaTimestampedContext`` (always available): CUDA software
+  rasterizer based on the HPG 2011 CudaRaster triangle pipeline.
+- ``LudusTimestampedContext`` (requires Vulkan 1.3 + VK_EXT_mesh_shader):
+  hardware mesh-shader pipeline with CUDA-Vulkan external-memory interop.
 
 High-level API::
 
@@ -26,6 +31,13 @@ High-level API::
     scene_id = ctx.upload_scene(scene.timestamped_scene)
     images = ctx.render(scene_ids, camera_ids, timestamps_us, camera_type_ids,
                         camera_poses, resolution=(H, W))
+
+The Vulkan backend exposes the same public method surface so it is a
+near drop-in replacement::
+
+    from ludus_renderer import LudusTimestampedContext
+    ctx = LudusTimestampedContext(device="cuda")
+    # ... same upload_cameras / upload_scene / render API ...
 
 NVJPEG Encoding (GPU-accelerated JPEG)::
 
@@ -58,8 +70,9 @@ from ._ops import (
     Cube,
     CubePool,
     FThetaCamera,
-    # Context
+    # Contexts
     LudusCudaTimestampedContext,
+    LudusTimestampedContext,
     ObstaclePool,
     Polygon,
     # Primitives
@@ -102,8 +115,9 @@ __all__ = [
     "load_av2_scene",
     "EgoTrackData",
     "mirror_augment_scene",
-    # CUDA rendering context
+    # Rendering contexts
     "LudusCudaTimestampedContext",
+    "LudusTimestampedContext",
     # Primitives
     "Polyline",
     "Polygon",
