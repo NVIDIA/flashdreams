@@ -22,6 +22,11 @@ SPDX-License-Identifier: Apache-2.0
     margin: 16px 0 20px;
 }
 
+.benchmark-figure-wrap figcaption {
+    text-align: left;
+    font-size: 0.85rem;
+}
+
 .sidebar-github-link {
     display: inline-flex;
     align-items: center;
@@ -86,4 +91,58 @@ body.index .content h1 {
 .model-link-button:hover {
     text-decoration: none;
     background: color-mix(in srgb, var(--color-brand-primary, #4f46e5) 8%, transparent);
+}
+
+.model-video-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 12px 0 18px;
+}
+
+.model-video-card {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #c9c9c9;
+    background: #101214;
+    min-height: 200px;
+}
+
+.model-video-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: #cfcfcf;
+    font-size: 0.95rem;
+}
+
+.model-video-player {
+    display: block;
+    width: 100%;
+    min-height: 200px;
+    background: #000;
+}
+
+.model-video-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    background: rgba(0, 0, 0, 0.72);
+    color: #f3f3f3;
+    padding: 10px 12px;
+    font-size: 0.60rem;
+    line-height: 1.1;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.model-video-card:hover .model-video-overlay {
+    opacity: 1;
+}
+
+@media (max-width: 800px) {
+    .model-video-grid {
+        grid-template-columns: 1fr;
+    }
 }
