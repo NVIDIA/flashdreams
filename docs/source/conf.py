@@ -102,6 +102,11 @@ autodoc_mock_imports = [
     "botocore",
     "mediapy",
     "cv2",
+    # `flashdreams.core.attention.rope_kernel` does `import triton` at
+    # module load. CPU-only torch wheels don't ship triton, so the
+    # docs-ci env can't import it — mock to keep autodoc building
+    # without pulling the 176MB wheel onto the runner.
+    "triton",
 ]
 
 # -- Napoleon ----------------------------------------------------------------
