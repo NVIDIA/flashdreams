@@ -81,18 +81,26 @@ exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "nvidia_sphinx_theme"
+html_theme = "pydata_sphinx_theme"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static"]
 
+# Shared logo asset, sourced from the same file the reference-docs
+# project uses (`docs/source/conf.py`). Single source of truth at the
+# repo root so a logo update propagates to both Sphinx projects.
+html_logo = "../../../assets/logo/flashdreams_logo_horizontal.png"
+
 html_theme_options = {
     "secondary_sidebar_items": ["page-toc"],
-    "copyright_override": {"start": 2026},
     "pygments_light_style": "tango",
     "pygments_dark_style": "monokai",
-    "footer_links": {},
     "github_url": "https://github.com/NVIDIA/flashdreams",
+    # Drop the "Built with the PyData Sphinx Theme x.y.z" footer credit.
+    # Default is `["theme-version"]`; emptying it leaves the footer with
+    # just the copyright line surfaced by `footer_start`.
+    "footer_start": ["copyright"],
+    "footer_end": [],
     "navigation_depth": 4,
     "collapse_navigation": True,
     # -- Top navbar arrangement -----------------------------------------
@@ -100,7 +108,7 @@ html_theme_options = {
     # github_url) | persistent search button.
     "navbar_start": ["navbar-logo"],
     "navbar_center": ["navbar-nav"],
-    "navbar_end": ["navbar-icon-links"],
+    "navbar_end": ["theme-switcher", "navbar-icon-links"],
     "navbar_persistent": ["search-button"],
     # Sidebar starts at depth 2: depth-1 (the section names) are already
     # in the navbar; the sidebar should show ONLY the current section's
