@@ -1,0 +1,53 @@
+name: Docs PR preview cleanup
+
+# Removes the `pr-previews/<PR_NUMBER>/` subdirectory from the gh-pages
+# branch when a PR closes (merged or not), so dead previews don't
+# accumulate over time. Paired with the `Deploy PR preview to gh-pages`
+# step in `doc.yml` which publishes the preview while the PR is open.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write       # push the cleanup commit to gh-pages
+  pull-requests: write  # update the sticky preview comment
+
+jobs:
+  cleanup:
+    # Same-repo PRs only. Fork PRs don't get write tokens, and we don't
+    # publish previews for them in the first place, so there's nothing
+    # to clean up.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove preview subdirectory from gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -e
+
+          tmp=$(mktemp -d)
+          git clone --depth=1 --branch=gh-pages \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$tmp"
+          cd "$tmp"
+
+          if [ ! -d "pr-previews/${PR_NUMBER}" ]; then
+            echo "No preview subdirectory for PR #${PR_NUMBER}; nothing to clean up."
+            exit 0
+          fi
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git rm -r "pr-previews/${PR_NUMBER}"
+          git commit -m "docs: remove preview for closed PR #${PR_NUMBER}"
+          git push origin gh-pages
+
+      - name: Update sticky preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: docs-preview
+          message: |
+            📖 **Docs preview** for this PR has been removed (PR closed).
