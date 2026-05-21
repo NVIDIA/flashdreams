@@ -7,15 +7,22 @@ import os
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-# Top-navbar "Documentation" link target. The reference docs are a
-# separate Sphinx project that deploys as a sibling under /docs/. In CI,
-# `DOCS_SUBDIR` is set to e.g. `main` or `versions/0.5.0` and the docs
-# are deployed at `<site>/<DOCS_SUBDIR>/docs/`, so root-relative
-# `/<DOCS_SUBDIR>/docs/` is the only URL that resolves from every page
-# depth. Local dev (no env var) falls back to the depth-0 relative form,
-# which works from the landing page only.
+# Top-navbar links into the reference-docs Sphinx project (separate
+# build under /docs/). In CI, `DOCS_SUBDIR` is set to e.g. `main` or
+# `versions/0.5.0` and the docs are deployed at
+# `<site>/<DOCS_SUBDIR>/docs/`, so a root-relative URL is the only form
+# that resolves from every page depth. Local dev (no env var) falls
+# back to a depth-0 relative form, which works from the landing root
+# only — cross-project links 404 from depth-1 pages locally.
 _docs_subdir = os.environ.get("DOCS_SUBDIR", "").strip("/")
-_docs_url = f"/{_docs_subdir}/docs/" if _docs_subdir else "docs/index.html"
+_docs_root = f"/{_docs_subdir}/docs/" if _docs_subdir else "docs/"
+_docs_nav = [
+    {"name": "Getting Started", "url": f"{_docs_root}getting_started/index.html"},
+    {"name": "Developer Guides", "url": f"{_docs_root}developer_guides/index.html"},
+    {"name": "Models", "url": f"{_docs_root}models/index.html"},
+    {"name": "CLI Reference", "url": f"{_docs_root}reference/cli.html"},
+    {"name": "API Reference", "url": f"{_docs_root}apis/index.html"},
+]
 
 # -- Project information -----------------------------------------------------
 
@@ -100,12 +107,11 @@ html_theme_options = {
     # sub-pages, not duplicate the navbar's section list.
     "show_nav_level": 2,
     # The landing toctree promotes Benchmarks and Community to the
-    # navbar. "Documentation" is an external link to the docs/ Sphinx
-    # project, which deploys as a sibling under /docs/.
-    "header_links_before_dropdown": 4,
-    "external_links": [
-        {"name": "Documentation", "url": _docs_url},
-    ],
+    # navbar. Five external links route into the reference-docs project.
+    # Bump `header_links_before_dropdown` to 7 (2 toctree + 5 external)
+    # so none get bucketed into a "More" dropdown.
+    "header_links_before_dropdown": 7,
+    "external_links": _docs_nav,
 }
 
 # Hide the primary (left) sidebar on marketing-style pages. Every page
