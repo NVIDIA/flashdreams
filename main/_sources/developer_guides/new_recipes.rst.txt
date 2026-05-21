@@ -294,4 +294,4 @@ Contributing back
 We invite researchers to upstream their recipes — both the recipe code
 and a short ``examples/`` page in this documentation. See the project
 ``CONTRIBUTING.md`` and the existing ``examples/`` pages
-(``self_forcing.rst``, ``onmidreams.rst``, …) as templates.
+(``self_forcing.rst``, ``omnidreams.rst``, …) as templates.

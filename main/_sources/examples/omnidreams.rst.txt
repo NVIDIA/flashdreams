@@ -13,23 +13,23 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Onmidreams
+Omnidreams
 ===================================
 
-Driving-scene video generation with the Onmidreams recipe (Cosmos DiT +
+Driving-scene video generation with the Omnidreams recipe (Cosmos DiT +
 HDMap conditioning + I2V mask injection). Driver: the unified
 ``flashdreams-run`` CLI; checkpoints and example data are auto-downloaded
 on first run.
 
-The runner slug encodes every variant of :data:`ONMIDREAMS_CONFIGS`. Pick
+The runner slug encodes every variant of :data:`OMNIDREAMS_CONFIGS`. Pick
 the one matching the camera setup; for example:
 
-- single view -> ``onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
-- single view, perf preset -> ``onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
-- 4-camera multi view -> ``onmidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae``
+- single view -> ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae``
+- single view, perf preset -> ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
+- 4-camera multi view -> ``omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae``
 
 Pass ``--example-data`` to lazy-sync the bundled HDMap clips + first frames
-into ``assets/example_data/onmidreams/`` and fill the per-camera path tuples.
+into ``assets/example_data/omnidreams/`` and fill the per-camera path tuples.
 Drop the flag and pass ``--hdmap-video-paths`` / ``--first-frame-paths``
 explicitly for production runs.
 
@@ -39,7 +39,7 @@ Single GPU, single view (perf preset)
 .. code-block:: bash
 
    uv run flashdreams-run \
-       onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
        --example-data True --total-blocks 20
 
 Multi GPU, multi view
@@ -48,7 +48,7 @@ Multi GPU, multi view
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       onmidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
+       omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae \
        --example-data True --total-blocks 20
 
 Each rank owns one camera; ring attention shards the per-camera context
@@ -60,7 +60,7 @@ Diffusion forcing, single view
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       onmidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+       omnidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
        --example-data True --total-blocks 12
 
 With the usual ``--total-blocks 12`` rollout, the chunk2 checkpoint decodes
@@ -72,7 +72,7 @@ Bidirectional, single view
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       onmidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
+       omnidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m \
        --example-data True --total-blocks 1 \
        --pipeline.diffusion-model.transformer.len-t 24
 
@@ -90,13 +90,13 @@ and reuse the embeddings on the AR pass:
 
    # Rank-0-only producer: dump text + first-frame embeddings.
    uv run flashdreams-run \
-       onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
        --example-data True \
        --save-embeddings-path /tmp/alpa_emb.pt
 
    # Consumer: skip the one-shot encoders, hydrate the cache from .pt.
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       onmidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
        --example-data True \
        --embeddings-path /tmp/alpa_emb.pt \
        --total-blocks 20
@@ -104,7 +104,7 @@ and reuse the embeddings on the AR pass:
 Credentials
 -----------
 
-Onmidreams resolves public Omni Dreams checkpoints and example-data repos from
+Omnidreams resolves public Omni Dreams checkpoints and example-data repos from
 the ``nvidia`` Hugging Face org by default (``nvidia/omni-dreams-models`` and
 ``nvidia/omni-dreams-samples``). Set ``OMNI_DREAMS_HF_ORG`` before invoking
 ``flashdreams-run`` if your token can only access another mirror, such as

@@ -28,16 +28,16 @@ consume.
    ops) at import time, so this page shows them by *automodule* with
    ``:no-undoc-members:`` to keep the rendered API focused on the names
    that recipes actually expose. The unified ``flashdreams-run`` CLI
-   shows end-to-end usage; see :doc:`/examples/onmidreams` and friends.
+   shows end-to-end usage; see :doc:`/examples/omnidreams` and friends.
 
-Onmidreams
+Omnidreams
 ----------
 
-Onmidreams now ships as a plugin under ``integrations/onmidreams``; it
+Omnidreams now ships as a plugin under ``integrations/omnidreams``; it
 registers its runners via the ``flashdreams.runner_configs`` entry-point
 group and is no longer part of the in-tree ``flashdreams.recipes`` API
-surface. See ``integrations/onmidreams/README.md`` for the plugin entry
-point and ``flashdreams-run onmidreams-*`` for the user-facing CLI.
+surface. See ``integrations/omnidreams/README.md`` for the plugin entry
+point and ``flashdreams-run omnidreams-*`` for the user-facing CLI.
 
 Wan
 ---
