@@ -15,16 +15,32 @@
 
 """Native acceleration helpers for AlpaDreams integrations."""
 
+from .acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationMode,
+    NativeAccelerationUnavailable,
+    NativeBackendSelection,
+    require_extension_symbols,
+    select_native_extension,
+)
 from .omnidreams_singleview import (
     build_info,
     load_extension,
     prepare_cutlass_stage,
+    select_backend,
     validate_thirdparty,
 )
 
 __all__ = [
+    "NativeAccelerationConfig",
+    "NativeAccelerationMode",
+    "NativeAccelerationUnavailable",
+    "NativeBackendSelection",
     "build_info",
     "load_extension",
     "prepare_cutlass_stage",
+    "require_extension_symbols",
+    "select_backend",
+    "select_native_extension",
     "validate_thirdparty",
 ]

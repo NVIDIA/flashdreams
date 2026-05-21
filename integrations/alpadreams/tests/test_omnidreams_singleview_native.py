@@ -22,6 +22,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from alpadreams.native.acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationUnavailable,
+    require_extension_symbols,
+    select_native_extension,
+)
 from alpadreams.native import omnidreams_singleview as native
 
 
@@ -267,6 +273,138 @@ def test_load_extension_respects_existing_max_jobs(
     assert extension is not None
     assert captured["max_jobs_env"] == "3"
     assert os.environ["MAX_JOBS"] == "3"
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_disabled_does_not_load_extension() -> None:
+    called = False
+
+    def loader(**_: object) -> None:
+        nonlocal called
+        called = True
+        return None
+
+    selection = select_native_extension(
+        NativeAccelerationConfig(mode="disabled"),
+        component="dit",
+        extension_loader=loader,
+        extension_error=lambda: None,
+    )
+
+    assert selection.component == "dit"
+    assert selection.mode == "disabled"
+    assert selection.enabled is False
+    assert "disabled" in selection.reason
+    assert called is False
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_auto_falls_back_when_extension_is_missing() -> None:
+    error = RuntimeError("compile failed")
+
+    selection = select_native_extension(
+        NativeAccelerationConfig(mode="auto"),
+        component="vae_decoder",
+        extension_loader=lambda **_: None,
+        extension_error=lambda: error,
+    )
+
+    assert selection.enabled is False
+    assert selection.error is error
+    assert "vae_decoder" in selection.reason
+    assert "compile failed" in selection.reason
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_required_raises_when_extension_is_missing() -> None:
+    with pytest.raises(NativeAccelerationUnavailable, match="native extension"):
+        select_native_extension(
+            NativeAccelerationConfig(mode="required"),
+            component="vae_encoder",
+            extension_loader=lambda **_: None,
+            extension_error=lambda: RuntimeError("not built"),
+        )
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_symbol_check_gates_component_support() -> None:
+    extension = SimpleNamespace(is_available=lambda: True, run_dit_block=object())
+
+    selection = select_native_extension(
+        NativeAccelerationConfig(mode="auto"),
+        component="dit",
+        extension_loader=lambda **_: extension,
+        extension_error=lambda: None,
+        availability_check=require_extension_symbols("run_dit_block"),
+    )
+
+    assert selection.enabled is True
+    assert selection.require_extension() is extension
+
+    missing_selection = select_native_extension(
+        NativeAccelerationConfig(mode="auto"),
+        component="vae_decoder",
+        extension_loader=lambda **_: extension,
+        extension_error=lambda: None,
+        availability_check=require_extension_symbols("run_vae_decoder"),
+    )
+
+    assert missing_selection.enabled is False
+    assert "run_vae_decoder" in missing_selection.reason
+
+
+@pytest.mark.ci_cpu
+def test_native_acceleration_auto_falls_back_when_check_raises() -> None:
+    extension = SimpleNamespace(is_available=lambda: True)
+
+    def failing_check(_: object) -> bool:
+        raise RuntimeError("unsupported tensor layout")
+
+    selection = select_native_extension(
+        NativeAccelerationConfig(mode="auto"),
+        component="dit",
+        extension_loader=lambda **_: extension,
+        extension_error=lambda: None,
+        availability_check=failing_check,
+    )
+
+    assert selection.enabled is False
+    assert isinstance(selection.error, RuntimeError)
+    assert "unsupported tensor layout" in selection.reason
+
+
+@pytest.mark.ci_cpu
+def test_omnidreams_select_backend_forwards_build_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extension = SimpleNamespace(is_available=lambda: True, run_vae_encoder=object())
+    captured: dict[str, object] = {}
+
+    def fake_load_extension(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return extension
+
+    monkeypatch.setattr(native, "load_extension", fake_load_extension)
+    monkeypatch.setattr(native, "extension_load_error", lambda: None)
+
+    selection = native.select_backend(
+        "vae_encoder",
+        NativeAccelerationConfig(
+            build_root=str(tmp_path),
+            max_jobs=2,
+            verbose_build=True,
+        ),
+        availability_check=require_extension_symbols("run_vae_encoder"),
+    )
+
+    assert selection.enabled is True
+    assert selection.require_extension() is extension
+    assert captured == {
+        "build_root": str(tmp_path),
+        "max_jobs": 2,
+        "verbose": True,
+    }
 
 
 @pytest.mark.ci_cpu
