@@ -46,6 +46,9 @@ no-build-isolation-package = ["transformer-engine-torch"]
 transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.14.1", subdirectory = "transformer_engine/pytorch" }
 
 [tool.pyright]
+exclude = [
+    "integrations/sana_wm/sana_wm/_reference",
+]
 extraPaths = [
     "flashdreams",
     "integrations/alpadreams",
@@ -54,6 +57,7 @@ extraPaths = [
     "integrations/cosmos_predict2",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
+    "integrations/sana_wm",
     "integrations/self_forcing",
     "integrations/wan21",
 ]
@@ -74,6 +78,7 @@ extra-paths = [
     "integrations/cosmos_predict2",
     "integrations/fastvideo_causal_wan22",
     "integrations/lingbot",
+    "integrations/sana_wm",
     "integrations/self_forcing",
     "integrations/wan21",
 ]
@@ -83,6 +88,12 @@ extra-paths = [
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
 exclude = [
     "**/protos/*pb2*",
+    "integrations/sana_wm/sana_wm/_reference/**",
+]
+
+[tool.ruff]
+extend-exclude = [
+    "integrations/sana_wm/sana_wm/_reference",
 ]
 
 [tool.ty.rules]

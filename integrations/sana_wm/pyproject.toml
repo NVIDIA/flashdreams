@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-sana-wm"
+version = "0.1.0a0"
+description = "SANA-WM bidirectional inference plugin for flashdreams."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "diffusers>=0.37.0",
+    "flashdreams",
+    "flash-linear-attention>=0.4.2; sys_platform == 'linux'",
+    "imageio[ffmpeg]",
+    "numpy",
+    "omegaconf",
+    "pillow",
+    "pyrallis",
+    "pytz",
+    "scipy>=1.11",
+    "termcolor",
+    "timm>=0.6.13",
+    "torch",
+    "torchvision",
+    "triton>=3.0; sys_platform == 'linux'",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.entry-points."flashdreams.runner_configs"]
+"sana-wm-bidirectional" = "sana_wm.config:RUNNER_SANA_WM_BIDIRECTIONAL"
+
+[tool.setuptools.packages.find]
+include = ["sana_wm*"]
+exclude = ["tests"]
+
+[tool.setuptools.package-data]
+sana_wm = [
+    "assets/sana_wm/*",
+    "configs/*.yaml",
+]
