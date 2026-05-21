@@ -138,4 +138,3 @@ Quick install
 
    CLI <reference/cli>
    API <apis/index>
-

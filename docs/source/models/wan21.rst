@@ -16,29 +16,56 @@
 Wan2.1
 ===================================
 
-Overview
---------
+.. raw:: html
 
-Wan2.1 is the bidirectional reference family in FlashDreams, supporting
-text-to-video and image-to-video inference presets.
+   <div class="model-link-row">
+     <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
+   </div>
 
-Links
------
+Wan2.1 is the bidirectional reference family in FlashDreams, supporting both
+text-to-video (T2V) and image-to-video (I2V) inference presets.
 
-- Project page: `Wan2.1 GitHub <https://github.com/Wan-Video/Wan2.1>`_
-- Integration package: `flashdreams/integrations/wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
-
-Run this model
---------------
-
-T2V:
+Installation
+------------
 
 .. code-block:: bash
 
-   uv run flashdreams-run wan21-t2v-1.3b-480p
+   # from the repo root
+   uv sync --project integrations/wan21
 
-I2V:
+Running the method
+------------------
+
+To run Wan2.1, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
-   uv run flashdreams-run wan21-i2v-14b-480p
+   uv run flashdreams-run wan21-t2v-1.3b-480p \
+       --prompt "A reindeer in cinematic sunset light." \
+       --pixel-height 480 --pixel-width 832
+
+For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
+
+.. code-block:: bash
+
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       wan21-t2v-1.3b-480p \
+       --prompt "A reindeer in cinematic sunset light." \
+       --pixel-height 480 --pixel-width 832
+
+We provide the following variants:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Method
+     - Description
+   * - ``wan21-t2v-1.3b-480p``
+     - Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).
+   * - ``wan21-i2v-14b-480p``
+     - Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).

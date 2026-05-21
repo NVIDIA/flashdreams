@@ -16,33 +16,61 @@
 Causal-Forcing
 ===================================
 
-Overview
---------
+.. raw:: html
 
-Causal-Forcing provides streaming Wan2.1 generation variants for both text-to-video
-and image-to-video workflows, tuned for stable autoregressive generation.
+   <div class="model-link-row">
+     <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
+   </div>
 
-Links
------
+Causal-Forcing provides streaming Wan2.1 variants for both text-to-video (T2V)
+and image-to-video (I2V) generation.
 
-- Project page: `Causal-Forcing GitHub <https://github.com/LiRunyi2001/causal-forcing>`_
-- Integration package: `flashdreams/integrations/causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
+Installation
+------------
 
-Run this model
---------------
+.. code-block:: bash
 
-T2V:
+   # from the repo root
+   uv sync --project integrations/causal_forcing
+
+Running the method
+------------------
+
+To run Causal-Forcing, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
    uv run flashdreams-run \
-       causal-wan21-causal-forcing-framewise-t2v --total-blocks 21
+       causal-forcing-wan2.1-t2v-1.3b-framewise \
+       --prompt "A cat surfing on a neon wave." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 21
 
-I2V:
+For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
-       causal-wan21-causal-forcing-framewise-i2v --total-blocks 21 \
-       --image-path assets/example_data/i2v/image.jpg \
-       --prompt-path assets/example_data/i2v/prompt.txt
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       causal-forcing-wan2.1-t2v-1.3b-framewise \
+       --prompt "A cat surfing on a neon wave." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 21
+
+We provide the following variants:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Method
+     - Description
+   * - ``causal-forcing-wan2.1-t2v-1.3b-chunkwise``
+     - Causal-Forcing chunkwise Wan 2.1 1.3B T2V (``len_t=3``).
+   * - ``causal-forcing-wan2.1-t2v-1.3b-framewise``
+     - Causal-Forcing framewise Wan 2.1 1.3B T2V (``len_t=1``).
+   * - ``causal-forcing-wan2.1-i2v-1.3b-framewise``
+     - Causal-Forcing framewise Wan 2.1 1.3B I2V (``len_t=1``).

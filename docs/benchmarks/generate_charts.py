@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = ROOT / "docs" / "benchmarks" / "benchmark_results.json"
 OUT_DIR = ROOT / "docs" / "source" / "_static" / "perf"
@@ -35,7 +34,9 @@ def _load_records() -> list[dict]:
     return payload["records"]
 
 
-def _select_values(records: list[dict], workload: str, parallelism: str) -> dict[str, dict[str, float | None]]:
+def _select_values(
+    records: list[dict], workload: str, parallelism: str
+) -> dict[str, dict[str, float | None]]:
     values = {hw: {method: None for method in METHOD_ORDER} for hw in HARDWARE_ORDER}
     for rec in records:
         if rec.get("workload") != workload:
@@ -91,15 +92,21 @@ def _render_chart(
 
     # Axes
     x0, y0 = margin_left, margin_top + plot_h
-    lines.append(f'<line x1="{x0}" y1="{margin_top}" x2="{x0}" y2="{y0}" stroke="#333" stroke-width="1"/>')
-    lines.append(f'<line x1="{x0}" y1="{y0}" x2="{x0 + plot_w}" y2="{y0}" stroke="#333" stroke-width="1"/>')
+    lines.append(
+        f'<line x1="{x0}" y1="{margin_top}" x2="{x0}" y2="{y0}" stroke="#333" stroke-width="1"/>'
+    )
+    lines.append(
+        f'<line x1="{x0}" y1="{y0}" x2="{x0 + plot_w}" y2="{y0}" stroke="#333" stroke-width="1"/>'
+    )
 
     # Y ticks
     ticks = 5
     for i in range(ticks + 1):
         v = y_max * i / ticks
         y = y0 - (v / y_max) * plot_h
-        lines.append(f'<line x1="{x0 - 5}" y1="{y:.2f}" x2="{x0 + plot_w}" y2="{y:.2f}" stroke="#E0E0E0" stroke-width="1"/>')
+        lines.append(
+            f'<line x1="{x0 - 5}" y1="{y:.2f}" x2="{x0 + plot_w}" y2="{y:.2f}" stroke="#E0E0E0" stroke-width="1"/>'
+        )
         lines.append(
             f'<text x="{x0 - 10}" y="{y + 4:.2f}" text-anchor="end" font-size="11" font-family="Arial, sans-serif" fill="#444">{int(v)}</text>'
         )
@@ -127,7 +134,9 @@ def _render_chart(
             bh = (val / y_max) * plot_h
             by = y0 - bh
             color = METHOD_COLORS[method]
-            lines.append(f'<rect x="{bx:.2f}" y="{by:.2f}" width="{bar_w}" height="{bh:.2f}" fill="{color}"/>')
+            lines.append(
+                f'<rect x="{bx:.2f}" y="{by:.2f}" width="{bar_w}" height="{bh:.2f}" fill="{color}"/>'
+            )
             lines.append(
                 f'<text x="{bx + bar_w / 2:.2f}" y="{by - 6:.2f}" text-anchor="middle" font-size="10" font-family="Arial, sans-serif" fill="#222">{val:.0f}</text>'
             )
@@ -157,14 +166,18 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     records = _load_records()
 
-    self_forcing = _select_values(records, workload="self_forcing_block6", parallelism="1xGPU")
+    self_forcing = _select_values(
+        records, workload="self_forcing_block6", parallelism="1xGPU"
+    )
     _render_chart(
         title="Self-Forcing (6th block) Total Latency",
         values=self_forcing,
         output_path=OUT_DIR / "self_forcing_total_ms.svg",
     )
 
-    lingbot = _select_values(records, workload="lingbot_world_block6", parallelism="4xGPU")
+    lingbot = _select_values(
+        records, workload="lingbot_world_block6", parallelism="4xGPU"
+    )
     _render_chart(
         title="Lingbot-World (6th block, 4xGPU) Total Latency",
         values=lingbot,

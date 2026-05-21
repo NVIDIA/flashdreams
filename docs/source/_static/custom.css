@@ -19,12 +19,20 @@ SPDX-License-Identifier: Apache-2.0
 }
 
 .benchmark-figure {
-    margin: 16px 0 20px;
+    margin: 16px 0 8px;
 }
 
 .benchmark-figure-wrap figcaption {
     text-align: left;
-    font-size: 0.85rem;
+    margin-top: 0;
+}
+
+.benchmark-figure-wrap figcaption p {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.2;
+    color: var(--color-foreground-secondary);
+    font-style: italic;
 }
 
 .sidebar-github-link {

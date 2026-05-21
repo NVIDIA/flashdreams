@@ -50,7 +50,7 @@ To run Self-Forcing, launch one of the registered runner slugs via
 .. code-block:: bash
 
    uv run flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-flash \
+       self-forcing-wan2.1-t2v-1.3b \
        --prompt "A cat surfing on a neon wave." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
@@ -64,11 +64,11 @@ We provide the following variants:
    * - Method
      - Description
    * - ``self-forcing-wan2.1-t2v-1.3b``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (Wan VAE decoder, 4-step).
+     - Self-Forcing distilled Wan 2.1 1.3B T2V (Wan VAE decoder, Official).
    * - ``self-forcing-wan2.1-t2v-1.3b-flash``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (TAEHV decoder, 4-step).
+     - Self-Forcing distilled Wan 2.1 1.3B T2V (Faster TAEHV decoder).
    * - ``self-forcing-wan2.1-t2v-1.3b-anti-drift``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (KVCache-relative RoPE, static sink/window, 4-step).
+     - Self-Forcing distilled Wan 2.1 1.3B T2V (sink + sliding window, with KV cache re-ROPE).
 
 For multi-GPU inference, simply use ``uv run torchrun --nproc_per_node=4 --no-python flashdreams-run``
 instead of ``uv run flashdreams-run`` (taking 4 GPUs as an example).
@@ -113,4 +113,7 @@ Performance Comparison
    :figclass: benchmark-figure-wrap
    :alt: Self-Forcing total latency bar chart by hardware and method.
 
-   This chart shows the DiT runtime at 6-th autoregressive rollout on a signle GPU. Both using CUDNN attention backend.
+   This chart shows the DiT runtime at 6-th autoregressive rollout on a signle GPU.
+   Both using CUDNN attention backend. See
+   `parity check <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check>`_
+   for scripts to run profiling on the official implementation.

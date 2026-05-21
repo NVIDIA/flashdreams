@@ -16,22 +16,56 @@
 Causal Wan2.2
 ===================================
 
-Overview
---------
+.. raw:: html
 
-This integration brings FastVideo's causal Wan2.2 T2V variant into the
-FlashDreams streaming runtime for consistent CLI and benchmarking workflows.
+   <div class="model-link-row">
+     <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
+   </div>
 
-Links
------
+This integration brings FastVideo's Causal Wan2.2 T2V variant into the
+FlashDreams streaming runtime.
 
-- Project page: `FastVideo GitHub <https://github.com/hao-ai-lab/FastVideo>`_
-- Reference script: `FastVideo Wan2.2 inference example <https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py>`_
-- Integration package: `flashdreams/integrations/fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
-
-Run this model
---------------
+Installation
+------------
 
 .. code-block:: bash
 
-   uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b --total-blocks 21
+   # from the repo root
+   uv sync --project integrations/fastvideo_causal_wan22
+
+Running the method
+------------------
+
+To run Causal Wan2.2, launch the registered runner slug via
+``flashdreams-run``:
+
+.. code-block:: bash
+
+   uv run flashdreams-run fastvideo-causal-wan2.2-t2v-14b \
+       --prompt "A sports car drifting through neon rain at night." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 21
+
+For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
+
+.. code-block:: bash
+
+   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       fastvideo-causal-wan2.2-t2v-14b \
+       --prompt "A sports car drifting through neon rain at night." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 21
+
+We provide the following variant:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Method
+     - Description
+   * - ``fastvideo-causal-wan2.2-t2v-14b``
+     - FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step).
