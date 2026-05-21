@@ -35,8 +35,8 @@ from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
 from flashdreams.core.io.s3_filesystem import S3FileSystem, S3StorageReader
 
-_ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
-_ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
+_OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH = "credentials/s3_checkpoint.secret"
+_OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR = os.path.expanduser(
     os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")
 )
 
@@ -303,7 +303,7 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
 
 
 def get_storage_reader(
-    checkpoint_path: str, credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH
+    checkpoint_path: str, credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH
 ) -> FileSystemReader:
     """Return the right storage reader for an S3 or local checkpoint path.
 
@@ -324,8 +324,8 @@ def load_distributed_checkpoint(
     model: torch.nn.Module,
     checkpoint_path: str,
     check_success: bool = False,
-    local_cache_dir: str | None = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str | None = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
 ) -> torch.nn.Module:
     """Load a DCP checkpoint into ``model`` in-place.
 
@@ -410,8 +410,8 @@ def load_distributed_checkpoint(
 
 def load_single_checkpoint(
     checkpoint_path: str,
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
     """Load a single-file checkpoint from local disk, S3, or a Hugging Face URL.
@@ -420,12 +420,12 @@ def load_single_checkpoint(
     downloaded via ``hf_hub_download``.
 
     Args:
-        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.safetensors``
-            file, or to an HF-style ``*.safetensors.index.json`` (shards are
-            merged on first load and cached).
+        checkpoint_path: Path/URL to a ``.pt`` / ``.pth`` / ``.ckpt`` /
+            ``.safetensors`` file, or to an HF-style ``*.safetensors.index.json``
+            (shards are merged on first load and cached).
         local_cache_dir: Directory for S3 / merged-safetensors caches.
         credential_path: S3 credentials path.
-        map_location: Device to map tensors to (``.pt`` / ``.pth`` only).
+        map_location: Device to map tensors to (``.pt`` / ``.pth`` / ``.ckpt`` only).
 
     Returns:
         State dict.
@@ -449,9 +449,10 @@ def load_single_checkpoint(
 
     # Determine file extension
     ext = _get_checkpoint_extension(checkpoint_path)
-    if ext not in (".pt", ".pth", ".safetensors"):
+    if ext not in (".pt", ".pth", ".ckpt", ".safetensors"):
         raise ValueError(
-            f"Unsupported checkpoint extension: {ext}. Supported: .pt, .pth, .safetensors"
+            f"Unsupported checkpoint extension: {ext}. "
+            f"Supported: .pt, .pth, .ckpt, .safetensors"
         )
 
     # For Hugging Face URLs, use HF cache and then load locally.
@@ -533,8 +534,8 @@ def load_checkpoint(
     checkpoint_path: str,
     model: None = None,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor]: ...
@@ -545,8 +546,8 @@ def load_checkpoint(
     checkpoint_path: str,
     model: torch.nn.Module,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> torch.nn.Module: ...
@@ -556,15 +557,16 @@ def load_checkpoint(
     checkpoint_path: str,
     model: torch.nn.Module | None = None,
     checkpoint_type: Literal["auto", "single", "distributed"] = "auto",
-    local_cache_dir: str = _ALPADREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
-    credential_path: str = _ALPADREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    local_cache_dir: str = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
     """Load checkpoints from S3, local disk, or Hugging Face.
 
-    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.safetensors``) and
-    distributed checkpoints (DCP). Detection is automatic by default.
+    Handles single-file checkpoints (``.pt`` / ``.pth`` / ``.ckpt`` /
+    ``.safetensors``) and distributed checkpoints (DCP). Detection is
+    automatic by default.
 
     Args:
         checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
@@ -596,7 +598,7 @@ def load_checkpoint(
             checkpoint_type = "single"
         else:
             ext = _get_checkpoint_extension(checkpoint_path)
-            if ext in (".pt", ".pth", ".safetensors"):
+            if ext in (".pt", ".pth", ".ckpt", ".safetensors"):
                 checkpoint_type = "single"
             else:
                 checkpoint_type = "distributed"

@@ -18,12 +18,78 @@
 import ctypes
 import math
 import os
+import sys
 from datetime import timedelta
 
 import pynvml
 import torch
 import torch.distributed as dist
 from loguru import logger
+
+DEFAULT_LOG_LEVEL = "INFO"
+
+
+def is_distributed_initialized() -> bool:
+    """Return True when torch distributed is available and initialized."""
+    return dist.is_available() and dist.is_initialized()
+
+
+def get_global_rank() -> int:
+    """Return the torch distributed global rank, or 0 outside distributed runs."""
+    if is_distributed_initialized():
+        return dist.get_rank()
+    return 0
+
+
+def get_global_rank_from_env() -> int:
+    """Return the launch-provided rank, or 0 when unavailable."""
+    try:
+        return int(os.environ.get("RANK", "0"))
+    except ValueError:
+        return 0
+
+
+def get_global_rank_for_logging() -> int:
+    """Return the best available global rank for early process logging."""
+    if is_distributed_initialized():
+        return get_global_rank()
+    return get_global_rank_from_env()
+
+
+def configure_loguru_for_distributed(world_rank: int | None = None) -> None:
+    """Keep rank 0 log levels intact and demote other ranks to DEBUG."""
+    if world_rank is None:
+        world_rank = get_global_rank_for_logging()
+
+    log_level = os.environ.get("LOGURU_LEVEL", DEFAULT_LOG_LEVEL)
+    debug_level = logger.level("DEBUG")
+
+    def demote_non_rank0(record):
+        if world_rank != 0:
+            record["level"] = type(record["level"])(
+                debug_level.name,
+                debug_level.no,
+                debug_level.icon,
+            )
+
+    logger.remove()
+    logger.configure(patcher=demote_non_rank0)
+    logger.add(sys.stderr, level=log_level)
+
+
+configure_loguru_for_distributed()
+
+
+def is_distributed_initialized() -> bool:
+    """Return True when torch distributed is available and initialized."""
+    return dist.is_available() and dist.is_initialized()
+
+
+def get_global_rank() -> int:
+    """Return the torch distributed global rank, or 0 outside distributed runs."""
+    if is_distributed_initialized():
+        return dist.get_rank()
+    return 0
 
 
 class Device:
@@ -78,6 +144,7 @@ def init() -> int | None:
             timeout=timeout_timedelta,
             device_id=local_rank,
         )
+        configure_loguru_for_distributed(get_global_rank())
         logger.critical(
             f"Initialized distributed training with local rank {local_rank} with timeout {timeout_seconds}",
         )

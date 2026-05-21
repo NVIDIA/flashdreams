@@ -25,6 +25,12 @@ from torch import Tensor
 
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
+from flashdreams.recipes.taehv.checkpoint import (
+    StateDictTransform,
+    compose,
+    legacy_to_blocks_keys,
+    truncate_oversize_tgrow_weights,
+)
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
 
 _INTERNAL_TAEHV_CHECKPOINT_PATHS = {
@@ -43,6 +49,23 @@ AVAILABLE_TAEHV_CHECKPOINT_PATHS = (
 """Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
 
 
+_LIGHTTAE_CHANNELS: tuple[int, int, int, int] = (256, 128, 64, 64)
+"""TAEHV ``Decoder`` block widths the ``lighttae`` weights were trained
+for. Mirrors :attr:`TAEHV.channels` for the default config; kept here so
+:data:`lighttae_state_dict_transform` can pre-compute the per-``TGrow``
+expected output channel widths without an instantiated model."""
+
+
+lighttae_state_dict_transform: StateDictTransform = compose(
+    legacy_to_blocks_keys,
+    truncate_oversize_tgrow_weights(channels=_LIGHTTAE_CHANNELS),
+)
+"""Per-checkpoint remap for the ``lighttae`` weights. Rewrites the flat
+``decoder.<i>.*`` keys to the current ``decoder.blocks.<i>.*`` layout
+and clips the stride=2 ``TGrow`` weights at idx 7 down to the stride=1
+slice the live model expects."""
+
+
 @dataclass(kw_only=True)
 class TeahvVAEDecoderConfig(DecoderConfig):
     """Config for the TAEHV decoder."""
@@ -51,6 +74,12 @@ class TeahvVAEDecoderConfig(DecoderConfig):
 
     checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
     """Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights."""
+
+    state_dict_transform: StateDictTransform | None = lighttae_state_dict_transform
+    """Pre-load state-dict remap. Defaults to
+    :data:`lighttae_state_dict_transform`; ``None`` falls through to the
+    bare :class:`TAEHV` default (see
+    :meth:`~flashdreams.recipes.taehv.impl.TAEHV.load_from_checkpoint`)."""
 
     dtype: torch.dtype = torch.bfloat16
     """Network parameter / activation dtype."""
@@ -106,6 +135,7 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
             checkpoint_path=config.checkpoint_path,
             use_cuda_graph=config.use_cuda_graph,
             use_compile=config.use_compile,
+            state_dict_transform=config.state_dict_transform,
         ).to(dtype=config.dtype)
 
         if self.need_scaled:

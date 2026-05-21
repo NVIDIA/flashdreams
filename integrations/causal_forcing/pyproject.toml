@@ -49,3 +49,6 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["causal_forcing*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

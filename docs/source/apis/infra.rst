@@ -17,7 +17,7 @@ Infra
 ===================================
 
 The ``flashdreams.infra`` package defines the swappable abstractions that
-every recipe plugs into: a config system, an encoder / diffusion-model /
+every integration plugs into: a config system, an encoder / diffusion-model /
 decoder triple, and the streaming inference pipeline that drives them.
 
 Config

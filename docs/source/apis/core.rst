@@ -17,7 +17,7 @@ Core
 ===================================
 
 The ``flashdreams.core`` package collects the low-level kernels and
-process-group utilities that recipes share.
+process-group utilities that integrations share.
 
 Attention
 ---------

@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-flashvsr"
+version = "0.1.0a2"
+description = "FlashVSR streaming video super-resolution (LR projector + Wan 2.1 DiT + TC decoder), packaged as a flashdreams plugin."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flashdreams",
+    "mediapy>=1.1",
+    "opencv-python>=4.8",
+    "block-sparse-attn==0.0.2",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+# Upstream Block-Sparse-Attention is not on PyPI. Install from the public
+# GitHub repo at v0.0.2.post1 -- the latest tag of the ``__version__ = "0.0.2"``
+# series (``.post1`` is a small ``__init__.py`` cleanup), so the ``==0.0.2``
+# pin above still resolves. Its ``setup.py`` ``import torch`` at build time, so
+# this dep is also listed in ``no-build-isolation-package`` in the
+# workspace-root ``pyproject.toml``.
+block-sparse-attn = { git = "https://github.com/mit-han-lab/Block-Sparse-Attention", tag = "v0.0.2.post1" }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
+# The discovery layer (``flashdreams.plugins.registry.discover_runners``)
+# scans this group at CLI startup; the entry-point name itself is purely
+# informational, the registry key always comes from ``cfg.runner_name``.
+[project.entry-points."flashdreams.runner_configs"]
+"flashvsr-v1.1-sparse-ratio-2.0" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_SPARSE_2_0"
+"flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_SPARSE_1_5"
+"flashvsr-v1.1-full-attn" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_FULL_ATTN"
+
+[tool.setuptools.packages.find]
+include = ["flashvsr*"]
+exclude = ["tests"]
+
+# Pytest's ``configfile`` resolution picks the nearest ``pyproject.toml`` to
+# the test files, so when running ``pytest integrations/flashvsr/tests``
+# this file shadows the root ``flashdreams`` config -- mirror its addopts
+# (import mode + marker enforcement plugin) and marker registrations here.
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]

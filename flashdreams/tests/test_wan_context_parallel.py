@@ -3,11 +3,13 @@
 
 import types
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import torch
 
+from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
@@ -42,10 +44,16 @@ class _DummyNetwork(torch.nn.Module):
         self.parameters_updated = True
 
 
+class _IdentityAttention(torch.nn.Module):
+    def forward(self, q, k, v):
+        return q
+
+
 @dataclass
 class _DummyNetworkConfig:
     patch_size: tuple[int, int, int] = (1, 2, 2)
     in_dim: int = 16
+    apply_rope_before_kvcache: bool = True
 
     def setup(self) -> _DummyNetwork:
         return _DummyNetwork()
@@ -85,6 +93,35 @@ def test_wan21_uses_world_cp_group_when_distributed(monkeypatch) -> None:
     assert isinstance(transformer.network, _DummyNetwork)
     assert transformer.network.cp_group is fake_group
     assert transformer.network.parameters_updated
+
+
+def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:
+    """Read-time K RoPE is in-place, so it must rotate a temporary copy."""
+    attn = wan_modules.MultiHeadAttention(
+        query_dim=4,
+        n_heads=1,
+        head_dim=4,
+        apply_rope_before_kvcache=False,
+    )
+    cast(Any, attn).attn_op = _IdentityAttention()
+
+    cache_k = torch.randn(1, 3, 1, 4)
+    cache_v = torch.randn(1, 3, 1, 4)
+    cache = BlockKVCache.from_tensor(cache_k.clone(), cache_v, seq_dim=1)
+    before = cache._k.clone()
+
+    def _fake_apply_rope_freqs(x, freqs, interleaved=False):
+        return x.add_(1.0)
+
+    monkeypatch.setattr(wan_modules, "apply_rope_freqs", _fake_apply_rope_freqs)
+    attn.apply_kv(
+        torch.randn(1, 3, 4),
+        cache,
+        rope_freqs_q=torch.zeros(3, 1, 1, 4),
+        rope_freqs_k=torch.zeros(3, 1, 1, 4),
+    )
+
+    torch.testing.assert_close(cache._k, before)
 
 
 def test_wan21_uses_no_cp_group_when_not_distributed(monkeypatch) -> None:

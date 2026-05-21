@@ -1,6 +1,6 @@
 # Candidates to Support:
 
-- [x] Alpadreams: https://research.nvidia.com/labs/sil/projects/alpadreams/
+- [x] Omnidreams: https://research.nvidia.com/labs/sil/projects/omnidreams/
 - [x] Self-Forcing: https://github.com/guandeh17/Self-Forcing
 - [x] Causal-Forcing: https://github.com/thu-ml/Causal-Forcing
 - [x] FastVideo: https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_i2v.py
@@ -79,7 +79,7 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-self-forcing | git only | synced |
 | flashdreams-causal-forcing | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
-| flash-alpadreams | git only | synced |
+| flash-omnidreams | git only | synced |
 | flashdreams-lingbot | git only | synced |
 | ludus-renderer | git only | independent (0.9.0) |
 

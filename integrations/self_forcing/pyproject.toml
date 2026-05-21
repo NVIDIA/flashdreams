@@ -43,7 +43,11 @@ dev = [
 [project.entry-points."flashdreams.runner_configs"]
 "self-forcing-wan2.1-t2v-1.3b" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B"
 "self-forcing-wan2.1-t2v-1.3b-flash" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_FLASH"
+"self-forcing-wan2.1-t2v-1.3b-anti-drift" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT"
 
 [tool.setuptools.packages.find]
 include = ["self_forcing*"]
 exclude = ["tests"]
+
+[tool.uv]
+managed = true

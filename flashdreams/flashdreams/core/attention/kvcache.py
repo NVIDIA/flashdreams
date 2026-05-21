@@ -95,6 +95,29 @@ class BlockKVCache:
     _v: Tensor = field(init=False)
     """Cached values. shape ``[..., total_size, ..., Dv]``, where the ``total_size`` is the length of the cache buffer at ``seq_dim`` dimension."""
 
+    @property
+    def size(self) -> int:
+        """Number of valid cached tokens visible to attention."""
+        if self._curr_chunk_idx is None:
+            return self._n_cached
+        if self.is_steady_state():
+            return self._k.shape[self.seq_dim]
+        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
+            return self._n_cached + self.chunk_size
+        if self._curr_chunk_idx == self._prev_chunk_idx:
+            return self._n_cached
+        raise ValueError(
+            f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
+        )
+
+    @property
+    def write_end(self) -> int:
+        """Right edge of the current chunk in the physical cache layout."""
+        assert self._curr_chunk_idx is not None, (
+            "Must call before_update() before write_end"
+        )
+        return self.size
+
     @classmethod
     def from_tensor(cls, k: Tensor, v: Tensor, seq_dim: int) -> Self:
         cache = cls(

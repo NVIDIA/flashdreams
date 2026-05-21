@@ -1,0 +1,392 @@
+diff --git a/diffsynth/models/wan_video_dit.py b/diffsynth/models/wan_video_dit.py
+--- a/diffsynth/models/wan_video_dit.py
++++ b/diffsynth/models/wan_video_dit.py
+@@ -201,7 +201,20 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
+             return_attn_probs=False,
+         ).unsqueeze(0)
+         x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
++    elif os.getenv("FORCE_CUDNN_ATTN", "0") == "1":
++        # FORCE_CUDNN_ATTN routes the dense (non-sparse) path through
++        # cuDNN's SDPA backend so the parity-check measurement matches
++        # what flashdreams' FlashVSRPipeline uses by default. The sparse
++        # path above is unchanged (block_sparse_attn is the LCSA backend
++        # FlashVSR depends on).
++        from torch.nn.attention import SDPBackend, sdpa_kernel
++        q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
++        k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
++        v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
++        with sdpa_kernel(SDPBackend.CUDNN_ATTENTION):
++            x = F.scaled_dot_product_attention(q, k, v)
++        x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
+     elif compatibility_mode:
+         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
+         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
+         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
+diff --git a/examples/WanVSR/benchmark.py b/examples/WanVSR/benchmark.py
+new file mode 100644
+--- /dev/null
++++ b/examples/WanVSR/benchmark.py
+@@ -0,0 +1,340 @@
++"""
++Offline benchmark for FlashVSR (parity-check harness).
++
++Mirrors examples/WanVSR/infer_flashvsr_v1.1_tiny_long_video.py end-to-end,
++but interposes ``EventProfiler``-style cuda.Event timers around the four
++per-chunk forwards (projector / DiT / decoder / color) so we can dump a
++per-chunk JSON whose schema matches what
++``flashdreams.flashvsr.FlashVSRPipeline.finalize`` writes when
++``enable_sync_and_profile=True``.
++
++We do NOT replicate the upstream chunk loop; we monkey-patch the four
++stage forwards on the live pipeline / module and call ``pipe(...)`` once.
++The chunk-boundary heuristic is "a projector call after a color/decoder
++call starts a new chunk" -- valid because the upstream loop is strictly
++``[projector*N -> dit -> decoder -> color]`` per chunk.
++
++Usage:
++
++    FORCE_CUDNN_ATTN=1 uv run python benchmark.py --input ./inputs/example4.mp4
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++from typing import Any, Callable
++
++import imageio
++import numpy as np
++import torch
++from einops import rearrange
++from PIL import Image
++
++from diffsynth import FlashVSRTinyLongPipeline, ModelManager
++from diffsynth.pipelines import flashvsr_tiny_long as fvsr_module
++from utils.TCDecoder import build_tcdecoder
++from utils.utils import Causal_LQ4x_Proj
++
++
++# ---------------------------------------------------------------------------
++# Per-chunk profiler
++# ---------------------------------------------------------------------------
++
++
++class _ChunkProfiler:
++    """Group cuda.Event timings by autoregressive chunk.
++
++    Each upstream chunk runs ``projector`` (multiple inner_idx calls), then
++    one ``dit``, one ``decoder``, one ``color``. We detect chunk boundaries
++    by watching for a ``projector`` call that follows a ``color`` /
++    ``decoder`` / ``dit`` -- that's the start of the next chunk. The first
++    ``projector`` ever (no chunks yet) opens chunk 0.
++    """
++
++    _STAGES = ("projector", "dit", "decoder", "color")
++
++    def __init__(self) -> None:
++        self.events: list[dict[str, list[tuple[torch.cuda.Event, torch.cuda.Event]]]] = []
++        self.frames: list[int] = []
++
++    def _last_filled_stage(self) -> str | None:
++        if not self.events:
++            return None
++        last = self.events[-1]
++        for s in reversed(self._STAGES):
++            if last[s]:
++                return s
++        return None
++
++    def wrap(self, fn: Callable[..., Any], stage: str) -> Callable[..., Any]:
++        assert stage in self._STAGES, f"unknown stage {stage!r}"
++
++        def timed(*args: Any, **kwargs: Any) -> Any:
++            if stage == "projector":
++                last = self._last_filled_stage()
++                if last in (None, "color", "decoder", "dit"):
++                    self.events.append({s: [] for s in self._STAGES})
++                    self.frames.append(0)
++            start = torch.cuda.Event(enable_timing=True)
++            end = torch.cuda.Event(enable_timing=True)
++            start.record()
++            out = fn(*args, **kwargs)
++            end.record()
++            assert self.events, f"{stage} called before any projector"
++            self.events[-1][stage].append((start, end))
++            # Snag the chunk's raw frame count from
++            # ``TCDecoder.decode_video(..., cond=LQ_video[:, :, LQ_pre_idx:LQ_cur_idx, ...])``;
++            # ``cond.shape[2]`` == raw frames produced by this chunk.
++            if stage == "decoder":
++                cond = kwargs.get("cond")
++                if cond is not None:
++                    self.frames[-1] = int(cond.shape[2])
++            return out
++
++        return timed
++
++    def sync_and_summarize(self) -> list[dict[str, float | int]]:
++        torch.cuda.synchronize()
++        out: list[dict[str, float | int]] = []
++        for idx, stages in enumerate(self.events):
++            stats: dict[str, float | int] = {"autoregressive_index": idx}
++            for stage in self._STAGES:
++                stats[f"{stage}_ms"] = sum(
++                    s.elapsed_time(e) for s, e in stages[stage]
++                )
++            stats["total_ms"] = float(
++                sum(stats[f"{s}_ms"] for s in self._STAGES)
++            )
++            # Mirror flashdreams' ``total_ms_wo_finalize`` field. The
++            # upstream pipeline has no separate ``finalize`` cost (KV
++            # update is part of the ``dit`` pass), so the two values
++            # coincide.
++            stats["total_ms_wo_finalize"] = stats["total_ms"]
++            n_frames = self.frames[idx] if idx < len(self.frames) else 0
++            stats["frames"] = n_frames
++            stats["fps"] = (
++                n_frames * 1000.0 / stats["total_ms"]
++                if stats["total_ms"] > 0
++                else 0.0
++            )
++            out.append(stats)
++        return out
++
++
++# ---------------------------------------------------------------------------
++# Pipeline + I/O helpers (fresh code; mirrors upstream init / I/O patterns
++# but does not copy upstream source)
++# ---------------------------------------------------------------------------
++
++
++def init_pipeline(model_dir: Path) -> FlashVSRTinyLongPipeline:
++    mm = ModelManager(torch_dtype=torch.bfloat16, device="cpu")
++    mm.load_models(
++        [str(model_dir / "diffusion_pytorch_model_streaming_dmd.safetensors")]
++    )
++    pipe = FlashVSRTinyLongPipeline.from_model_manager(mm, device="cuda")
++    pipe.denoising_model().LQ_proj_in = Causal_LQ4x_Proj(
++        in_dim=3, out_dim=1536, layer_num=1
++    ).to("cuda", dtype=torch.bfloat16)
++    pipe.denoising_model().LQ_proj_in.load_state_dict(
++        torch.load(model_dir / "LQ_proj_in.ckpt", map_location="cpu"),
++        strict=True,
++    )
++    pipe.denoising_model().LQ_proj_in.to("cuda")
++    pipe.TCDecoder = build_tcdecoder(
++        new_channels=[512, 256, 128, 128],
++        new_latent_channels=16 + 768,
++    )
++    pipe.TCDecoder.load_state_dict(
++        torch.load(model_dir / "TCDecoder.ckpt"), strict=False
++    )
++    pipe.to("cuda")
++    pipe.enable_vram_management(num_persistent_param_in_dit=None)
++    pipe.init_cross_kv()
++    pipe.load_models_to_device(["dit", "vae"])
++    return pipe
++
++
++def _largest_8n1_leq(n: int) -> int:
++    return 0 if n < 1 else ((n - 1) // 8) * 8 + 1
++
++
++def load_video(
++    path: str,
++    scale: float = 4.0,
++    multiple: int = 128,
++    dtype: torch.dtype = torch.bfloat16,
++) -> tuple[torch.Tensor, int, int, int, int]:
++    rdr = imageio.get_reader(path)
++    first = Image.fromarray(rdr.get_data(0)).convert("RGB")
++    w0, h0 = first.size
++
++    sW, sH = int(round(w0 * scale)), int(round(h0 * scale))
++    tW, tH = (sW // multiple) * multiple, (sH // multiple) * multiple
++    assert tW > 0 and tH > 0, (
++        f"Scaled size {sW}x{sH} too small for multiple={multiple}; bump --scale."
++    )
++
++    meta: dict[str, Any] = {}
++    try:
++        meta = rdr.get_meta_data()
++    except Exception:
++        pass
++    fps_val = meta.get("fps", 30)
++    fps = int(round(fps_val)) if isinstance(fps_val, (int, float)) else 30
++
++    nf = meta.get("nframes")
++    if isinstance(nf, int) and nf > 0:
++        total = nf
++    else:
++        try:
++            total = rdr.count_frames()
++        except Exception:
++            total = 0
++            try:
++                while True:
++                    rdr.get_data(total)
++                    total += 1
++            except Exception:
++                pass
++
++    # Pad with the last frame x4 so the ``8n+1`` window can absorb the tail
++    # (matches upstream's ``paths = paths0 + [paths0[-1]] * 4``).
++    idx = list(range(total)) + [max(total - 1, 0)] * 4
++    F = _largest_8n1_leq(len(idx))
++    assert F > 0, f"Not enough frames in {path} (got {total})."
++    idx = idx[:F]
++
++    frames: list[torch.Tensor] = []
++    for i in idx:
++        img = Image.fromarray(rdr.get_data(i)).convert("RGB").resize(
++            (sW, sH), Image.BICUBIC
++        )
++        l, t = (sW - tW) // 2, (sH - tH) // 2
++        img = img.crop((l, t, l + tW, t + tH))
++        arr = (
++            torch.from_numpy(np.asarray(img, np.uint8))
++            .to(dtype=torch.float32)
++            .permute(2, 0, 1)
++            / 255.0
++            * 2.0
++            - 1.0
++        )
++        frames.append(arr.to(dtype))
++    rdr.close()
++
++    vid = torch.stack(frames, 0).permute(1, 0, 2, 3).unsqueeze(0)  # 1 C F H W
++    return vid, tH, tW, F, fps
++
++
++def tensor_to_frames(frames: torch.Tensor) -> list[Image.Image]:
++    chw = rearrange(frames, "C T H W -> T H W C")
++    arr = ((chw.float() + 1) * 127.5).clip(0, 255).cpu().numpy().astype(np.uint8)
++    return [Image.fromarray(f) for f in arr]
++
++
++def save_video(frames: list[Image.Image], path: str, fps: int = 30) -> None:
++    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
++    writer = imageio.get_writer(path, fps=fps, quality=5)
++    for f in frames:
++        writer.append_data(np.array(f))
++    writer.close()
++
++
++# ---------------------------------------------------------------------------
++# Main
++# ---------------------------------------------------------------------------
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--input", default="./inputs/example4.mp4")
++    parser.add_argument("--model_dir", default="./FlashVSR-v1.1")
++    parser.add_argument("--output", default="./videos/offline.mp4")
++    parser.add_argument("--stats", default="./videos/stats_offline.json")
++    parser.add_argument("--scale", type=float, default=4.0)
++    parser.add_argument("--seed", type=int, default=0)
++    parser.add_argument("--sparse_ratio", type=float, default=2.0)
++    parser.add_argument("--kv_ratio", type=float, default=3.0)
++    parser.add_argument("--local_range", type=int, default=11)
++    args = parser.parse_args()
++
++    model_dir = Path(args.model_dir)
++    pipe = init_pipeline(model_dir)
++
++    profiler = _ChunkProfiler()
++
++    # Stage 1: projector. Multiple ``stream_forward`` calls per chunk; we
++    # patch the bound method on the live module.
++    proj_in = pipe.denoising_model().LQ_proj_in
++    proj_in.stream_forward = profiler.wrap(proj_in.stream_forward, "projector")
++
++    # Stage 2: DiT. ``model_fn_wan_video`` is a module-level free function
++    # imported into ``flashvsr_tiny_long.__call__`` body at import time;
++    # patching the module attribute makes the upstream lookup pick up our
++    # wrapper at call time.
++    fvsr_module.model_fn_wan_video = profiler.wrap(
++        fvsr_module.model_fn_wan_video, "dit"
++    )
++
++    # Stage 3 + 4: decoder + color. Both nn.Modules; nn.Module._call_impl
++    # routes through ``self.forward`` (instance attribute lookup) so
++    # rebinding ``forward`` on the instance is enough.
++    pipe.TCDecoder.decode_video = profiler.wrap(
++        pipe.TCDecoder.decode_video, "decoder"
++    )
++    pipe.ColorCorrector.forward = profiler.wrap(
++        pipe.ColorCorrector.forward, "color"
++    )
++
++    # Drive upstream end-to-end with the patched stages.
++    LQ, th, tw, num_frames, fps = load_video(args.input, scale=args.scale)
++    print(f"[bench] input={args.input} scale={args.scale} -> {tw}x{th} F={num_frames} fps={fps}")
++
++    video = pipe(
++        prompt="",
++        negative_prompt="",
++        cfg_scale=1.0,
++        num_inference_steps=1,
++        seed=args.seed,
++        LQ_video=LQ,
++        num_frames=num_frames,
++        height=th,
++        width=tw,
++        is_full_block=False,
++        if_buffer=True,
++        topk_ratio=args.sparse_ratio * 768 * 1280 / (th * tw),
++        kv_ratio=args.kv_ratio,
++        local_range=args.local_range,
++        color_fix=True,
++    )
++
++    stats_history = profiler.sync_and_summarize()
++    if torch.cuda.is_available():
++        device = torch.cuda.current_device()
++        gib = 1024**3
++        # Memory stats are end-of-run snapshots, not per-chunk; copy the
++        # same snapshot onto every entry so the JSON schema matches
++        # flashdreams' per-chunk stats exactly.
++        mem_alloc = torch.cuda.memory_allocated(device) / gib
++        mem_reserved = torch.cuda.memory_reserved(device) / gib
++        mem_peak = torch.cuda.max_memory_allocated(device) / gib
++        for s in stats_history:
++            s["mem_alloc_gib"] = mem_alloc
++            s["mem_reserved_gib"] = mem_reserved
++            s["mem_peak_gib"] = mem_peak
++
++    os.makedirs(os.path.dirname(args.stats) or ".", exist_ok=True)
++    with open(args.stats, "w") as f:
++        json.dump(stats_history, f, indent=2)
++    print(f"[bench] per-chunk stats -> {os.path.abspath(args.stats)}")
++
++    save_video(tensor_to_frames(video), args.output, fps=fps)
++    print(f"[bench] upsampled video -> {os.path.abspath(args.output)}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/setup.py b/setup.py
+--- a/setup.py
++++ b/setup.py
+@@ -1,15 +1,17 @@
+ import os
+ from setuptools import setup, find_packages
+-import pkg_resources
+ 
+ # Path to the requirements file
+ requirements_path = os.path.join(os.path.dirname(__file__), "requirements.txt")
+ 
+ # Read the requirements from the requirements file
+ if os.path.exists(requirements_path):
+     with open(requirements_path, 'r') as f:
+-        install_requires = [str(r) for r in pkg_resources.parse_requirements(f)]
++        install_requires = [
++            line.strip() for line in f
++            if line.strip() and not line.startswith("#")
++        ]
+ else:
+     install_requires = []
+ 
+ setup(

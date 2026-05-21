@@ -52,7 +52,7 @@ NVIDIA's custom index. None of those wheels are ABI-compatible with
 flashdreams' `torch>=2.11` pin, so we deliberately keep this venv
 independent of flashdreams' rather than stacking on top of it. The
 in-tree `cosmos_predict2` flashdreams recipe is exercised separately
-via the main `flashsim/.venv`.
+via the main `flashdreams/.venv`.
 
 ## Files tracked here
 

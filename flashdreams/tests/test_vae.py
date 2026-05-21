@@ -106,7 +106,7 @@ def test_tokenizer(
     tokenizer_cache = tokenizer.initialize_autoregressive_cache()
     detokenizer_cache = detokenizer.initialize_autoregressive_cache()
 
-    video_path = "./assets/example_data/alpadreams/camera_front_wide_120fov.mp4"
+    video_path = "./assets/example_data/omnidreams/camera_front_wide_120fov.mp4"
     video = mediapy.read_video(video_path)[:81]  # [T, H, W, 3]
     video = (
         torch.from_numpy(video).to(dtype=dtype, device=device) / 127.5 - 1.0
