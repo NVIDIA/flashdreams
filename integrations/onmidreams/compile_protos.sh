@@ -13,4 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. --pyi_out=. onmidreams/grpc/protos/*.proto
+set -euo pipefail
+
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+cd "$SCRIPT_DIR"
+
+uv run --package flash-onmidreams python -m grpc_tools.protoc \
+    -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    --pyi_out=. \
+    onmidreams/grpc/protos/*.proto
