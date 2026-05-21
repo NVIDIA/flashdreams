@@ -11,11 +11,12 @@ support the manual TAVA 2.0 acknowledgment path for
 
 | Document | Purpose |
 | --- | --- |
-| [`SKILL.md`](SKILL.md) | Agent-runnable workflow for FlashDreams security-architect work (compact subset of the omni-dreams + flashdreams skill). |
 | [`architecture.md`](architecture.md) | Four-view architecture (Static / Dynamic / Data / Deployment) for the FlashDreams TOE. |
 | [`sadd.md`](sadd.md) | Software Architecture and Design Document per `SWE-PLC-L1-002-BasicPLC-SADD-TMPL`. |
 | [`tava.md`](tava.md) | FlashDreams-scoped TAVA narrative (assets, threats, risk, security objectives, POA&M). |
 | [`fsr_table.md`](fsr_table.md) | Canonical FSR sheet in the Excel-Based Simple TAVA Template column structure (FSR_FD_01..36). |
+
+The agent-runnable workflow for this surface lives as a project skill at [`../../agentic/skills/flashdreams-security-architect/SKILL.md`](../../agentic/skills/flashdreams-security-architect/SKILL.md) — follow the `agentic/skills/README.md` opt-in instructions to symlink it into `.claude/skills/` or `.cursor/skills/`.
 
 ## Relationship to the upstream omni-dreams documents
 

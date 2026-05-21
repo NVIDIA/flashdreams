@@ -18,7 +18,7 @@ Posting the FlashDreams-scoped subset of the TAVA materials in-tree under `flash
 | Doc | Purpose |
 | --- | --- |
 | `docs/arch/README.md` | Index + cross-refs to the upstream omni-dreams doc set |
-| `docs/arch/SKILL.md` | Agent-runnable security-architect workflow (compact subset of the upstream skill) |
+| `agentic/skills/flashdreams-security-architect/SKILL.md` | Agent-runnable security-architect workflow as a project skill (compact subset of the upstream skill) |
 | `docs/arch/architecture.md` | Four-view architecture (Static / Dynamic / Data / Deployment) narrowed to the FlashDreams TOE |
 | `docs/arch/sadd.md` | SADD per `SWE-PLC-L1-002-BasicPLC-SADD-TMPL` |
 | `docs/arch/tava.md` | TAVA narrative (assets / threats / risk / objectives / POA&M) for the FlashDreams TOE |
