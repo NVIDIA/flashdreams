@@ -1533,13 +1533,33 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # while our Sequential is (Residual, Attention, Residual) ->
     # indices (0, 1, 2). The diffusers ``WanMidBlock.forward`` runs
     # resnets[0], then (attentions[0], resnets[1]), so the residual
-    # ordering matches our (middle.0, middle.2) layout.
-    r"^encoder\.mid_block\.resnets\.0\.(.*)$": r"encoder.middle.0.\1",
+    # ordering matches our (middle.0, middle.2) layout. The two
+    # mid-block resnets share the inner Sequential layout with the
+    # down/up-block resnets, so we apply the same per-field remap
+    # (``norm1`` -> ``residual.0`` etc.) before the catch-all
+    # ``mid_block.resnets`` -> ``middle`` rewrite.
+    r"^encoder\.mid_block\.resnets\.0\.norm1\.(.*)$": r"encoder.middle.0.residual.0.\1",
+    r"^encoder\.mid_block\.resnets\.0\.conv1\.(.*)$": r"encoder.middle.0.residual.2.\1",
+    r"^encoder\.mid_block\.resnets\.0\.norm2\.(.*)$": r"encoder.middle.0.residual.3.\1",
+    r"^encoder\.mid_block\.resnets\.0\.conv2\.(.*)$": r"encoder.middle.0.residual.6.\1",
+    r"^encoder\.mid_block\.resnets\.0\.conv_shortcut\.(.*)$": r"encoder.middle.0.shortcut.\1",
+    r"^encoder\.mid_block\.resnets\.1\.norm1\.(.*)$": r"encoder.middle.2.residual.0.\1",
+    r"^encoder\.mid_block\.resnets\.1\.conv1\.(.*)$": r"encoder.middle.2.residual.2.\1",
+    r"^encoder\.mid_block\.resnets\.1\.norm2\.(.*)$": r"encoder.middle.2.residual.3.\1",
+    r"^encoder\.mid_block\.resnets\.1\.conv2\.(.*)$": r"encoder.middle.2.residual.6.\1",
+    r"^encoder\.mid_block\.resnets\.1\.conv_shortcut\.(.*)$": r"encoder.middle.2.shortcut.\1",
     r"^encoder\.mid_block\.attentions\.0\.(.*)$": r"encoder.middle.1.\1",
-    r"^encoder\.mid_block\.resnets\.1\.(.*)$": r"encoder.middle.2.\1",
-    r"^decoder\.mid_block\.resnets\.0\.(.*)$": r"decoder.middle.0.\1",
+    r"^decoder\.mid_block\.resnets\.0\.norm1\.(.*)$": r"decoder.middle.0.residual.0.\1",
+    r"^decoder\.mid_block\.resnets\.0\.conv1\.(.*)$": r"decoder.middle.0.residual.2.\1",
+    r"^decoder\.mid_block\.resnets\.0\.norm2\.(.*)$": r"decoder.middle.0.residual.3.\1",
+    r"^decoder\.mid_block\.resnets\.0\.conv2\.(.*)$": r"decoder.middle.0.residual.6.\1",
+    r"^decoder\.mid_block\.resnets\.0\.conv_shortcut\.(.*)$": r"decoder.middle.0.shortcut.\1",
+    r"^decoder\.mid_block\.resnets\.1\.norm1\.(.*)$": r"decoder.middle.2.residual.0.\1",
+    r"^decoder\.mid_block\.resnets\.1\.conv1\.(.*)$": r"decoder.middle.2.residual.2.\1",
+    r"^decoder\.mid_block\.resnets\.1\.norm2\.(.*)$": r"decoder.middle.2.residual.3.\1",
+    r"^decoder\.mid_block\.resnets\.1\.conv2\.(.*)$": r"decoder.middle.2.residual.6.\1",
+    r"^decoder\.mid_block\.resnets\.1\.conv_shortcut\.(.*)$": r"decoder.middle.2.shortcut.\1",
     r"^decoder\.mid_block\.attentions\.0\.(.*)$": r"decoder.middle.1.\1",
-    r"^decoder\.mid_block\.resnets\.1\.(.*)$": r"decoder.middle.2.\1",
     # Per-residual-block field remap: diffusers ``conv1 / conv2 /
     # norm1 / norm2 / conv_shortcut`` -> our Sequential entries.
     # The Sequential layout in ResidualBlock.__init__ is:

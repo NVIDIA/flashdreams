@@ -180,13 +180,24 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
       chunk read the prefilled K / V via the dual-branch attention's
       new ``cat([memory_K, current_K], dim=seq)`` prepend, with a
       strict no-op short-circuit on the empty-cache path so chunk 0
-      stays bit-identical to the 2b.4 baseline. The per-rollout
-      viewmats / Ks / action streams are still per-AR-step on the
-      ctrl as of this release (`_slice_per_frame` falls back to a
-      `[:K]` truncation flagged as a parity-incorrect stub); the
-      remaining work (per-rollout metadata threading + GPU smoke +
-      parity diff + sub-venv removal + default flag flip) is
-      tracked under 2b.5b-part2-followup.
+      stays bit-identical to the 2b.4 baseline.
+    - **Reconstituted-context memory -- per-rollout metadata threading**
+      (2b.5b-part2-followup, landed). The encoder
+      (:meth:`HyWorldPlayWanCtrlEncoder.forward`) now attaches the
+      full-trajectory ``viewmats`` / ``Ks`` / ``action`` tensors to
+      every per-AR-step :class:`HyWorldPlayCtrl` via
+      ``rollout_viewmats`` / ``rollout_Ks`` / ``rollout_action``,
+      alongside the existing per-step slices. The prefill driver
+      replaces the parity-incorrect ``_slice_per_frame`` stub with
+      :meth:`HyWorldPlayWan21Transformer._index_rollout_buffer`,
+      which uses ``tensor.index_select(axis, memory_frame_indices)``
+      on the per-rollout buffer to hand the executor camera + action
+      data for the *historical* frames it's prefilling rather than
+      the current chunk's slice. The remaining 2b.5b-part2-followup
+      items (GPU smoke + parity diff + sub-venv cleanup + default
+      flag flip) require real-checkpoint GPU validation that surfaces
+      structural bugs the CPU tests can't catch (fused RoPE kernel
+      dtype, CP wiring, dtype promotion through the prefill).
     """
 
     def run(self) -> None:
@@ -202,10 +213,17 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         if not cfg.image_path.exists():
             raise FileNotFoundError(f"image_path {cfg.image_path} does not exist")
 
-        device = next(self.pipeline.parameters()).device
+        first_param = next(self.pipeline.parameters())
+        device = first_param.device
+        # The VAE encoder runs in the pipeline's parameter dtype (bf16 /
+        # fp16 in production, fp32 in the CPU smoke); the float32 tensor
+        # produced by ``preprocess_first_frame`` would fail the
+        # ``F.conv3d`` dtype check in the residual VAE's first
+        # ``CausalConv3d``. Cast here so the cast-once cost stays in
+        # the runner rather than the per-AR-step encode path.
         image = preprocess_first_frame(
             cfg.image_path, cfg.pixel_height, cfg.pixel_width
-        ).to(device)
+        ).to(device=device, dtype=first_param.dtype)
         prompt = _resolve_prompt(cfg.prompt)
 
         cache = self.pipeline.initialize_cache(
@@ -283,9 +301,18 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         # PRoPE math + cudnn attention run in the pipeline dtype (fp16 /
         # bf16); cast here so the per-frame transforms inside
         # ``prope_qkv`` don't kick the network into fp64 unintentionally.
+        # ``parse_pose_data`` emits ``[n_latents, 4, 4]`` /
+        # ``[n_latents, 3, 3]`` (no batch axis) but
+        # :func:`flashdreams.core.attention.prope.prope_qkv` requires
+        # ``[batch=1, cameras, 4, 4]``. The ``[..., start:end, :, :]``
+        # slice in the encoder's per-AR-step ``forward`` preserves
+        # leading dims, so an ``unsqueeze(0)`` here lifts the per-step
+        # slice (and the per-rollout buffer threaded into the prefill
+        # via ``rollout_viewmats``) to the rank PRoPE expects.
         target_dtype = next(self.pipeline.parameters()).dtype
         encoder.set_camera_data(
-            viewmats.to(dtype=target_dtype), Ks.to(dtype=target_dtype)
+            viewmats.to(dtype=target_dtype).unsqueeze(0),
+            Ks.to(dtype=target_dtype).unsqueeze(0),
         )
 
     def _bind_memory_config(self, *, device: torch.device) -> None:

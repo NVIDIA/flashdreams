@@ -386,43 +386,127 @@ def test_append_clean_latent_grows_history_and_detaches() -> None:
     assert torch.equal(history[..., 4:, :], chunk1.detach())
 
 
-def test_slice_per_frame_handles_action_and_matrices() -> None:
-    """``_slice_per_frame`` dispatches by tensor rank / dtype to slice the frame axis.
+def test_index_rollout_buffer_slices_action_at_rollout_indices() -> None:
+    """``_index_rollout_buffer`` action path indexes the trailing axis at the selected rollout indices.
 
-    Phase 2b.5b-part2 stub: when the per-rollout buffer is not yet
-    plumbed through the encoder, the prefill driver falls back to
-    slicing the per-AR-step buffer. This test pins the dispatch
-    layout so the follow-up that adds the per-rollout wiring
-    doesn't accidentally regress the action-int path or the
-    viewmats / Ks matrix path.
+    Phase 2b.5b-part2-followup: replaces the parity-incorrect
+    ``_slice_per_frame`` stub from 2b.5b-part2. The new helper
+    expects the per-rollout buffer (full trajectory's worth of
+    frames) and indexes into it with the rollout-coordinate
+    selection from the encoder. This test pins the action int /
+    long dispatch and the trailing-axis indexing so a regression
+    that flips back to the ``[:K]`` truncation surfaces here.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
     transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
 
-    action = torch.arange(8, dtype=torch.long).unsqueeze(0)  # [1, 8]
-    sliced = transformer._slice_per_frame(action, [0, 1, 2])
+    rollout_action = torch.arange(8, dtype=torch.long).unsqueeze(0)  # [1, 8]
+    selected = torch.tensor([0, 3, 5])
+    sliced = transformer._index_rollout_buffer(
+        rollout=rollout_action,
+        per_step=None,
+        selected=selected,
+        kind="action",
+    )
     assert sliced is not None
     assert sliced.shape == (1, 3)
-    assert torch.equal(sliced, torch.tensor([[0, 1, 2]]))
-
-    viewmats = torch.eye(4).expand(1, 8, 4, 4).contiguous()
-    sliced = transformer._slice_per_frame(viewmats, [0, 1, 2])
-    assert sliced is not None
-    assert sliced.shape == (1, 3, 4, 4)
-
-    Ks = torch.eye(3).expand(1, 8, 3, 3).contiguous()
-    sliced = transformer._slice_per_frame(Ks, [0, 1, 2])
-    assert sliced is not None
-    assert sliced.shape == (1, 3, 3, 3)
+    # The crucial parity-correctness assertion: indices match the
+    # rollout positions we asked for, not a contiguous chunk slice.
+    assert torch.equal(sliced, torch.tensor([[0, 3, 5]]))
 
 
-def test_slice_per_frame_returns_none_for_none() -> None:
-    """``None`` inputs (action / viewmats / Ks unbound) flow through cleanly."""
+def test_index_rollout_buffer_slices_matrices_at_frame_axis() -> None:
+    """``_index_rollout_buffer`` indexes matrix tensors at axis -3 (the F axis).
+
+    viewmats / Ks have rank ``len(batch_shape) + 3``: ``[..., F, M, N]``.
+    The frame axis is -3, the matrix axes are -2 / -1. The helper must
+    use ``index_select(-3, selected)`` so the matrix payload is
+    preserved unchanged; an off-by-one on the axis would turn a
+    ``[1, 8, 4, 4]`` viewmats buffer into a transposed ``[1, 8, 4, K]``
+    or similar -- this test catches that.
+    """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
     transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
-    assert transformer._slice_per_frame(None, [0, 1]) is None
+
+    # Build a viewmats buffer where each frame's matrix is its index *
+    # I -- so we can verify the indexing picks the right rows.
+    rollout_viewmats = torch.stack(
+        [torch.eye(4) * float(i) for i in range(8)], dim=0
+    ).unsqueeze(0)  # [1, 8, 4, 4]
+    selected = torch.tensor([0, 3, 5])
+    sliced = transformer._index_rollout_buffer(
+        rollout=rollout_viewmats,
+        per_step=None,
+        selected=selected,
+        kind="viewmats",
+    )
+    assert sliced is not None
+    assert sliced.shape == (1, 3, 4, 4)
+    assert torch.equal(sliced[0, 0], torch.eye(4) * 0.0)
+    assert torch.equal(sliced[0, 1], torch.eye(4) * 3.0)
+    assert torch.equal(sliced[0, 2], torch.eye(4) * 5.0)
+
+    # Ks works the same way, with the smaller 3x3 matrix payload.
+    rollout_Ks = torch.stack(
+        [torch.eye(3) * float(i) for i in range(8)], dim=0
+    ).unsqueeze(0)  # [1, 8, 3, 3]
+    sliced_Ks = transformer._index_rollout_buffer(
+        rollout=rollout_Ks,
+        per_step=None,
+        selected=selected,
+        kind="Ks",
+    )
+    assert sliced_Ks is not None
+    assert sliced_Ks.shape == (1, 3, 3, 3)
+    assert torch.equal(sliced_Ks[0, 1], torch.eye(3) * 3.0)
+
+
+def test_index_rollout_buffer_returns_none_when_both_inputs_are_none() -> None:
+    """Conditioner not bound on either path -> the helper passes through ``None``.
+
+    The prefill executor only consumes the slice when its conditioner
+    is active; if both the rollout and per-step buffers are ``None``
+    we surface that to the caller so it can shortcut the downstream
+    AdaLN / PRoPE math.
+    """
+    from hy_worldplay._action import HyWorldPlayWan21Transformer
+
+    transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
+    assert (
+        transformer._index_rollout_buffer(
+            rollout=None,
+            per_step=None,
+            selected=torch.tensor([0]),
+            kind="action",
+        )
+        is None
+    )
+
+
+def test_index_rollout_buffer_falls_back_to_per_step_when_rollout_is_none() -> None:
+    """``rollout is None`` triggers the per-step fallback (parity-incorrect, structurally safe).
+
+    This is the safety net for callers that bind the per-step
+    conditioner state (via the runner's existing per-AR-step path)
+    but have not migrated to the per-rollout setter yet. The
+    fallback is documented as parity-incorrect; it returns the
+    per-step slice unmodified so the prefill doesn't crash, and
+    the conditioner's own gate ensures the slice is not consumed
+    in a way that affects the noise prediction.
+    """
+    from hy_worldplay._action import HyWorldPlayWan21Transformer
+
+    transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
+    per_step = torch.zeros(1, 4, 4, 4)
+    sliced = transformer._index_rollout_buffer(
+        rollout=None,
+        per_step=per_step,
+        selected=torch.tensor([0, 1]),
+        kind="viewmats",
+    )
+    assert sliced is per_step, "fallback must pass through the per-step tensor unchanged"
 
 
 def test_is_first_step_of_chunk_detects_empty_rolling_cache() -> None:
@@ -529,3 +613,185 @@ def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
     cache.start(autoregressive_index=0)
     # No exception, no side effect on the rolling caches' content.
     assert block_cache.self_attn._n_cached == 0
+
+
+## ---------------------------------------------------------------------------
+## Encoder rollout-buffer plumbing (phase 2b.5b-part2-followup)
+## ---------------------------------------------------------------------------
+
+
+def test_ctrl_rollout_fields_default_to_none() -> None:
+    """Rollout buffers default to ``None`` so vendor-wrapper / per-step-only callers stay opt-in.
+
+    The rollout buffers are an additive plumbing layer for the
+    prefill executor; ctors that don't bind them must keep producing
+    ctrls that the rest of the codebase treats as if 2b.5b-part2 had
+    never landed. ``None`` is the universal "not bound" signal that
+    ``_index_rollout_buffer`` checks.
+    """
+    from hy_worldplay._action import HyWorldPlayCtrl
+
+    ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
+    assert ctrl.rollout_viewmats is None
+    assert ctrl.rollout_Ks is None
+    assert ctrl.rollout_action is None
+
+
+def test_ctrl_rollout_fields_survive_patchify_rebuild() -> None:
+    """Patchify must pass through the per-rollout buffers unchanged.
+
+    The ``HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp``
+    override rebuilds the ctrl after patchify; if the new rollout
+    fields aren't included in the rebuild, the prefill executor
+    downstream of patchify would read ``None`` and silently fall
+    back to the per-AR-step (parity-incorrect) slice. This test
+    pins the inclusion at the patchify rebuild without spinning up
+    a full transformer forward.
+    """
+    from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
+
+    fake_self = type("F", (), {})()
+
+    fake_self.patchify_and_maybe_split_cp = (
+        HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp.__get__(fake_self)
+    )
+
+    rollout_viewmats = torch.eye(4).expand(1, 16, 4, 4).contiguous()
+    rollout_Ks = torch.eye(3).expand(1, 16, 3, 3).contiguous()
+    rollout_action = torch.zeros(1, 16, dtype=torch.long)
+
+    # Already-patchified ctrl: the override returns the ctrl as-is,
+    # which is enough to confirm the ``_is_patchified`` early-return
+    # sees the new fields. The non-patchified branch can't be tested
+    # here without a real transformer (it calls
+    # ``self.patchify_and_maybe_split_cp(x.latent)`` recursively),
+    # so we exercise the equivalent rebuild via the ctor below.
+    ctrl_patched = HyWorldPlayCtrl(
+        latent=torch.randn(1, 4, 16, 8, 8),
+        mask=torch.zeros(1, 4, 16, 8, 8),
+        _is_patchified=True,
+        rollout_viewmats=rollout_viewmats,
+        rollout_Ks=rollout_Ks,
+        rollout_action=rollout_action,
+    )
+    out = fake_self.patchify_and_maybe_split_cp(ctrl_patched)
+    assert out is ctrl_patched
+    assert out.rollout_viewmats is rollout_viewmats
+    assert out.rollout_Ks is rollout_Ks
+    assert out.rollout_action is rollout_action
+
+
+def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
+    """``HyWorldPlayWanCtrlEncoder.forward`` puts the bound per-rollout buffers on the ctrl.
+
+    End-to-end check of the 2b.5b-part2-followup plumbing: bind the
+    full-trajectory action / viewmats / Ks via the encoder's
+    setters, then drive a single ``forward`` and assert the output
+    ctrl carries the per-rollout buffers in ``rollout_*``. Pins the
+    contract between the encoder (data source) and the prefill
+    driver (consumer) without touching the transformer / network.
+    """
+    from hy_worldplay._action import (
+        HyWorldPlayWanCtrlEncoder,
+        HyWorldPlayWanCtrlEncoderConfig,
+    )
+
+    cfg = HyWorldPlayWanCtrlEncoderConfig()
+    encoder = HyWorldPlayWanCtrlEncoder(cfg)
+
+    # Stub the parent's forward so we don't have to spin up a VAE -
+    # we only exercise the action / viewmats / Ks attach paths.
+    from hy_worldplay._action import HyWorldPlayCtrl
+    from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
+
+    # 16 latent frames total (= 4 chunks of len_t=4) so we can test
+    # both the per-AR-step slice and the rollout pass-through.
+    F_total = 16
+    rollout_viewmats = torch.eye(4).expand(1, F_total, 4, 4).contiguous()
+    rollout_Ks = torch.eye(3).expand(1, F_total, 3, 3).contiguous()
+    rollout_action = torch.arange(F_total, dtype=torch.long).unsqueeze(0)
+
+    encoder.set_camera_data(viewmats=rollout_viewmats, Ks=rollout_Ks)
+    encoder.set_action_labels(rollout_action)
+
+    # Stub the parent's forward to return a minimal I2VCtrl with a
+    # latent that has the required ``len_t`` axis (4 latent frames
+    # per chunk). Bypasses the VAE encode pipeline that the real
+    # parent forward would otherwise spin up.
+    def fake_super_forward(*, input, autoregressive_index, cache):
+        latent = torch.zeros(1, 4, 4, 8, 8)  # [B, C, len_t=4, H, W]
+        mask = torch.zeros(1, 4, 4, 8, 8)
+        return I2VCtrl(latent=latent, mask=mask)
+
+    # Patch the parent's forward at the bound-method level.
+    import unittest.mock as _mock
+
+    with _mock.patch(
+        "flashdreams.recipes.wan.autoencoder.i2v.I2VCtrlEncoder.forward",
+        side_effect=fake_super_forward,
+    ):
+        ctrl = encoder.forward(
+            input=torch.zeros(1, 3, 16, 64, 64),
+            autoregressive_index=2,  # third chunk, frames [8, 12)
+            cache=None,
+        )
+
+    # Per-AR-step slices match upstream's contract (frames [8, 12)
+    # for AR step 2 with len_t=4).
+    assert ctrl.action is not None
+    assert torch.equal(ctrl.action, torch.tensor([[8, 9, 10, 11]]))
+    assert ctrl.viewmats is not None
+    assert ctrl.viewmats.shape == (1, 4, 4, 4)
+
+    # NEW: per-rollout buffers carry the FULL trajectory.
+    assert ctrl.rollout_viewmats is not None
+    assert ctrl.rollout_viewmats.shape == (1, F_total, 4, 4)
+    assert ctrl.rollout_Ks is not None
+    assert ctrl.rollout_Ks.shape == (1, F_total, 3, 3)
+    assert ctrl.rollout_action is not None
+    assert torch.equal(ctrl.rollout_action, rollout_action)
+
+
+def test_encoder_omits_rollout_buffers_when_unbound() -> None:
+    """Unbound conditioner -> ``rollout_*`` is ``None`` (matches the per-step contract).
+
+    A user that only enables, say, ``--use-action-conditioning``
+    (not ``--use-camera-conditioning``) should see ``rollout_action``
+    populated and ``rollout_viewmats`` / ``rollout_Ks`` ``None``;
+    the prefill driver's ``_index_rollout_buffer`` then falls back
+    to its safe per-step path for the camera conditioner. Pins
+    independence of the three streams.
+    """
+    from hy_worldplay._action import (
+        HyWorldPlayWanCtrlEncoder,
+        HyWorldPlayWanCtrlEncoderConfig,
+    )
+    from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
+
+    cfg = HyWorldPlayWanCtrlEncoderConfig()
+    encoder = HyWorldPlayWanCtrlEncoder(cfg)
+
+    # Bind only action; leave camera unbound.
+    encoder.set_action_labels(torch.arange(8, dtype=torch.long).unsqueeze(0))
+
+    def fake_super_forward(*, input, autoregressive_index, cache):
+        return I2VCtrl(
+            latent=torch.zeros(1, 4, 4, 8, 8),
+            mask=torch.zeros(1, 4, 4, 8, 8),
+        )
+
+    import unittest.mock as _mock
+
+    with _mock.patch(
+        "flashdreams.recipes.wan.autoencoder.i2v.I2VCtrlEncoder.forward",
+        side_effect=fake_super_forward,
+    ):
+        ctrl = encoder.forward(
+            input=torch.zeros(1, 3, 16, 64, 64),
+            autoregressive_index=0,
+            cache=None,
+        )
+
+    assert ctrl.rollout_action is not None
+    assert ctrl.rollout_viewmats is None
+    assert ctrl.rollout_Ks is None

@@ -127,10 +127,40 @@ class HyWorldPlayCtrl(I2VCtrl):
     :meth:`HyWorldPlayWanCtrlEncoder.forward` when memory selection is
     armed and there is enough history (``current_frame_idx >=
     context_window_length``). ``None`` for the first AR chunk and when
-    memory selection is disabled. The actual prefill executor (the
-    transformer pre-pass with ``is_cache=True``) lands in phase 2b.5b
-    together with the :class:`flashdreams.core.attention.kvcache.BlockKVCache`
-    arbitrary-position write extension."""
+    memory selection is disabled. Indexes into the per-rollout
+    :attr:`rollout_viewmats` / :attr:`rollout_Ks` / :attr:`rollout_action`
+    buffers (frame-granular, not token-granular)."""
+
+    rollout_viewmats: Tensor | None = None
+    """Per-*rollout* world-to-camera matrices (the *full* trajectory,
+    not the current AR chunk's slice). Shape
+    ``[*batch_shape, F_total, 4, 4]`` where ``F_total`` is
+    ``num_chunk * len_t``. Read by
+    :meth:`HyWorldPlayWan21Transformer.prefill_memory_kv_cache` to
+    slice the K selected memory frames at
+    :attr:`memory_frame_indices` -- without this buffer the prefill
+    would have to fall back to the current chunk's slice (the
+    ``_slice_per_frame`` stub from the 2b.5b-part2 first cut), which
+    is parity-incorrect because memory frames live in past chunks.
+    ``None`` when camera conditioning is disabled or the encoder
+    hasn't bound camera data via :meth:`HyWorldPlayWanCtrlEncoder.set_camera_data`."""
+
+    rollout_Ks: Tensor | None = None
+    """Per-rollout intrinsics buffer; shape
+    ``[*batch_shape, F_total, 3, 3]``. Sibling of
+    :attr:`rollout_viewmats`; bound together by
+    :meth:`HyWorldPlayWanCtrlEncoder.set_camera_data` and read together
+    by the prefill driver."""
+
+    rollout_action: Tensor | None = None
+    """Per-rollout action labels; shape ``[*batch_shape, F_total]``.
+    Same role as :attr:`rollout_viewmats` for the action conditioner:
+    when memory selection is armed, the prefill driver slices this at
+    :attr:`memory_frame_indices` to get the action label per memory
+    frame (used by :meth:`HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache`
+    to compute the AdaLN modulation). ``None`` when action
+    conditioning is disabled or the encoder hasn't bound action
+    labels via :meth:`HyWorldPlayWanCtrlEncoder.set_action_labels`."""
 
 
 ## ---------------------------------------------------------------------------
@@ -348,6 +378,31 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             autoregressive_index=autoregressive_index, current_frame_idx=start
         )
 
+        # Per-rollout buffers (phase 2b.5b-part2-followup): expose the
+        # bound full-trajectory tensors so the prefill driver in
+        # ``HyWorldPlayWan21Transformer.prefill_memory_kv_cache`` can
+        # index them at ``memory_frame_indices`` (which live in
+        # *rollout* coordinates, not chunk coordinates). We move the
+        # buffers to the latent's device once per AR step rather than
+        # once per memory-prefill call so the device-transfer cost is
+        # amortised. The encoder's bound storage stays on whatever
+        # device the caller put it on (typically CPU during config
+        # build), and the per-AR-step ctrl gets the device-correct
+        # view.
+        rollout_viewmats: Tensor | None = (
+            self._viewmats.to(device=device) if self._viewmats is not None else None
+        )
+        rollout_Ks: Tensor | None = (
+            self._intrinsics.to(device=device)
+            if self._intrinsics is not None
+            else None
+        )
+        rollout_action: Tensor | None = (
+            self._action_labels.to(device=device)
+            if self._action_labels is not None
+            else None
+        )
+
         return HyWorldPlayCtrl(
             latent=base.latent,
             mask=base.mask,
@@ -355,6 +410,9 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             viewmats=viewmats_chunk,
             Ks=Ks_chunk,
             memory_frame_indices=memory_indices,
+            rollout_viewmats=rollout_viewmats,
+            rollout_Ks=rollout_Ks,
+            rollout_action=rollout_action,
         )
 
     def _compute_memory_indices(
@@ -396,8 +454,15 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         # selection is disabled.
         from hy_worldplay._memory import select_memory_frame_indices
 
+        # ``.numpy()`` only supports a subset of dtypes; the runner
+        # binds ``viewmats`` in the pipeline dtype (bf16 / fp16) so
+        # ``prope_qkv`` doesn't promote to fp64, but bf16 has no numpy
+        # ABI. Round-trip through fp32 here so the selection math
+        # (FOV-overlap on a CPU point cloud) consumes a plain
+        # ``np.float32`` array; selection precision is not the bottleneck
+        # vs the bf16 dtype used downstream by attention.
         return select_memory_frame_indices(
-            viewmats_history.detach().cpu().numpy(),
+            viewmats_history.detach().to(dtype=torch.float32).cpu().numpy(),
             current_frame_idx=current_frame_idx,
             points_local=cfg.points_local,
             memory_frames=cfg.memory_frames,
@@ -1090,13 +1155,15 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 return x
             patched_latent = self.patchify_and_maybe_split_cp(x.latent)
             patched_mask = self.patchify_and_maybe_split_cp(x.mask)
-            # action / viewmats / Ks / memory_frame_indices are per-
-            # latent-frame metadata (not per-token tensors) and do not
-            # participate in the patchify reshape; pass them through
-            # unchanged so the PRoPE branch and the memory-prefill
-            # consumer see the same ``[..., len_t, 4, 4]`` /
-            # ``[..., len_t]`` / ``list[int]`` layout they would on a
-            # fresh ctrl.
+            # action / viewmats / Ks / memory_frame_indices and the
+            # per-rollout rollout_* siblings are per-latent-frame
+            # metadata (not per-token tensors) and do not participate
+            # in the patchify reshape; pass them through unchanged so
+            # the PRoPE branch and the memory-prefill consumer see the
+            # same ``[..., len_t, 4, 4]`` /
+            # ``[..., F_total, 4, 4]`` / ``[..., len_t]`` /
+            # ``[..., F_total]`` / ``list[int]`` layouts they would on
+            # a fresh ctrl.
             return HyWorldPlayCtrl(
                 latent=patched_latent,
                 mask=patched_mask,
@@ -1105,6 +1172,9 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 viewmats=x.viewmats,
                 Ks=x.Ks,
                 memory_frame_indices=x.memory_frame_indices,
+                rollout_viewmats=x.rollout_viewmats,
+                rollout_Ks=x.rollout_Ks,
+                rollout_action=x.rollout_action,
             )
         return super().patchify_and_maybe_split_cp(x)
 
@@ -1183,10 +1253,36 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         # Slice the per-rollout camera + action tensors at the same
         # frame indices. These tensors are stored at the
         # *latent-frame* granularity, not the token granularity --
-        # one entry per latent frame.
-        memory_viewmats = self._slice_per_frame(input.viewmats, selected)
-        memory_Ks = self._slice_per_frame(input.Ks, selected)
-        memory_action = self._slice_per_frame(input.action, selected)
+        # one entry per latent frame. The encoder hands us the
+        # *rollout-scoped* buffers via ``input.rollout_*``; if those
+        # are missing we fall back to the (parity-incorrect, but
+        # structurally safe) per-AR-step truncation that 2b.5b-part2
+        # used as a stub. The fallback is only reached when the
+        # encoder hasn't bound camera / action data, in which case
+        # the dual-branch / action paths are themselves no-ops, so
+        # the slice values don't matter; the assertion below makes
+        # the parity-correct path observable in tests.
+        selected_idx_t = torch.as_tensor(
+            selected, dtype=torch.long, device=memory_x.device
+        )
+        memory_viewmats = self._index_rollout_buffer(
+            rollout=input.rollout_viewmats,
+            per_step=input.viewmats,
+            selected=selected_idx_t,
+            kind="viewmats",
+        )
+        memory_Ks = self._index_rollout_buffer(
+            rollout=input.rollout_Ks,
+            per_step=input.Ks,
+            selected=selected_idx_t,
+            kind="Ks",
+        )
+        memory_action = self._index_rollout_buffer(
+            rollout=input.rollout_action,
+            per_step=input.action,
+            selected=selected_idx_t,
+            kind="action",
+        )
 
         # Build RoPE freqs for the collapsed memory positions
         # ``[0, K)`` at the *temporal* axis. Mirrors upstream lines
@@ -1253,76 +1349,89 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             return clean_latent.detach().clone()
         return torch.cat([history, clean_latent.detach()], dim=-2)
 
-    def _slice_per_frame(
+    def _index_rollout_buffer(
         self,
-        tensor: Tensor | None,
-        selected: list[int],
+        *,
+        rollout: Tensor | None,
+        per_step: Tensor | None,
+        selected: Tensor,
+        kind: str,
     ) -> Tensor | None:
-        """Index a per-latent-frame metadata tensor by ``selected`` along axis -1 / -2.
+        """Slice a per-rollout metadata buffer at the selected memory-frame indices.
 
-        ``viewmats`` is shape ``[..., F, 4, 4]`` (F = latent frame
-        count), ``Ks`` is ``[..., F, 3, 3]``, and ``action`` is
-        ``[..., F]``. The slice axis is the rank-3 frame axis for the
-        matrix tensors (-3 for the 4x4 / 3x3) and the trailing axis
-        for the action ints. We dispatch via ``ndim``.
+        Prefers the rollout-scoped buffer (``rollout``) populated by
+        :meth:`HyWorldPlayWanCtrlEncoder.forward`; falls back to the
+        per-AR-step ``per_step`` slice when the rollout buffer is
+        ``None`` (encoder not configured for this conditioner). The
+        fallback is parity-incorrect -- it indexes into the *current
+        chunk's* slice rather than the full rollout -- but it is also
+        structurally safe: when the rollout buffer is absent, the
+        corresponding conditioner is itself disabled (no
+        ``set_camera_data`` / ``set_action_labels`` call has run), so
+        the prefill executor's downstream consumer (the network's
+        AdaLN / PRoPE math) treats the slice as a no-op.
 
-        IMPORTANT: ``input.viewmats`` / ``input.Ks`` / ``input.action``
-        on the per-AR-step :class:`HyWorldPlayCtrl` are sliced to *the
-        current chunk's* latent frames, not the full per-rollout
-        history. The encoder set them via
-        :meth:`HyWorldPlayWanCtrlEncoder.set_camera_data` /
-        :meth:`set_action_labels` and slices the per-rollout buffers
-        at ``[ar_idx*len_t : (ar_idx+1)*len_t]`` per AR step. So
-        slicing again at ``selected`` (which holds *historical*
-        frame indices in pre-patchify rollout coordinates) would be
-        wrong if we used input.viewmats directly.
+        Args:
+            rollout: Per-rollout buffer with the *full* trajectory's
+                worth of frames (e.g. ``[*batch_shape, F_total, 4, 4]``
+                for viewmats). When non-``None``, indexed at
+                ``selected`` along the frame axis -- this is the
+                parity-correct path.
+            per_step: Per-AR-step slice (``[*batch_shape, len_t, ...]``
+                for matrices, ``[*batch_shape, len_t]`` for action).
+                Used as a fallback when ``rollout`` is missing; in
+                practice this only happens when the conditioner is
+                disabled, so its content is not consumed.
+            selected: ``LongTensor`` of memory frame indices, shape
+                ``[K]``, in *rollout* coordinates (``0 <= idx <
+                F_total``).
+            kind: Tensor kind name (``"viewmats"`` /  ``"Ks"`` /
+                ``"action"``) for the error message; reduces the cost
+                of debugging mis-bound buffers in production rollouts.
 
-        This method is therefore *not* used against ``input.viewmats``
-        directly -- the caller passes the per-rollout buffer instead
-        (via the encoder's bound state). For phase 2b.5b-part2 (where
-        the camera + action streams are still per-AR-step on the
-        ctrl), we punt: the prefill executor takes only the *latents*
-        from history and reuses the *current chunk's* viewmats / Ks /
-        action for the prefill. This is wrong for parity but is a
-        deliberate temporary stub flagged by the README; the
-        per-rollout buffer wiring lands in a follow-up alongside the
-        parity diff.
-
-        TODO(phase 2b.5b-part2-followup): replace this with a slice
-        against the per-rollout viewmats / Ks / action stored on the
-        encoder, threaded into the cache so prefill has access.
+        Returns:
+            Indexed tensor with shape ``[*batch_shape, K, ...]`` for
+            matrices or ``[*batch_shape, K]`` for action; ``None`` if
+            both ``rollout`` and ``per_step`` are ``None``.
         """
-        if tensor is None:
+        if rollout is None and per_step is None:
             return None
-        # Defensive: as of phase 2b.5b-part2 we still consume the
-        # per-AR-step input.viewmats / Ks / action; if these have a
-        # frame axis equal to the chunk size, we *replicate* them
-        # across the K memory positions rather than slice. This is a
-        # parity-incorrect stub flagged in the runner's README.
-        if tensor.ndim == 1 or tensor.shape[-1] == 0:
-            return tensor
-        # Action ints: trailing axis is the frame axis.
-        if tensor.dtype in (torch.int32, torch.int64):
-            # The ctrl's action tensor is shape ``[..., F_chunk]`` where
-            # F_chunk is the chunk's frame count. We tile to length K
-            # so the prefill consumer sees an action label per memory
-            # frame (parity stub: real implementation slices the per-
-            # rollout buffer at ``selected``).
-            F_chunk = tensor.shape[-1]
-            K = len(selected)
-            if F_chunk >= K:
-                return tensor[..., :K]
-            return tensor.repeat(*[1] * (tensor.ndim - 1), (K + F_chunk - 1) // F_chunk)[
-                ..., :K
-            ]
-        # Matrix tensors (viewmats / Ks): frame axis is -3.
-        F_chunk = tensor.shape[-3]
-        K = len(selected)
-        if F_chunk >= K:
-            return tensor[..., :K, :, :]
-        repeat_shape = [1] * tensor.ndim
-        repeat_shape[-3] = (K + F_chunk - 1) // F_chunk
-        return tensor.repeat(*repeat_shape)[..., :K, :, :]
+        if rollout is None:
+            # Conditioner is disabled but the prefill is still running
+            # because some other conditioner is on. Return the per-
+            # step slice unmodified -- ``selected`` won't be applied.
+            # The downstream prefill consumer treats this slice as a
+            # no-op per the conditioner's own gate.
+            return per_step
+
+        # Rollout buffer present: index along the frame axis. Action
+        # is rank ``len(batch_shape)+1`` (last axis is the frame); the
+        # matrix tensors (viewmats / Ks) are rank ``len(batch_shape)+3``
+        # with the matrix axes at -2 / -1 and the frame axis at -3.
+        if rollout.dtype in (torch.int32, torch.int64):
+            # action: ``[*batch_shape, F_total]`` -> ``[*batch_shape, K]``.
+            # The selected indices live in rollout coordinates so a
+            # straight ``index_select`` on the trailing axis is what
+            # we want; this is also what upstream's
+            # ``action_chunk[..., selected_frame_indices]`` produces
+            # in ``arwan_w_action_w_mem_relative_rope.py``.
+            if rollout.shape[-1] == 0:
+                # Defensive: a zero-length rollout would never reach
+                # us (the encoder would have raised) but the empty
+                # selection branch below would still produce a degenerate
+                # tensor. Surface the misconfig instead.
+                raise ValueError(
+                    f"rollout {kind} buffer has zero-length frame axis"
+                )
+            return rollout.index_select(-1, selected)
+        # matrices: index on axis -3 (the F axis).
+        if rollout.ndim < 3 or rollout.shape[-3] == 0:
+            raise ValueError(
+                f"rollout {kind} buffer must have shape "
+                f"[..., F_total, M, N] with F_total > 0; got "
+                f"{tuple(rollout.shape)}"
+            )
+        return rollout.index_select(-3, selected)
 
     def _build_collapsed_rope_freqs(
         self,

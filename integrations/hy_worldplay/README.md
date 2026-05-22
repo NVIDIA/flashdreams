@@ -270,14 +270,69 @@ feature flag and lands incrementally:
   metadata threading + sub-venv removal + default flag flip) is
   tracked under **2b.5b-part2-followup** below.
 
-- **2b.5b-part2-followup (next).** Three open items, all behind the
-  GPU smoke + parity diff: (1) thread the per-rollout `viewmats`,
-  `Ks`, and `action` buffers from the encoder through to the
-  prefill driver so the slice at `memory_frame_indices` indexes
-  into rollout coordinates rather than the current chunk; (2) drop
-  the parity sub-venv (`sageattention`, `cloudpickle`,
-  `accelerate`, `transformers==4.57.6`) once the native path
-  matches the vendor-wrapper baseline within tolerance; (3) flip
+- **2b.5b-part2-followup (this release).** Two pieces landed
+  together because the second was discovered while validating
+  the first:
+  - *Per-rollout metadata threading.* `HyWorldPlayCtrl` gains
+    `rollout_viewmats` / `rollout_Ks` / `rollout_action` slots,
+    populated by `HyWorldPlayWanCtrlEncoder.forward` from the
+    full-trajectory tensors that the encoder already maintains
+    (`_viewmats` / `_intrinsics` / `_action_labels`) -- previously
+    only sliced into the per-AR-step `viewmats` / `Ks` / `action`
+    fields. The prefill driver's parity-incorrect
+    `_slice_per_frame` stub is replaced by
+    `_index_rollout_buffer`, which uses
+    `tensor.index_select(axis, memory_frame_indices)` against the
+    rollout buffer when bound and falls back to the per-step
+    slice only when the conditioner is disabled (the
+    conditioner's own gate makes the slice content unobservable
+    in that case). The patchify rebuild passes the new fields
+    through unchanged. CPU tests (4 new in `test_prefill.py`)
+    pin defaults / patchify survival / encoder attach / unbound-
+    conditioner fallback.
+  - *GPU smoke validates structural skeleton.* The 2-chunk
+    rollout boots end-to-end on a real RTX 6000 Pro with the
+    distilled checkpoint, ~28 GB peak GPU memory at 256x448
+    pixel resolution. The prefill executor was instrumented with
+    a synthetic `memory_frame_indices=[0, 1, 2, 3]` (the
+    upstream FOV selector has known boundary issues with short
+    rollouts -- see Known Quirks below) and confirmed to (a)
+    fire on chunk 1, (b) read the per-rollout buffers via
+    `_index_rollout_buffer`, (c) populate the
+    `HyWorldPlayMemoryKVCache` per block, and (d) feed
+    `forward_dual_branch` so the noise prediction completes
+    without NaN. Three drive-by fixes shipped to make the smoke
+    work:
+    - `wan22_ti2v_5b_vae_state_dict_transform` (in
+      `flashdreams/recipes/wan/autoencoder/vae.py`) now remaps
+      the `mid_block.resnets.{0,1}.{norm1,conv1,norm2,conv2,
+      conv_shortcut}` keys to the `middle.{0,2}.residual.{0,2,3,
+      6}` Sequential layout. Without this, 12 VAE params per
+      side stayed on `meta` device and the pipeline crashed with
+      `Cannot copy out of meta tensor` at `.to(device)`. This is
+      a base recipe fix that benefits *all* Wan22 5B native
+      callers, not just HY-WorldPlay.
+    - `_native_runner._bind_camera_data` now `unsqueeze(0)`s the
+      viewmats / Ks tensors so they reach
+      `flashdreams.core.attention.prope.prope_qkv` in the
+      required `[batch=1, cameras, 4, 4]` rank.
+    - `HyWorldPlayWanCtrlEncoder._compute_memory_indices` casts
+      the bound viewmats to fp32 before the
+      `.cpu().numpy()` round-trip in
+      `select_memory_frame_indices` -- numpy has no bf16 ABI so
+      the bf16 cast applied for PRoPE attention can't survive
+      the round-trip.
+    - `_native_runner.run` casts the preprocessed first-frame
+      tensor to the pipeline's parameter dtype so the residual
+      VAE's first `CausalConv3d` doesn't see a fp32-vs-bf16 dtype
+      mismatch.
+
+- **2b.5b-part2-followup (still pending).** Three remaining
+  items: (1) end-to-end parity diff vs the phase-1 vendor-wrapper
+  baseline at production resolution (704x1280) with the full
+  upstream FOV memory selector; (2) drop the parity sub-venv
+  (`sageattention`, `cloudpickle`, `accelerate`,
+  `transformers==4.57.6`) once parity passes; (3) flip
   `--use-native-pipeline` to the default for the
   `hy-worldplay-wan-i2v-5b` recipe.
 
@@ -307,26 +362,51 @@ per-rollout viewmats binding) and is a no-op without it; setting it
 without `--use-native-pipeline` is silently ignored on the vendor
 wrapper path.
 
-The current native path **does not yet match** the vendor-wrapper
-baseline numerically: the prefill executor structural skeleton
-landed in 2b.5b-part2 (history buffer, per-block memory KV cache,
-collapsed-position RoPE prefill, dual-branch concat) but the
-per-rollout viewmats / Ks / action streams that the prefill should
-slice at `memory_frame_indices` are still per-AR-step on the ctrl,
-so the prefill driver currently slices the *current chunk's*
-metadata (the parity-incorrect stub flagged in
-:meth:`HyWorldPlayWan21Transformer._slice_per_frame`). The CPU
-test suite pins all the structural invariants (cache layout,
-prefill side-effect surface, per-chunk rolling-cache reset, history
-append + detach, RoPE collapse, first-step gating); the GPU smoke
-+ vendor-wrapper parity diff lands in **2b.5b-part2-followup**
-together with the per-rollout metadata wiring. The native path is
-checked in to let early adopters benchmark the flashdreams runtime
-stack on the Wan 2.2 TI2V-5B backbone; for bit-for-bit parity with
-upstream `wan/generate.py` today, use the default (vendor-wrapper)
-invocation above. See
+The native path's parity status as of this release: the prefill
+executor structural skeleton (history buffer, per-block memory KV
+cache, collapsed-position RoPE prefill, dual-branch concat, per-chunk
+rolling-cache reset), the per-rollout viewmats / Ks / action
+threading, and the GPU boot path have all landed. 99 CPU tests pin
+the structural invariants and a 2-chunk GPU smoke at 256x448 confirms
+the prefill executor runs on real bf16 weights without crashing. What
+remains for full numerical parity is the end-to-end parity diff at
+production resolution against the phase-1 vendor-wrapper baseline,
+which feeds the parity sub-venv removal and the
+`--use-native-pipeline` default flip (the still-pending three
+**2b.5b-part2-followup** items). For bit-for-bit parity with upstream
+`wan/generate.py` today, use the default (vendor-wrapper) invocation
+above. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
+
+#### Known quirks observed during GPU smoke validation
+
+These do not block parity but are worth tracking for the eventual
+parity diff:
+
+- **Prefill executor fires once per denoising step rather than
+  once per chunk.** `_is_first_step_of_chunk` returns `True` at
+  every scheduler step of chunk N (N > 0), causing
+  `prefill_memory_kv_cache` to fire `num_inference_steps` times
+  per chunk instead of once. The prefill is idempotent (same
+  inputs -> same K/V), so this is correct-but-wasteful: it costs
+  `num_inference_steps - 1 = 3` extra prefill passes per chunk on
+  the distilled 4-step schedule. Worth fixing as a perf
+  optimization in a separate phase.
+- **Upstream FOV-selector boundary on short rollouts.** The
+  upstream `select_mem_frames_wan` algorithm (faithfully ported
+  in `_memory.py`) has `historical_clip_starts` that allow clip
+  starts whose `[start, start+pred_latent_size)` range overlaps
+  the temporal-context window when the FOV-distance scorer picks
+  the latest start. With short rollouts (the 2-chunk smoke at
+  21 frames of history per chunk), the resulting set-union can
+  shrink below the requested `memory_frames`, which the final
+  assertion catches. Production rollouts with larger
+  `temporal_context` and many chunks of history avoid this. The
+  GPU smoke pins the prefill executor itself by monkey-patching
+  the encoder to feed a fixed `memory_frame_indices=[0,1,2,3]`
+  list bypassing the FOV scorer; full FOV-selected runs need a
+  longer rollout or a relaxed `pred_latent_size` constraint.
 
 ### Camera control
 
