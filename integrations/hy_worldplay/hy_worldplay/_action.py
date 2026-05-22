@@ -13,24 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HY-WorldPlay action + camera conditioner glue (phases 2b.3 + 2b.4).
+"""HY-WorldPlay action + camera + memory conditioner glue (phases 2b.3 - 2b.5a).
 
-Adds discrete 81-class action conditioning (2b.3) and the per-AR-step
-camera data plumbing for the PRoPE branch (2b.4) on top of the Wan 2.2
-TI2V 5B stack. The four pieces compose into a drop-in replacement of the
-standard encoder + transformer + network used by
+Adds discrete 81-class action conditioning (2b.3), the per-AR-step
+camera data plumbing for the PRoPE branch (2b.4), and the
+reconstituted-context **memory-frame selection** (2b.5a) on top of the
+Wan 2.2 TI2V 5B stack. The four pieces compose into a drop-in
+replacement of the standard encoder + transformer + network used by
 ``PIPELINE_WAN22_TI2V_5B``:
 
 * :class:`HyWorldPlayCtrl` extends :class:`I2VCtrl` with ``action``,
-  ``viewmats``, and ``Ks`` fields. ``action`` carries the per-latent-
-  frame discrete labels; ``viewmats`` / ``Ks`` carry the per-frame W2C
-  extrinsics + intrinsics consumed by the PRoPE attention branch in
-  :class:`hy_worldplay._camera.HyWorldPlayPRoPEBlock`.
+  ``viewmats``, ``Ks``, and ``memory_frame_indices`` fields. ``action``
+  carries the per-latent-frame discrete labels; ``viewmats`` / ``Ks``
+  carry the per-frame W2C extrinsics + intrinsics consumed by the PRoPE
+  attention branch; ``memory_frame_indices`` is the sorted list of
+  historical frame indices selected by
+  :func:`hy_worldplay._memory.select_memory_frame_indices` for the
+  upcoming KV-prefill pass (consumer lands in 2b.5b together with the
+  ``BlockKVCache`` arbitrary-position-write extension).
 * :class:`HyWorldPlayWanCtrlEncoder` wraps :class:`I2VCtrlEncoder` and
   slices the per-rollout action labels / camera tensors into the per-AR-
   step :class:`HyWorldPlayCtrl` payload via :meth:`set_action_labels` /
-  :meth:`set_camera_data`. Either source can be bound independently;
-  unbound sources flow through as ``None``.
+  :meth:`set_camera_data`, and computes the per-AR-step memory frame
+  indices on demand via :meth:`set_memory_config` + the bound camera
+  history. Each source can be bound independently; unbound sources flow
+  through as ``None`` so downstream consumers stay opt-in.
 * :class:`HyWorldPlayWanDiTNetwork` extends :class:`WanDiTNetwork` with a
   zero-residual ``action_embedding`` MLP summed into the time embedding
   before the AdaLN modulation projection (mirrors
@@ -88,14 +95,17 @@ from flashdreams.recipes.wan.transformer.wan21 import (
 
 @dataclass(kw_only=True)
 class HyWorldPlayCtrl(I2VCtrl):
-    """I2V control payload extended with per-AR-step action + camera slices.
+    """I2V control payload extended with per-AR-step action + camera +
+    memory slices.
 
     The ``action`` field carries the integer class labels for the current
     chunk's ``len_t`` latent frames (shape ``[*batch_shape, len_t]``).
     The ``viewmats`` / ``Ks`` fields carry the per-frame world-to-camera
     extrinsic and intrinsic matrices consumed by the PRoPE attention
-    branch (2b.4). All three fields survive the transformer's
-    patchify-rebuild via
+    branch (2b.4). The ``memory_frame_indices`` list selects the
+    historical frame indices the KV-prefill pass should attend to for
+    this AR step (2b.5a; the prefill *consumer* lands in 2b.5b). All
+    four fields survive the transformer's patchify-rebuild via
     :meth:`HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp`.
     """
 
@@ -110,6 +120,17 @@ class HyWorldPlayCtrl(I2VCtrl):
     Ks: Tensor | None = None
     """Per-latent-frame intrinsics (with cx/cy renormalised to 0.5) for
     the current AR chunk; shape ``[*batch_shape, len_t, 3, 3]``."""
+
+    memory_frame_indices: list[int] | None = None
+    """Sorted, deduplicated historical frame indices for the upcoming
+    KV-prefill pass. Populated by
+    :meth:`HyWorldPlayWanCtrlEncoder.forward` when memory selection is
+    armed and there is enough history (``current_frame_idx >=
+    context_window_length``). ``None`` for the first AR chunk and when
+    memory selection is disabled. The actual prefill executor (the
+    transformer pre-pass with ``is_cache=True``) lands in phase 2b.5b
+    together with the :class:`flashdreams.core.attention.kvcache.BlockKVCache`
+    arbitrary-position write extension."""
 
 
 ## ---------------------------------------------------------------------------
@@ -148,6 +169,11 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         self._action_labels: Tensor | None = None
         self._viewmats: Tensor | None = None
         self._intrinsics: Tensor | None = None
+        # Memory selection (2b.5a) -- knobs + Monte-Carlo point cloud
+        # are bound externally via ``set_memory_config``; ``None``
+        # means selection is off and the encoder emits
+        # ``memory_frame_indices=None`` on every AR step.
+        self._memory_config: _MemoryConfig | None = None
 
     def set_action_labels(self, labels: Tensor) -> None:
         """Bind the per-rollout action labels.
@@ -203,11 +229,78 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         self._viewmats = None
         self._intrinsics = None
 
+    def set_memory_config(
+        self,
+        *,
+        points_local: Tensor,
+        context_window_length: int,
+        memory_frames: int,
+        temporal_context_size: int,
+        pred_latent_size: int,
+        fov_h_deg: float,
+        fov_v_deg: float,
+        device: torch.device | str | None = None,
+    ) -> None:
+        """Arm reconstituted-context memory selection for this rollout.
+
+        Stashes the Monte-Carlo point cloud + selection knobs so each
+        :meth:`forward` call can compute the per-AR-step
+        ``memory_frame_indices`` from the bound camera history. The
+        first AR step (and any subsequent step where
+        ``current_frame_idx < context_window_length``) bypasses the
+        selection algorithm and produces ``memory_frame_indices=None``,
+        matching upstream's ``elif use_memory`` branch in
+        ``pipeline_wan_w_mem_relative_rope.py`` line 868-869.
+
+        Args:
+            points_local: Pre-sampled cloud of 3D points, shape
+                ``[N, 3]``. Build once via
+                :func:`hy_worldplay._memory.generate_points_in_sphere`
+                and reuse for the whole rollout.
+            context_window_length: Threshold (in latent frames) below
+                which the encoder emits ``None`` instead of running
+                the FOV-overlap selection (upstream default 16).
+            memory_frames: Total budget of memory frames the selector
+                returns once armed.
+            temporal_context_size: Recent-frames portion of the memory
+                budget (kept unconditionally).
+            pred_latent_size: Length of the query clip the selector
+                scores historical clips against.
+            fov_h_deg / fov_v_deg: FOV (degrees) used by the overlap
+                computation.
+            device: Optional torch device for the overlap math. Pass
+                the runner's compute device for GPU rollouts.
+        """
+        if memory_frames < temporal_context_size:
+            raise ValueError(
+                f"memory_frames ({memory_frames}) must be >= "
+                f"temporal_context_size ({temporal_context_size})."
+            )
+        if points_local.ndim != 2 or points_local.shape[-1] != 3:
+            raise ValueError(
+                f"points_local must have shape (N, 3); got "
+                f"{tuple(points_local.shape)}."
+            )
+        self._memory_config = _MemoryConfig(
+            points_local=points_local,
+            context_window_length=context_window_length,
+            memory_frames=memory_frames,
+            temporal_context_size=temporal_context_size,
+            pred_latent_size=pred_latent_size,
+            fov_h_deg=fov_h_deg,
+            fov_v_deg=fov_v_deg,
+            device=device,
+        )
+
+    def clear_memory_config(self) -> None:
+        """Disarm memory selection (used when reusing the encoder)."""
+        self._memory_config = None
+
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
         # Match the parent's per-rollout reset; action / camera tensors
-        # are bound explicitly after ``initialize_cache`` so we
-        # deliberately do *not* clear them here. The runner clears them
-        # when it tears down the rollout.
+        # and memory config are bound explicitly after
+        # ``initialize_cache`` so we deliberately do *not* clear them
+        # here. The runner clears them when it tears down the rollout.
         return super().initialize_autoregressive_cache()
 
     @torch.no_grad()
@@ -251,13 +344,88 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             viewmats_chunk = self._viewmats[..., start:end, :, :].to(device=device)
             Ks_chunk = self._intrinsics[..., start:end, :, :].to(device=device)
 
+        memory_indices: list[int] | None = self._compute_memory_indices(
+            autoregressive_index=autoregressive_index, current_frame_idx=start
+        )
+
         return HyWorldPlayCtrl(
             latent=base.latent,
             mask=base.mask,
             action=action_chunk,
             viewmats=viewmats_chunk,
             Ks=Ks_chunk,
+            memory_frame_indices=memory_indices,
         )
+
+    def _compute_memory_indices(
+        self, *, autoregressive_index: int, current_frame_idx: int
+    ) -> list[int] | None:
+        """Pick the historical frame indices for this AR step's KV prefill.
+
+        Mirrors the gating in upstream's
+        ``pipeline_wan_w_mem_relative_rope.py`` line 853-869:
+
+        * AR step 0 always returns ``None`` -- the first chunk has no
+          history to attend to.
+        * Steps where ``current_frame_idx < context_window_length``
+          also return ``None`` rather than the trivial
+          ``list(range(0, current_frame_idx))`` of upstream's
+          ``elif use_memory`` branch. The all-history prefill is a
+          degenerate "select everything" path that the 2b.5b prefill
+          executor will reconstruct cheaply (it's exactly what the
+          existing flashdreams sequential cache does anyway), so
+          carrying it through the ctrl just adds noise.
+        * Otherwise runs the full FOV-overlap selection on the bound
+          ``self._viewmats`` history slice.
+        """
+        if self._memory_config is None or self._viewmats is None:
+            return None
+        cfg = self._memory_config
+        if current_frame_idx < cfg.context_window_length:
+            return None
+        # ``_viewmats`` is shape ``[*batch, n_latents, 4, 4]``; the
+        # FOV selector ignores batch and consumes a flat
+        # ``[n_latents, 4, 4]`` history. We use the first batch slot
+        # since per-batch camera trajectories aren't supported by
+        # upstream's selector either (it also takes ``viewmats[0]``).
+        viewmats_history = self._viewmats
+        while viewmats_history.ndim > 3:
+            viewmats_history = viewmats_history[0]
+        # Lazy-imported -- the memory module pulls in numpy and the
+        # FOV math; keep that out of the import graph when memory
+        # selection is disabled.
+        from hy_worldplay._memory import select_memory_frame_indices
+
+        return select_memory_frame_indices(
+            viewmats_history.detach().cpu().numpy(),
+            current_frame_idx=current_frame_idx,
+            points_local=cfg.points_local,
+            memory_frames=cfg.memory_frames,
+            temporal_context_size=cfg.temporal_context_size,
+            pred_latent_size=cfg.pred_latent_size,
+            fov_h_deg=cfg.fov_h_deg,
+            fov_v_deg=cfg.fov_v_deg,
+            device=cfg.device,
+        )
+
+
+@dataclass(frozen=True)
+class _MemoryConfig:
+    """Internal bag for the memory-selection knobs bound on the encoder.
+
+    Frozen so accidental in-place mutation between AR steps is a hard
+    error -- the selection policy is deterministic given the bound
+    camera history and these knobs.
+    """
+
+    points_local: Tensor
+    context_window_length: int
+    memory_frames: int
+    temporal_context_size: int
+    pred_latent_size: int
+    fov_h_deg: float
+    fov_v_deg: float
+    device: torch.device | str | None
 
 
 ## ---------------------------------------------------------------------------
@@ -556,11 +724,13 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 return x
             patched_latent = self.patchify_and_maybe_split_cp(x.latent)
             patched_mask = self.patchify_and_maybe_split_cp(x.mask)
-            # action / viewmats / Ks are per-latent-frame (not per-token)
-            # and do not participate in the patchify reshape; pass them
-            # through unchanged so the PRoPE branch sees the same
-            # ``[..., len_t, 4, 4]`` / ``[..., len_t]`` layout it would
-            # see on a fresh ctrl.
+            # action / viewmats / Ks / memory_frame_indices are per-
+            # latent-frame metadata (not per-token tensors) and do not
+            # participate in the patchify reshape; pass them through
+            # unchanged so the PRoPE branch and the (future) memory-
+            # prefill consumer see the same ``[..., len_t, 4, 4]`` /
+            # ``[..., len_t]`` / ``list[int]`` layout they would on a
+            # fresh ctrl.
             return HyWorldPlayCtrl(
                 latent=patched_latent,
                 mask=patched_mask,
@@ -568,5 +738,6 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 action=x.action,
                 viewmats=x.viewmats,
                 Ks=x.Ks,
+                memory_frame_indices=x.memory_frame_indices,
             )
         return super().patchify_and_maybe_split_cp(x)

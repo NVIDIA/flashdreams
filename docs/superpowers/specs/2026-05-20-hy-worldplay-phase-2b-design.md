@@ -50,7 +50,8 @@ under ~1,000 LoC and each ending in a verifiable state.
 | **2b.2 (landed)** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap the scheduler in HY-WorldPlay's `__post_init__` only; `PIPELINE_WAN22_TI2V_5B` stays neutral with UniPC for non-HY callers. | ~200-300 | 2b.1 |
 | **2b.3 (landed)** | Action conditioner: `HyWorldPlayWanDiTNetworkConfig` + `HyWorldPlayWanDiTNetwork` subclass with a zero-init `action_embedding` MLP summed into `temb` before AdaLN modulation. Companion `HyWorldPlayWanCtrlEncoder` slices per-AR-step labels; `HyWorldPlayWan21Transformer` threads them via `network_extra_kwargs`. Gated by `--use-action-conditioning`. | ~300-500 | 2b.2 |
 | **2b.4 (landed)** | Camera-trajectory conditioner: port `prope_qkv` to `flashdreams.core.attention.prope` and ship the dual-branch RoPE+PRoPE attention as `HyWorldPlayPRoPESelfAttention` + `HyWorldPlayPRoPEBlock`. Plumb viewmats + intrinsics through `HyWorldPlayCtrl` / encoder. Gated by `--use-camera-conditioning`. `o_prope` zero-init keeps the branch a strict identity at random init. | ~900 | 2b.3 |
-| **2b.5** | Memory module + KV-prefill hook: port `select_mem_frames_wan` selection policy, extend transformer cache with "prefill from these frame indices" semantics, hook into `Wan21Transformer.predict_flow` for per-chunk prefill at step 0. Drop parity sub-venv. Re-run parity. Flip `--use-native-pipeline` to default. | ~400-700 + cleanup | 2b.4 |
+| **2b.5a (landed)** | Reconstituted-context memory **selection** only. Port `select_mem_frames_wan` + `calculate_fov_overlap_similarity` to `hy_worldplay/_memory.py`, add `memory_frame_indices: list[int] \| None` to `HyWorldPlayCtrl`, plumb per-AR-step selection through `HyWorldPlayWanCtrlEncoder.set_memory_config` + the bound viewmats history. Gated by `--use-memory-selection` (requires `--use-camera-conditioning`). The selector emits a sorted, deduplicated frame-index list onto the per-AR-step ctrl; the KV-prefill **executor** is deferred to 2b.5b because it requires a `BlockKVCache` architectural change (sequential-write -> arbitrary-position-write). | ~750 | 2b.4 |
+| **2b.5b** | KV-prefill executor + the `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-position write extension it needs; HY-WorldPlay distilled-weight remap (`action_embedding`, `o_prope`, memory layers); re-run parity. Drop parity sub-venv. Flip `--use-native-pipeline` to default. | ~700-1100 + cleanup | 2b.5a |
 
 Total: ~1,800-3,000 LoC of new code + ~500-1,000 LoC of tests + docs.
 
@@ -80,7 +81,7 @@ HyWorldPlayWanI2VRunner.run()           # native mode
         │           i2v_first_frame=...,          # phase-1 conditioner
         │           action=...,                   # 2b.3
         │           viewmats=..., Ks=...,         # 2b.4
-        │           memory_frame_indices=...,     # 2b.5
+        │           memory_frame_indices=...,     # 2b.5a (consumed in 2b.5b)
         │       ))
         └─> pipeline.finalize(ar_idx, cache)
 
@@ -289,10 +290,11 @@ uv run flashdreams-run hy-worldplay-wan-i2v-5b \
 ```
 
 with a note: "Native pipeline ships incrementally across phases
-2b.1-2b.5. Phase 2b.1 supports the I2V base case only — action,
+2b.1-2b.5b. Phase 2b.1 supports the I2V base case only — action,
 camera-trajectory, and reconstituted-context-memory conditioning land
-in 2b.3 / 2b.4 / 2b.5 respectively. Use the default (vendor-wrapper)
-path for parity with upstream's `wan/generate.py`."
+in 2b.3 / 2b.4 / 2b.5a (selection) + 2b.5b (KV prefill) respectively.
+Use the default (vendor-wrapper) path for parity with upstream's
+`wan/generate.py`."
 
 ## Sub-PR 2b.2 design (landed)
 
@@ -457,9 +459,9 @@ only remaining residual should come from the memory module (still
 not implemented) and from the `sageattention` → native-attention
 substitution.
 
-## Sub-PR 2b.5 design (later)
+## Sub-PR 2b.5a design (landed)
 
-**Memory module + KV prefill + cleanup.**
+**Reconstituted-context memory selection.**
 
 Upstream's memory is a frame-index *selection policy* feeding a
 one-shot per-chunk KV cache prefill:
@@ -474,19 +476,94 @@ one-shot per-chunk KV cache prefill:
 - For the remaining denoising steps, the regular forward pass
   concatenates cached KV with the current chunk's KV before attention.
 
-Native implementation:
+2b.5a ships only the **selection policy** + plumbing. The KV-prefill
+executor is deferred to 2b.5b because it requires an architectural
+change to `flashdreams.core.attention.kvcache.BlockKVCache`
+(sequential sink-+-window writes → arbitrary frame-index writes) that
+would otherwise dominate this sub-PR. Splitting keeps the policy port
+reviewable in isolation and unblocks the runner-side ergonomics
+without committing to the cache surface.
 
-- Port `select_mem_frames_wan` and the FOV overlap utility from
-  `wan/models/utils.py` to `hy_worldplay/memory.py`.
-- Extend `Wan21TransformerCache` (or add a `HyWorldPlayWanTransformerCache`
-  subclass) with explicit "prefill these frame indices" semantics.
-  flashdreams already has `BlockKVCache` with sink+window; we add a
-  "manual prefill from frame index list" entry point.
-- `HyWorldPlayWanTransformer.predict_flow` adds a hook at AR step 0 of
-  each chunk to run the prefill pass before the regular denoising
-  loop.
-- Encoder produces `memory_frame_indices` per chunk; plumb via
-  `network_extra_kwargs`.
+Landed in 2b.5a:
+
+- **`hy_worldplay/_memory.py`** ports `select_memory_frame_indices`
+  (a 1:1 port of upstream's `select_mem_frames_wan` with the same
+  `temporal_context_size + FOV-budget = memory_frames` invariant) and
+  the FOV-overlap helper `calculate_fov_overlap_similarity` from
+  `hyvideo/utils/retrieval_context.py`. Both are CPU-runnable; GPU
+  callers pre-allocate the Monte-Carlo sphere via
+  `generate_points_in_sphere(device=...)` and pass it through. The
+  upstream-mirroring length assertion on the final list-of-indices
+  fires loudly when the budget cannot be filled (e.g. tiny rollouts)
+  -- same failure mode upstream has.
+- **`HyWorldPlayCtrl.memory_frame_indices: list[int] | None`** carries
+  the per-AR-step selection through to the (future) prefill consumer.
+  Default `None` so non-memory callers stay opt-in; the patchify
+  short-circuit on `HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp`
+  preserves the field through the I2V rebuild.
+- **`HyWorldPlayWanCtrlEncoder.set_memory_config` /
+  `clear_memory_config`** arm the encoder with the Monte-Carlo point
+  cloud + selection knobs (`memory_frames`,
+  `temporal_context_size`, `pred_latent_size`, FOV degrees,
+  `context_window_length`). Each `forward` call then computes the
+  per-AR-step indices from the bound viewmats history. Below the
+  `context_window_length` threshold the encoder returns `None`
+  (matches upstream's "elif use_memory" branch by emitting nothing
+  instead of the trivial all-history list -- the 2b.5b prefill
+  executor reconstructs the all-history path cheaply via the
+  existing sequential cache).
+- **`HyWorldPlayWanI2VRunnerConfig.use_memory_selection`** plus
+  upstream-mirroring knobs (`memory_frames`, `temporal_context_size`,
+  `memory_pred_latent_size`, `memory_fov_h_deg`, `memory_fov_v_deg`,
+  `memory_points_count`, `memory_points_radius`). `__post_init__`
+  rejects `use_memory_selection=True` without
+  `use_camera_conditioning=True` because the selector needs the
+  bound viewmats history.
+- **`HyWorldPlayWanI2VNativeRunner._bind_memory_config`** builds the
+  point cloud on the pipeline device once and hands it to
+  `set_memory_config`. Per-AR-step selection then runs lazily inside
+  the encoder.
+
+Parity caveat: with no consumer of `memory_frame_indices` yet, the
+predicted noise is unchanged whether or not `--use-memory-selection`
+is set. The selection cost (Monte-Carlo FOV-overlap sweep over the
+sphere cloud per historical clip per query frame) *is* incurred,
+which is why the flag defaults off. 2b.5b's prefill executor uses
+the indices.
+
+CP > 1 selection still routes through the bound viewmats; per-rank
+plumbing for the selection itself is trivial (the algorithm is on
+the controller anyway). The PRoPE branch's CP gate already documents
+the multi-rank deferral.
+
+## Sub-PR 2b.5b design (next)
+
+**KV-prefill executor + weight remap + parity cleanup.**
+
+Native implementation of the executor + the cache surface it needs:
+
+- Extend `flashdreams.core.attention.kvcache.BlockKVCache` (or add a
+  `HyWorldPlayBlockKVCache` subclass under
+  `integrations/hy_worldplay/`) with explicit "write K, V at these
+  frame indices" semantics. Upstream parametrises this with
+  `current_start` / `current_end` in *token* offsets; flashdreams'
+  cache is sink + rolling-window oriented. The cleanest seam is a
+  `prefill_at_frame_indices(indices: list[int], k: Tensor, v: Tensor)`
+  method on the cache that the prefill pass calls.
+- `HyWorldPlayWan21Transformer.predict_flow` gains a step-0 hook
+  per AR chunk: when `input.memory_frame_indices is not None`, slice
+  the cached latents / action / viewmats / Ks down to the selected
+  frames, run the DiT with `is_cache=True` (i.e. the prefill mode
+  that writes KV without reading current-step KV), then continue
+  with the regular denoising loop.
+- Encoder plumbing already produces the indices in 2b.5a; the
+  consumer is added here.
+- HY-WorldPlay distilled-weight remap: a
+  `hy_worldplay_state_dict_transform` that maps upstream's
+  `action_embedding.*`, `o_prope.*`, and any memory-specific
+  weights into the flashdreams parameter tree. The base WAN-5B
+  weights already load via `wan22_ti2v_5b_dit_state_dict_transform`
+  (from 2a); the HY-specific delta layers on top.
 
 **Sub-venv removal:** with the native runner default-on and no upstream
 imports needed:
@@ -546,7 +623,8 @@ back-compat escape hatch, then is removed in a follow-up.
 | 2b.2 | Scheduler swap in. Numeric parity diff vs vendor wrapper baseline narrows by the scheduler component (which the conditioner-less path lets us isolate). |
 | 2b.3 | Action conditioning matches upstream's AdaLN modulation. Conditioner-only parity diff vs baseline narrows by the action contribution (target: visible motion semantics match — exact ε set when that PR opens). |
 | 2b.4 | Camera-trajectory conditioning matches upstream's PRoPE attention. Conditioner-only parity diff narrows by the camera contribution (target: camera moves match the pose string — exact ε set when that PR opens). |
-| 2b.5 | Memory module matches upstream's KV prefill. Full pipeline parity diff matches the documented phase-1 parity bar (mean per-frame uint8 RGB delta target: ≤ the phase-1 threshold from `tests/parity_check/README.md`). Parity sub-venv removed. Default flipped to native. |
+| 2b.5a | Memory selection policy matches upstream's `select_mem_frames_wan` (same indices for the same viewmats / current_frame_idx / knobs). Encoder emits `memory_frame_indices` on every AR step that has enough history. CPU smoke tests cover the algorithm + encoder gating + runner-config wiring. Noise prediction is unchanged (no consumer yet) -- the goal is the surface, not parity. |
+| 2b.5b | KV-prefill executor matches upstream's `is_cache=True` write semantics. HY-WorldPlay distilled-weight remap loads `action_embedding` / `o_prope` / memory-aware layers correctly. Full pipeline parity diff matches the documented phase-1 parity bar (mean per-frame uint8 RGB delta target: ≤ the phase-1 threshold from `tests/parity_check/README.md`). Parity sub-venv removed. Default flipped to native. |
 
 ## Open questions
 
@@ -555,7 +633,8 @@ back-compat escape hatch, then is removed in a follow-up.
 - **Conditioner module location.** Do action / camera / memory modules
   live under `integrations/hy_worldplay/hy_worldplay/` (plugin-local)
   or `flashdreams/recipes/wan/conditioners/` (shared)? Default: plugin-
-  local; promote on demand. Revisit at 2b.5.
+  local; promote on demand. Revisit at 2b.5b once the cache extension
+  pins down which pieces are HY-specific vs reusable.
 - **Distilled vs non-distilled checkpoint.** Phase 1 ships the
   distilled 4-step checkpoint. Should we also expose the non-distilled
   50-step path through the same slug, or as a separate config?

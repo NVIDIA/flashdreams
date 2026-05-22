@@ -34,8 +34,13 @@ Two routing modes share the same user-facing
   :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` respectively.
   Sub-PRs ship the layers incrementally: 2b.1 (I2V base case + 4-step
   Euler), 2b.2 (distilled scheduler), 2b.3 (action conditioner via
-  :attr:`use_action_conditioning`), and 2b.4 / 2b.5 (camera-trajectory
-  PRoPE and reconstituted-context memory) per
+  :attr:`use_action_conditioning`), 2b.4 (camera-trajectory PRoPE via
+  :attr:`use_camera_conditioning`), and 2b.5a (reconstituted-context
+  memory-frame **selection** via :attr:`use_memory_selection` --
+  produces ``memory_frame_indices`` on the per-AR-step
+  :class:`HyWorldPlayCtrl` payload; the KV-prefill **executor** and
+  the matching arbitrary-position ``BlockKVCache`` extension land in
+  2b.5b together with the HY-WorldPlay weight remap + parity flip) per
   ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
 """
 
@@ -239,6 +244,58 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     distilled checkpoint loads non-zero weights for it, so flipping this
     on without those weights stays parity-safe."""
 
+    use_memory_selection: bool = False
+    """Enable HY-WorldPlay's reconstituted-context memory **selection**
+    (phase 2b.5a). Only honoured when both :attr:`use_native_pipeline`
+    and :attr:`use_camera_conditioning` are ``True`` -- the selector
+    needs the bound per-rollout ``viewmats`` history that
+    :attr:`use_camera_conditioning` is responsible for parsing and
+    binding. When set, the native runner arms the encoder via
+    :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config` so each AR step
+    that has enough history (``current_frame_idx >=
+    context_window_length``) attaches a sorted, deduplicated
+    ``memory_frame_indices`` slice to its :class:`HyWorldPlayCtrl`
+    payload. The list is consumed by the KV-prefill executor and the
+    arbitrary-position ``BlockKVCache`` extension that land together
+    in **phase 2b.5b**; until then the indices are produced but no
+    pre-pass is run, so flipping this flag on adds the per-AR selection
+    cost (a Monte-Carlo FOV-overlap sweep over the bound point cloud)
+    without changing the noise prediction. Defaults to ``False`` to keep
+    the cost off by default and to keep the smoke tests CPU-cheap."""
+
+    memory_frames: int = 16
+    """Total memory-frame budget per AR step (temporal context + FOV-
+    selected). Matches upstream's call site default
+    (``select_mem_frames_wan(..., memory_frames=16, ...)``). Only used
+    when :attr:`use_memory_selection` is set."""
+
+    temporal_context_size: int = 12
+    """Recent-frames portion of the memory budget (kept unconditionally
+    each AR step). Mirrors upstream's
+    ``select_mem_frames_wan(..., temporal_context_size=12, ...)``."""
+
+    memory_pred_latent_size: int = 4
+    """Query-clip size for the FOV-overlap scorer. Matches upstream's
+    ``pred_latent_size=4`` arg."""
+
+    memory_fov_h_deg: float = 60.0
+    """Horizontal FOV (degrees) used by the selection-time overlap.
+    Matches upstream's ``fov_h_deg=60.0``."""
+
+    memory_fov_v_deg: float = 35.0
+    """Vertical FOV (degrees) used by the selection-time overlap.
+    Matches upstream's ``fov_v_deg=35.0``."""
+
+    memory_points_count: int = 50_000
+    """Number of Monte-Carlo sample points in the shared point cloud
+    consumed by the FOV-overlap computation. Matches upstream's
+    ``generate_points_in_sphere(50_000, 8.0)`` call in
+    ``WanInferencePipeline.__init__``."""
+
+    memory_points_radius: float = 8.0
+    """Radius of the Monte-Carlo sphere. Matches upstream's
+    ``generate_points_in_sphere(50_000, 8.0)``."""
+
     def __post_init__(self) -> None:
         """Swap ``_target`` and ``pipeline`` to the native preset when
         ``use_native_pipeline`` is set.
@@ -306,6 +363,17 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             self._swap_in_action_conditioning_configs()
         if self.use_camera_conditioning:
             self._enable_prope_blocks_on_network()
+        # Memory selection (2b.5a) reuses the per-rollout viewmats
+        # binding that the camera conditioner sets up; enforce that
+        # precondition here so we fail fast instead of silently emitting
+        # ``memory_frame_indices=None`` on every AR step.
+        if self.use_memory_selection and not self.use_camera_conditioning:
+            raise ValueError(
+                "use_memory_selection=True requires "
+                "use_camera_conditioning=True so the per-rollout viewmats "
+                "history is parsed and bound on the encoder. Set both "
+                "flags together when running the native pipeline."
+            )
 
         if self._target is HyWorldPlayWanI2VRunner:
             # Lazy import: the native runner pulls in torch, the Wan

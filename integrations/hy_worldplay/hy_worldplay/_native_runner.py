@@ -23,9 +23,15 @@ conditioner (2b.3) activates when
 :attr:`HyWorldPlayWanI2VRunnerConfig.use_action_conditioning` is set,
 the camera-trajectory PRoPE conditioner (2b.4) activates when
 :attr:`HyWorldPlayWanI2VRunnerConfig.use_camera_conditioning` is set,
-and reconstituted-context memory lands in 2b.5. The phase-1 vendor
-wrapper in :class:`hy_worldplay.runner.HyWorldPlayWanI2VRunner` stays
-as the default; this module's runner is selected by setting
+and reconstituted-context memory-frame **selection** (2b.5a) activates
+when :attr:`HyWorldPlayWanI2VRunnerConfig.use_memory_selection` is set
+on top of camera conditioning -- this binds the FOV-overlap selection
+policy on the encoder so each AR step's
+:class:`hy_worldplay._action.HyWorldPlayCtrl` carries the historical
+``memory_frame_indices`` the future KV-prefill executor (2b.5b) will
+consume. The phase-1 vendor wrapper in
+:class:`hy_worldplay.runner.HyWorldPlayWanI2VRunner` stays as the
+default; this module's runner is selected by setting
 ``use_native_pipeline=True`` on
 :class:`hy_worldplay.runner.HyWorldPlayWanI2VRunnerConfig`.
 
@@ -133,9 +139,19 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
       weights the PRoPE branch contributes exactly zero residual, so
       output continues to match the base recipe until HY-WorldPlay's
       distilled checkpoint is loaded on top.
-    - **Reconstituted-context memory** (2b.5). No KV prefill from past
-      chunks; each chunk denoises independently from the previous
-      chunk's last-frame KV cache only.
+    - **Reconstituted-context memory -- selection only** (2b.5a, landed).
+      When ``use_memory_selection=True`` (requires
+      ``use_camera_conditioning=True``), this runner builds the
+      Monte-Carlo FOV sphere on the pipeline device and arms the
+      encoder so each AR step that has enough history attaches a
+      sorted ``memory_frame_indices`` list to its
+      :class:`HyWorldPlayCtrl`. The matching **prefill executor**
+      (transformer pre-pass with ``is_cache=True`` on the selected
+      frames) and the arbitrary-position
+      :class:`flashdreams.core.attention.kvcache.BlockKVCache`
+      extension it needs land in 2b.5b together with the HY-WorldPlay
+      weight remap. Until 2b.5b ships, the per-AR cost of selection
+      is incurred but the noise prediction is unchanged.
     """
 
     def run(self) -> None:
@@ -168,6 +184,12 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
             self._bind_action_labels()
         if cfg.use_camera_conditioning:
             self._bind_camera_data()
+        if cfg.use_memory_selection:
+            # ``use_memory_selection`` requires camera conditioning (the
+            # runner config's ``__post_init__`` enforces this), so the
+            # encoder is guaranteed to have its viewmats bound by this
+            # point.
+            self._bind_memory_config(device=device)
 
         chunks: list[Tensor] = []
         start_time = time.time()
@@ -229,6 +251,41 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         target_dtype = next(self.pipeline.parameters()).dtype
         encoder.set_camera_data(
             viewmats.to(dtype=target_dtype), Ks.to(dtype=target_dtype)
+        )
+
+    def _bind_memory_config(self, *, device: torch.device) -> None:
+        """Arm reconstituted-context memory selection on the encoder.
+
+        Builds the Monte-Carlo point cloud once (size + radius mirror
+        upstream's ``generate_points_in_sphere(50_000, 8.0)`` call in
+        ``WanInferencePipeline.__init__``) and hands it + the rest of
+        the selection knobs to
+        :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config`. The
+        encoder then computes the per-AR-step
+        ``memory_frame_indices`` on demand inside :meth:`forward`.
+        """
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._memory import generate_points_in_sphere
+
+        cfg = self.config
+        encoder, _ = self._resolve_encoder_and_n_latents(
+            flag_name="use_memory_selection"
+        )
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        points_local = generate_points_in_sphere(
+            cfg.memory_points_count,
+            cfg.memory_points_radius,
+            device=device,
+        )
+        encoder.set_memory_config(
+            points_local=points_local,
+            context_window_length=cfg.context_window_length,
+            memory_frames=cfg.memory_frames,
+            temporal_context_size=cfg.temporal_context_size,
+            pred_latent_size=cfg.memory_pred_latent_size,
+            fov_h_deg=cfg.memory_fov_h_deg,
+            fov_v_deg=cfg.memory_fov_v_deg,
+            device=device,
         )
 
     def _resolve_encoder_and_n_latents(

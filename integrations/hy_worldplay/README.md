@@ -189,7 +189,7 @@ feature flag and lands incrementally:
   by `--use-action-conditioning` alongside `--use-native-pipeline`. The
   action MLP's residual head is zero-initialised, so flipping the flag
   on without HY-WorldPlay's distilled weights is a strict identity.
-- **2b.4 (this release).** Camera-trajectory conditioner: PRoPE
+- **2b.4.** Camera-trajectory conditioner: PRoPE
   dual-branch self-attention. Each block runs the stock RoPE attention
   branch *plus* a parallel branch that applies per-frame camera-
   projective transforms (`P = lift(K) @ viewmats`) to Q / K / V via
@@ -200,8 +200,32 @@ feature flag and lands incrementally:
   `o_prope` projection is zero-initialised so the branch contributes
   exactly zero residual until HY-WorldPlay's distilled checkpoint
   loads non-zero weights for it (strict no-op until then).
-- **2b.5.** Reconstituted-context memory + KV prefill; drop the parity
-  sub-venv; flip `--use-native-pipeline` to default.
+- **2b.5a (this release).** Reconstituted-context memory **selection**.
+  Ports upstream's
+  `wan/models/utils.py::select_mem_frames_wan` policy +
+  `hyvideo/utils/retrieval_context.py::calculate_fov_overlap_similarity`
+  helper to `hy_worldplay/_memory.py`, and threads the per-AR-step
+  selected frame indices through the encoder onto
+  `HyWorldPlayCtrl.memory_frame_indices`. Activated by
+  `--use-memory-selection` alongside `--use-camera-conditioning` (the
+  selector needs the bound per-rollout `viewmats` history). The
+  Monte-Carlo FOV-overlap sphere is built once per rollout on the
+  pipeline device (50_000 points by default, matching upstream's
+  `WanInferencePipeline.__init__`). At AR steps where
+  `current_frame_idx < context_window_length` the encoder emits
+  `memory_frame_indices=None` to mirror upstream's "elif use_memory"
+  branch -- no selection runs.
+- **2b.5b (next).** KV-prefill executor + the
+  `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-position
+  write extension it needs (upstream's cache is positionally indexed
+  by frame, flashdreams' cache is a sequential sink + rolling window;
+  bridging the two is the architectural change blocking the prefill
+  hook); HY-WorldPlay weight remap (`action_embedding`, `o_prope`,
+  memory-aware layers); re-run the parity check against the phase-1
+  baseline; drop the parity sub-venv (`sageattention`,
+  `cloudpickle`, `accelerate`, `transformers==4.57.6` are no longer
+  needed once the upstream tree imports are gone); flip
+  `--use-native-pipeline` to default.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -211,6 +235,7 @@ uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --use-native-pipeline \
     --use-action-conditioning \
     --use-camera-conditioning \
+    --use-memory-selection \
     --image-path ./assets/img/test.png \
     --num-chunk 1 \
     --pose "w-4" \
@@ -222,19 +247,26 @@ independent toggles -- either, both, or neither can be set, depending
 on which conditioner you want to ablate. Both share the same encoder /
 transformer / network subclass tree; flipping either flag triggers the
 swap, and the camera flag additionally enables the PRoPE dual-branch
-block path on the DiT.
+block path on the DiT. `--use-memory-selection` requires
+`--use-camera-conditioning` (the FOV-overlap selector consumes the
+per-rollout viewmats binding) and is a no-op without it; setting it
+without `--use-native-pipeline` is silently ignored on the vendor
+wrapper path.
 
 The current native path **does not match** the vendor-wrapper
 baseline numerically: the action MLP / camera PRoPE / memory KV
 prefill weights from HY-WorldPlay's distilled checkpoint are not
-loaded yet (those land alongside 2b.5's weight remapping pass). As
-of 2b.4 the architecture is in place -- once the distilled checkpoint
-loads on top, the conditioners become active automatically. For
-parity with upstream `wan/generate.py` today, use the default
+loaded yet, and the KV-prefill executor itself (the transformer
+pre-pass with `is_cache=True` on the selected memory frames) lands
+in **2b.5b** together with the `BlockKVCache` arbitrary-position
+write extension it needs. As of 2b.5a the algorithmic surface is in
+place -- selected `memory_frame_indices` reach the per-AR-step
+`HyWorldPlayCtrl`, ready for the 2b.5b consumer to read. For parity
+with upstream `wan/generate.py` today, use the default
 (vendor-wrapper) invocation above. The native path is checked in to
 let early adopters benchmark the flashdreams runtime stack on the
 Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
-conditioners returns at 2b.5. See
+conditioners returns at 2b.5b. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
 
@@ -389,12 +421,28 @@ land first.
      projection ships zero-initialised so the PRoPE branch
      contributes exactly zero residual until the distilled
      checkpoint loads on top (strict identity until then).
-   - **2b.5.** Port the **reconstituted-context-memory** module
-     (frame-index selection policy + KV prefill); re-run the parity
-     check against the phase-1 baseline; drop the parity sub-venv
-     (`sageattention`, `cloudpickle`, `accelerate`, `transformers==4.57.6`
-     are no longer needed once the upstream tree imports are gone);
-     flip `--use-native-pipeline` to default.
+   - **2b.5a (landed).** Reconstituted-context memory **selection**.
+     Ports upstream's `select_mem_frames_wan` policy +
+     `calculate_fov_overlap_similarity` helper to
+     `hy_worldplay/_memory.py`, adds `memory_frame_indices` to
+     `HyWorldPlayCtrl`, and arms the encoder via
+     `HyWorldPlayWanCtrlEncoder.set_memory_config` so each AR step
+     with enough history (`current_frame_idx >=
+     context_window_length`) emits a sorted, deduplicated frame-
+     index list onto the per-AR-step ctrl. Gated behind
+     `--use-memory-selection` (requires `--use-camera-conditioning`
+     so the viewmats history is bound). The list is produced but
+     not yet consumed -- the KV-prefill executor lands in 2b.5b.
+   - **2b.5b.** KV-prefill executor (transformer pre-pass with
+     `is_cache=True` on the selected memory frames) + the
+     `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-
+     position write extension it needs; HY-WorldPlay distilled-
+     weight remap (`action_embedding`, `o_prope`, memory layers);
+     re-run the parity check against the phase-1 baseline; drop the
+     parity sub-venv (`sageattention`, `cloudpickle`, `accelerate`,
+     `transformers==4.57.6` are no longer needed once the upstream
+     tree imports are gone); flip `--use-native-pipeline` to
+     default.
 
 4. **Phase 3 — future.** HunyuanVideo-1.5 8B variant
    (`hyvideo/generate.py` upstream). Heavier integration: multiple
