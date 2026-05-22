@@ -361,6 +361,15 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
         # PRoPE-block path on the DiT.
         if self.use_action_conditioning or self.use_camera_conditioning:
             self._swap_in_action_conditioning_configs()
+            # When a distilled checkpoint path is supplied, re-route the
+            # transformer load to it (HY-WorldPlay's distilled ``.pt`` is
+            # a superset of the base 5B safetensors -- it includes the
+            # action / PRoPE deltas with non-zero weights). Without a
+            # path, leave the base diffusers safetensors selected so
+            # the swap-config smoke tests in ``tests/test_smoke.py``
+            # keep working sans ckpt_path.
+            if self.ckpt_path is not None:
+                self._route_distilled_checkpoint()
         if self.use_camera_conditioning:
             self._enable_prope_blocks_on_network()
         # Memory selection (2b.5a) reuses the per-rollout viewmats
@@ -508,6 +517,61 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             f"ran before this method (got {type(network_cfg).__name__})."
         )
         network_cfg.use_prope_blocks = True
+
+    def _route_distilled_checkpoint(self) -> None:
+        """Re-point the transformer load at the user-supplied distilled ``.pt``.
+
+        Runs immediately after :meth:`_swap_in_action_conditioning_configs`
+        when at least one of ``use_action_conditioning`` /
+        ``use_camera_conditioning`` is set *and* the user has provided
+        ``--ckpt-path``. Two effects on the (already-swapped)
+        :class:`HyWorldPlayWan21TransformerConfig`:
+
+        * ``checkpoint_path`` is reset to ``str(self.ckpt_path)`` --
+          upstream's distilled WAN-5B ``.pt`` (a torch-saved dict whose
+          ``generator`` subkey carries the FSDP-unwrapped weights).
+          The file is a superset of the base 5B diffusers safetensors:
+          same 3072-dim DiT trunk plus 64 HY-specific keys
+          (``action_embedder.linear_{1,2}`` + ``to_out_prope.0`` for
+          all 30 blocks), so a single load covers both the base trunk
+          and the conditioner deltas.
+        * ``state_dict_transform`` is swapped from the base 5B remap
+          (``wan22_ti2v_5b_dit_state_dict_transform``) to
+          :func:`hy_worldplay_distilled_state_dict_transform`, which
+          handles the distilled ``.pt`` envelope (``generator`` /
+          ``generator_ema`` subkey + ``model.`` /
+          ``_fsdp_wrapped_module.`` prefix stripping) on top of the
+          base remap and adds the HY-specific
+          ``action_embedder`` / ``to_out_prope`` rewrites.
+        """
+        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+
+        from hy_worldplay._action import HyWorldPlayWan21TransformerConfig
+        from hy_worldplay._checkpoint import (
+            hy_worldplay_distilled_state_dict_transform,
+        )
+
+        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
+            "_route_distilled_checkpoint expected a "
+            f"WanInferencePipelineConfig after the deepcopy; got "
+            f"{type(self.pipeline).__name__}"
+        )
+        transformer_cfg = self.pipeline.diffusion_model.transformer
+        assert isinstance(transformer_cfg, HyWorldPlayWan21TransformerConfig), (
+            "_route_distilled_checkpoint requires the transformer slot "
+            "to be a HyWorldPlayWan21TransformerConfig; ensure "
+            "_swap_in_action_conditioning_configs ran first (got "
+            f"{type(transformer_cfg).__name__})."
+        )
+        assert self.ckpt_path is not None, (
+            "_route_distilled_checkpoint should only be invoked when "
+            "ckpt_path is supplied; the gate in __post_init__ failed."
+        )
+
+        transformer_cfg.checkpoint_path = str(self.ckpt_path)
+        transformer_cfg.state_dict_transform = (
+            hy_worldplay_distilled_state_dict_transform
+        )
 
 
 class HyWorldPlayWanI2VRunner:

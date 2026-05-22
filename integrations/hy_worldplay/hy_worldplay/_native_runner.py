@@ -147,11 +147,21 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
       sorted ``memory_frame_indices`` list to its
       :class:`HyWorldPlayCtrl`. The matching **prefill executor**
       (transformer pre-pass with ``is_cache=True`` on the selected
-      frames) and the arbitrary-position
-      :class:`flashdreams.core.attention.kvcache.BlockKVCache`
-      extension it needs land in 2b.5b together with the HY-WorldPlay
-      weight remap. Until 2b.5b ships, the per-AR cost of selection
-      is incurred but the noise prediction is unchanged.
+      frames) and the per-block memory KV cache layer + clean-latent
+      history buffer it needs land in 2b.5b-part2. Until then the
+      per-AR cost of selection is incurred but the noise prediction
+      is unchanged.
+    - **Distilled-checkpoint weight remap** (2b.5b-part1, landed).
+      When ``--ckpt-path`` is supplied alongside any conditioner
+      flag, the runner config's ``__post_init__`` reroutes the
+      transformer's ``checkpoint_path`` to the upstream distilled
+      ``.pt`` and swaps in
+      :func:`hy_worldplay._checkpoint.hy_worldplay_distilled_state_dict_transform`
+      for the load. The action MLP and per-block PRoPE output
+      projection move from zero-init to the distilled weights, so
+      the conditioner residuals stop being strict identities; the
+      noise prediction now reflects the trained conditioner
+      contributions on top of the base 5B trunk.
     """
 
     def run(self) -> None:

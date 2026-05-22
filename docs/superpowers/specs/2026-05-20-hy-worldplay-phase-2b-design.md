@@ -51,7 +51,8 @@ under ~1,000 LoC and each ending in a verifiable state.
 | **2b.3 (landed)** | Action conditioner: `HyWorldPlayWanDiTNetworkConfig` + `HyWorldPlayWanDiTNetwork` subclass with a zero-init `action_embedding` MLP summed into `temb` before AdaLN modulation. Companion `HyWorldPlayWanCtrlEncoder` slices per-AR-step labels; `HyWorldPlayWan21Transformer` threads them via `network_extra_kwargs`. Gated by `--use-action-conditioning`. | ~300-500 | 2b.2 |
 | **2b.4 (landed)** | Camera-trajectory conditioner: port `prope_qkv` to `flashdreams.core.attention.prope` and ship the dual-branch RoPE+PRoPE attention as `HyWorldPlayPRoPESelfAttention` + `HyWorldPlayPRoPEBlock`. Plumb viewmats + intrinsics through `HyWorldPlayCtrl` / encoder. Gated by `--use-camera-conditioning`. `o_prope` zero-init keeps the branch a strict identity at random init. | ~900 | 2b.3 |
 | **2b.5a (landed)** | Reconstituted-context memory **selection** only. Port `select_mem_frames_wan` + `calculate_fov_overlap_similarity` to `hy_worldplay/_memory.py`, add `memory_frame_indices: list[int] \| None` to `HyWorldPlayCtrl`, plumb per-AR-step selection through `HyWorldPlayWanCtrlEncoder.set_memory_config` + the bound viewmats history. Gated by `--use-memory-selection` (requires `--use-camera-conditioning`). The selector emits a sorted, deduplicated frame-index list onto the per-AR-step ctrl; the KV-prefill **executor** is deferred to 2b.5b because it requires a `BlockKVCache` architectural change (sequential-write -> arbitrary-position-write). | ~750 | 2b.4 |
-| **2b.5b** | KV-prefill executor + the `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-position write extension it needs; HY-WorldPlay distilled-weight remap (`action_embedding`, `o_prope`, memory layers); re-run parity. Drop parity sub-venv. Flip `--use-native-pipeline` to default. | ~700-1100 + cleanup | 2b.5a |
+| **2b.5b-part1 (landed)** | HY-WorldPlay distilled-weight remap. `hy_worldplay_distilled_state_dict_transform` unwraps the upstream `.pt` envelope (`generator` / `generator_ema` subkey + `model.` / `_fsdp_wrapped_module.` prefix stripping), composes with `wan22_ti2v_5b_dit_state_dict_transform` for the base 5B trunk, and adds three HY-specific rewrites for `action_embedder` -> `action_embedding` and `to_out_prope.0` -> `o_prope`. Auto-routed in `HyWorldPlayWanI2VRunnerConfig.__post_init__` whenever `--ckpt-path` is supplied alongside conditioner flags. Verified `strict=True` on the full 30-block / 889-key tree (0 missing / 0 unexpected). Lights up the action MLP residual head and every block's PRoPE output projection from zero-init to non-zero norms; the conditioners now contribute real residuals on top of the base trunk. | ~250 | 2b.5a |
+| **2b.5b-part2 (next)** | KV-prefill executor. Three coupled pieces: (a) per-rollout clean-latent history buffer on the transformer cache so each chunk start has access to past chunks' patchified latents; (b) per-block memory KV cache layer (separate from `BlockKVCache`'s rolling window) that stores K / V at upstream's RoPE-collapsed positions `[0, K)`; (c) a prefill pass at AR step 0 of every chunk past the first, run with RoPE positions remapped to the collapsed offsets and dual-branch K / V output gathered into the new cache. Lands together with the parity check, parity sub-venv removal, and `--use-native-pipeline` default flip. | ~700-1000 + cleanup | 2b.5b-part1 |
 
 Total: ~1,800-3,000 LoC of new code + ~500-1,000 LoC of tests + docs.
 
@@ -536,34 +537,105 @@ plumbing for the selection itself is trivial (the algorithm is on
 the controller anyway). The PRoPE branch's CP gate already documents
 the multi-rank deferral.
 
-## Sub-PR 2b.5b design (next)
+## Sub-PR 2b.5b-part1 design (landed)
 
-**KV-prefill executor + weight remap + parity cleanup.**
+**HY-WorldPlay distilled-checkpoint weight remap.**
 
-Native implementation of the executor + the cache surface it needs:
+Self-contained CPU-testable slice: enable the runner to load
+upstream's distilled `wan_distilled_model/model.pt` directly into
+the `HyWorldPlayWanDiTNetwork` parameter tree built by 2b.3 + 2b.4,
+without the KV-prefill executor (which 2b.5b-part2 lands).
 
-- Extend `flashdreams.core.attention.kvcache.BlockKVCache` (or add a
-  `HyWorldPlayBlockKVCache` subclass under
-  `integrations/hy_worldplay/`) with explicit "write K, V at these
-  frame indices" semantics. Upstream parametrises this with
-  `current_start` / `current_end` in *token* offsets; flashdreams'
-  cache is sink + rolling-window oriented. The cleanest seam is a
-  `prefill_at_frame_indices(indices: list[int], k: Tensor, v: Tensor)`
-  method on the cache that the prefill pass calls.
-- `HyWorldPlayWan21Transformer.predict_flow` gains a step-0 hook
-  per AR chunk: when `input.memory_frame_indices is not None`, slice
-  the cached latents / action / viewmats / Ks down to the selected
-  frames, run the DiT with `is_cache=True` (i.e. the prefill mode
-  that writes KV without reading current-step KV), then continue
-  with the regular denoising loop.
-- Encoder plumbing already produces the indices in 2b.5a; the
-  consumer is added here.
-- HY-WorldPlay distilled-weight remap: a
-  `hy_worldplay_state_dict_transform` that maps upstream's
-  `action_embedding.*`, `o_prope.*`, and any memory-specific
-  weights into the flashdreams parameter tree. The base WAN-5B
-  weights already load via `wan22_ti2v_5b_dit_state_dict_transform`
-  (from 2a); the HY-specific delta layers on top.
+Landed pieces:
+
+- `integrations/hy_worldplay/hy_worldplay/_checkpoint.py` exporting
+  `hy_worldplay_distilled_state_dict_transform`:
+  - Step 1: unwrap the distilled envelope -- when both `generator`
+    and `generator_ema` keys are present at the top level, pin to
+    `generator` (the FSDP-unwrapped weights, matching upstream's
+    `wan/generate.py` line 150).
+  - Step 2: strip `model.` (training-module wrapper) and
+    `_fsdp_wrapped_module.` (FSDP wrapper artefact) prefixes
+    wherever they appear.
+  - Step 3: apply `wan22_ti2v_5b_dit_state_dict_transform`
+    (diffusers `WanTransformer3DModel` -> `WanDiTNetwork`).
+  - Step 4: layer on three HY-specific regex rewrites --
+    `condition_embedder.action_embedder.linear_1.*` ->
+    `action_embedding.0.*`,
+    `condition_embedder.action_embedder.linear_2.*` ->
+    `action_embedding.2.*`,
+    `blocks.{i}.attn1.to_out_prope.0.*` ->
+    `blocks.{i}.self_attn.o_prope.*`.
+- `HyWorldPlayWanI2VRunnerConfig._route_distilled_checkpoint` (new
+  method, called from `__post_init__` whenever `ckpt_path` is set
+  alongside `use_action_conditioning` or
+  `use_camera_conditioning`): rebinds the transformer's
+  `checkpoint_path` to `str(ckpt_path)` and its
+  `state_dict_transform` to the new HY transform. Without
+  `ckpt_path` the base 5B safetensors stays selected -- the existing
+  zero-init swap-config smoke tests don't need to know about
+  distilled checkpoints.
+- `tests/test_checkpoint.py` (CPU): synthetic-envelope round trips
+  for every rewrite branch; verifies envelope unwrap, FSDP-prefix
+  strip, base + HY rewrites land on the right keys. The `strict=True`
+  load against a real network is documented in the README and
+  exercised manually -- it builds the full 30-block 3072-dim DiT,
+  too heavy for CI.
+- `tests/test_smoke.py`: three runner-routing tests pin (a) the base
+  safetensors stays selected without `ckpt_path`, (b) supplying
+  `ckpt_path` rewrites both `checkpoint_path` and
+  `state_dict_transform` to the HY pair, (c) `ckpt_path` without any
+  conditioner flag is a conservative no-op (2b.1's bit-stable native
+  baseline keeps loading the diffusers checkpoint it loaded at 2b.1).
+
+Numeric verification: building a fresh `HyWorldPlayWanDiTNetwork`
+with `use_prope_blocks=True` (so all 30 blocks expose `o_prope`)
+yields a 889-parameter state dict; the remap of upstream's
+distilled `.pt` produces the exact same 889 keys with matching
+shapes; `load_state_dict(strict=True)` returns
+`<All keys matched successfully>`. Action MLP `linear_2` and every
+block's `o_prope` move from zero-init to non-zero Frobenius norms,
+so the conditioners now contribute real residuals.
+
+## Sub-PR 2b.5b-part2 design (next)
+
+**KV-prefill executor + parity cleanup.**
+
+Three coupled architectural pieces are needed to make the memory
+prefill match upstream:
+
+- **History buffer.** Upstream's prefill reads from
+  `latents_curr[:, :, selected_frame_indices]` -- the running
+  array of clean latents from past chunks. flashdreams currently
+  keeps only the rolling KV cache, not the clean-latent history.
+  Add a `clean_latent_history: Tensor` field on the transformer
+  cache (or on a HY subclass) and append each chunk's clean
+  latent in `finalize_kv_cache`.
+- **Per-block memory KV cache.** Upstream's prefill collapses the
+  selected frames' RoPE positions to a contiguous prefix
+  `[0, len(selected) * 880)`. flashdreams' `BlockKVCache` is sink +
+  rolling-window oriented and bakes RoPE in at the original
+  absolute positions, so a separate flat per-block cache for the
+  prefilled K / V is the cleanest seam. The dual-branch attention
+  in `HyWorldPlayPRoPESelfAttention` already needs a second cache
+  (PRoPE branch), so the new memory cache layer lands as a third
+  per-block cache slot.
+- **Prefill executor.** A pre-pass on AR step 0 of every chunk
+  past the first: slice the bound `viewmats` / `Ks` / `action` /
+  `clean_latent_history` to `selected_frame_indices`, build a
+  synthetic input shape with `len(selected)` frames, run the DiT
+  with collapsed RoPE positions, and gather each block's K / V
+  into the new memory cache. Subsequent denoising steps in the
+  chunk attend over the concatenation of the memory cache + the
+  current-step K / V (mirroring upstream's
+  `cat([cache, current], dim=-2)` at line 169-173 of
+  `arwan_w_action_w_mem_relative_rope.py`).
+
+Once the executor lands, the existing rolling-window KV cache for
+the HY path becomes redundant and can be elided (or repurposed as
+the memory cache underlay). The `finalize_kv_cache` step on the
+HY path becomes "append clean latent to history" instead of "run
+network forward to update rolling KV".
 
 **Sub-venv removal:** with the native runner default-on and no upstream
 imports needed:
@@ -624,7 +696,8 @@ back-compat escape hatch, then is removed in a follow-up.
 | 2b.3 | Action conditioning matches upstream's AdaLN modulation. Conditioner-only parity diff vs baseline narrows by the action contribution (target: visible motion semantics match — exact ε set when that PR opens). |
 | 2b.4 | Camera-trajectory conditioning matches upstream's PRoPE attention. Conditioner-only parity diff narrows by the camera contribution (target: camera moves match the pose string — exact ε set when that PR opens). |
 | 2b.5a | Memory selection policy matches upstream's `select_mem_frames_wan` (same indices for the same viewmats / current_frame_idx / knobs). Encoder emits `memory_frame_indices` on every AR step that has enough history. CPU smoke tests cover the algorithm + encoder gating + runner-config wiring. Noise prediction is unchanged (no consumer yet) -- the goal is the surface, not parity. |
-| 2b.5b | KV-prefill executor matches upstream's `is_cache=True` write semantics. HY-WorldPlay distilled-weight remap loads `action_embedding` / `o_prope` / memory-aware layers correctly. Full pipeline parity diff matches the documented phase-1 parity bar (mean per-frame uint8 RGB delta target: ≤ the phase-1 threshold from `tests/parity_check/README.md`). Parity sub-venv removed. Default flipped to native. |
+| 2b.5b-part1 | HY-WorldPlay distilled-weight remap loads upstream's `wan_distilled_model/model.pt` into `HyWorldPlayWanDiTNetwork(use_prope_blocks=True)` via `load_state_dict(strict=True)` with 0 missing / 0 unexpected keys. Action MLP `linear_2` and every block's `o_prope` move from zero-init to non-zero norms after load. Runner config auto-routes the checkpoint when `--ckpt-path` is supplied alongside conditioner flags. CPU smoke tests cover the envelope unwrap + every rewrite rule. |
+| 2b.5b-part2 | KV-prefill executor matches upstream's `is_cache=True` write semantics, with the per-rollout clean-latent history buffer + per-block memory KV cache layer + RoPE-position-collapse remap that the prefill needs. Full pipeline parity diff matches the documented phase-1 parity bar (mean per-frame uint8 RGB delta target: ≤ the phase-1 threshold from `tests/parity_check/README.md`). Parity sub-venv removed. Default flipped to native. |
 
 ## Open questions
 

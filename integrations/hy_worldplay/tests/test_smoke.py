@@ -478,6 +478,83 @@ def test_use_action_conditioning_respects_user_encoder_override() -> None:
     assert isinstance(cfg.pipeline.encoder, _CustomEncoderConfig)
 
 
+def test_distilled_checkpoint_routing_off_by_default() -> None:
+    """Phase 2b.5b routing: without ``ckpt_path`` the transformer keeps
+    the base 5B diffusers safetensors checkpoint + remap.
+
+    Used by the swap-config smoke tests above (which intentionally
+    don't supply a ``ckpt_path``); also covers the case where a user
+    enables conditioners without yet downloading the distilled
+    checkpoint. The conditioners stay as zero-init identities so
+    output continues to match the base recipe.
+    """
+    from flashdreams.recipes.wan.config import (
+        WAN22_TI2V_5B_DIT_DIFFUSERS_PATH,
+        wan22_ti2v_5b_dit_state_dict_transform,
+    )
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+    )
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+    assert (
+        transformer.state_dict_transform is wan22_ti2v_5b_dit_state_dict_transform
+    )
+
+
+def test_distilled_checkpoint_routing_swaps_when_ckpt_path_set() -> None:
+    """Phase 2b.5b routing: setting ``ckpt_path`` re-routes the transformer
+    load to the distilled ``.pt`` and swaps the state-dict transform to
+    the HY-specific remap.
+
+    The actual remap function is exercised end-to-end in
+    ``test_checkpoint.py::test_distilled_checkpoint_loads_strict``;
+    here we just verify the runner's ``__post_init__`` plumbs the
+    user-supplied path + transform through to the transformer config.
+    """
+    from hy_worldplay._checkpoint import hy_worldplay_distilled_state_dict_transform
+
+    distilled_path = Path("/some/distilled/model.pt")
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+        use_camera_conditioning=True,
+        ckpt_path=distilled_path,
+    )
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert transformer.checkpoint_path == str(distilled_path)
+    assert (
+        transformer.state_dict_transform
+        is hy_worldplay_distilled_state_dict_transform
+    )
+
+
+def test_distilled_checkpoint_routing_skipped_without_conditioners() -> None:
+    """Phase 2b.5b routing: even with ``ckpt_path`` set, the transformer
+    keeps the base 5B safetensors when neither action nor camera
+    conditioning is enabled.
+
+    Conservative gate: 2b.1's bit-stable native baseline (no
+    conditioners) must keep loading the same diffusers checkpoint
+    it loaded at 2b.1 -- the distilled ``.pt`` is only the right
+    source of truth once the action / PRoPE deltas are actually
+    being consumed.
+    """
+    from flashdreams.recipes.wan.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        ckpt_path=Path("/some/distilled/model.pt"),
+    )
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+
+
 def test_entry_point_registered() -> None:
     """The plugin's ``pyproject.toml`` must publish the runner under the
     ``flashdreams.runner_configs`` entry-point group so

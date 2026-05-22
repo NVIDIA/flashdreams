@@ -200,7 +200,7 @@ feature flag and lands incrementally:
   `o_prope` projection is zero-initialised so the branch contributes
   exactly zero residual until HY-WorldPlay's distilled checkpoint
   loads non-zero weights for it (strict no-op until then).
-- **2b.5a (this release).** Reconstituted-context memory **selection**.
+- **2b.5a.** Reconstituted-context memory **selection**.
   Ports upstream's
   `wan/models/utils.py::select_mem_frames_wan` policy +
   `hyvideo/utils/retrieval_context.py::calculate_fov_overlap_similarity`
@@ -215,17 +215,40 @@ feature flag and lands incrementally:
   `current_frame_idx < context_window_length` the encoder emits
   `memory_frame_indices=None` to mirror upstream's "elif use_memory"
   branch -- no selection runs.
-- **2b.5b (next).** KV-prefill executor + the
-  `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-position
-  write extension it needs (upstream's cache is positionally indexed
-  by frame, flashdreams' cache is a sequential sink + rolling window;
-  bridging the two is the architectural change blocking the prefill
-  hook); HY-WorldPlay weight remap (`action_embedding`, `o_prope`,
-  memory-aware layers); re-run the parity check against the phase-1
-  baseline; drop the parity sub-venv (`sageattention`,
-  `cloudpickle`, `accelerate`, `transformers==4.57.6` are no longer
-  needed once the upstream tree imports are gone); flip
-  `--use-native-pipeline` to default.
+- **2b.5b-part1 (this release).** Distilled-checkpoint weight
+  remap. Adds `hy_worldplay/_checkpoint.py::hy_worldplay_distilled_state_dict_transform`,
+  which unwraps upstream's `.pt` envelope (`generator` /
+  `generator_ema` subkey + `model.` / `_fsdp_wrapped_module.` prefix
+  stripping), layers on the base 5B diffusers
+  `WanTransformer3DModel` -> `WanDiTNetwork` remap, and adds three
+  HY-specific rewrite rules so
+  `condition_embedder.action_embedder.linear_{1,2}` lands on
+  `action_embedding.{0,2}` and `blocks.{i}.attn1.to_out_prope.0`
+  lands on `blocks.{i}.self_attn.o_prope`. Auto-routed through the
+  runner's `__post_init__` whenever `--ckpt-path` is supplied
+  alongside `--use-action-conditioning` or
+  `--use-camera-conditioning`: the transformer's
+  `checkpoint_path` is reset to the distilled `.pt` and its
+  `state_dict_transform` swapped to the HY remap. Verified end-to-end
+  via `strict=True` load against a freshly built
+  :class:`HyWorldPlayWanDiTNetwork` (889 keys, 0 missing / 0
+  unexpected), which lights up the action MLP's `linear_2` and every
+  block's `o_prope` from zero-init to non-zero norms. The
+  conditioners now produce real, non-zero residuals on top of the
+  base 5B trunk.
+- **2b.5b-part2 (next).** KV-prefill executor. Three coupled
+  pieces: (a) per-rollout clean-latent history buffer on the
+  transformer cache so each chunk start has access to past chunks'
+  patchified latents; (b) per-block memory KV cache layer
+  (separate from `BlockKVCache`'s rolling window) that stores
+  K / V at upstream's RoPE-collapsed positions `[0, K)`; (c) a
+  prefill pass at AR step 0 of every chunk past the first, run with
+  RoPE positions remapped to the collapsed offsets and dual-branch
+  K / V output gathered into the new cache. Lands together with
+  the parity check against the phase-1 baseline, the parity
+  sub-venv removal (`sageattention`, `cloudpickle`, `accelerate`,
+  `transformers==4.57.6`), and the `--use-native-pipeline` default
+  flip.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -254,19 +277,22 @@ without `--use-native-pipeline` is silently ignored on the vendor
 wrapper path.
 
 The current native path **does not match** the vendor-wrapper
-baseline numerically: the action MLP / camera PRoPE / memory KV
-prefill weights from HY-WorldPlay's distilled checkpoint are not
-loaded yet, and the KV-prefill executor itself (the transformer
-pre-pass with `is_cache=True` on the selected memory frames) lands
-in **2b.5b** together with the `BlockKVCache` arbitrary-position
-write extension it needs. As of 2b.5a the algorithmic surface is in
-place -- selected `memory_frame_indices` reach the per-AR-step
-`HyWorldPlayCtrl`, ready for the 2b.5b consumer to read. For parity
-with upstream `wan/generate.py` today, use the default
-(vendor-wrapper) invocation above. The native path is checked in to
-let early adopters benchmark the flashdreams runtime stack on the
-Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
-conditioners returns at 2b.5b. See
+baseline numerically yet: as of 2b.5b-part1 the distilled
+checkpoint loads cleanly (action MLP / PRoPE / DiT trunk all read
+from `wan_distilled_model/model.pt`), but the KV-prefill executor
+itself (the transformer pre-pass with `is_cache=True` on the
+selected memory frames) lands in **2b.5b-part2** together with the
+per-rollout clean-latent history buffer and the per-block memory
+KV cache layer that store K / V at upstream's RoPE-collapsed
+positions `[0, K)`. The selected `memory_frame_indices` reach the
+per-AR-step `HyWorldPlayCtrl` ready for the 2b.5b-part2 consumer
+to read; with conditioner weights now non-zero, single-chunk
+rollouts already exercise the action + camera paths end-to-end.
+For parity with upstream `wan/generate.py` today, use the default
+(vendor-wrapper) invocation above. The native path is checked in
+to let early adopters benchmark the flashdreams runtime stack on
+the Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
+conditioners returns at 2b.5b-part2. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
 
