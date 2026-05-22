@@ -328,12 +328,18 @@ def test_encoder_clear_memory_config_drops_state() -> None:
 
 
 def test_encoder_compute_memory_indices_gates_on_history() -> None:
-    """Selection only runs once ``current_frame_idx >= context_window_length``.
+    """FOV selection only kicks in once ``current_frame_idx >= context_window_length``.
 
-    Below that threshold the encoder returns ``None`` -- there's not
-    enough history for the FOV-overlap algorithm to be well-defined,
-    and emitting an empty list would falsely advertise that the
-    KV-prefill executor should run with zero historical context.
+    Below that threshold the encoder returns the all-history list
+    ``list(range(0, current_frame_idx))`` -- mirroring vendor's
+    ``elif use_memory:`` branch in
+    ``pipeline_wan_w_mem_relative_rope.py`` line 868-869. The HY
+    native path *requires* this fall-back: it overrides
+    ``finalize_kv_cache`` to skip the base rolling-KV update and
+    resets the rolling cache at every chunk boundary, so without an
+    explicit prefill chunk-1+ would attend to nothing from previous
+    chunks. AR step 0 is the only case that returns ``None`` (no
+    history yet).
     """
     encoder = _make_memory_encoder()
     encoder._viewmats = torch.from_numpy(_identity_w2c(32)).unsqueeze(0)
@@ -347,21 +353,22 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
         fov_v_deg=35.0,
     )
 
-    # Below threshold -> None
+    # AR step 0 / no history -> None
     assert (
         encoder._compute_memory_indices(
             autoregressive_index=0, current_frame_idx=0
         )
         is None
     )
-    assert (
-        encoder._compute_memory_indices(
-            autoregressive_index=1, current_frame_idx=4
-        )
-        is None
-    )
 
-    # Above threshold -> populated list
+    # Below FOV-selection threshold but past chunk 0 -> all-history
+    # fall-back (matches vendor's ``elif use_memory:`` branch).
+    indices_below = encoder._compute_memory_indices(
+        autoregressive_index=1, current_frame_idx=4
+    )
+    assert indices_below == [0, 1, 2, 3]
+
+    # Above threshold -> FOV-selected list of length ``memory_frames``.
     indices = encoder._compute_memory_indices(
         autoregressive_index=4, current_frame_idx=16
     )
@@ -370,11 +377,45 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
     assert indices == sorted(indices)
 
 
-def test_encoder_compute_memory_indices_disabled_returns_none() -> None:
-    """Disarmed encoder must always return ``None``."""
+def test_encoder_compute_memory_indices_disabled_uses_all_history() -> None:
+    """Without ``set_memory_config`` the encoder still emits all-history indices.
+
+    The HY native path relies on the prefill executor for *all*
+    cross-chunk attention (see the gating-test docstring above),
+    so even when FOV-based selection is disarmed we have to emit
+    indices for chunk-1+. The executor consumes the bound
+    ``rollout_viewmats`` directly; it doesn't need the FOV
+    ``_memory_config`` to run. AR step 0 still returns ``None``.
+    """
     encoder = _make_memory_encoder()
     encoder._viewmats = torch.from_numpy(_identity_w2c(32)).unsqueeze(0)
-    # No set_memory_config() call -> selection is off.
+    # No set_memory_config() call -> FOV selection is off, but the
+    # all-history fall-back still emits indices for chunk-1+.
+
+    assert (
+        encoder._compute_memory_indices(
+            autoregressive_index=0, current_frame_idx=0
+        )
+        is None
+    )
+    indices = encoder._compute_memory_indices(
+        autoregressive_index=4, current_frame_idx=16
+    )
+    assert indices == list(range(0, 16))
+
+
+def test_encoder_compute_memory_indices_no_camera_returns_none() -> None:
+    """No bound viewmats => no prefill possible => ``None``.
+
+    The prefill executor indexes ``rollout_viewmats`` (and friends)
+    at the selected indices, so without camera data bound the
+    executor can't run. In that configuration the dual-branch /
+    action paths are themselves no-ops, so the missing prefill is
+    also a no-op.
+    """
+    encoder = _make_memory_encoder()
+    # No set_camera_data() call -> _viewmats is None.
+    assert encoder._viewmats is None
 
     assert (
         encoder._compute_memory_indices(

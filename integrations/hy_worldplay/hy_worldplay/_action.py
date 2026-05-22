@@ -88,6 +88,18 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerConfig,
 )
 
+# Clean-context timestep for the reconstituted-context KV prefill.
+# Mirrors upstream's ``t_ctx = stabilization_level - 1`` constant in
+# ``HY-WorldPlay/wan/inference/pipeline_wan_w_mem_relative_rope.py``
+# (line 680 ``stabilization_level = 15`` and line 883-887 / 908-913
+# where chunk-0 memory positions get ``stabilization_level - 1 = 14``
+# as their AdaLN timestep). On the FlowMatch 0..1000 timestep scale
+# this is a near-clean modulation that keeps the model in its trained
+# distribution; passing the noisy denoising step instead would scale
+# the memory K / V as if chunk-0 were still being denoised and
+# produces the chunk-1 attention blow-up surfaced by 2b.6.
+_HY_STABILIZATION_TIMESTEP: int = 14
+
 ## ---------------------------------------------------------------------------
 ## Per-AR-step control payload
 ## ---------------------------------------------------------------------------
@@ -423,55 +435,88 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         Mirrors the gating in upstream's
         ``pipeline_wan_w_mem_relative_rope.py`` line 853-869:
 
-        * AR step 0 always returns ``None`` -- the first chunk has no
-          history to attend to.
-        * Steps where ``current_frame_idx < context_window_length``
-          also return ``None`` rather than the trivial
-          ``list(range(0, current_frame_idx))`` of upstream's
-          ``elif use_memory`` branch. The all-history prefill is a
-          degenerate "select everything" path that the 2b.5b prefill
-          executor will reconstruct cheaply (it's exactly what the
-          existing flashdreams sequential cache does anyway), so
-          carrying it through the ctrl just adds noise.
-        * Otherwise runs the full FOV-overlap selection on the bound
-          ``self._viewmats`` history slice.
-        """
-        if self._memory_config is None or self._viewmats is None:
-            return None
-        cfg = self._memory_config
-        if current_frame_idx < cfg.context_window_length:
-            return None
-        # ``_viewmats`` is shape ``[*batch, n_latents, 4, 4]``; the
-        # FOV selector ignores batch and consumes a flat
-        # ``[n_latents, 4, 4]`` history. We use the first batch slot
-        # since per-batch camera trajectories aren't supported by
-        # upstream's selector either (it also takes ``viewmats[0]``).
-        viewmats_history = self._viewmats
-        while viewmats_history.ndim > 3:
-            viewmats_history = viewmats_history[0]
-        # Lazy-imported -- the memory module pulls in numpy and the
-        # FOV math; keep that out of the import graph when memory
-        # selection is disabled.
-        from hy_worldplay._memory import select_memory_frame_indices
+        * AR step 0 (``current_frame_idx == 0``) returns ``None`` --
+          the first chunk has no history to attend to.
+        * FOV-based selection runs when memory selection is configured
+          *and* the rollout is past the warm-up window
+          (``current_frame_idx >= context_window_length``). Mirrors
+          upstream's ``if use_memory and current_frame_idx >=
+          context_window_length:`` branch.
+        * All other chunk-> 0 steps return ``list(range(0,
+          current_frame_idx))`` -- the all-history fall-back of
+          upstream's ``elif use_memory:`` branch.
 
-        # ``.numpy()`` only supports a subset of dtypes; the runner
-        # binds ``viewmats`` in the pipeline dtype (bf16 / fp16) so
-        # ``prope_qkv`` doesn't promote to fp64, but bf16 has no numpy
-        # ABI. Round-trip through fp32 here so the selection math
-        # (FOV-overlap on a CPU point cloud) consumes a plain
-        # ``np.float32`` array; selection precision is not the bottleneck
-        # vs the bf16 dtype used downstream by attention.
-        return select_memory_frame_indices(
-            viewmats_history.detach().to(dtype=torch.float32).cpu().numpy(),
-            current_frame_idx=current_frame_idx,
-            points_local=cfg.points_local,
-            memory_frames=cfg.memory_frames,
-            temporal_context_size=cfg.temporal_context_size,
-            pred_latent_size=cfg.pred_latent_size,
-            fov_h_deg=cfg.fov_h_deg,
-            fov_v_deg=cfg.fov_v_deg,
-            device=cfg.device,
-        )
+        That all-history fall-back is **required** on the HY native
+        path, not just a vendor quirk: the HY override of
+        :meth:`HyWorldPlayWan21Transformer.finalize_kv_cache` skips
+        the base ``Wan21Transformer`` rolling-KV update, and the HY
+        cache ``start`` resets each block's rolling self-attention
+        cache at every chunk boundary. Without the explicit prefill
+        driven by ``memory_frame_indices``, chunk-1+ would attend to
+        *nothing* from previous chunks -- producing the chunk-boundary
+        denoising blow-up that 2b.6 was chasing. Vendor avoids this
+        because its KV cache accumulates naturally across chunks; we
+        give the HY path the same cross-chunk coverage via the
+        prefill executor.
+
+        Requires camera data to be bound (``self._viewmats`` set via
+        :meth:`set_camera_data`) so the per-rollout buffers are
+        attached to the ctrl and the prefill executor can index them.
+        When camera data isn't bound the prefill can't run at all, so
+        we degrade to ``None`` (the dual-branch and action paths are
+        themselves no-ops in that configuration so the missing
+        prefill is also a no-op).
+        """
+        if autoregressive_index == 0 or current_frame_idx == 0:
+            return None
+        # No camera history => no prefill possible (the executor
+        # indexes ``rollout_viewmats`` and friends, which are only
+        # populated when the encoder has bound camera data).
+        if self._viewmats is None:
+            return None
+        # FOV-based selection: vendor's ``if use_memory and
+        # current_frame_idx >= context_window_length:`` branch.
+        if (
+            self._memory_config is not None
+            and current_frame_idx >= self._memory_config.context_window_length
+        ):
+            cfg = self._memory_config
+            # ``_viewmats`` is shape ``[*batch, n_latents, 4, 4]``; the
+            # FOV selector ignores batch and consumes a flat
+            # ``[n_latents, 4, 4]`` history. We use the first batch slot
+            # since per-batch camera trajectories aren't supported by
+            # upstream's selector either (it also takes ``viewmats[0]``).
+            viewmats_history = self._viewmats
+            while viewmats_history.ndim > 3:
+                viewmats_history = viewmats_history[0]
+            # Lazy-imported -- the memory module pulls in numpy and the
+            # FOV math; keep that out of the import graph when memory
+            # selection is disabled.
+            from hy_worldplay._memory import select_memory_frame_indices
+
+            # ``.numpy()`` only supports a subset of dtypes; the runner
+            # binds ``viewmats`` in the pipeline dtype (bf16 / fp16) so
+            # ``prope_qkv`` doesn't promote to fp64, but bf16 has no numpy
+            # ABI. Round-trip through fp32 here so the selection math
+            # (FOV-overlap on a CPU point cloud) consumes a plain
+            # ``np.float32`` array; selection precision is not the
+            # bottleneck vs the bf16 dtype used downstream by attention.
+            return select_memory_frame_indices(
+                viewmats_history.detach().to(dtype=torch.float32).cpu().numpy(),
+                current_frame_idx=current_frame_idx,
+                points_local=cfg.points_local,
+                memory_frames=cfg.memory_frames,
+                temporal_context_size=cfg.temporal_context_size,
+                pred_latent_size=cfg.pred_latent_size,
+                fov_h_deg=cfg.fov_h_deg,
+                fov_v_deg=cfg.fov_v_deg,
+                device=cfg.device,
+            )
+
+        # All-history fall-back (vendor's ``elif use_memory:`` branch).
+        # Critical for cross-chunk attention on the HY native path; see
+        # the docstring above.
+        return list(range(0, current_frame_idx))
 
 
 @dataclass(frozen=True)
@@ -1205,14 +1250,21 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 (asserted defensively below).
             input: The patchified per-AR-step ctrl payload.
                 ``input.memory_frame_indices`` must be a non-empty list.
-            timestep: The current denoising step's timestep tensor; the
-                prefill uses this directly (mirrors upstream which calls
-                the model with ``model_input_step_value`` from line 919).
-                Note: upstream only runs the prefill at AR step 0 of
-                each chunk, so ``timestep`` is the first scheduler
-                timestep, *not* a context-noise constant. Subsequent
-                denoising steps within the chunk read the prefilled
-                K / V unchanged.
+            timestep: The current denoising step's timestep tensor.
+                Used only for its ``dtype`` / ``device``; the memory
+                positions are modulated at the clean-context timestep
+                :data:`_HY_STABILIZATION_TIMESTEP` instead, mirroring
+                vendor's ``t_ctx = stabilization_level - 1`` in
+                ``pipeline_wan_w_mem_relative_rope.py`` line 883-887
+                (and the same constant in the ``use_kv_cache=True``
+                cache-prefill branch at line 908-913, where
+                ``t_cache = timestep[:, selected_frame_indices]``
+                resolves to 14 for the chunk-0 memory positions).
+                The previous build of this driver forwarded the
+                noisy ``timestep`` directly, which made the
+                attention scale memory K / V as if the chunk-0
+                outputs were still noisy and caused the chunk-1
+                denoising blow-up that 2b.6 was chasing.
         """
         assert input.memory_frame_indices is not None, (
             "prefill_memory_kv_cache requires non-None memory_frame_indices"
@@ -1296,6 +1348,17 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             ),
         )
 
+        # Build the clean-context timestep tensor that the memory
+        # positions get modulated at, mirroring vendor's
+        # ``t_ctx = stabilization_level - 1`` (see the docstring and
+        # :data:`_HY_STABILIZATION_TIMESTEP` for the full reference).
+        # Match ``timestep``'s dtype / device / batch so the network's
+        # ``sinusoidal_embedding_1d(...).type_as(x)`` path stays on
+        # the same compute graph.
+        context_timestep = torch.full_like(
+            timestep, fill_value=_HY_STABILIZATION_TIMESTEP
+        )
+
         # Run the prefill on whichever network branches are active.
         # Each branch has its own per-block memory cache; reset
         # *before* the prefill so a previous chunk's leftover
@@ -1312,7 +1375,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         # Conditional pass.
         self.network.prefill_memory_kv_cache(
             x=memory_x,
-            timesteps=timestep,
+            timesteps=context_timestep,
             cache=cache.network_cache,
             rope_freqs=rope_freqs,
             action=memory_action,
@@ -1323,7 +1386,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         if cache.network_cache_uncond is not None:
             self.network.prefill_memory_kv_cache(
                 x=memory_x,
-                timesteps=timestep,
+                timesteps=context_timestep,
                 cache=cache.network_cache_uncond,
                 rope_freqs=rope_freqs,
                 action=memory_action,

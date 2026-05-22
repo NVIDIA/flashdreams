@@ -395,8 +395,17 @@ def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
 
     Expects ``video`` shape ``[*batch, T, C, H, W]`` in ``[-1, 1]``.
     Drops the leading batch axis (size 1), converts to ``[T, H, W, C]``
-    uint8 in ``[0, 255]``, and hands the frame list to
+    float32 in ``[0, 1]``, and hands the frame list to
     ``diffusers.utils.export_to_video``.
+
+    Note: ``export_to_video`` interprets numpy ``ndarray`` frames as
+    floats in ``[0, 1]`` and internally multiplies by 255 before
+    ``.astype(np.uint8)`` (see diffusers' implementation). Passing
+    uint8 ``[0, 255]`` arrays here would overflow that multiply and
+    produce visibly shifted RGB means (~40 units per channel for typical
+    pixel values), which is what caused the long-running 2b.6
+    parity-divergence symptom. Keep frames in ``[0, 1]`` float to match
+    diffusers' contract.
     """
     import numpy as np
     from diffusers.utils import export_to_video
@@ -409,8 +418,9 @@ def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
                 f"_write_mp4 expects batch_size=1; got leading shape {video.shape[0]}."
             )
             video = video.squeeze(0)
-    # video is now [T, C, H, W] in [-1, 1].
-    arr = ((video.clamp(-1.0, 1.0) + 1.0) * 127.5).round().to(torch.uint8)
+    # video is now [T, C, H, W] in [-1, 1]. Map to [0, 1] float32 to
+    # match diffusers' ``export_to_video`` contract for ndarray frames.
+    arr = ((video.clamp(-1.0, 1.0) + 1.0) * 0.5).to(torch.float32)
     arr_thwc = arr.permute(0, 2, 3, 1).cpu().numpy()  # [T, H, W, C]
     frames: list[np.ndarray] = list(arr_thwc)
     export_to_video(frames, str(out_path), fps=fps)
