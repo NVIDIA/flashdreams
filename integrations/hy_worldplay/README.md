@@ -327,16 +327,17 @@ feature flag and lands incrementally:
       VAE's first `CausalConv3d` doesn't see a fp32-vs-bf16 dtype
       mismatch.
 
-- **2b.5b-part2-followup (parity attempt landed; sub-venv removal
-  + default flip deferred to 2b.6).** The parity diff infrastructure
-  ran end-to-end against the phase-1 vendor-wrapper baseline at
-  production resolution (704x1280, `num_chunk=2`, `pose=w-8` on the
-  vendor side / `pose=w-7` on the native side -- vendor consumes only
-  the first `num_chunk * CHUNK_SIZE=8` of the 9 keys produced by
-  `w-8`, while native expects exactly `n_latents=8`, so `w-7` -> 8
-  keys gives identical motion-integrated trajectories on both sides).
-  The diff surfaced one config bug and one deeper algorithmic
-  divergence that gates the cleanup items:
+- **2b.5b-part2-followup (parity attempt landed; cleanup deferred
+  to 2b.6 / 2b.6.1).** The parity diff infrastructure ran end-to-end
+  against the phase-1 vendor-wrapper baseline at production resolution
+  (704x1280, `num_chunk=2`, `pose=w-8` on the vendor side / `pose=w-7`
+  on the native side -- vendor consumes only the first `num_chunk *
+  CHUNK_SIZE=8` of the 9 keys produced by `w-8`, while native expects
+  exactly `n_latents=8`, so `w-7` -> 8 keys gives identical motion-
+  integrated trajectories on both sides). The diff surfaced one
+  config bug (closed here) and a parity gap that 2b.6 picked apart
+  into three real bugs (closed) plus one architectural mismatch
+  (still open, tracked as 2b.6.1):
   - *Config bug (fixed in this release).* The HY-WorldPlay swap in
     `HyWorldPlayWanI2VRunnerConfig._swap_in_action_conditioning_configs`
     was inheriting the base recipe's `len_t=21` /
@@ -354,42 +355,82 @@ feature flag and lands incrementally:
     happened to test at `len_t=21` without comparing against the
     vendor baseline's actual chunk size, which is what kept this
     latent.
-  - *Algorithmic divergence (open, blocking cleanup).* With matching
-    frame counts and the distilled checkpoint loaded
-    (`load_state_dict(strict=True)` succeeds with 0 missing / 0
-    unexpected keys), pixel diff against vendor still reports
-    `mean |Δ| = 110.7 / 255` and `PSNR = 5.81 dB`, far outside the
-    `mean |Δ| <= 5 / 255` parity bar. Concretely, native frame 0 has
-    `mean rgb = [148.7, 137.1, 144.6]`, while the input image and
-    vendor frame 0 both sit at `~[106, 117, 103]` -- i.e. the
-    conditioning frame is *not* reconstructing through the HY swap
-    path even though `stamp_image_latent=True` survives the swap and
-    a pre-HY native rollout (May-16 baseline at
-    `/devwork/flashdreams/outputs/hy-worldplay-wan-i2v-5b.mp4`)
-    reproduces the input image perfectly. The bug is therefore
-    somewhere on the HY-specific code path, not in the base
-    `PIPELINE_WAN22_TI2V_5B` I2V conditioning. Ruled out so far:
-    `torch.compile` / CUDA graph (disabling both reproduces the
-    same delta), checkpoint loading (strict load succeeds, sampled
-    weights have realistic stats), pose-trajectory math (vendor and
-    native motion integrators are byte-identical), input image
-    preprocessing (vendor's `resize_and_center_crop` and native's
-    `preprocess_first_frame` are equivalent), `len_t` semantics
-    (now fixed). Root-causing this is tracked as a new follow-on
-    **2b.6** (likely an I2V mask / latent-stamping override that
-    the HY transformer subclass tree silently breaks, or a clean-
-    latent / first-frame-timestep wiring mismatch between
-    `HyWorldPlayWan21Transformer.predict_flow` and the base
-    `Wan21Transformer`).
-  - *Cleanup deferred.* The original 2b.5b-part2-followup also
-    listed (a) dropping the parity sub-venv and (b) flipping
-    `--use-native-pipeline` to the default. Both stay deferred
-    until 2b.6 closes the algorithmic divergence -- the sub-venv
-    is still needed to run vendor-wrapper baselines for parity
-    iteration, and we can't make the broken native path the
-    default. The parity diff harness itself (vendor run command +
-    `imageio[FFMPEG]`-based per-frame uint8 RGB delta) is now
-    documented and reusable for the 2b.6 round.
+  - *Parity gap surfaced.* With matching frame counts and the
+    distilled checkpoint loaded (`load_state_dict(strict=True)`
+    succeeds with 0 missing / 0 unexpected keys), pixel diff
+    against vendor reported `mean |Δ| = 110.7 / 255` and `PSNR =
+    5.81 dB`, far outside the `mean |Δ| <= 5 / 255` parity bar.
+    The follow-on **2b.6** below took this from 110.7 to 61.4 /
+    255 by closing three real bugs; the remaining ~60 / 255 is an
+    architectural cache-prefill vs single-forward-pass mismatch
+    tracked as **2b.6.1**. The parity diff harness (vendor run
+    command + `imageio[FFMPEG]`-based per-frame uint8 RGB delta)
+    landed here is reusable for both rounds.
+
+- **2b.6 (partially landed; cleanup still deferred to 2b.6.1).**
+  Closed three real bugs surfaced by the 2b.5b-part2-followup
+  parity diff. 704x1280 / `num_chunk=2` / `seed=0` parity went
+  from `mean |Δ| = 110.7 / 255` to `61.4 / 255`; chunk-0
+  (frames 0-12) now sits at `mean |Δ| ~ 7-20 / 255`, close to
+  phase-1's 3.41/255 vendor-vs-vendor torch-version drift. All
+  99 HY-WorldPlay CPU tests still pass.
+  1. *MP4 export integer-overflow* in `_native_runner._write_mp4`:
+     `diffusers.utils.export_to_video` reads `np.ndarray` frames
+     as `float [0, 1]` and internally does
+     `(frame * 255).astype(np.uint8)`. The runner was handing it
+     `uint8 [0, 255]`, so the multiply overflowed and frame 0's
+     mean RGB ended up `[148, 136, 146]` instead of the input's
+     `[107, 118, 104]` -- the symptom that originally appeared as
+     "I2V conditioning divergence". Now passing `float32 [0, 1]`.
+  2. *Missing cross-chunk attention on the HY native path* in
+     `HyWorldPlayWanCtrlEncoder._compute_memory_indices`: the HY
+     override of `Wan21Transformer.finalize_kv_cache` skips the
+     base rolling-KV update and the per-rollout cache `start`
+     resets each block's rolling cache at every chunk boundary,
+     so the prefill executor is the *only* path that lights up
+     cross-chunk attention on the HY native runner. The selector
+     was returning `None` whenever
+     `current_frame_idx < context_window_length`, silently
+     dropping vendor's
+     `elif use_memory: list(range(0, current_frame_idx))`
+     fall-back. Now matches vendor's branch: AR step > 0 always
+     emits memory indices when camera data is bound (FOV-selected
+     past the warm-up window, all-history otherwise).
+  3. *Wrong AdaLN timestep in the memory prefill* in
+     `HyWorldPlayWan21Transformer.prefill_memory_kv_cache`: the
+     executor was forwarding the noisy denoising timestep `t_now`
+     to AdaLN when computing memory K / V from chunk-0 clean
+     latents. Vendor uses `stabilization_level - 1 = 14` for
+     these positions (see vendor's
+     `pipeline_wan_w_mem_relative_rope.py` line 883-887 /
+     908-913). Added `_HY_STABILIZATION_TIMESTEP = 14` and the
+     driver now builds a fresh context-timestep tensor of the
+     right shape / dtype / device.
+
+- **2b.6.1 (new follow-on, not yet started).** Close the chunk-1
+  architectural gap surfaced by 2b.6. After the three bug fixes,
+  chunk-1 (frames 13-28) still sits at `mean |Δ| ~ 100 / 255`
+  because vendor's parity baseline runs with
+  `pipeline_wan_w_mem_relative_rope.py`'s `self.use_kv_cache =
+  False` (line 707) -- chunk-1's forward pass feeds **all 9
+  latents (chunk-0 clean + chunk-1 noisy) into the network
+  together** with mixed timesteps `[14, 14, 14, 14, 14, t, t, t,
+  t]`, and the bidirectional attention means chunk-0's
+  representation at deeper layers depends on chunk-1's noisy
+  tokens. The HY native runner instead does separate cache-
+  prefill of chunk-0 K / V into a memory cache, then a chunk-1-
+  only main forward that prepends the memory K / V -- equivalent
+  to vendor's `use_kv_cache=True` mode, which the baseline never
+  enables. Closing the gap means either (a) refactoring the
+  native runner to thread chunk-0 clean latents alongside chunk-1
+  noisy latents through a single `predict_flow` call (drop the
+  separate cache-prefill in favour of a "full forward" mode), or
+  (b) re-baselining vendor with `use_kv_cache=True` so the
+  parity reference uses the same cache-prefill code path the
+  native runner already mirrors. Cleanup items (parity sub-venv
+  removal + `--use-native-pipeline` default flip) stay deferred
+  until 2b.6.1 closes the chunk-1 gap and the `≤5 / 255` bar
+  holds at multi-chunk rollouts.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -684,16 +725,55 @@ land first.
      `--use-memory-selection` (requires `--use-camera-conditioning`
      so the viewmats history is bound). The list is produced but
      not yet consumed -- the KV-prefill executor lands in 2b.5b.
-   - **2b.5b.** KV-prefill executor (transformer pre-pass with
-     `is_cache=True` on the selected memory frames) + the
-     `flashdreams.core.attention.kvcache.BlockKVCache` arbitrary-
-     position write extension it needs; HY-WorldPlay distilled-
-     weight remap (`action_embedding`, `o_prope`, memory layers);
-     re-run the parity check against the phase-1 baseline; drop the
-     parity sub-venv (`sageattention`, `cloudpickle`, `accelerate`,
-     `transformers==4.57.6` are no longer needed once the upstream
-     tree imports are gone); flip `--use-native-pipeline` to
-     default.
+   - **2b.5b-part1 (landed).** HY-WorldPlay distilled-weight remap.
+     `hy_worldplay_distilled_state_dict_transform` unwraps the
+     upstream `.pt` envelope (`generator` / `generator_ema` subkey
+     + `model.` / `_fsdp_wrapped_module.` prefix stripping),
+     composes with `wan22_ti2v_5b_dit_state_dict_transform` for the
+     base 5B trunk, and adds three HY-specific rewrites for
+     `action_embedder` -> `action_embedding` and `to_out_prope.0`
+     -> `o_prope`. Auto-routed in
+     `HyWorldPlayWanI2VRunnerConfig.__post_init__` whenever
+     `--ckpt-path` is supplied alongside conditioner flags.
+   - **2b.5b-part2 (landed).** KV-prefill executor structural
+     skeleton (per-rollout `clean_latent_history`, per-block
+     `HyWorldPlayMemoryKVCache`, AR-step-0 prefill driver,
+     collapsed-position RoPE prefill, dual-branch concat, per-
+     chunk rolling-cache reset). Per-rollout viewmats / Ks /
+     action threading + GPU smoke validation + the
+     `len_t=4` config fix landed in **2b.5b-part2-followup**,
+     which is also where the production-resolution parity diff
+     against the phase-1 vendor baseline first ran.
+   - **2b.6 (partially landed).** Closed three real bugs surfaced
+     by the 2b.5b-part2-followup parity diff: (a) MP4 export
+     integer-overflow in `_native_runner._write_mp4`, (b) missing
+     cross-chunk attention on the HY native path in
+     `HyWorldPlayWanCtrlEncoder._compute_memory_indices`, and
+     (c) wrong AdaLN timestep in the memory prefill in
+     `HyWorldPlayWan21Transformer.prefill_memory_kv_cache`.
+     Pixel parity at 704x1280 / `num_chunk=2` improved from
+     `mean |Δ| = 110.7 / 255` to `61.4 / 255`; chunk-0 (frames
+     0-12) lands near the phase-1 baseline. Detail in
+     "Native pipeline (preview)" above.
+   - **2b.6.1 (not yet started).** Close the chunk-1 architectural
+     gap surfaced by 2b.6: vendor's parity baseline runs with
+     `use_kv_cache=False` (single forward pass over chunk-0 clean
+     + chunk-1 noisy latents with mixed timesteps), while the
+     HY native runner does cache-prefill of chunk-0 K / V then
+     a chunk-1-only main forward. The two are mathematically
+     non-equivalent on a bidirectional attention model, leaving
+     chunk-1 at `mean |Δ| ~ 100 / 255`. Options under
+     consideration: (a) refactor native to thread chunk-0 clean
+     latents through `predict_flow` alongside chunk-1 noisy
+     latents (drop the separate prefill), or (b) re-baseline
+     vendor with `use_kv_cache=True` so the parity reference
+     uses the same code path the native runner mirrors. After
+     2b.6.1 closes the gap and the `≤5 / 255` bar holds at
+     multi-chunk rollouts, the long-deferred cleanup lands:
+     drop the parity sub-venv (`sageattention`, `cloudpickle`,
+     `accelerate`, `transformers==4.57.6` are no longer needed
+     once the upstream tree imports are gone) and flip
+     `--use-native-pipeline` to default.
 
 4. **Phase 3 — future.** HunyuanVideo-1.5 8B variant
    (`hyvideo/generate.py` upstream). Heavier integration: multiple
