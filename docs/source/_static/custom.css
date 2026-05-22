@@ -3,14 +3,653 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 */
 
-/* Custom CSS overrides for FlashDreams documentation */
+/* ==========================================================================
+   FlashDreams custom CSS
+   --------------------------------------------------------------------------
+   Layered on top of pydata-sphinx-theme. Components are keyed off a small
+   set of CSS custom properties so the site can be re-themed by editing
+   tokens instead of rewriting rules.
+
+   Class-name convention: single dashes only (`fd-stat-value`, not
+   `fd-stat__value`). Docutils collapses `__` and `--` in `.. container::`
+   / `:class:` arguments to single dashes in the rendered HTML, so BEM-
+   style names in RST don't match what reaches the browser.
+
+   Section map:
+     1. Design tokens  (palette, type, spacing, radii, shadow)
+     2. Theme overrides (apply tokens to the upstream theme variables)
+     3. Layout helpers
+     4. Components
+        4.1  Hero
+        4.2  Feature card (extends sphinx-design card)
+        4.3  Video embed (responsive 16:9)
+        4.4  CTA button row
+        4.5  Stat block
+        4.6  Comparison table
+        4.7  Callout / note
+        4.8  Placeholder admonition
+     5. Project-wide header chrome hide
+     6. Misc upstream tweaks
+   ========================================================================== */
+
+
+/* ----- 1. Design tokens --------------------------------------------------- */
+
+:root {
+    /* Accent — single source of truth for branded color. Replace this one
+       value to re-brand the site. Currently a muted slate-teal placeholder;
+       intentionally NOT NVIDIA green. */
+    --fd-accent:        #3f7c87;
+    --fd-accent-hover:  #2f6770;
+    --fd-accent-soft:   rgba(63, 124, 135, 0.12);
+    --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
+
+    /* Type scale (modular, ~1.2 ratio). Keep the count small. */
+    --fd-text-xs:   0.8125rem;   /* 13px  meta, captions */
+    --fd-text-sm:   0.9375rem;   /* 15px  small body */
+    --fd-text-base: 1rem;        /* 16px  body */
+    --fd-text-lg:   1.25rem;     /* 20px  lead paragraphs */
+    --fd-text-xl:   1.75rem;     /* 28px  section heads */
+    --fd-text-2xl:  2.5rem;      /* 40px  page heads */
+    --fd-text-3xl:  3.25rem;     /* 52px  hero head */
+
+    /* Spacing scale (4px base, doubling-ish). */
+    --fd-space-1:   0.25rem;     /* 4px  */
+    --fd-space-2:   0.5rem;      /* 8px  */
+    --fd-space-3:   1rem;        /* 16px */
+    --fd-space-4:   1.5rem;      /* 24px */
+    --fd-space-5:   2.25rem;     /* 36px */
+    --fd-space-6:   3.5rem;      /* 56px */
+    --fd-space-7:   5rem;        /* 80px */
+
+    /* Radii */
+    --fd-radius-sm: 4px;
+    --fd-radius-md: 8px;
+    --fd-radius-lg: 14px;
+
+    /* Shadow / elevation */
+    --fd-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.04),
+                   0 1px 1px rgba(15, 23, 42, 0.03);
+    --fd-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.06),
+                   0 2px 4px rgba(15, 23, 42, 0.04);
+    --fd-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.10),
+                   0 4px 8px rgba(15, 23, 42, 0.05);
+
+    /* Misc */
+    --fd-border-width: 1px;
+    --fd-transition: 150ms ease-out;
+    --fd-max-content: 72rem;   /* max width for hero / wide rows */
+}
+
+/* Light-mode neutral palette */
+html[data-theme="light"] {
+    --fd-bg:            #ffffff;
+    --fd-bg-muted:      #f7f8fa;
+    --fd-bg-sunken:     #eef0f4;
+    --fd-surface:       #ffffff;
+    --fd-border:        #e4e7ec;
+    --fd-border-strong: #cdd2da;
+    --fd-text:          #1a1f2b;
+    --fd-text-muted:    #5a6271;
+    --fd-text-subtle:   #8a92a3;
+}
+
+/* Dark-mode neutral palette */
+html[data-theme="dark"] {
+    --fd-bg:            #0f1218;
+    --fd-bg-muted:      #161a22;
+    --fd-bg-sunken:     #0a0c11;
+    --fd-surface:       #1a1f29;
+    --fd-border:        #2a313d;
+    --fd-border-strong: #3a4150;
+    --fd-text:          #e8eaf0;
+    --fd-text-muted:    #a8b0bf;
+    --fd-text-subtle:   #6b7385;
+
+    /* Dark-mode accent gets a touch of luminance */
+    --fd-accent:        #6fb2bd;
+    --fd-accent-hover:  #8cc7d1;
+    --fd-accent-soft:   rgba(111, 178, 189, 0.16);
+    --fd-accent-ink:    #0f1218;
+
+    /* Heavier shadows are noise on a dark background; flatten them. */
+    --fd-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.40);
+    --fd-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --fd-shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+
+/* ----- 2. Theme overrides ------------------------------------------------- */
+
+/* sphinx-design and pydata-sphinx-theme both define their own accent
+   palettes. Re-bind the most visible ones to --fd-accent so buttons,
+   links, and focus rings all use the same color. */
+html {
+    --pst-color-primary:        var(--fd-accent);
+    --pst-color-primary-bg:     var(--fd-accent-soft);
+    --pst-color-link:           var(--fd-accent);
+    --pst-color-link-hover:     var(--fd-accent-hover);
+    --pst-color-accent:         var(--fd-accent);
+    --sd-color-primary:         var(--fd-accent);
+    --sd-color-primary-text:    var(--fd-accent-ink);
+    --sd-color-primary-highlight: var(--fd-accent-hover);
+}
+
+
+/* ----- 3. Layout helpers -------------------------------------------------- */
+
+/* Hide the "Table of Contents" heading in the primary sidebar (preserved
+   from the prior custom.css). */
+.bd-links__title {
+    display: none;
+}
+
+/* Generic container: caps width, centers, gives gutters on small screens. */
+.fd-container {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+    padding-inline: var(--fd-space-3);
+}
+
+/* Vertical rhythm helper — applies a generous gap between consecutive
+   blocks on landing-style pages. */
+.fd-section {
+    margin-block: var(--fd-space-6);
+}
+
+@media (max-width: 640px) {
+    .fd-section {
+        margin-block: var(--fd-space-5);
+    }
+}
+
+
+/* ----- 4. Components ------------------------------------------------------ */
+
+/* 4.1 Hero ----------------------------------------------------------------- */
+
+.fd-hero {
+    margin-block: var(--fd-space-4) var(--fd-space-6);
+    padding: var(--fd-space-6) var(--fd-space-4);
+    border-radius: var(--fd-radius-lg);
+    background:
+        radial-gradient(120% 140% at 0% 0%,
+                        var(--fd-accent-soft) 0%,
+                        transparent 55%),
+        linear-gradient(180deg, var(--fd-bg-muted), var(--fd-bg));
+    border: var(--fd-border-width) solid var(--fd-border);
+}
+
+/* Eyebrow text above the hero title — small, uppercase, accent-tinted. */
+.fd-hero-eyebrow,
+.fd-hero-eyebrow > p {
+    /* RST emits a wrapping <p> inside a .. container::, zero it so the
+       eyebrow sits flush above the title. */
+    margin: 0 0 var(--fd-space-2) 0;
+    font-size: var(--fd-text-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fd-accent);
+}
+
+/* Hero title. Rendered from .. rubric:: with :class: fd-hero-title,
+   which docutils outputs as a <p class="fd-hero-title rubric">. We
+   override the rubric default margins. */
+p.fd-hero-title.rubric,
+.fd-hero-title {
+    font-size: var(--fd-text-3xl);
+    line-height: 1.08;
+    font-weight: 700;
+    color: var(--fd-text);
+    margin: 0 0 var(--fd-space-3) 0;
+    letter-spacing: -0.02em;
+}
+
+.fd-hero-lede,
+.fd-hero-lede > p {
+    /* Same paragraph-wrapping reset as the eyebrow. */
+    margin: 0 0 var(--fd-space-4) 0;
+    font-size: var(--fd-text-lg);
+    line-height: 1.5;
+    color: var(--fd-text-muted);
+    max-width: 48rem;
+}
+
+@media (max-width: 768px) {
+    .fd-hero {
+        padding: var(--fd-space-5) var(--fd-space-3);
+    }
+    p.fd-hero-title.rubric,
+    .fd-hero-title {
+        font-size: var(--fd-text-2xl);
+    }
+    .fd-hero-lede,
+    .fd-hero-lede > p {
+        font-size: var(--fd-text-base);
+    }
+}
+
+
+/* 4.2 Feature card --------------------------------------------------------- */
+
+/* Applied as :class-card: fd-feature on a sphinx-design card. We style the
+   rendered .sd-card element. */
+.sd-card.fd-feature {
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    background: var(--fd-surface);
+    box-shadow: var(--fd-shadow-1);
+    transition: transform var(--fd-transition),
+                box-shadow var(--fd-transition),
+                border-color var(--fd-transition);
+    height: 100%;
+}
+
+/* Only lift on hover when the card is actually clickable. sphinx_design
+   adds `.sd-card-hover` to a card only when it has `:link:` set, so
+   cards without a link (e.g. Discord / Discussions placeholders) keep
+   their resting state instead of pretending to be interactive. */
+.sd-card.fd-feature.sd-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--fd-shadow-2);
+    border-color: var(--fd-border-strong);
+}
+
+.sd-card.fd-feature .sd-card-title {
+    font-size: var(--fd-text-lg);
+    font-weight: 600;
+    color: var(--fd-text);
+    margin-bottom: var(--fd-space-2);
+}
+
+.sd-card.fd-feature .sd-card-body {
+    color: var(--fd-text-muted);
+    font-size: var(--fd-text-sm);
+    line-height: 1.55;
+}
+
+/* Optional icon slot — page writers prepend a single character or short
+   inline element with class fd-feature-icon. */
+.fd-feature-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: var(--fd-radius-sm);
+    background: var(--fd-accent-soft);
+    color: var(--fd-accent);
+    font-weight: 700;
+    margin-bottom: var(--fd-space-2);
+}
+
+
+/* 4.3 Video embed (responsive 16:9) --------------------------------------- */
+
+.fd-video {
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    overflow: hidden;
+    box-shadow: var(--fd-shadow-2);
+    background: var(--fd-bg-sunken);
+}
+
+.fd-video > iframe,
+.fd-video > video {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}
+
+
+/* 4.4 CTA button row ------------------------------------------------------- */
+
+.fd-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fd-space-2);
+    align-items: center;
+    margin-block: var(--fd-space-3);
+}
+
+/* sphinx-design button-ref / button-link directives are wrapped in a <p>
+   by docutils. Reset that paragraph chrome so buttons sit flush in the
+   flex row rather than carrying body-paragraph margins. */
+.fd-cta-row > p {
+    margin: 0;
+    display: contents;
+}
+
+/* Buttons in a CTA row are usually sphinx-design buttons (.sd-btn). Tighten
+   their look and ensure adequate hit area on touch. */
+.fd-cta-row .sd-btn {
+    padding: 0.625rem 1.125rem;
+    border-radius: var(--fd-radius-md);
+    font-weight: 600;
+    font-size: var(--fd-text-sm);
+    transition: transform var(--fd-transition),
+                box-shadow var(--fd-transition);
+}
+
+.fd-cta-row .sd-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--fd-shadow-1);
+}
+
+@media (max-width: 480px) {
+    .fd-cta-row .sd-btn {
+        flex: 1 1 100%;
+        text-align: center;
+    }
+}
+
+
+/* 4.5 Stat block ----------------------------------------------------------- */
+
+/* A stat block is a small, scannable value + label, typically rendered
+   inside a sphinx-design grid. */
+.fd-stat {
+    padding: var(--fd-space-4) var(--fd-space-3);
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    background: var(--fd-surface);
+    text-align: left;
+    height: 100%;
+}
+
+/* Each .fd-stat-* subcomponent is a .. container::, so docutils emits a
+   wrapping <div> with an inner <p>. Style the wrapper for layout and the
+   <p> for typography so the inner paragraph margin doesn't fight us. */
+.fd-stat-value {
+    margin-bottom: var(--fd-space-1);
+}
+.fd-stat-value > p {
+    margin: 0;
+    font-size: var(--fd-text-2xl);
+    line-height: 1.1;
+    font-weight: 700;
+    color: var(--fd-accent);
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.fd-stat-label > p {
+    margin: 0;
+    font-size: var(--fd-text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fd-text-muted);
+    font-weight: 600;
+}
+
+.fd-stat-note {
+    margin-top: var(--fd-space-2);
+}
+.fd-stat-note > p {
+    margin: 0;
+    font-size: var(--fd-text-xs);
+    color: var(--fd-text-subtle);
+    line-height: 1.4;
+}
+
+
+/* 4.6 Comparison table ----------------------------------------------------- */
+
+/* Page writers wrap a standard Sphinx list-table / csv-table in a div with
+   class fd-compare for benchmark-style readability. */
+.fd-compare table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--fd-text-sm);
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    overflow: hidden;
+}
+
+.fd-compare thead th {
+    background: var(--fd-bg-muted);
+    color: var(--fd-text);
+    font-weight: 600;
+    text-align: left;
+    padding: var(--fd-space-2) var(--fd-space-3);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+    font-size: var(--fd-text-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.fd-compare tbody td {
+    padding: var(--fd-space-2) var(--fd-space-3);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+    color: var(--fd-text);
+    vertical-align: top;
+}
+
+.fd-compare tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.fd-compare tbody tr:nth-child(even) td {
+    background: var(--fd-bg-muted);
+}
+
+/* Numeric columns: right-align when the writer adds .fd-compare-numeric
+   to the table or the row. (RST class names ".. fd-compare--numeric" are
+   normalised to single dashes by docutils.) Leading header column stays
+   left-aligned for label readability. */
+.fd-compare-numeric td,
+.fd-compare td.fd-compare-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.fd-compare-numeric td:first-child {
+    text-align: left;
+}
+
+/* Highlight the "winner" row/cell. */
+.fd-compare-best {
+    color: var(--fd-accent);
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .fd-compare {
+        overflow-x: auto;
+    }
+    .fd-compare table {
+        min-width: 32rem;
+    }
+}
+
+
+/* 4.7 Callout / note ------------------------------------------------------- */
+
+/* Restyle standard admonitions used as callouts so they read as a designed
+   element rather than a default Sphinx box. Page writers can also use a
+   custom .admonition.fd-callout class for tone control. */
+.admonition.fd-callout {
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-left: 4px solid var(--fd-accent);
+    border-radius: var(--fd-radius-md);
+    background: var(--fd-bg-muted);
+    padding: var(--fd-space-3) var(--fd-space-4);
+    margin-block: var(--fd-space-3);
+    box-shadow: none;
+}
+
+.admonition.fd-callout > .admonition-title {
+    font-size: var(--fd-text-sm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fd-accent);
+    background: transparent;
+    padding: 0;
+    margin: 0 0 var(--fd-space-2) 0;
+}
+
+.admonition.fd-callout > .admonition-title::before {
+    display: none;   /* drop the default icon — we use the bar instead */
+}
+
+.admonition.fd-callout p {
+    color: var(--fd-text);
+    margin: 0 0 var(--fd-space-2) 0;
+}
+
+.admonition.fd-callout p:last-child {
+    margin-bottom: 0;
+}
+
+
+/* 4.8 Placeholder admonition ---------------------------------------------- */
+
+/* DELIBERATELY LOUD. Reviewers must be able to spot un-filled spots at a
+   glance, on either light or dark background. Hatched border + warning
+   color + monospaced "PLACEHOLDER" label. */
+.admonition.placeholder {
+    border: 2px dashed var(--fd-accent);
+    border-radius: var(--fd-radius-md);
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            var(--fd-accent-soft) 0,
+            var(--fd-accent-soft) 8px,
+            transparent 8px,
+            transparent 18px
+        ),
+        var(--fd-bg-muted);
+    padding: var(--fd-space-3) var(--fd-space-4);
+    margin-block: var(--fd-space-3);
+    color: var(--fd-text);
+    box-shadow: none;
+    position: relative;
+}
+
+.admonition.placeholder > .admonition-title {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                 "Liberation Mono", monospace;
+    font-size: var(--fd-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fd-accent);
+    background: transparent;
+    padding: 0;
+    margin: 0 0 var(--fd-space-2) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--fd-space-2);
+}
+
+.admonition.placeholder > .admonition-title::before {
+    content: "[ ]";
+    color: var(--fd-accent);
+    font-weight: 700;
+    margin: 0;
+    background: none;
+    width: auto;
+    height: auto;
+}
+
+.admonition.placeholder p {
+    margin: 0 0 var(--fd-space-2) 0;
+    font-size: var(--fd-text-sm);
+}
+
+.admonition.placeholder p:last-child {
+    margin-bottom: 0;
+}
+
+.admonition.placeholder code,
+.admonition.placeholder kbd {
+    background: var(--fd-bg);
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-sm);
+    padding: 0 0.25rem;
+    font-size: 0.85em;
+}
+
+
+/* ----- 5. Project-wide header chrome hide -------------------------------- */
+
+/* Drop doc-y header chrome on every page.
+
+   pydata-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
+   under the logo via `<p class="title logo__title">`, and a docs-search
+   button in the navbar. On a front-of-site page with a hero they read
+   as a docs build tag. Apply unconditionally — the site uses an
+   in-page search via sphinx-design / the navbar search button. */
+
+.navbar-brand .logo__title,
+.search-button,
+.search-button-field,
+.navbar-persistent--container,
+.navbar-persistent--mobile {
+    display: none !important;
+}
+
+
+/* ----- 6. Misc upstream tweaks ------------------------------------------- */
+
+/* Hide sibling top-level sections from the left sidebar. The pydata
+   sidebar template renders the whole master toctree; we want it to read
+   as the *current section's* TOC only (e.g., Tutorials on tutorials
+   pages, API on api pages). The top-level section list lives in the
+   navbar; it should not duplicate into the sidebar.
+
+   Each top-level entry is a `<li class="toctree-l1">`; the current
+   one carries `current` (and `active`). Hiding non-current siblings
+   leaves the current section + its expanded children intact. */
+.bd-sidenav > li.toctree-l1:not(.current) {
+    display: none;
+}
+
+/* Drop the "FlashDreams" caption row above the sidebar nav — it just
+   echoes the toctree caption from the root index.rst and adds noise on
+   per-section pages. */
+.bd-sidenav + .caption,
+.bd-toc-item > .caption {
+    display: none;
+}
+
+/* Slightly tighter line height on body text for design-y pages — only when
+   inside a .fd-prose wrapper so we don't fight the autodoc-heavy API
+   pages which prefer the theme default. */
+.fd-prose p,
+.fd-prose li {
+    line-height: 1.65;
+}
+
+/* Improve focus ring visibility for keyboard users on all interactive
+   FlashDreams components. */
+.sd-card.fd-feature:focus-visible,
+.fd-cta-row .sd-btn:focus-visible,
+.fd-stat:focus-visible {
+    outline: 2px solid var(--fd-accent);
+    outline-offset: 2px;
+}
+
+
+/* ----- 7. Reference-docs model-page components --------------------------- */
+
+/* Used by the per-model RST pages under `models/*.rst` (raw HTML blocks
+   that render the "Blog / Model page / Code / arXiv" link row and the
+   side-by-side teaser-video card). Kept here so the page authors don't
+   have to reach for inline styles. */
 
 .video-slot {
-    border: 1px dashed #6f6f6f;
+    border: 1px dashed var(--fd-border);
     border-radius: 10px;
     padding: 12px 14px;
     margin: 12px 0 18px;
-    background: rgba(127, 127, 127, 0.06);
+    background: var(--fd-bg-muted);
 }
 
 .benchmark-figure {
@@ -26,44 +665,8 @@ SPDX-License-Identifier: Apache-2.0
     margin: 0;
     font-size: 0.76rem;
     line-height: 1.2;
-    color: var(--color-foreground-secondary);
+    color: var(--fd-text-muted);
     font-style: italic;
-}
-
-.sidebar-github-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    padding: 2px 10px 8px;
-}
-
-.sidebar-github-link .github-button {
-    max-width: 100%;
-}
-
-.sidebar-brand .sidebar-logo {
-    max-width: 220px;
-}
-
-.mobile-header .brand {
-    display: none;
-}
-
-.mobile-header .header-center {
-    display: none;
-}
-
-.homepage-logo-wrap {
-    margin: 0 0 0.8rem;
-    text-align: center;
-}
-
-.homepage-logo-wrap img {
-    width: min(560px, 90%);
-    height: auto;
-    display: block;
-    margin: 0 auto;
 }
 
 .model-link-row {
@@ -80,8 +683,8 @@ SPDX-License-Identifier: Apache-2.0
     justify-content: center;
     padding: 0.35rem 0.75rem;
     border-radius: 0.25rem;
-    border: 1px solid var(--color-brand-primary, #4f46e5);
-    color: var(--color-brand-primary, #4f46e5);
+    border: 1px solid var(--fd-accent);
+    color: var(--fd-accent);
     text-decoration: none;
     font-weight: 600;
     font-size: 0.9rem;
@@ -89,7 +692,7 @@ SPDX-License-Identifier: Apache-2.0
 
 .model-link-button:hover {
     text-decoration: none;
-    background: color-mix(in srgb, var(--color-brand-primary, #4f46e5) 8%, transparent);
+    background: color-mix(in srgb, var(--fd-accent) 8%, transparent);
 }
 
 .model-video-grid {
@@ -103,7 +706,7 @@ SPDX-License-Identifier: Apache-2.0
     position: relative;
     border-radius: 10px;
     overflow: hidden;
-    border: 1px solid #c9c9c9;
+    border: 1px solid var(--fd-border);
     background: #101214;
     min-height: 200px;
 }

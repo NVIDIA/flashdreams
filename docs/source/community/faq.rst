@@ -76,7 +76,7 @@ How do I plug in a new model recipe?
 
    **What goes here:** A one-paragraph orientation followed by a link
    to the developer guide at
-   ``../docs/developer_guides/new_recipes.html``. Mention the smallest
+   :doc:`/developer_guides/new_recipes`. Mention the smallest
    set of abstractions a recipe must implement to plug into
    ``flashdreams-run``.
 

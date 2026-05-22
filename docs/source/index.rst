@@ -13,106 +13,376 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+.. Hidden H1: the visual title lives in the hero below, but Sphinx still
+   needs a document title for the toctree caption and the browser tab.
+
 FlashDreams
-===================================
+===========
 
-.. raw:: html
+.. container:: fd-hero
 
-   <style>
-     #furo-main-content > section > h1 { display: none; }
-   </style>
-   <div class="homepage-logo-wrap">
-     <img src="_static/flashdreams_logo_horizontal.png" alt="FlashDreams">
-   </div>
+   .. container:: fd-hero-eyebrow
 
-FlashDreams is a high-performance streaming inference stack for world and
-video models. It focuses on long-rollout autoregressive generation, efficient
-multi-GPU execution, and practical model serving.
+      Streaming diffusion video
 
-Highlights
-----------
+   .. rubric:: FlashDreams
+      :class: fd-hero-title
 
-- FlashDreams is built for **streaming long-rollout world-model inference**
-  with per-step cache updates and low overhead in autoregressive loops.
-- The unified ``flashdreams-run`` CLI exposes both built-in and plugin models
-  behind a single launch interface, from Self-Forcing and Causal-Forcing to
-  Lingbot-World and Causal Wan2.2.
-- FlashDreams is designed for **multi-GPU context-parallel execution** with
-  torchrun-based scaling and integration-level support for efficient transformer
-  attention/cache pipelines.
-- The framework is **modular and extensible**: pipelines and runner configs can
-  be added as external integration packages via entry points without forking
-  core infra.
-- Current benchmarks show strong practical speedups in matched environments,
-  including up to **2.49x** on Lingbot-World (H100, 4xGPU) and up to
-  **1.95x** on Self-Forcing (GB200, block-6 total latency) against official
-  baselines.
+   .. container:: fd-hero-lede
 
-.. raw:: html
+      Sub-second autoregressive video diffusion on a single GPU.
+      FlashDreams is the streaming inference stack for diffusion-based
+      video — KV-cached transformers, ring attention, and CUDA-graph
+      capture, behind one ``flashdreams-run`` CLI.
 
-   <div class="video-slot">
-     <strong>Project overview media</strong><br>
-     See model-specific pages under ``Models`` for runnable commands and
-     available qualitative assets.
-   </div>
+   .. container:: fd-cta-row
 
-Quick install
+      .. button-ref:: getting_started/index
+         :ref-type: doc
+         :color: primary
+
+         Get started
+
+      .. button-ref:: apis/index
+         :ref-type: doc
+         :color: secondary
+         :outline:
+
+         API Reference
+
+.. grid:: 1 2 2 4
+   :gutter: 3
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Steady-state step (ms)
+
+         .. container:: fd-stat-note
+
+            H100, ``self-forcing-wan2.1-t2v-1.3b-flash``.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            FlashDreams / upstream
+
+         .. container:: fd-stat-note
+
+            Same recipe, same GPU; ratio > 1 means faster.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Peak memory (GiB)
+
+         .. container:: fd-stat-note
+
+            Steady-state, post-graph-capture.
+
+   .. grid-item::
+
+      .. container:: fd-stat
+
+         .. container:: fd-stat-value
+
+            TBD
+
+         .. container:: fd-stat-label
+
+            Scaling at 8 GPUs
+
+         .. container:: fd-stat-note
+
+            Ring attention, bidirectional reference.
+
+.. admonition:: PLACEHOLDER — headline stat values
+   :class: placeholder
+
+   **What goes here:** four ≤ 6-character stat values for the grid
+   above, mirroring the canonical grid on :doc:`benchmarks/index`.
+
+   **Source data:** rows of the Results tables on the benchmarks page;
+   do not invent.
+
+   **Reproduce with:** the per-row CLI invocations in *Methodology* on
+   the benchmarks page.
+
+----
+
+Showcase
+--------
+
+.. admonition:: PLACEHOLDER — showcase video
+   :class: placeholder
+
+   **What goes here:** A 10–30s reel showing FlashDreams generating video
+   end-to-end — ideally a side-by-side of one of the streaming recipes
+   (e.g. ``self-forcing-wan2.1-t2v-1.3b-flash``) against its upstream
+   reference, plus a frame of the multi-view OmniDreams output.
+
+   **Format:** ``_static/showcase.mp4`` (self-hosted, 16:9, < 10 MB) or a
+   YouTube-nocookie embed ID.
+
+   **Source / coordinate with:** marketing + the recipe maintainers
+   (sample prompts already live in each ``examples/*.rst`` walkthrough).
+
+----
+
+Why FlashDreams
+---------------
+
+Diffusion video generators are getting fast enough to be interactive, but
+only if the inference stack is built for it. FlashDreams is organised
+around a few sharp abstractions — documented in the
+:doc:`apis/index` — that every recipe
+plugs into: **KV-cached transformers** so each autoregressive chunk
+re-uses prior context instead of recomputing it, **ring attention**
+across context-parallel ranks for long sequences without OOM, and
+**CUDA-graph capture** of the steady-state forward so per-step overhead
+collapses once the pipeline is warm. The result is the streaming-step
+latencies recorded in the `PERFORMANCE.md
+<https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md>`_
+profiles — sub-second per autoregressive chunk on H100 / GB200 after
+warmup for the Self-Forcing Wan 2.1 T2V recipe.
+
+A single ``flashdreams-run`` CLI fronts every shipped recipe, in-tree or
+plugin, with every overridable field exposed as a flag. The same command
+that does a single-GPU debug run scales to multi-GPU context-parallelism
+under ``torchrun``; recipes auto-detect their CP size from the world
+group, so there is no separate distributed-launcher config to maintain.
+The :doc:`getting_started/index` has the
+annotated walkthrough.
+
+----
+
+What's inside
 -------------
+
+.. grid:: 1 2 2 3
+   :gutter: 3
+   :margin: 0 0 4 0
+
+   .. grid-item-card:: KV-cached transformers
+      :class-card: fd-feature
+      :link: apis/infra
+      :link-type: doc
+
+      First-class support for autoregressive flow-matching models with
+      self-forcing and causal-forcing training regimes; prior chunks
+      stay resident as KV so each AR step only attends to fresh latents.
+
+   .. grid-item-card:: Ring attention
+      :class-card: fd-feature
+      :link: apis/core
+      :link-type: doc
+
+      Context-parallel attention across ranks, so long-horizon
+      generation scales out instead of OOM-ing on a single GPU.
+
+   .. grid-item-card:: CUDA-graph capture
+      :class-card: fd-feature
+      :link: apis/recipes
+      :link-type: doc
+
+      The steady-state forward is captured into a CUDA graph after warmup,
+      eliminating Python and launch overhead from the per-step hot path.
+
+   .. grid-item-card:: Unified ``flashdreams-run`` CLI
+      :class-card: fd-feature
+      :link: reference/cli
+      :link-type: doc
+
+      One console script dispatches over every in-tree and plugin-provided
+      recipe. Each overridable field is a CLI flag; ``--help`` lists every
+      registered runner.
+
+   .. grid-item-card:: Multi-GPU by default
+      :class-card: fd-feature
+      :link: apis/infra
+      :link-type: doc
+
+      Recipes auto-detect CP size from ``torch.distributed``'s world
+      group. The launcher is the single source of truth — no ``cp_size``
+      knob to drift out of sync.
+
+   .. grid-item-card:: Plugin-friendly recipes
+      :class-card: fd-feature
+      :link: developer_guides/new_recipes
+      :link-type: doc
+
+      Recipes can ship in-tree or as out-of-tree plugins discovered
+      through entry points. Self-Forcing and Causal-Forcing ship as
+      workspace-member packages under ``integrations/``.
+
+----
+
+Supported models
+----------------
+
+Each model below has a walkthrough with the exact ``flashdreams-run``
+slug, the checkpoint source, and any per-recipe knobs. Recipes are split
+into **streaming / autoregressive** (KV-cached, per-AR-step output) and
+**bidirectional** (single full-block reference) variants.
+
+.. grid:: 1 2 2 3
+   :gutter: 3
+
+   .. grid-item-card:: Self-Forcing
+      :class-card: fd-feature
+      :link: models/self_forcing
+      :link-type: doc
+
+      Streaming Wan 2.1 T2V via the Self-Forcing plugin. AR steps after
+      warmup are sub-second on H100 / GB200.
+
+   .. grid-item-card:: Causal-Forcing
+      :class-card: fd-feature
+      :link: models/causal_forcing
+      :link-type: doc
+
+      Causal-forcing framewise T2V and I2V variants of Wan 2.1 via the
+      Causal-Forcing plugin.
+
+   .. grid-item-card:: Causal Wan 2.2
+      :class-card: fd-feature
+      :link: models/fastvideo_wan22
+      :link-type: doc
+
+      FastVideo Wan 2.2 14B causal T2V recipe.
+
+   .. grid-item-card:: Lingbot-World
+      :class-card: fd-feature
+      :link: models/lingbot_world
+      :link-type: doc
+
+      Camera-controlled I2V with bundled prompt + first-frame + camera
+      arrays.
+
+   .. grid-item-card:: OmniDreams
+      :class-card: fd-feature
+      :link: models/omnidreams
+      :link-type: doc
+
+      Single-view and multi-view streaming recipes against the OmniDreams
+      checkpoints, including a diffusion-forcing AR variant.
+
+   .. grid-item-card:: Wan 2.1 (bidirectional)
+      :class-card: fd-feature
+      :link: models/wan21
+      :link-type: doc
+
+      Single bidirectional reference model used for parity testing —
+      T2V 1.3B / 480p and I2V 14B / 480p.
+
+----
+
+Quick start
+-----------
+
+FlashDreams is a `uv <https://docs.astral.sh/uv/>`_ workspace. The CLI
+lazy-imports ``mediapy`` + ``opencv`` for I/O, so install the ``runners``
+extra whenever you want to actually generate videos:
 
 .. code-block:: bash
 
-   # Library usage
-   pip install flashdreams
-
-   # Latest main branch
-   pip install "git+https://github.com/NVIDIA/flashdreams.git"
-
-   # Codebase workflow
-   git clone https://github.com/NVIDIA/flashdreams.git
-   cd flashdreams
    uv sync --extra dev --extra runners
    uv run flashdreams-run --help
 
-.. grid:: 1 1 2 2
-   :gutter: 2
+   # Single-GPU streaming inference (Self-Forcing Wan 2.1 T2V).
+   uv run flashdreams-run \
+       self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
 
-   .. grid-item-card:: Getting Started
-      :link: getting_started/index
-      :link-type: doc
+.. admonition:: New to streaming diffusion?
+   :class: fd-callout
 
-      Installation, first model launch, and supported model overview.
+   The :doc:`getting_started/index` has the
+   annotated quickstart, an end-to-end first-generation walkthrough, and
+   pointers into the developer guides for CUDA-graph capture, distributed
+   launching, and authoring a custom recipe.
 
-   .. grid-item-card:: Developer Guides
-      :link: developer_guides/index
-      :link-type: doc
+----
 
-      Architecture, model integration, configs, and serving guidance.
+Join the community
+------------------
 
-   .. grid-item-card:: Reference
-      :link: reference/index
-      :link-type: doc
+FlashDreams is developed in the open at
+`NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_.
 
-      CLI usage and API surfaces.
+.. container:: fd-cta-row
 
-   .. grid-item-card:: Models
-      :link: models/index
-      :link-type: doc
+   .. button-link:: https://github.com/NVIDIA/flashdreams
+      :color: primary
 
-      Model catalog with per-model run commands and links.
+      GitHub
+
+   .. button-ref:: community/index
+      :ref-type: doc
+      :color: secondary
+      :outline:
+
+      Community
+
+   .. button-ref:: community/contributing
+      :ref-type: doc
+      :color: secondary
+      :outline:
+
+      Contributing
+
+   .. button-ref:: benchmarks/index
+      :ref-type: doc
+      :color: secondary
+      :outline:
+
+      Benchmarks
+
+.. Master toctree: each captioned block surfaces as a navbar dropdown
+   in pydata-sphinx-theme. Order here = order in the navbar. Section
+   index pages don't have their own toctrees, so the sub-pages are
+   listed directly under each caption.
 
 .. toctree::
+   :caption: Benchmarks
+   :hidden:
    :maxdepth: 1
+
+   benchmarks/index
+
+.. toctree::
    :caption: Getting Started
    :hidden:
+   :maxdepth: 1
 
    getting_started/installation
    getting_started/first_world_model
    getting_started/supported_models
 
 .. toctree::
-   :maxdepth: 1
    :caption: Developer Guides
    :hidden:
+   :maxdepth: 1
 
    developer_guides/new_recipes
    developer_guides/system_overview
@@ -120,9 +390,9 @@ Quick install
    developer_guides/interactive_serving
 
 .. toctree::
-   :maxdepth: 1
    :caption: Models
    :hidden:
+   :maxdepth: 1
 
    models/omnidreams
    models/self_forcing
@@ -132,9 +402,22 @@ Quick install
    models/wan21
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Reference
+   :caption: CLI Reference
    :hidden:
+   :maxdepth: 1
 
-   CLI <reference/cli>
-   API <apis/index>
+   reference/cli
+
+.. toctree::
+   :caption: API Reference
+   :hidden:
+   :maxdepth: 2
+
+   apis/index
+
+.. toctree::
+   :caption: Community
+   :hidden:
+   :maxdepth: 1
+
+   community/index

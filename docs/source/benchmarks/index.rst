@@ -32,9 +32,9 @@ this page is the **measurement** counterpart, not a duplicate.
    :class: fd-callout
 
    Start with :doc:`../index` for an overview, then walk a recipe in the
-   `getting started guide <../docs/getting_started/index.html>`_ before
+   :doc:`/getting_started/index` before
    reading these numbers in context. The architectural rationale lives
-   in the `API reference <../docs/apis/index.html>`_.
+   in the :doc:`/apis/index`.
 
 Headline metrics
 ----------------
@@ -522,11 +522,11 @@ How we got here
 
 The point of this page is *what* — *why* lives elsewhere:
 
-- The `API reference <../docs/apis/index.html>`_ orients you to the four
+- The :doc:`/apis/index` orients you to the four
   library surfaces and links to the design notes for ring attention,
   KV-cache management, and CUDA-graph capture of the steady-state
   forward.
-- The `developer guides <../docs/developer_guides/index.html>`_ cover
+- The :doc:`/developer_guides/index` cover
   the architectural concerns behind the recipes you can run today;
   *interactive serving* and *new recipes* are the shortest paths to a
   reproducible local measurement of your own.

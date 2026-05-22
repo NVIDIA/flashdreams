@@ -144,7 +144,6 @@ lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
-    "furo",
     "pydata-sphinx-theme",
     "sphinx",
     "sphinx-autobuild",

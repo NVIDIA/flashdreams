@@ -26,6 +26,17 @@ version = release if release[:1].isalpha() else f"v{release}"
 # caught early (locally and in CI).
 warningiserror = True
 
+# Suppress MyST cross-reference warnings for `.. include::`d markdown that
+# uses GitHub-relative file links (e.g. CONTRIBUTING.md links to `LICENSE`,
+# `reuse.toml`). Those resolve fine when GitHub renders the file standalone
+# but have no analog in the Sphinx build.
+suppress_warnings = ["myst.xref_missing"]
+
+# Auto-generate anchors for markdown headings up to H3 so cross-references
+# like `[Project governance](#project-governance)` resolve when MD is
+# included via `.. include:: ... :parser: myst_parser.sphinx_`.
+myst_heading_anchors = 3
+
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -35,6 +46,7 @@ extensions = [
     "sphinx.ext.githubpages",
     "sphinx_copybutton",
     "sphinx_design",
+    "myst_parser",
 ]
 
 intersphinx_mapping = {
@@ -51,17 +63,34 @@ exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
-html_static_path = ["_static", "../../assets/logo"]
+html_static_path = ["_static"]
 html_logo = "../../assets/logo/flashdreams_logo_horizontal.png"
 
 html_theme_options = {
-    "source_repository": "https://github.com/NVIDIA/flashdreams/",
-    "source_branch": "main",
-    "source_directory": "docs/source/",
-    "sidebar_hide_name": True,
+    "secondary_sidebar_items": ["page-toc"],
+    "pygments_light_style": "tango",
+    "pygments_dark_style": "monokai",
+    "github_url": "https://github.com/NVIDIA/flashdreams",
+    # Drop the "Built with the PyData Sphinx Theme x.y.z" footer credit.
+    "footer_start": ["copyright"],
+    "footer_end": [],
+    "navigation_depth": 4,
+    "collapse_navigation": True,
+    # -- Top navbar arrangement -----------------------------------------
+    # Logo | centered nav | theme switcher + GitHub icon (auto-rendered
+    # from `github_url`) | persistent search button.
+    "navbar_start": ["navbar-logo"],
+    "navbar_center": ["navbar-nav"],
+    "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    "navbar_persistent": ["search-button"],
+    "show_nav_level": 2,
+    # Seven top-level sections in the master toctree (Benchmarks, four
+    # docs captioned trees, two ref captioned trees, Community); promote
+    # them all into the primary navbar instead of bucketing into "More".
+    "header_links_before_dropdown": 7,
 }
 
 html_context = {
