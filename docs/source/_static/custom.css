@@ -5,17 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 /* Custom CSS overrides for FlashDreams documentation */
 
-/* Hide the "Table of Contents" heading in the primary sidebar. */
-.bd-links__title {
-    display: none;
-}
-
 .video-slot {
-    border: 1px dashed var(--nv-color-neutral-500, #6f6f6f);
+    border: 1px dashed #6f6f6f;
     border-radius: 10px;
     padding: 12px 14px;
     margin: 12px 0 18px;
-    background: var(--nv-color-neutral-100, rgba(127, 127, 127, 0.06));
+    background: rgba(127, 127, 127, 0.06);
 }
 
 .benchmark-figure {
@@ -57,10 +52,6 @@ SPDX-License-Identifier: Apache-2.0
 
 .mobile-header .header-center {
     display: none;
-}
-
-body.index .content h1 {
-    margin-top: 0.2rem;
 }
 
 .homepage-logo-wrap {

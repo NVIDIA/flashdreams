@@ -6,22 +6,14 @@ SPDX-License-Identifier: Apache-2.0
 /* ==========================================================================
    FlashDreams custom CSS
    --------------------------------------------------------------------------
-   Layered on top of the upstream nvidia_sphinx_theme (which itself extends
-   pydata-sphinx-theme). Everything below is keyed off a small set of CSS
-   custom properties so the site can be re-themed by editing tokens, not
-   by rewriting components.
+   Layered on top of pydata-sphinx-theme. Components are keyed off a small
+   set of CSS custom properties so the site can be re-themed by editing
+   tokens instead of rewriting rules.
 
-   NAMING NOTE (Wave-3 fix). Docutils normalises run-on identifiers in
-   .. container:: / :class: arguments — a double underscore "__" or a
-   double dash "--" collapses to a single dash "-" in the rendered HTML.
-   That means BEM-style class names written in RST like
-
-       .. container:: fd-stat__value          ->  <div class="fd-stat-value">
-       .. container:: fd-compare--numeric     ->  <div class="fd-compare-numeric">
-
-   So every selector in this file uses the single-dash form, matching what
-   actually reaches the browser. Page authors should write the single-dash
-   form in their RST too (the design-system doc reflects this).
+   Class-name convention: single dashes only (`fd-stat-value`, not
+   `fd-stat__value`). Docutils collapses `__` and `--` in `.. container::`
+   / `:class:` arguments to single dashes in the rendered HTML, so BEM-
+   style names in RST don't match what reaches the browser.
 
    Section map:
      1. Design tokens  (palette, type, spacing, radii, shadow)
@@ -36,7 +28,7 @@ SPDX-License-Identifier: Apache-2.0
         4.6  Comparison table
         4.7  Callout / note
         4.8  Placeholder admonition
-     5. Landing-page layout hook (body.fd-layout-landing)
+     5. Project-wide header chrome hide
      6. Misc upstream tweaks
    ========================================================================== */
 
@@ -585,46 +577,23 @@ p.fd-hero-title.rubric,
 }
 
 
-/* ----- 5. Landing-page layout hook --------------------------------------- */
+/* ----- 5. Project-wide header chrome hide -------------------------------- */
 
-/* layout.html tags <body> with .fd-layout-landing when the page sets
-   ``:layout: landing`` (or is the master doc). The landing page has no
-   meaningful per-page TOC — the hero, feature grid and supported-models
-   grid ARE the page navigation — so drop the secondary sidebar and let
-   the article column run wider on large screens. */
+/* Drop doc-y header chrome on every page in this project.
 
-body.fd-layout-landing .bd-sidebar-secondary,
-body.fd-layout-landing .bd-toc {
-    display: none !important;
-}
-
-@media (min-width: 1200px) {
-    /* Reclaim the space the secondary sidebar used to occupy on wide
-       viewports. Both the main grid and the article max-width are widened
-       so the hero and feature row breathe. */
-    body.fd-layout-landing .bd-main .bd-content {
-        max-width: 100%;
-    }
-    body.fd-layout-landing .bd-article-container {
-        max-width: 68rem;
-    }
-}
-
-
-/* Marketing pages drop doc-y header chrome.
-
-   nvidia-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
+   pydata-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
    under the logo via `<p class="title logo__title">`, and a docs-search
    button in the navbar. Both are correct on API reference / tutorials
-   pages but make the landing read as "docs that happen to have a hero".
-   Hide them only where `body.fd-layout-marketing` is set — docs pages
-   keep both. */
+   pages over in the reference-docs project — but on the landing project
+   they make the page read as "docs that happen to have a hero". Apply
+   unconditionally; the reference-docs project loads its own CSS and is
+   unaffected. */
 
-body.fd-layout-marketing .navbar-brand .logo__title,
-body.fd-layout-marketing .search-button,
-body.fd-layout-marketing .search-button-field,
-body.fd-layout-marketing .navbar-persistent--container,
-body.fd-layout-marketing .navbar-persistent--mobile {
+.navbar-brand .logo__title,
+.search-button,
+.search-button-field,
+.navbar-persistent--container,
+.navbar-persistent--mobile {
     display: none !important;
 }
 
