@@ -618,6 +618,153 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         x = self.head(x, head_e)
         return x
 
+    def prefill_memory_kv_cache(
+        self,
+        x: Tensor,
+        timesteps: Tensor,
+        cache: WanDiTNetworkCache,
+        rope_freqs: Tensor,
+        block_extra_kwargs: dict[str, Any] | None = None,
+        action: Tensor | None = None,
+        viewmats: Tensor | None = None,
+        Ks: Tensor | None = None,
+    ) -> None:
+        """Populate each block's reconstituted-context memory cache.
+
+        Phase 2b.5b-part2 prefill driver -- mirror :meth:`forward`'s
+        patchify + time / action embedding + AdaLN modulation pre-amble,
+        then loop over blocks calling
+        :meth:`HyWorldPlayPRoPEBlock.prefill_memory_kv` instead of
+        ``block(...)``. Cross-attention, FFN, the residual stream, and
+        the head are all skipped because the prefill executor only
+        needs each block's self-attention K / V at the collapsed RoPE
+        positions; everything downstream of self-attention is
+        unobservable in the cache.
+
+        Pre-conditions:
+
+        * ``x`` already carries the *memory frames'* patchified latents
+          at upstream's collapsed positions ``[0, K * tokens_per_frame)``;
+          the caller (``HyWorldPlayWan21Transformer.prefill_memory_kv_cache``)
+          is responsible for slicing the per-rollout history at
+          ``HyWorldPlayCtrl.memory_frame_indices`` and reshaping.
+        * ``rope_freqs`` is built from the rope adapter's
+          ``_freq_components`` primitive against the same collapsed
+          positions, *not* against the standard chunk-i positions
+          ``[i*len_t, (i+1)*len_t)`` -- this is the whole point of the
+          dedicated prefill pass: rotate K with the collapsed positions
+          so the cached K already encodes "memory at position 0..K-1"
+          when concatenated with the current chunk's K.
+        * ``viewmats`` / ``Ks`` (when PRoPE blocks are active) carry
+          the memory frames' camera matrices, again pre-sliced.
+        * ``cache`` is a :class:`WanDiTNetworkCache` whose per-block
+          entries are :class:`HyWorldPlayPRoPEBlockCache` instances; the
+          ``memory`` slot on each entry is what gets written.
+
+        Args:
+            x: Patchified memory latents with shape
+                ``[..., L_mem, in_dim]``.
+            timesteps: Scalar broadcast or per-token context-noise
+                timestep, same contract as :meth:`forward` but pre-
+                sliced to the memory tokens. The standard upstream
+                value is ``stabilization_level`` (a small near-zero
+                noise level distinct from 0 to keep the model in its
+                trained distribution); the caller passes this through.
+            cache: Per-block cache; only the ``memory`` slots are
+                touched.
+            rope_freqs: RoPE frequencies remapped to the collapsed
+                memory positions ``[0, L_mem)``.
+            block_extra_kwargs: Optional extras forwarded to the per-
+                block prefill (currently unused; kept for symmetry
+                with :meth:`forward`).
+            action: Optional action labels for the *memory frames*
+                (one label per selected latent frame). When ``None``
+                no action embedding is added.
+            viewmats: Optional W2C extrinsics for the memory frames.
+                Required when ``self._hy_use_prope_blocks`` is set
+                (PRoPE branch needs them to compute the camera
+                projection).
+            Ks: Optional per-frame intrinsics for the memory frames.
+        """
+        assert self._parameters_updated_after_loading_checkpoint, (
+            "We expect to have called update_parameters_after_loading_checkpoint() "
+            "after loading the checkpoint"
+        )
+        if not self._hy_use_prope_blocks:
+            raise RuntimeError(
+                "HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache requires "
+                "use_prope_blocks=True; the prefill executor only meaningfully "
+                "writes the dual-branch memory caches owned by HyWorldPlayPRoPEBlock."
+            )
+
+        batch_shape = x.shape[:-2]
+        L = x.shape[-2]
+
+        if self.patch_embedding_type == "linear":
+            x = self.patch_embedding(x)
+        elif self.patch_embedding_type == "conv3d":
+            _weight = self.patch_embedding.weight.reshape(self.dim, -1)
+            _bias = self.patch_embedding.bias
+            x = torch.nn.functional.linear(x, _weight, _bias)
+        else:
+            raise ValueError(
+                f"Invalid patch embedding type: {self.patch_embedding_type}"
+            )
+
+        # Same per-token timestep dispatch + action injection as forward.
+        per_token_timestep = (
+            timesteps.ndim > len(batch_shape) and timesteps.shape[-1] == L
+        )
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x)
+        )
+        if action is not None:
+            action_e = self._compute_action_embedding(action=action, x=x, L=L)
+            e = e + action_e
+            per_token_timestep = True
+        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+        if per_token_timestep:
+            block_e_shape = batch_shape + (L, 6, self.dim)
+        else:
+            block_e_shape = batch_shape + (6, self.dim)
+        block_e = torch.broadcast_to(e0, block_e_shape)
+
+        if viewmats is None:
+            raise ValueError(
+                "HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache requires "
+                "viewmats; the executor must slice the per-rollout viewmats "
+                "by selected_frame_indices before calling."
+            )
+
+        # No before_update / after_update on the per-block rolling caches
+        # here -- the prefill writes only into cache[block_idx].memory,
+        # which has its own reset / write cycle owned by the executor.
+        for block_idx, block in enumerate(self.blocks):
+            block_cache = cache[block_idx]
+            # Only PRoPE blocks have a memory slot; the prefill executor
+            # caller already validates use_prope_blocks=True so this is a
+            # defensive isinstance check rather than a hot branch.
+            from hy_worldplay._camera import (
+                HyWorldPlayPRoPEBlock,
+                HyWorldPlayPRoPEBlockCache,
+            )
+
+            assert isinstance(block, HyWorldPlayPRoPEBlock), (
+                f"prefill expects HyWorldPlayPRoPEBlock, got {type(block).__name__}"
+            )
+            assert isinstance(block_cache, HyWorldPlayPRoPEBlockCache), (
+                f"prefill expects HyWorldPlayPRoPEBlockCache, got "
+                f"{type(block_cache).__name__}"
+            )
+            block.prefill_memory_kv(
+                x=x,
+                e=block_e,
+                rope_freqs=rope_freqs,
+                viewmats=viewmats,
+                Ks=Ks,
+                cache=block_cache,
+            )
+
     def _compute_action_embedding(
         self,
         *,
@@ -658,6 +805,101 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
 
 
 @dataclass(kw_only=True)
+class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
+    """Per-rollout cache for the HY-WorldPlay transformer (phase 2b.5b-part2).
+
+    Adds three reconstituted-context state slots on top of the standard
+    :class:`Wan21TransformerCache`:
+
+    * ``clean_latent_history`` -- per-rollout patchified clean latents
+      from past chunks, concatenated along the post-patchify token axis
+      ``[..., total_L, in_dim]`` where ``total_L = sum_i L_chunk_i``.
+      Built up by :meth:`HyWorldPlayWan21Transformer.finalize_kv_cache`
+      and read by :meth:`HyWorldPlayWan21Transformer.prefill_memory_kv_cache`
+      to slice the K selected memory frames at the start of every
+      chunk after the first.
+    * ``finished_chunks`` -- count of chunks already appended to the
+      history. Used by sanity assertions and by the prefill executor
+      to decide whether memory is available.
+    * ``hy_chunk_size_t`` -- pre-patchify temporal chunk size for the
+      *current rollout*, cached at ``initialize_autoregressive_cache``
+      time so the prefill / finalize paths can convert frame indices
+      to token offsets without re-deriving from the network config.
+
+    Two semantics overrides:
+
+    * :meth:`start` resets the per-block rolling self-attention caches
+      at the start of every chunk past the first. Standard mode rolls
+      the window across chunks; HY mode pushes that cross-chunk K / V
+      into the dedicated memory cache instead, so the rolling window
+      only ever holds the *current* chunk's tokens.
+    * The history is *not* automatically wiped between rollouts; the
+      pipeline rebuilds the cache via
+      :meth:`HyWorldPlayWan21Transformer.initialize_autoregressive_cache`
+      for each new rollout, which produces a fresh empty history.
+    """
+
+    clean_latent_history: Tensor | None = None
+    """Per-rollout patchified clean-latent history, concatenated along the
+    post-patchify token axis (``dim=-2``). ``None`` until the first
+    chunk's :meth:`HyWorldPlayWan21Transformer.finalize_kv_cache` call
+    appends to it."""
+
+    finished_chunks: int = 0
+    """Count of chunks whose patchified clean latent has been appended to
+    :attr:`clean_latent_history`. Equals ``current_chunk_idx`` at
+    chunk-start time on the HY path."""
+
+    hy_chunk_size_t: int = 0
+    """Pre-patchify temporal chunk size (``len_t``) for the current rollout.
+    Cached so the prefill executor can map per-frame indices to per-
+    token offsets without re-reading the transformer config (which it
+    doesn't have a handle to)."""
+
+    hy_tokens_per_frame: int = 0
+    """Post-patchify tokens per latent frame, ``= (height // kh) * (width // kw)``.
+    Cached for the same reason as :attr:`hy_chunk_size_t`."""
+
+    def start(self, autoregressive_index: int) -> None:
+        # On HY path, reset the per-block rolling self-attention caches
+        # at the start of every chunk past the first; the dedicated
+        # memory cache provides the cross-chunk context. ``before_update``
+        # then runs against an empty cache so each chunk's denoising
+        # starts with a clean window.
+        if autoregressive_index > 0:
+            self._reset_per_block_rolling_caches(autoregressive_index)
+        super().start(autoregressive_index)
+
+    def _reset_per_block_rolling_caches(self, autoregressive_index: int) -> None:
+        """Wipe each block's ``self_attn`` / ``prope_self_attn`` for the new chunk.
+
+        Importantly we *also* poke ``_prev_chunk_idx`` to ``autoregressive_index - 1``
+        so the subsequent ``before_update(autoregressive_index)`` from
+        :meth:`Wan21TransformerCache.start` accepts the transition (the
+        cache's monotonic-chunk-index assertion would otherwise fire
+        because ``reset()`` resets ``_prev_chunk_idx`` to ``-1``).
+        """
+        # Local import to avoid a top-level circular dep (camera imports
+        # core attention which imports modules which... etc.).
+        from hy_worldplay._camera import HyWorldPlayPRoPEBlockCache
+
+        for net_cache in (self.network_cache, self.network_cache_uncond):
+            if net_cache is None:
+                continue
+            for block_cache in net_cache.block_caches:
+                if not isinstance(block_cache, HyWorldPlayPRoPEBlockCache):
+                    continue
+                block_cache.reset_current_chunk()
+                # Pre-set ``_prev_chunk_idx`` so the upcoming
+                # ``before_update(autoregressive_index)`` from the parent
+                # ``start`` accepts ``chunk_idx == _prev_chunk_idx + 1``.
+                block_cache.self_attn._prev_chunk_idx = autoregressive_index - 1
+                block_cache.prope_self_attn._prev_chunk_idx = (
+                    autoregressive_index - 1
+                )
+
+
+@dataclass(kw_only=True)
 class HyWorldPlayWan21TransformerConfig(Wan21TransformerConfig):
     """Config for the action-aware Wan 2.1 transformer.
 
@@ -676,20 +918,90 @@ class HyWorldPlayWan21TransformerConfig(Wan21TransformerConfig):
 
 
 class HyWorldPlayWan21Transformer(Wan21Transformer):
-    """Wan 2.1 transformer that threads the action label into the network.
+    """Wan 2.1 transformer that threads action / camera / memory through the network.
 
-    Two overrides:
+    Five overrides on top of :class:`Wan21Transformer`:
 
-    * :meth:`predict_flow` reads ``input.action`` (when ``input`` is a
-      :class:`HyWorldPlayCtrl`) and forwards it through
-      ``network_extra_kwargs={"action": ...}`` so it reaches
-      :meth:`HyWorldPlayWanDiTNetwork.forward`.
-    * :meth:`patchify_and_maybe_split_cp` preserves the ``action`` slice
+    * :meth:`predict_flow` reads ``input.action`` / ``input.viewmats`` /
+      ``input.Ks`` (when ``input`` is a :class:`HyWorldPlayCtrl`) and
+      forwards them through ``network_extra_kwargs`` so they reach
+      :meth:`HyWorldPlayWanDiTNetwork.forward`. At the *start* of each
+      chunk's denoising loop (the per-AR-step entry that the diffusion
+      model calls before any noise prediction step) it also runs the
+      reconstituted-context prefill executor when memory frames are
+      selected, populating each block's :class:`HyWorldPlayMemoryKVCache`
+      from the cached clean-latent history.
+    * :meth:`patchify_and_maybe_split_cp` preserves the
+      ``action`` / ``viewmats`` / ``Ks`` / ``memory_frame_indices`` slice
       across the in-place patchify pass that the base implementation
       otherwise rebuilds via ``I2VCtrl(...)``, which would drop subclass
-      fields. Action labels are per-latent-frame integers; they do not
-      participate in patchify themselves and are passed through unchanged.
+      fields. These per-frame metadata tensors do not participate in
+      patchify themselves and are passed through unchanged.
+    * :meth:`initialize_autoregressive_cache` returns a
+      :class:`HyWorldPlayWan21TransformerCache` so the per-rollout
+      cache carries the clean-latent history slot needed by the
+      prefill executor.
+    * :meth:`finalize_kv_cache` appends the completed chunk's clean
+      latent to ``cache.clean_latent_history`` and skips the parent's
+      ``predict_flow`` re-run -- standard mode uses that re-run to
+      stamp the clean K / V into the rolling window, but HY mode wipes
+      the rolling window at every chunk start so the re-run would be
+      pure waste.
+    * :meth:`prefill_memory_kv_cache` (new public method) is the
+      transformer-level driver behind the prefill: it picks memory
+      frames out of the clean-latent history, slices viewmats / Ks
+      / action accordingly, builds RoPE freqs for the collapsed
+      positions ``[0, K * tokens_per_frame)``, and dispatches into
+      :meth:`HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache`.
     """
+
+    def initialize_autoregressive_cache(
+        self,
+        *,
+        height: int,
+        width: int,
+        text_embeddings: Tensor,
+        image_embeddings: Tensor | None = None,
+        negative_text_embeddings: Tensor | None = None,
+        **_unused: Any,
+    ) -> HyWorldPlayWan21TransformerCache:
+        """Build a :class:`HyWorldPlayWan21TransformerCache` for a new rollout.
+
+        Same contract as :meth:`Wan21Transformer.initialize_autoregressive_cache`
+        but returns the HY subclass so the clean-latent-history slot is
+        available to the prefill / finalize hooks. Per-rollout spatial
+        layout (``height`` / ``width``) is also stamped into the cache
+        as ``hy_tokens_per_frame`` so the prefill executor can map
+        memory-frame indices to post-patchify token ranges without
+        re-deriving them.
+        """
+        base = super().initialize_autoregressive_cache(
+            height=height,
+            width=width,
+            text_embeddings=text_embeddings,
+            image_embeddings=image_embeddings,
+            negative_text_embeddings=negative_text_embeddings,
+            **_unused,
+        )
+        cfg = self.config
+        kt, kh, kw = cfg.network.patch_size
+        # tokens_per_frame uses the *post-patchify* spatial layout: each
+        # latent frame contributes ``(height // kh) * (width // kw)``
+        # tokens after the patchify rearrange, regardless of how many
+        # latent frames the rollout pre-patchifies into one AR chunk
+        # (which is governed by kt and len_t together).
+        tokens_per_frame = (height // kh) * (width // kw)
+        return HyWorldPlayWan21TransformerCache(
+            network_cache=base.network_cache,
+            network_cache_uncond=base.network_cache_uncond,
+            rope_adapter=base.rope_adapter,
+            rope_freqs=base.rope_freqs,
+            autoregressive_index=base.autoregressive_index,
+            clean_latent_history=None,
+            finished_chunks=0,
+            hy_chunk_size_t=cfg.len_t // kt,
+            hy_tokens_per_frame=tokens_per_frame,
+        )
 
     def predict_flow(
         self,
@@ -700,6 +1012,24 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         network_extra_kwargs: dict[str, Any] | None = None,
     ) -> Tensor:
         network_extra_kwargs = dict(network_extra_kwargs or {})
+        # Run the reconstituted-context prefill at the very first
+        # denoising step of every chunk past the first, when memory
+        # frames have been selected. We detect "first denoising step
+        # of the chunk" via cache.network_cache.block_caches[0].self_attn
+        # being in the empty-filling state (n_cached == 0): cache.start
+        # has just reset / pre-set _prev_chunk_idx, but no prediction
+        # has populated the rolling window yet. This avoids re-running
+        # the prefill on every scheduler step within the chunk.
+        if (
+            isinstance(cache, HyWorldPlayWan21TransformerCache)
+            and isinstance(input, HyWorldPlayCtrl)
+            and input.memory_frame_indices is not None
+            and len(input.memory_frame_indices) > 0
+            and cache.clean_latent_history is not None
+            and self._is_first_step_of_chunk(cache)
+        ):
+            self.prefill_memory_kv_cache(cache=cache, input=input, timestep=timestep)
+
         if isinstance(input, HyWorldPlayCtrl):
             if input.action is not None and "action" not in network_extra_kwargs:
                 network_extra_kwargs["action"] = input.action
@@ -718,6 +1048,42 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             network_extra_kwargs=network_extra_kwargs,
         )
 
+    def finalize_kv_cache(
+        self,
+        noisy_latent: Tensor,
+        timestep: Tensor,
+        cache: Wan21TransformerCache,
+        input: Any = None,
+    ) -> None:
+        """Append the completed chunk's clean latent to the history; skip rolling-cache update.
+
+        Standard ``Wan21Transformer.finalize_kv_cache`` re-runs the
+        network at the context-noise timestep so the rolling KV cache
+        gets the clean K / V baked in for the next chunk's attention.
+        On the HY path we instead reset the rolling cache at every
+        chunk start (see :meth:`HyWorldPlayWan21TransformerCache.start`)
+        and provide cross-chunk context via the dedicated memory
+        cache, so this re-run is wasted work; we skip it and just
+        cache the patchified clean latent for the next chunk's
+        prefill executor to slice.
+        """
+        if isinstance(cache, HyWorldPlayWan21TransformerCache):
+            cache.clean_latent_history = self._append_clean_latent_to_history(
+                history=cache.clean_latent_history,
+                clean_latent=noisy_latent,
+            )
+            cache.finished_chunks += 1
+            return
+        # Fall back to base behaviour for any non-HY cache type that
+        # might somehow get plumbed through (defensive; the runner
+        # always builds an HY cache when this transformer is in use).
+        super().finalize_kv_cache(
+            noisy_latent=noisy_latent,
+            timestep=timestep,
+            cache=cache,
+            input=input,
+        )
+
     def patchify_and_maybe_split_cp(self, x: Any) -> Any:
         if isinstance(x, HyWorldPlayCtrl):
             if x._is_patchified:
@@ -727,8 +1093,8 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             # action / viewmats / Ks / memory_frame_indices are per-
             # latent-frame metadata (not per-token tensors) and do not
             # participate in the patchify reshape; pass them through
-            # unchanged so the PRoPE branch and the (future) memory-
-            # prefill consumer see the same ``[..., len_t, 4, 4]`` /
+            # unchanged so the PRoPE branch and the memory-prefill
+            # consumer see the same ``[..., len_t, 4, 4]`` /
             # ``[..., len_t]`` / ``list[int]`` layout they would on a
             # fresh ctrl.
             return HyWorldPlayCtrl(
@@ -741,3 +1107,285 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 memory_frame_indices=x.memory_frame_indices,
             )
         return super().patchify_and_maybe_split_cp(x)
+
+    ## ---- Reconstituted-context prefill driver (phase 2b.5b-part2) ----
+
+    def prefill_memory_kv_cache(
+        self,
+        cache: HyWorldPlayWan21TransformerCache,
+        input: HyWorldPlayCtrl,
+        timestep: Tensor,
+    ) -> None:
+        """Drive the reconstituted-context KV prefill for the current chunk.
+
+        Mirrors upstream's ``model(..., is_cache=True)`` invocation in
+        ``wan/inference/pipeline_wan_w_mem_relative_rope.py`` lines
+        922-937: at the start of every chunk past the first, slice the
+        clean-latent history at the selected memory frame indices,
+        build collapsed-position RoPE freqs, slice viewmats / Ks /
+        action accordingly, and call into
+        :meth:`HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache` for
+        each network branch (cond + uncond if CFG is on). Each block's
+        :class:`HyWorldPlayMemoryKVCache` is reset before being
+        repopulated.
+
+        Args:
+            cache: The active per-rollout cache. ``clean_latent_history``
+                must already contain ``finished_chunks * L_chunk`` tokens
+                (asserted defensively below).
+            input: The patchified per-AR-step ctrl payload.
+                ``input.memory_frame_indices`` must be a non-empty list.
+            timestep: The current denoising step's timestep tensor; the
+                prefill uses this directly (mirrors upstream which calls
+                the model with ``model_input_step_value`` from line 919).
+                Note: upstream only runs the prefill at AR step 0 of
+                each chunk, so ``timestep`` is the first scheduler
+                timestep, *not* a context-noise constant. Subsequent
+                denoising steps within the chunk read the prefilled
+                K / V unchanged.
+        """
+        assert input.memory_frame_indices is not None, (
+            "prefill_memory_kv_cache requires non-None memory_frame_indices"
+        )
+        selected = list(input.memory_frame_indices)
+        K = len(selected)
+        assert K > 0, "prefill_memory_kv_cache requires at least one memory frame"
+        assert cache.clean_latent_history is not None, (
+            "prefill_memory_kv_cache requires clean_latent_history; the executor "
+            "must run after at least one chunk has finalized."
+        )
+
+        tokens_per_frame = cache.hy_tokens_per_frame
+        history = cache.clean_latent_history  # [..., total_L, in_dim]
+        total_L = history.shape[-2]
+        max_frame = total_L // tokens_per_frame
+        # Defensive: every selected index must be in range. The
+        # encoder's selection algorithm only emits indices < the
+        # current frame counter, but we cross-check against the
+        # actual history length here in case of plumbing bugs.
+        for idx in selected:
+            assert 0 <= idx < max_frame, (
+                f"memory frame index {idx} out of range for history of "
+                f"{max_frame} frames ({total_L} tokens / {tokens_per_frame} "
+                f"tokens-per-frame)."
+            )
+
+        # Slice the history at the per-frame token ranges. The history
+        # is laid out (frame, h, w, ...) flattened along the token axis,
+        # so frame ``idx`` occupies tokens ``[idx*tokens_per_frame,
+        # (idx+1)*tokens_per_frame)``.
+        token_ranges = [
+            history[..., idx * tokens_per_frame : (idx + 1) * tokens_per_frame, :]
+            for idx in selected
+        ]
+        memory_x = torch.cat(token_ranges, dim=-2)  # [..., K*TPF, in_dim]
+
+        # Slice the per-rollout camera + action tensors at the same
+        # frame indices. These tensors are stored at the
+        # *latent-frame* granularity, not the token granularity --
+        # one entry per latent frame.
+        memory_viewmats = self._slice_per_frame(input.viewmats, selected)
+        memory_Ks = self._slice_per_frame(input.Ks, selected)
+        memory_action = self._slice_per_frame(input.action, selected)
+
+        # Build RoPE freqs for the collapsed memory positions
+        # ``[0, K)`` at the *temporal* axis. Mirrors upstream lines
+        # 914-915: ``rotary_emb[:, :, 0:current_end, :]`` where
+        # current_end = K * tokens_per_frame and the inner positions
+        # come from a fresh-zeroed time grid.
+        rope_freqs = self._build_collapsed_rope_freqs(
+            cache=cache,
+            t_positions=torch.arange(
+                K, dtype=torch.float32, device=memory_x.device
+            ),
+        )
+
+        # Run the prefill on whichever network branches are active.
+        # Each branch has its own per-block memory cache; reset
+        # *before* the prefill so a previous chunk's leftover
+        # content can't leak into the new memory image.
+        from hy_worldplay._camera import HyWorldPlayPRoPEBlockCache
+
+        for net_cache in (cache.network_cache, cache.network_cache_uncond):
+            if net_cache is None:
+                continue
+            for block_cache in net_cache.block_caches:
+                if isinstance(block_cache, HyWorldPlayPRoPEBlockCache):
+                    block_cache.memory.reset()
+
+        # Conditional pass.
+        self.network.prefill_memory_kv_cache(
+            x=memory_x,
+            timesteps=timestep,
+            cache=cache.network_cache,
+            rope_freqs=rope_freqs,
+            action=memory_action,
+            viewmats=memory_viewmats,
+            Ks=memory_Ks,
+        )
+        # Unconditional pass (when CFG is enabled).
+        if cache.network_cache_uncond is not None:
+            self.network.prefill_memory_kv_cache(
+                x=memory_x,
+                timesteps=timestep,
+                cache=cache.network_cache_uncond,
+                rope_freqs=rope_freqs,
+                action=memory_action,
+                viewmats=memory_viewmats,
+                Ks=memory_Ks,
+            )
+
+    def _append_clean_latent_to_history(
+        self,
+        history: Tensor | None,
+        clean_latent: Tensor,
+    ) -> Tensor:
+        """Concat the just-finalized chunk's patchified clean latent into the history.
+
+        Always detaches first (the history outlives the autograd graph
+        of the chunk that produced it; even on inference we want a
+        clean ``Tensor`` so downstream slices are safe). Concatenation
+        is along the post-patchify token axis (``dim=-2``) which is
+        equivalent to "next frames added at the end of the rolling
+        latent volume".
+        """
+        if history is None:
+            return clean_latent.detach().clone()
+        return torch.cat([history, clean_latent.detach()], dim=-2)
+
+    def _slice_per_frame(
+        self,
+        tensor: Tensor | None,
+        selected: list[int],
+    ) -> Tensor | None:
+        """Index a per-latent-frame metadata tensor by ``selected`` along axis -1 / -2.
+
+        ``viewmats`` is shape ``[..., F, 4, 4]`` (F = latent frame
+        count), ``Ks`` is ``[..., F, 3, 3]``, and ``action`` is
+        ``[..., F]``. The slice axis is the rank-3 frame axis for the
+        matrix tensors (-3 for the 4x4 / 3x3) and the trailing axis
+        for the action ints. We dispatch via ``ndim``.
+
+        IMPORTANT: ``input.viewmats`` / ``input.Ks`` / ``input.action``
+        on the per-AR-step :class:`HyWorldPlayCtrl` are sliced to *the
+        current chunk's* latent frames, not the full per-rollout
+        history. The encoder set them via
+        :meth:`HyWorldPlayWanCtrlEncoder.set_camera_data` /
+        :meth:`set_action_labels` and slices the per-rollout buffers
+        at ``[ar_idx*len_t : (ar_idx+1)*len_t]`` per AR step. So
+        slicing again at ``selected`` (which holds *historical*
+        frame indices in pre-patchify rollout coordinates) would be
+        wrong if we used input.viewmats directly.
+
+        This method is therefore *not* used against ``input.viewmats``
+        directly -- the caller passes the per-rollout buffer instead
+        (via the encoder's bound state). For phase 2b.5b-part2 (where
+        the camera + action streams are still per-AR-step on the
+        ctrl), we punt: the prefill executor takes only the *latents*
+        from history and reuses the *current chunk's* viewmats / Ks /
+        action for the prefill. This is wrong for parity but is a
+        deliberate temporary stub flagged by the README; the
+        per-rollout buffer wiring lands in a follow-up alongside the
+        parity diff.
+
+        TODO(phase 2b.5b-part2-followup): replace this with a slice
+        against the per-rollout viewmats / Ks / action stored on the
+        encoder, threaded into the cache so prefill has access.
+        """
+        if tensor is None:
+            return None
+        # Defensive: as of phase 2b.5b-part2 we still consume the
+        # per-AR-step input.viewmats / Ks / action; if these have a
+        # frame axis equal to the chunk size, we *replicate* them
+        # across the K memory positions rather than slice. This is a
+        # parity-incorrect stub flagged in the runner's README.
+        if tensor.ndim == 1 or tensor.shape[-1] == 0:
+            return tensor
+        # Action ints: trailing axis is the frame axis.
+        if tensor.dtype in (torch.int32, torch.int64):
+            # The ctrl's action tensor is shape ``[..., F_chunk]`` where
+            # F_chunk is the chunk's frame count. We tile to length K
+            # so the prefill consumer sees an action label per memory
+            # frame (parity stub: real implementation slices the per-
+            # rollout buffer at ``selected``).
+            F_chunk = tensor.shape[-1]
+            K = len(selected)
+            if F_chunk >= K:
+                return tensor[..., :K]
+            return tensor.repeat(*[1] * (tensor.ndim - 1), (K + F_chunk - 1) // F_chunk)[
+                ..., :K
+            ]
+        # Matrix tensors (viewmats / Ks): frame axis is -3.
+        F_chunk = tensor.shape[-3]
+        K = len(selected)
+        if F_chunk >= K:
+            return tensor[..., :K, :, :]
+        repeat_shape = [1] * tensor.ndim
+        repeat_shape[-3] = (K + F_chunk - 1) // F_chunk
+        return tensor.repeat(*repeat_shape)[..., :K, :, :]
+
+    def _build_collapsed_rope_freqs(
+        self,
+        cache: HyWorldPlayWan21TransformerCache,
+        t_positions: Tensor,
+    ) -> Tensor:
+        """Compute RoPE frequencies for arbitrary temporal positions.
+
+        Phase 2b.5b-part2: the prefill executor needs RoPE freqs at
+        the collapsed memory positions ``[0, K)`` (and, in a future
+        iteration, at the current chunk's offset positions
+        ``[K, K + len_t)``). The base
+        :class:`flashdreams.core.attention.rope.RotaryPositionEmbedding3D`
+        only exposes ``shift_t(autoregressive_index)`` which always
+        produces freqs at ``[c*len_t, (c+1)*len_t)`` for a chunk
+        index ``c``. To get arbitrary positions we use the
+        ``_freq_components(seq_t)`` primitive that ``shift_t`` itself
+        is built on, then concat into the standard cat layout.
+
+        The leading ``_`` does not signal API instability for our
+        purposes -- ``_freq_components`` is the documented internal
+        builder and is the only way to construct freqs at non-chunk-
+        aligned positions today. If upstream flashdreams later
+        promotes a public ``freqs_for_positions`` we will swap to
+        that.
+        """
+        rope = cache.rope_adapter
+        from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
+
+        if not isinstance(rope, RotaryPositionEmbedding3D):
+            raise NotImplementedError(
+                f"Reconstituted-context prefill currently supports only "
+                f"RotaryPositionEmbedding3D; got {type(rope).__name__}. "
+                f"KVCacheRelativeRotaryPositionEmbedding3D support lands "
+                f"with multi-resolution / extended-window rollouts."
+            )
+        if rope.is_context_parallel_enabled():
+            raise NotImplementedError(
+                "Reconstituted-context prefill does not yet support "
+                "context-parallel; CP wiring lands with the multi-rank "
+                "action expansion."
+            )
+        freqs_t, freqs_h, freqs_w = rope._freq_components(t_positions.to(rope.device))
+        return rope._cat_freqs(freqs_t, freqs_h, freqs_w)
+
+    def _is_first_step_of_chunk(
+        self,
+        cache: HyWorldPlayWan21TransformerCache,
+    ) -> bool:
+        """Detect "denoising step 0" so the prefill runs at most once per chunk.
+
+        ``predict_flow`` is called once per scheduler step. The prefill
+        executor must run only at the *first* step (step 0) so its
+        K / V are stable across the rest of the chunk's denoising
+        loop. We detect "step 0" by inspecting the rolling cache's
+        ``_n_cached``: ``cache.start`` has just reset / pre-set
+        ``_prev_chunk_idx`` for HY mode, so an empty rolling window
+        means no scheduler step has populated K / V for this chunk
+        yet. After the first step, the standard self-attention
+        ``update_kv`` writes to the rolling cache, so ``_n_cached``
+        is non-zero on subsequent steps.
+        """
+        if not cache.network_cache.block_caches:
+            return False
+        first_block_cache = cache.network_cache.block_caches[0]
+        return first_block_cache.self_attn._n_cached == 0

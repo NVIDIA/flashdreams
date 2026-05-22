@@ -145,12 +145,8 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
       Monte-Carlo FOV sphere on the pipeline device and arms the
       encoder so each AR step that has enough history attaches a
       sorted ``memory_frame_indices`` list to its
-      :class:`HyWorldPlayCtrl`. The matching **prefill executor**
-      (transformer pre-pass with ``is_cache=True`` on the selected
-      frames) and the per-block memory KV cache layer + clean-latent
-      history buffer it needs land in 2b.5b-part2. Until then the
-      per-AR cost of selection is incurred but the noise prediction
-      is unchanged.
+      :class:`HyWorldPlayCtrl`. The matching prefill executor +
+      cache infrastructure landed in 2b.5b-part2 (see below).
     - **Distilled-checkpoint weight remap** (2b.5b-part1, landed).
       When ``--ckpt-path`` is supplied alongside any conditioner
       flag, the runner config's ``__post_init__`` reroutes the
@@ -162,6 +158,35 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
       the conditioner residuals stop being strict identities; the
       noise prediction now reflects the trained conditioner
       contributions on top of the base 5B trunk.
+    - **Reconstituted-context memory -- KV-prefill executor**
+      (2b.5b-part2, landed). The new
+      :class:`HyWorldPlayWan21TransformerCache` carries a per-rollout
+      ``clean_latent_history`` buffer (appended via the
+      ``finalize_kv_cache`` override that supersedes the parent's
+      rolling-window stamp). Each
+      :class:`HyWorldPlayPRoPEBlockCache` gains a
+      :class:`HyWorldPlayMemoryKVCache` slot that stores prefilled
+      K / V at upstream's RoPE-collapsed positions ``[0, K)`` for
+      both the standard and PRoPE branches. At AR step 0 of every
+      chunk past the first,
+      :meth:`HyWorldPlayWan21Transformer.predict_flow` dispatches
+      to the new ``prefill_memory_kv_cache`` driver, which slices
+      the history at the encoder-supplied ``memory_frame_indices``,
+      builds RoPE freqs at the collapsed positions, and runs
+      :meth:`HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache`
+      (a patchify + AdaLN re-pass over the memory frames that
+      writes each block's K / V into its memory cache and skips
+      cross-attn / FFN / head). Subsequent denoising steps in the
+      chunk read the prefilled K / V via the dual-branch attention's
+      new ``cat([memory_K, current_K], dim=seq)`` prepend, with a
+      strict no-op short-circuit on the empty-cache path so chunk 0
+      stays bit-identical to the 2b.4 baseline. The per-rollout
+      viewmats / Ks / action streams are still per-AR-step on the
+      ctrl as of this release (`_slice_per_frame` falls back to a
+      `[:K]` truncation flagged as a parity-incorrect stub); the
+      remaining work (per-rollout metadata threading + GPU smoke +
+      parity diff + sub-venv removal + default flag flip) is
+      tracked under 2b.5b-part2-followup.
     """
 
     def run(self) -> None:

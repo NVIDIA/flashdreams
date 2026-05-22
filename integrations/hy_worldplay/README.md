@@ -236,19 +236,50 @@ feature flag and lands incrementally:
   block's `o_prope` from zero-init to non-zero norms. The
   conditioners now produce real, non-zero residuals on top of the
   base 5B trunk.
-- **2b.5b-part2 (next).** KV-prefill executor. Three coupled
-  pieces: (a) per-rollout clean-latent history buffer on the
-  transformer cache so each chunk start has access to past chunks'
-  patchified latents; (b) per-block memory KV cache layer
-  (separate from `BlockKVCache`'s rolling window) that stores
-  K / V at upstream's RoPE-collapsed positions `[0, K)`; (c) a
-  prefill pass at AR step 0 of every chunk past the first, run with
-  RoPE positions remapped to the collapsed offsets and dual-branch
-  K / V output gathered into the new cache. Lands together with
-  the parity check against the phase-1 baseline, the parity
-  sub-venv removal (`sageattention`, `cloudpickle`, `accelerate`,
-  `transformers==4.57.6`), and the `--use-native-pipeline` default
-  flip.
+- **2b.5b-part2 (this release).** KV-prefill executor structural
+  skeleton. Three coupled pieces all wired up end-to-end on the
+  HY native path: (a) per-rollout clean-latent history buffer on
+  :class:`HyWorldPlayWan21TransformerCache.clean_latent_history`,
+  appended via the new `finalize_kv_cache` override that supersedes
+  the parent's rolling-window stamp pass (HY mode uses memory cache
+  instead); (b) per-block flat
+  :class:`HyWorldPlayMemoryKVCache` slot on
+  :class:`HyWorldPlayPRoPEBlockCache` that stores K / V at
+  upstream's RoPE-collapsed positions `[0, K)` for both the
+  standard and PRoPE branches; (c) prefill pass at AR step 0 of
+  every chunk past the first, dispatched from
+  :meth:`HyWorldPlayWan21Transformer.predict_flow` via the new
+  :meth:`prefill_memory_kv_cache` driver, which slices the history
+  at the encoder-supplied `memory_frame_indices`, builds RoPE
+  freqs at the collapsed `[0, K)` positions via the rope adapter's
+  `_freq_components` primitive, and runs
+  :meth:`HyWorldPlayWanDiTNetwork.prefill_memory_kv_cache` -- a
+  patchify + AdaLN modulation re-pass that calls each block's new
+  `prefill_memory_kv` (cross-attn / FFN / head all skipped). The
+  dual-branch attention now consumes the memory cache via a
+  `cat([memory_K, current_K], dim=seq)` prepend that's a strict
+  no-op when the memory cache is empty (chunk 0 baseline). The
+  per-chunk rolling-cache reset is owned by the HY cache subclass's
+  `start` override, which pokes `_prev_chunk_idx` so the inherited
+  `before_update(autoregressive_index)` accepts the synthetic
+  "next chunk" transition. Per-rollout viewmats / Ks / action
+  buffers are still per-AR-step on the ctrl as of this release;
+  `_slice_per_frame` falls back to a `[:K]` truncation that is
+  parity-incorrect (flagged in code with a TODO and pinned by
+  CPU tests). The followup work (full parity + per-rollout
+  metadata threading + sub-venv removal + default flag flip) is
+  tracked under **2b.5b-part2-followup** below.
+
+- **2b.5b-part2-followup (next).** Three open items, all behind the
+  GPU smoke + parity diff: (1) thread the per-rollout `viewmats`,
+  `Ks`, and `action` buffers from the encoder through to the
+  prefill driver so the slice at `memory_frame_indices` indexes
+  into rollout coordinates rather than the current chunk; (2) drop
+  the parity sub-venv (`sageattention`, `cloudpickle`,
+  `accelerate`, `transformers==4.57.6`) once the native path
+  matches the vendor-wrapper baseline within tolerance; (3) flip
+  `--use-native-pipeline` to the default for the
+  `hy-worldplay-wan-i2v-5b` recipe.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -276,23 +307,24 @@ per-rollout viewmats binding) and is a no-op without it; setting it
 without `--use-native-pipeline` is silently ignored on the vendor
 wrapper path.
 
-The current native path **does not match** the vendor-wrapper
-baseline numerically yet: as of 2b.5b-part1 the distilled
-checkpoint loads cleanly (action MLP / PRoPE / DiT trunk all read
-from `wan_distilled_model/model.pt`), but the KV-prefill executor
-itself (the transformer pre-pass with `is_cache=True` on the
-selected memory frames) lands in **2b.5b-part2** together with the
-per-rollout clean-latent history buffer and the per-block memory
-KV cache layer that store K / V at upstream's RoPE-collapsed
-positions `[0, K)`. The selected `memory_frame_indices` reach the
-per-AR-step `HyWorldPlayCtrl` ready for the 2b.5b-part2 consumer
-to read; with conditioner weights now non-zero, single-chunk
-rollouts already exercise the action + camera paths end-to-end.
-For parity with upstream `wan/generate.py` today, use the default
-(vendor-wrapper) invocation above. The native path is checked in
-to let early adopters benchmark the flashdreams runtime stack on
-the Wan 2.2 TI2V-5B backbone; full parity with HY-WorldPlay's
-conditioners returns at 2b.5b-part2. See
+The current native path **does not yet match** the vendor-wrapper
+baseline numerically: the prefill executor structural skeleton
+landed in 2b.5b-part2 (history buffer, per-block memory KV cache,
+collapsed-position RoPE prefill, dual-branch concat) but the
+per-rollout viewmats / Ks / action streams that the prefill should
+slice at `memory_frame_indices` are still per-AR-step on the ctrl,
+so the prefill driver currently slices the *current chunk's*
+metadata (the parity-incorrect stub flagged in
+:meth:`HyWorldPlayWan21Transformer._slice_per_frame`). The CPU
+test suite pins all the structural invariants (cache layout,
+prefill side-effect surface, per-chunk rolling-cache reset, history
+append + detach, RoPE collapse, first-step gating); the GPU smoke
++ vendor-wrapper parity diff lands in **2b.5b-part2-followup**
+together with the per-rollout metadata wiring. The native path is
+checked in to let early adopters benchmark the flashdreams runtime
+stack on the Wan 2.2 TI2V-5B backbone; for bit-for-bit parity with
+upstream `wan/generate.py` today, use the default (vendor-wrapper)
+invocation above. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
 
