@@ -63,6 +63,43 @@ To run OmniDreams, launch one of the registered runner slugs via
 For multi-GPU inference, simply use ``uv run torchrun --nproc_per_node=4 --no-python flashdreams-run``
 instead of ``uv run flashdreams-run`` (taking 4 GPUs as an example).
 
+Batch generation
+----------------
+
+For offline sweeps, pass a JSONL, JSON, or CSV manifest with
+``--batch-inputs-path``. The runner precomputes per-record prompt and
+first-frame embeddings, releases the one-shot encoders once, and then keeps
+the diffusion and decoder stack alive while it iterates the rollouts.
+
+Example JSONL row:
+
+.. code-block:: json
+
+   {
+     "dataset": "omni-dreams-samples",
+     "clip_id": "23599139-948f-4681-b7f4-74794113086d",
+     "prompt_id": "vlm",
+     "prompt_path": "data/single_view/23599139-948f-4681-b7f4-74794113086d/prompt.txt",
+     "hdmap_path": "data/single_view/23599139-948f-4681-b7f4-74794113086d/clip_hdmap.mp4",
+     "first_frame_path": "data/single_view/23599139-948f-4681-b7f4-74794113086d/first_frame.png",
+     "camera_name": "camera_front_wide_120fov",
+     "seed": 0
+   }
+
+Run the batch:
+
+.. code-block:: bash
+
+   uv run --package flash-omnidreams flashdreams-run \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --batch-inputs-path sweep.jsonl \
+       --output-dir outputs/omnidreams-quality-sweep/v1 \
+       --batch-results-path outputs/omnidreams-quality-sweep/v1/manifest.csv
+
+When ``output_dir`` is not set in a row, outputs default to
+``<output-dir>/<dataset>/<clip_id>/<model>/<prompt_id>/<seed>/`` with
+``video.mp4``, ``stats.json``, and ``meta.json``.
+
 
 We provide the following variants:
 

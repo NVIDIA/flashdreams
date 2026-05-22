@@ -31,9 +31,12 @@ pipeline configs.
 
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -57,6 +60,24 @@ DEFAULT_VIDEO_WIDTH = 1280
 """Pixel-space rollout width (matches the trained 720p chassis)."""
 
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
+
+_BATCH_PROMPT_KEYS = ("prompt", "text")
+_BATCH_PROMPTS_KEYS = ("prompts",)
+_BATCH_PROMPT_PATH_KEYS = ("prompt_path", "text_path")
+_BATCH_PROMPT_PATHS_KEYS = ("prompt_paths", "text_paths")
+_BATCH_HDMAP_KEYS = (
+    "hdmap_video_paths",
+    "hdmap_paths",
+    "hdmap_video_path",
+    "hdmap_path",
+)
+_BATCH_FIRST_FRAME_KEYS = (
+    "first_frame_paths",
+    "first_frame_path",
+    "image_paths",
+    "image_path",
+)
+_BATCH_CAMERA_KEYS = ("camera_names", "camera_name")
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -177,6 +198,262 @@ def _ensure_s3_example_data_synced(
 
 
 @dataclass(kw_only=True)
+class _BatchItem:
+    """One manifest row normalized enough for the runner loop."""
+
+    index: int
+    source: dict[str, Any]
+    clip_id: str
+    dataset: str | None = None
+    prompt_id: str | None = None
+    prompt_source: str | None = None
+    seed: int | None = None
+    prompt: str | None = None
+    prompts: tuple[str, ...] | None = None
+    hdmap_video_paths: tuple[Path, ...] = ()
+    first_frame_paths: tuple[Path, ...] = ()
+    camera_names: tuple[str, ...] | None = None
+    output_dir: Path | None = None
+    output_video_path: Path | None = None
+    stats_path: Path | None = None
+    meta_path: Path | None = None
+    video_filename: str | None = None
+    stats_filename: str | None = None
+    embeddings_path: Path | None = None
+    total_blocks: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def _utc_now_iso() -> str:
+    """Return a compact UTC timestamp for batch metadata."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert Paths/tuples/nested records into JSON-serializable values."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    try:
+        json.dumps(value)
+    except TypeError:
+        return str(value)
+    return value
+
+
+def _record_value(record: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first non-empty value for any of ``keys``."""
+    for key in keys:
+        value = record.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _coerce_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_optional_int(value: Any, *, name: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer, got {value!r}") from exc
+
+
+def _coerce_str_tuple(value: Any, *, split_commas: bool) -> tuple[str, ...]:
+    """Parse JSON arrays, Python lists, or delimiter-separated strings."""
+    if value is None or value == "":
+        return ()
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v).strip() for v in value if str(v).strip())
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ()
+        if text.startswith("["):
+            parsed = json.loads(text)
+            return _coerce_str_tuple(parsed, split_commas=split_commas)
+        if "|" in text:
+            return tuple(part.strip() for part in text.split("|") if part.strip())
+        if split_commas and "," in text:
+            return tuple(part.strip() for part in text.split(",") if part.strip())
+        return (text,)
+    return (str(value),)
+
+
+def _coerce_path_tuple(value: Any) -> tuple[Path, ...]:
+    return tuple(Path(v) for v in _coerce_str_tuple(value, split_commas=True))
+
+
+def _coerce_optional_path(value: Any) -> Path | None:
+    values = _coerce_path_tuple(value)
+    if not values:
+        return None
+    if len(values) != 1:
+        raise ValueError(f"expected one path, got {values}")
+    return values[0]
+
+
+def _coerce_metadata(value: Any) -> dict[str, Any]:
+    if value is None or value == "":
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{"):
+            parsed = json.loads(text)
+            if not isinstance(parsed, dict):
+                raise TypeError("metadata JSON must decode to an object")
+            return parsed
+        return {"metadata": text}
+    raise TypeError(f"metadata must be an object or JSON object string, got {value!r}")
+
+
+def _load_batch_records(path: Path) -> list[dict[str, Any]]:
+    """Load JSONL, JSON-array/object, or CSV batch records."""
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        with path.open(newline="", encoding="utf-8") as fh:
+            return [dict(row) for row in csv.DictReader(fh)]
+
+    text = path.read_text(encoding="utf-8")
+    if suffix in {".jsonl", ".ndjson"}:
+        records = [
+            json.loads(line)
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    else:
+        stripped = text.lstrip()
+        if stripped.startswith("[") or stripped.startswith("{"):
+            data = json.loads(text)
+            if isinstance(data, dict):
+                for key in ("items", "rollouts", "records"):
+                    if key in data:
+                        data = data[key]
+                        break
+            records = data
+        else:
+            records = [
+                json.loads(line)
+                for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+
+    if not isinstance(records, list):
+        raise TypeError(
+            f"batch input {path} must contain a list of records, got {type(records)}"
+        )
+    normalized: list[dict[str, Any]] = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise TypeError(
+                f"batch input record {index} must be an object, got {type(record)}"
+            )
+        normalized.append({str(k).strip(): v for k, v in record.items()})
+    return normalized
+
+
+def _parse_batch_item(record: dict[str, Any], *, index: int) -> _BatchItem:
+    """Normalize one manifest record into an internal item."""
+    clip_id = _coerce_optional_str(
+        _record_value(record, ("clip_id", "uuid", "scene_id", "id"))
+    )
+    if clip_id is None:
+        clip_id = f"item_{index:06d}"
+
+    prompts: tuple[str, ...] | None = None
+    prompt: str | None = None
+    prompt_paths = _coerce_path_tuple(
+        _record_value(record, _BATCH_PROMPT_PATHS_KEYS)
+    )
+    prompt_path = _coerce_optional_path(_record_value(record, _BATCH_PROMPT_PATH_KEYS))
+    if prompt_paths:
+        prompt_texts = tuple(
+            p.read_text(encoding="utf-8").strip() for p in prompt_paths
+        )
+        if len(prompt_texts) == 1:
+            prompt = prompt_texts[0]
+        else:
+            prompts = prompt_texts
+    elif prompt_path is not None:
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+    else:
+        prompt_values = _coerce_str_tuple(
+            _record_value(record, _BATCH_PROMPTS_KEYS),
+            split_commas=False,
+        )
+        if prompt_values:
+            prompts = prompt_values
+        else:
+            prompt = _coerce_optional_str(_record_value(record, _BATCH_PROMPT_KEYS))
+
+    output_video_path = _coerce_optional_path(
+        _record_value(record, ("output_video_path", "output_video", "video_path"))
+    )
+    stats_path = _coerce_optional_path(
+        _record_value(record, ("stats_path", "stats_json", "output_stats_path"))
+    )
+    meta_path = _coerce_optional_path(
+        _record_value(record, ("meta_path", "meta_json", "metadata_path"))
+    )
+
+    return _BatchItem(
+        index=index,
+        source=dict(record),
+        clip_id=clip_id,
+        dataset=_coerce_optional_str(_record_value(record, ("dataset", "dataset_id"))),
+        prompt_id=_coerce_optional_str(_record_value(record, ("prompt_id",))),
+        prompt_source=_coerce_optional_str(_record_value(record, ("prompt_source",))),
+        seed=_coerce_optional_int(_record_value(record, ("seed",)), name="seed"),
+        prompt=prompt,
+        prompts=prompts,
+        hdmap_video_paths=_coerce_path_tuple(
+            _record_value(record, _BATCH_HDMAP_KEYS)
+        ),
+        first_frame_paths=_coerce_path_tuple(
+            _record_value(record, _BATCH_FIRST_FRAME_KEYS)
+        ),
+        camera_names=(
+            _coerce_str_tuple(
+                _record_value(record, _BATCH_CAMERA_KEYS),
+                split_commas=True,
+            )
+            or None
+        ),
+        output_dir=_coerce_optional_path(_record_value(record, ("output_dir",))),
+        output_video_path=output_video_path,
+        stats_path=stats_path,
+        meta_path=meta_path,
+        video_filename=_coerce_optional_str(
+            _record_value(record, ("video_filename", "video_name"))
+        ),
+        stats_filename=_coerce_optional_str(
+            _record_value(record, ("stats_filename", "stats_name"))
+        ),
+        embeddings_path=_coerce_optional_path(
+            _record_value(record, ("embeddings_path", "embedding_path"))
+        ),
+        total_blocks=_coerce_optional_int(
+            _record_value(record, ("total_blocks",)), name="total_blocks"
+        ),
+        metadata=_coerce_metadata(_record_value(record, ("metadata", "meta"))),
+    )
+
+
+@dataclass(kw_only=True)
 class OmnidreamsRunnerConfig(RunnerConfig):
     """Runner config covering every shipped Omnidreams variant.
 
@@ -233,6 +510,24 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     after ``__init__``. Mutually exclusive with
     ``--save_embeddings_path``."""
 
+    batch_inputs_path: Path | None = None
+    """Optional JSONL/JSON/CSV manifest of rollout inputs. Batch mode keeps
+    the instantiated pipeline alive across every record, precomputes raw
+    prompt/first-frame embeddings before releasing one-shot encoders, then
+    runs each rollout without reloading the model process."""
+
+    batch_results_path: Path | None = None
+    """Optional CSV path for batch results. Defaults to
+    ``output_dir / "manifest.csv"`` in batch mode."""
+
+    batch_skip_existing: bool = True
+    """Skip manifest records whose resolved output video already exists
+    and is non-empty."""
+
+    batch_continue_on_error: bool = True
+    """Continue batch execution after a failed record. Set to ``False`` for
+    fail-fast sweeps."""
+
     example_data: bool = False
     """Lazy-fetch a bundled HDMap clip + first frame and fill the empty
     path tuples from the canonical per-view defaults. Use for the README
@@ -255,6 +550,13 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             "--save_embeddings_path and --embeddings_path are mutually "
             "exclusive: the first writes embeddings, the second reads them."
         )
+        if cfg.batch_inputs_path is not None:
+            assert cfg.save_embeddings_path is None, (
+                "--batch_inputs_path and --save_embeddings_path are mutually "
+                "exclusive: batch mode owns per-record embedding handling."
+            )
+            self._run_batch(cfg.batch_inputs_path)
+            return
         if cfg.example_data:
             self._fill_example_data_defaults()
         if cfg.save_embeddings_path is not None:
@@ -285,6 +587,360 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             cfg.first_frame_paths = first
         if not cfg.camera_names:
             cfg.camera_names = _example_camera_names(num_views)
+
+    ## Batch mode
+
+    def _run_batch(self, batch_inputs_path: Path) -> None:
+        """Run a manifest of rollouts without rebuilding the pipeline."""
+        cfg = self.config
+        records = _load_batch_records(batch_inputs_path)
+        items = [_parse_batch_item(record, index=i) for i, record in enumerate(records)]
+        if self.is_rank_zero:
+            logger.info(
+                f"[{cfg.runner_name}] loaded {len(items)} batch input(s) "
+                f"from {batch_inputs_path}"
+            )
+
+        runnable: list[_BatchItem] = []
+        for item in items:
+            video_path = self._batch_output_video_path(item)
+            if (
+                cfg.batch_skip_existing
+                and video_path.exists()
+                and video_path.stat().st_size > 0
+            ):
+                if self.is_rank_zero:
+                    logger.info(
+                        f"[{cfg.runner_name}] batch item {item.index} "
+                        f"clip={item.clip_id!r} skipped; output exists: {video_path}"
+                    )
+                self._write_batch_metadata_and_result(
+                    item=item,
+                    status="skipped",
+                    started_at=None,
+                    finished_at=_utc_now_iso(),
+                    exit_code=0,
+                    error=None,
+                )
+                continue
+            runnable.append(item)
+
+        if not runnable:
+            if self.is_rank_zero:
+                logger.info(f"[{cfg.runner_name}] no batch items to run")
+            return
+
+        precomputed_embeddings: dict[int, dict[str, torch.Tensor | None]] = {}
+        ready: list[_BatchItem] = []
+        num_views = self._num_views()
+        device = torch.device(f"cuda:{self.local_rank}")
+        dtype = torch.bfloat16
+
+        for item in runnable:
+            if self._batch_embeddings_path(item) is not None:
+                ready.append(item)
+                continue
+
+            started_at = _utc_now_iso()
+            try:
+                prompts = self._resolve_item_prompts(item, num_views)
+                first_frame_paths = self._resolve_item_paths(
+                    item.first_frame_paths,
+                    cfg.first_frame_paths,
+                    num_views,
+                    name="first_frame_paths",
+                )
+                if self.is_rank_zero:
+                    logger.info(
+                        f"[{cfg.runner_name}] precomputing embeddings for "
+                        f"batch item {item.index}/{len(runnable)} "
+                        f"clip={item.clip_id!r}"
+                    )
+                first_frames_t = self._load_first_frames(
+                    first_frame_paths, device=device, dtype=dtype
+                )
+                precomputed_embeddings[item.index] = (
+                    self.pipeline.precompute_embeddings(
+                        text=[list(prompts)],
+                        image=first_frames_t,
+                    )
+                )
+                ready.append(item)
+                del first_frames_t
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                if self.is_rank_zero:
+                    logger.exception(
+                        f"[{cfg.runner_name}] failed precomputing batch item "
+                        f"{item.index} clip={item.clip_id!r}"
+                    )
+                self._write_batch_metadata_and_result(
+                    item=item,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=_utc_now_iso(),
+                    exit_code=1,
+                    error=error,
+                )
+                if not cfg.batch_continue_on_error:
+                    raise
+
+        # All raw prompt/image inputs have been encoded; keep the heavy
+        # diffusion/decoder stack alive and release only the one-shot encoders.
+        self.pipeline.release_oneshot_encoders()
+
+        for item in ready:
+            started_at = _utc_now_iso()
+            try:
+                self._reset_rollout_seed(item)
+                item_num_views = self._num_views()
+                camera_names = self._resolve_item_camera_names(item, item_num_views)
+                embeddings_path = self._batch_embeddings_path(item)
+                if embeddings_path is not None:
+                    assert embeddings_path.exists(), (
+                        f"batch item {item.index} embeddings_path does not "
+                        f"exist: {embeddings_path}"
+                    )
+                    embeddings = torch.load(
+                        embeddings_path, map_location="cpu", weights_only=True
+                    )
+                else:
+                    embeddings = precomputed_embeddings[item.index]
+
+                cache = self.pipeline.initialize_cache_from_embeddings(
+                    text_embeddings=embeddings["text_embeddings"],
+                    image_embeddings=embeddings["image_embeddings"],
+                    negative_text_embeddings=embeddings.get(
+                        "negative_text_embeddings"
+                    ),
+                    view_names=list(camera_names),
+                )
+                self._rollout_and_save(
+                    cache=cache,
+                    num_views=item_num_views,
+                    hdmap_paths=self._resolve_item_paths(
+                        item.hdmap_video_paths,
+                        cfg.hdmap_video_paths,
+                        item_num_views,
+                        name="hdmap_video_paths",
+                    ),
+                    total_blocks=self._resolve_item_total_blocks(item),
+                    output_video_path=self._batch_output_video_path(item),
+                    stats_path=self._batch_stats_path(item),
+                )
+                self._write_batch_metadata_and_result(
+                    item=item,
+                    status="completed",
+                    started_at=started_at,
+                    finished_at=_utc_now_iso(),
+                    exit_code=0,
+                    error=None,
+                )
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                if self.is_rank_zero:
+                    logger.exception(
+                        f"[{cfg.runner_name}] failed batch item {item.index} "
+                        f"clip={item.clip_id!r}"
+                    )
+                self._write_batch_metadata_and_result(
+                    item=item,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=_utc_now_iso(),
+                    exit_code=1,
+                    error=error,
+                )
+                if not cfg.batch_continue_on_error:
+                    raise
+
+    def _batch_embeddings_path(self, item: _BatchItem) -> Path | None:
+        """Per-record embeddings path, falling back to the CLI-level path."""
+        return item.embeddings_path or self.config.embeddings_path
+
+    def _batch_seed_for_metadata(self, item: _BatchItem) -> int | None:
+        if item.seed is not None:
+            return item.seed
+        return self.config.pipeline.diffusion_model.seed
+
+    def _batch_output_dir(self, item: _BatchItem) -> Path:
+        """Resolve the output directory for one batch item."""
+        if item.output_dir is not None:
+            return item.output_dir
+        if item.output_video_path is not None:
+            return item.output_video_path.parent
+
+        cfg = self.config
+        output_dir = cfg.output_dir
+        if item.dataset:
+            output_dir = output_dir / item.dataset
+        output_dir = output_dir / item.clip_id / cfg.runner_name
+        if item.prompt_id:
+            output_dir = output_dir / item.prompt_id
+            seed = self._batch_seed_for_metadata(item)
+            return output_dir / (str(seed) if seed is not None else "seed_default")
+        seed = self._batch_seed_for_metadata(item)
+        if seed is not None:
+            return output_dir / f"seed_{seed}"
+        return output_dir / f"item_{item.index:06d}"
+
+    def _batch_output_video_path(self, item: _BatchItem) -> Path:
+        if item.output_video_path is not None:
+            return item.output_video_path
+        return self._batch_output_dir(item) / (item.video_filename or "video.mp4")
+
+    def _batch_stats_path(self, item: _BatchItem) -> Path:
+        if item.stats_path is not None:
+            return item.stats_path
+        return self._batch_output_dir(item) / (item.stats_filename or "stats.json")
+
+    def _batch_meta_path(self, item: _BatchItem) -> Path:
+        if item.meta_path is not None:
+            return item.meta_path
+        return self._batch_output_dir(item) / "meta.json"
+
+    def _resolve_item_prompts(
+        self, item: _BatchItem, num_views: int
+    ) -> tuple[str, ...]:
+        if item.prompts is not None:
+            assert len(item.prompts) == num_views, (
+                f"batch item {item.index} prompts has {len(item.prompts)} "
+                f"entries but pipeline expects {num_views}."
+            )
+            return item.prompts
+        if item.prompt is not None:
+            assert item.prompt, f"batch item {item.index} prompt is empty"
+            return (item.prompt,) * num_views
+        return self._resolve_prompts(num_views)
+
+    def _resolve_item_camera_names(
+        self, item: _BatchItem, num_views: int
+    ) -> tuple[str, ...]:
+        if item.camera_names is not None:
+            assert len(item.camera_names) == num_views, (
+                f"batch item {item.index} camera_names has "
+                f"{len(item.camera_names)} entries but pipeline expects {num_views}."
+            )
+            return item.camera_names
+        return self._resolve_camera_names(num_views)
+
+    def _resolve_item_paths(
+        self,
+        item_paths: tuple[Path, ...],
+        default_paths: tuple[Path, ...],
+        num_views: int,
+        *,
+        name: str,
+    ) -> tuple[Path, ...]:
+        paths = item_paths or default_paths
+        return self._resolve_paths(paths, num_views, name=name)
+
+    def _resolve_item_total_blocks(self, item: _BatchItem) -> int:
+        if item.total_blocks is not None:
+            return item.total_blocks
+        return self.config.total_blocks
+
+    def _reset_rollout_seed(self, item: _BatchItem) -> None:
+        """Reset the diffusion RNG so each batch row matches one CLI process."""
+        seed = item.seed
+        if seed is not None and self.config.offset_seed_by_global_rank:
+            seed += self.global_rank
+        if seed is None:
+            seed = self.config.pipeline.diffusion_model.seed
+        self.pipeline.diffusion_model.config.seed = seed
+        self.pipeline.diffusion_model._rng = None
+
+    def _write_batch_metadata_and_result(
+        self,
+        *,
+        item: _BatchItem,
+        status: str,
+        started_at: str | None,
+        finished_at: str,
+        exit_code: int,
+        error: str | None,
+    ) -> None:
+        """Persist per-item ``meta.json`` and append the batch result CSV."""
+        if not self.is_rank_zero:
+            return
+
+        video_path = self._batch_output_video_path(item)
+        stats_path = self._batch_stats_path(item)
+        meta_path = self._batch_meta_path(item)
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+        seed = self._batch_seed_for_metadata(item)
+        metadata = {
+            **item.metadata,
+            "status": status,
+            "error": error,
+            "clip_id": item.clip_id,
+            "dataset": item.dataset,
+            "model": self.config.runner_name,
+            "prompt_id": item.prompt_id,
+            "prompt_source": item.prompt_source,
+            "seed": seed,
+            "effective_seed": self.pipeline.diffusion_model.config.seed,
+            "camera_names": item.camera_names or self.config.camera_names,
+            "hdmap_video_paths": item.hdmap_video_paths
+            or self.config.hdmap_video_paths,
+            "first_frame_paths": item.first_frame_paths
+            or self.config.first_frame_paths,
+            "output_video": video_path,
+            "stats_json": stats_path,
+            "meta_json": meta_path,
+            "total_blocks": self._resolve_item_total_blocks(item),
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "exit_code": exit_code,
+            "source_record": item.source,
+        }
+        meta_path.write_text(
+            json.dumps(_json_safe(metadata), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        results_path = self.config.batch_results_path or (
+            self.config.output_dir / "manifest.csv"
+        )
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        fields = (
+            "status",
+            "clip_id",
+            "dataset",
+            "model",
+            "prompt_id",
+            "seed",
+            "output_video",
+            "stats_json",
+            "meta_json",
+            "started_at",
+            "finished_at",
+            "exit_code",
+            "error",
+        )
+        write_header = not results_path.exists() or results_path.stat().st_size == 0
+        with results_path.open("a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fields)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(
+                {
+                    "status": status,
+                    "clip_id": item.clip_id,
+                    "dataset": item.dataset or "",
+                    "model": self.config.runner_name,
+                    "prompt_id": item.prompt_id or "",
+                    "seed": "" if seed is None else seed,
+                    "output_video": str(video_path),
+                    "stats_json": str(stats_path),
+                    "meta_json": str(meta_path),
+                    "started_at": started_at or "",
+                    "finished_at": finished_at,
+                    "exit_code": exit_code,
+                    "error": error or "",
+                }
+            )
 
     ## Run modes
 
@@ -388,19 +1044,28 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
     ## Shared rollout / I/O body
 
     def _rollout_and_save(
-        self, *, cache: OmnidreamsPipelineCache, num_views: int
-    ) -> None:
+        self,
+        *,
+        cache: OmnidreamsPipelineCache,
+        num_views: int,
+        hdmap_paths: tuple[Path, ...] | None = None,
+        total_blocks: int | None = None,
+        output_video_path: Path | None = None,
+        stats_path: Path | None = None,
+    ) -> tuple[Path | None, Path | None]:
         """Run the AR loop against ``cache`` and write video + stats."""
         cfg = self.config
         device = torch.device(f"cuda:{self.local_rank}")
         dtype = torch.bfloat16
 
-        hdmap_paths = self._resolve_paths(
-            cfg.hdmap_video_paths, num_views, name="hdmap_video_paths"
+        resolved_hdmap_paths = self._resolve_paths(
+            hdmap_paths if hdmap_paths is not None else cfg.hdmap_video_paths,
+            num_views,
+            name="hdmap_video_paths",
         )
         hdmap_videos: list[torch.Tensor] = [
             _load_video(
-                hdmap_paths[i],
+                resolved_hdmap_paths[i],
                 pixel_height=cfg.pixel_height,
                 pixel_width=cfg.pixel_width,
                 device=device,
@@ -424,14 +1089,15 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         start = 0
-        for i in range(cfg.total_blocks):
+        resolved_total_blocks = total_blocks or cfg.total_blocks
+        for i in range(resolved_total_blocks):
             num_frames = self.pipeline.get_num_frames(i)
             end = start + num_frames
             if end > hdmap_num_frames:
                 break
             if self.is_rank_zero:
                 logger.info(
-                    f"[{cfg.runner_name}] AR step {i}/{cfg.total_blocks}, "
+                    f"[{cfg.runner_name}] AR step {i}/{resolved_total_blocks}, "
                     f"num_frames={num_frames}, frames=[{start}, {end})"
                 )
             video_chunk = self.pipeline.generate(
@@ -445,32 +1111,41 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             chunks.append(video_chunk.cpu())
             start = end
 
+        if not chunks:
+            raise RuntimeError(
+                f"HDMap videos have {hdmap_num_frames} frame(s), which is too "
+                "short for the first rollout chunk."
+            )
         video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
         generated_num_frames = video.shape[2]
         if not self.is_rank_zero:
-            return
+            return None, None
 
         # HDMap + generated stacked vertically per camera, cameras laid
         # out horizontally: ``[T, 2*H, V*W, C]``.
-        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        if output_video_path is None:
+            output_video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
+        if stats_path is None:
+            stats_path = output_video_path.parent / f"stats_{cfg.runner_name}.json"
+        output_video_path.parent.mkdir(parents=True, exist_ok=True)
         condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
         canvas = rearrange(
             torch.cat([condition, video], dim=-2),
             "1 v t c h w -> t h (v w) c",
         )
-        video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
-        _write_video(canvas, video_path, fps=cfg.output_fps)
+        _write_video(canvas, output_video_path, fps=cfg.output_fps)
         logger.info(
             f"[{cfg.runner_name}] wrote video {tuple(video.shape)} "
-            f"-> {video_path.resolve()}"
+            f"-> {output_video_path.resolve()}"
         )
 
         if stats_history:
-            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
+            stats_path.parent.mkdir(parents=True, exist_ok=True)
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
+        return output_video_path, stats_path
 
     ## Helpers
 
