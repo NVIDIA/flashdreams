@@ -786,8 +786,10 @@ dev = [
     { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32'" },
 ]
 eval = [
+    { name = "accelerate" },
     { name = "decord", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
     { name = "opencv-python-headless" },
+    { name = "pillow" },
     { name = "pyiqa" },
     { name = "tabulate" },
     { name = "torchmetrics" },
@@ -809,6 +811,7 @@ serving = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerate", marker = "extra == 'eval'", specifier = ">=1.0" },
     { name = "aiohttp", marker = "extra == 'serving'", specifier = ">=3.9" },
     { name = "aiortc", marker = "extra == 'serving'", specifier = ">=1.9" },
     { name = "boto3", specifier = ">=1.35" },
@@ -827,6 +830,7 @@ requires-dist = [
     { name = "opencv-python-headless", marker = "extra == 'eval'", specifier = ">=4.8" },
     { name = "opencv-python-headless", marker = "extra == 'examples'" },
     { name = "opencv-python-headless", marker = "extra == 'runners'" },
+    { name = "pillow", marker = "extra == 'eval'", specifier = ">=10" },
     { name = "pyiqa", marker = "extra == 'eval'", specifier = ">=0.1.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'" },

@@ -99,10 +99,12 @@ runners = [
     "scipy>=1.11",
 ]
 eval = [
+    "accelerate>=1.0",
     # PyPI only publishes decord wheels for Linux x86_64 and Windows amd64.
     # Other platforms use the OpenCV fallback in flashdreams.eval._video_decode.
     "decord>=0.6; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
     "opencv-python-headless>=4.8",
+    "pillow>=10",
     "pyiqa>=0.1.10",
     "tabulate>=0.9",
     "torchmetrics>=1.4",
