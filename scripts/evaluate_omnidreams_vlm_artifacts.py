@@ -58,6 +58,33 @@ ARTIFACT_CATEGORIES = {
     ),
 }
 
+TOP_LEVEL_KEY_ALIASES = {
+    "schema_versionion": "schema_version",
+    "artifact_scoresrs": "artifact_scores",
+    "overall_artifact_severityity": "overall_artifact_severity",
+    "frame_indices_wth_issues": "frame_indices_with_issues",
+    "frame_indices_wth_issuesis": "frame_indices_with_issues",
+    "frame_indices_with_issueses": "frame_indices_with_issues",
+    "quality_noteses": "quality_notes",
+}
+
+CATEGORY_KEY_ALIASES = {
+    "hallucinated_vehiclee": "hallucinated_vehicle",
+    "sign_glyphh": "sign_glyph",
+    "traffic_lightt": "traffic_light",
+    "lane_geometryy": "lane_geometry",
+    "road_user_anomalyy": "road_user_anomaly",
+    "temporal_inconsistencyy": "temporal_inconsistency",
+}
+
+REQUIRED_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "artifact_scores",
+    "overall_artifact_severity",
+    "frame_indices_with_issues",
+    "quality_notes",
+}
+
 
 @dataclass(frozen=True)
 class ClipInput:
@@ -70,8 +97,15 @@ class ClipInput:
 
 @dataclass
 class BackendResult:
-    parsed: dict[str, Any]
     raw_response: str
+
+
+class VlmResponseParseError(ValueError):
+    """Error raised when a backend response cannot be trusted as artifact JSON."""
+
+    def __init__(self, message: str, *, raw_response: str) -> None:
+        super().__init__(message)
+        self.raw_response = raw_response
 
 
 class ArtifactBackend(ABC):
@@ -81,7 +115,7 @@ class ArtifactBackend(ABC):
 
     @abstractmethod
     def analyze(self, *, contact_sheet: Path, prompt: str) -> BackendResult:
-        """Return parsed artifact scores for one contact sheet."""
+        """Return raw backend output for one contact sheet."""
 
 
 class QwenLocalBackend(ArtifactBackend):
@@ -197,7 +231,7 @@ class QwenLocalBackend(ArtifactBackend):
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )[0].strip()
-        return BackendResult(parsed=parse_artifact_json(raw), raw_response=raw)
+        return BackendResult(raw_response=raw)
 
 
 class OpenAIBackendPlaceholder(ArtifactBackend):
@@ -337,11 +371,14 @@ def make_prompt(frame_indices: list[int]) -> str:
     categories = "\n".join(
         f"- {name}: {description}" for name, description in ARTIFACT_CATEGORIES.items()
     )
+    category_names = ", ".join(ARTIFACT_CATEGORIES)
     return f"""
 You are evaluating a generated autonomous-driving video from an indexed contact sheet.
 Each tile is labeled with its sample number and source frame index.
 
 Task: detect targeted generation artifacts, especially hallucinated vehicles and sign/text glyph problems.
+Inspect the image before answering. Do not copy a blank or all-clean template.
+Pay special attention to small road signs, traffic lights, vehicles, lane markings, and objects that change between sampled frames.
 
 Artifact categories:
 {categories}
@@ -355,21 +392,19 @@ Scoring rubric:
 
 Sampled source frame indices: {frame_indices}
 
-Return only valid JSON with this exact top-level shape:
-{{
-  "schema_version": {SCHEMA_VERSION},
-  "artifact_scores": {{
-    "hallucinated_vehicle": {{"severity": 0, "confidence": 0.0, "evidence": ""}},
-    "sign_glyph": {{"severity": 0, "confidence": 0.0, "evidence": ""}},
-    "traffic_light": {{"severity": 0, "confidence": 0.0, "evidence": ""}},
-    "lane_geometry": {{"severity": 0, "confidence": 0.0, "evidence": ""}},
-    "road_user_anomaly": {{"severity": 0, "confidence": 0.0, "evidence": ""}},
-    "temporal_inconsistency": {{"severity": 0, "confidence": 0.0, "evidence": ""}}
-  }},
-  "overall_artifact_severity": 0,
-  "frame_indices_with_issues": [],
-  "quality_notes": ""
-}}
+Return only valid JSON. Use these exact top-level keys:
+- schema_version: {SCHEMA_VERSION}
+- artifact_scores: an object with exactly these category keys: {category_names}
+- overall_artifact_severity: the maximum severity across the categories
+- frame_indices_with_issues: source frame indices where artifacts are visible
+- quality_notes: one short sentence, or an empty string
+
+For every artifact_scores category, return an object with:
+- severity: integer 0, 1, 2, or 3
+- confidence: number from 0.0 to 1.0
+- evidence: brief visual evidence; use an empty string only when severity is 0
+
+The JSON keys must be spelled exactly as listed. Output no markdown and no extra commentary.
 """.strip()
 
 
@@ -423,11 +458,88 @@ def clamp_float(value: Any, low: float, high: float) -> float:
     return max(low, min(high, parsed))
 
 
-def normalize_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    scores = payload.get("artifact_scores") or {}
+def repair_key_aliases(
+    payload: dict[str, Any],
+    aliases: dict[str, str],
+    *,
+    scope: str,
+    warnings: list[str],
+) -> dict[str, Any]:
+    repaired: dict[str, Any] = {}
+    for key, value in payload.items():
+        canonical = aliases.get(key, key)
+        if canonical != key:
+            warnings.append(f"repaired {scope} key {key!r} to {canonical!r}")
+        if canonical in repaired and canonical != key:
+            warnings.append(
+                f"ignored duplicate repaired {scope} key {key!r}; "
+                f"{canonical!r} was already present"
+            )
+            continue
+        repaired[canonical] = value
+    return repaired
+
+
+def repair_common_schema_typos(
+    payload: dict[str, Any],
+    *,
+    warnings: list[str],
+) -> dict[str, Any]:
+    repaired = repair_key_aliases(
+        payload,
+        TOP_LEVEL_KEY_ALIASES,
+        scope="top-level",
+        warnings=warnings,
+    )
+    scores = repaired.get("artifact_scores")
+    if isinstance(scores, dict):
+        repaired["artifact_scores"] = repair_key_aliases(
+            scores,
+            CATEGORY_KEY_ALIASES,
+            scope="artifact_scores",
+            warnings=warnings,
+        )
+    return repaired
+
+
+def normalize_artifact_payload(
+    payload: dict[str, Any],
+    *,
+    parse_warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    warnings = list(parse_warnings or [])
+
+    missing_top_level = sorted(REQUIRED_TOP_LEVEL_KEYS.difference(payload))
+    if missing_top_level:
+        warnings.append(f"missing top-level key(s): {', '.join(missing_top_level)}")
+
+    scores = payload.get("artifact_scores")
+    if not isinstance(scores, dict):
+        raise ValueError("VLM artifact JSON is missing an artifact_scores object")
+
+    unknown_categories = sorted(set(scores).difference(ARTIFACT_CATEGORIES))
+    if unknown_categories:
+        warnings.append(
+            "unknown artifact_scores categor"
+            f"{'y' if len(unknown_categories) == 1 else 'ies'}: "
+            + ", ".join(unknown_categories)
+        )
+
     normalized_scores: dict[str, dict[str, Any]] = {}
     for name in ARTIFACT_CATEGORIES:
-        item = scores.get(name) or {}
+        item = scores.get(name)
+        if item is None:
+            warnings.append(f"missing artifact_scores category: {name}")
+            item = {}
+        elif not isinstance(item, dict):
+            warnings.append(f"artifact_scores.{name} is not an object")
+            item = {}
+        missing_fields = sorted({"severity", "confidence", "evidence"}.difference(item))
+        if missing_fields:
+            warnings.append(
+                f"artifact_scores.{name} missing field(s): "
+                + ", ".join(missing_fields)
+            )
         severity = clamp_int(item.get("severity", 0), 0, 3)
         normalized_scores[name] = {
             "severity": severity,
@@ -435,18 +547,37 @@ def normalize_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "evidence": str(item.get("evidence", "")),
         }
 
+    category_max = max(item["severity"] for item in normalized_scores.values())
     overall = payload.get("overall_artifact_severity")
     if overall is None:
-        overall = max(item["severity"] for item in normalized_scores.values())
+        overall = category_max
     overall = clamp_int(overall, 0, 3)
+    if overall < category_max:
+        warnings.append(
+            "overall_artifact_severity was lower than the maximum category severity; "
+            f"using {category_max}"
+        )
+        overall = category_max
     issue_frames = payload.get("frame_indices_with_issues") or []
+    if not isinstance(issue_frames, list):
+        warnings.append("frame_indices_with_issues is not an array")
+        issue_frames = []
     issue_frames = [clamp_int(frame, 0, 1_000_000) for frame in issue_frames]
 
+    schema_version = payload.get("schema_version")
+    if schema_version != SCHEMA_VERSION:
+        warnings.append(
+            f"schema_version was {schema_version!r}; expected {SCHEMA_VERSION}"
+        )
+
+    response_valid = not warnings
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_scores": normalized_scores,
         "overall_artifact_severity": overall,
-        "needs_review": overall >= 2,
+        "response_valid": response_valid,
+        "parse_warnings": warnings,
+        "needs_review": overall >= 2 or not response_valid,
         "highest_severity_categories": [
             name
             for name, item in normalized_scores.items()
@@ -457,8 +588,34 @@ def normalize_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def parse_artifact_json(text: str) -> dict[str, Any]:
-    return normalize_artifact_payload(extract_json_object(text))
+def make_prepare_only_artifact_payload() -> dict[str, Any]:
+    normalized_scores = {
+        name: {"severity": 0, "confidence": 0.0, "evidence": ""}
+        for name in ARTIFACT_CATEGORIES
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "artifact_scores": normalized_scores,
+        "overall_artifact_severity": 0,
+        "response_valid": False,
+        "parse_warnings": ["prepare-only placeholder; no VLM response was generated"],
+        "needs_review": False,
+        "highest_severity_categories": [],
+        "frame_indices_with_issues": [],
+        "quality_notes": "",
+    }
+
+
+def parse_artifact_json(
+    text: str,
+    *,
+    repair_common_typos: bool = True,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    payload = extract_json_object(text)
+    if repair_common_typos:
+        payload = repair_common_schema_typos(payload, warnings=warnings)
+    return normalize_artifact_payload(payload, parse_warnings=warnings)
 
 
 def make_backend(args: argparse.Namespace) -> ArtifactBackend:
@@ -482,7 +639,7 @@ def make_failure_payload(
     error: BaseException,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "status": "failed",
         "evaluated_at_utc": utc_now(),
         "relative_output_dir": clip.relative_output_dir,
@@ -494,6 +651,10 @@ def make_failure_payload(
         },
         "config": config,
     }
+    raw_response = getattr(error, "raw_response", None)
+    if raw_response is not None:
+        payload["raw_response"] = raw_response
+    return payload
 
 
 def evaluate_clip(
@@ -505,6 +666,33 @@ def evaluate_clip(
 ) -> dict[str, Any]:
     output_path = clip.output_dir / args.output_name
     contact_sheet_path = clip.output_dir / args.contact_sheet_name
+
+    if args.reparse_existing and output_path.exists():
+        payload = read_json(output_path)
+        raw_response = payload.get("raw_response")
+        if not isinstance(raw_response, str) or not raw_response.strip():
+            raise VlmResponseParseError(
+                "existing VLM artifact file has no raw_response to reparse",
+                raw_response=str(raw_response or ""),
+            )
+        try:
+            artifact_payload = parse_artifact_json(
+                raw_response,
+                repair_common_typos=not args.disable_schema_repair,
+            )
+        except ValueError as exc:
+            raise VlmResponseParseError(str(exc), raw_response=raw_response) from exc
+        payload.update(
+            {
+                "status": "ok",
+                "evaluated_at_utc": utc_now(),
+                "artifacts": artifact_payload,
+                "raw_response": raw_response,
+                "config": config,
+            }
+        )
+        write_json(output_path, payload)
+        return payload
 
     if output_path.exists() and not args.overwrite:
         payload = read_json(output_path)
@@ -523,12 +711,18 @@ def evaluate_clip(
     prompt = make_prompt(frame_indices)
 
     if args.prepare_only:
-        artifact_payload = normalize_artifact_payload({})
+        artifact_payload = make_prepare_only_artifact_payload()
         raw_response = ""
     else:
         result = backend.analyze(contact_sheet=contact_sheet_path, prompt=prompt)
-        artifact_payload = result.parsed
         raw_response = result.raw_response
+        try:
+            artifact_payload = parse_artifact_json(
+                raw_response,
+                repair_common_typos=not args.disable_schema_repair,
+            )
+        except ValueError as exc:
+            raise VlmResponseParseError(str(exc), raw_response=raw_response) from exc
 
     payload = {
         "status": "ok",
@@ -561,6 +755,8 @@ def summarize_record(payload: dict[str, Any], output_name: str) -> dict[str, Any
         "vlm_artifacts_json": str(Path(payload.get("output_dir", "")) / output_name),
         "contact_sheet": payload.get("contact_sheet"),
         "overall_artifact_severity": artifacts.get("overall_artifact_severity"),
+        "response_valid": artifacts.get("response_valid"),
+        "parse_warnings": artifacts.get("parse_warnings", []),
         "needs_review": artifacts.get("needs_review"),
         "highest_severity_categories": artifacts.get("highest_severity_categories", []),
         "artifact_scores": {
@@ -600,11 +796,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--sample-frames", type=int, default=12)
     parser.add_argument("--sheet-columns", type=int, default=4)
-    parser.add_argument("--thumb-width", type=int, default=384)
+    parser.add_argument("--thumb-width", type=int, default=512)
     parser.add_argument("--max-new-tokens", type=int, default=768)
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--disable-schema-repair",
+        action="store_true",
+        help=(
+            "Disable repairs for common malformed Qwen JSON keys. Repaired "
+            "responses are still marked response_valid=false."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--reparse-existing",
+        action="store_true",
+        help=(
+            "Re-parse existing raw_response fields and regenerate artifacts/summary "
+            "without loading a VLM."
+        ),
+    )
     parser.add_argument("--overwrite-contact-sheets", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
     parser.add_argument(
@@ -668,7 +880,13 @@ def main() -> int:
             artifacts = payload.get("artifacts") or {}
             severity = artifacts.get("overall_artifact_severity", "-")
             categories = ",".join(artifacts.get("highest_severity_categories", []))
-            print(f"{clip.relative_output_dir}: severity={severity} {categories}")
+            schema_note = (
+                " schema-warning" if artifacts.get("response_valid") is False else ""
+            )
+            print(
+                f"{clip.relative_output_dir}: severity={severity}{schema_note} "
+                f"{categories}"
+            )
         except Exception as exc:
             failure = make_failure_payload(clip, error=exc, config=config)
             write_json(clip.output_dir / args.output_name, failure)

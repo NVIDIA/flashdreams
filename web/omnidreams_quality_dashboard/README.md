@@ -20,10 +20,20 @@ By default the app reads:
 
 ```text
 /outputs/omnidreams-quality-sweep/metrics_summary.json
+/outputs/omnidreams-quality-sweep/vlm_artifacts_summary.json
 ```
+
+VLM rows with `response_valid: false` are shown as schema warnings and count as
+needing review, even if the numeric artifact severities are zero.
 
 To point at another summary file served by the same local server:
 
 ```text
 http://127.0.0.1:8765/web/omnidreams_quality_dashboard/?summary=/outputs/another-sweep/metrics_summary.json
+```
+
+To point at a separate VLM summary:
+
+```text
+http://127.0.0.1:8765/web/omnidreams_quality_dashboard/?summary=/outputs/another-sweep/metrics_summary.json&vlm=/outputs/another-sweep/vlm_artifacts_summary.json
 ```

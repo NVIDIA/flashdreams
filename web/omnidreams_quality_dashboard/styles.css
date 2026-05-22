@@ -131,7 +131,7 @@ button:hover {
 
 .toolbar {
   display: grid;
-  grid-template-columns: 160px 142px 170px 170px minmax(240px, 1fr);
+  grid-template-columns: 160px 142px 170px 170px 190px minmax(240px, 1fr);
   gap: 10px;
   align-items: end;
   border: 1px solid var(--line);
@@ -310,6 +310,163 @@ button:focus {
   text-align: right;
 }
 
+.artifact-panel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 12px;
+}
+
+.artifact-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.artifact-summary {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.artifact-summary h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.artifact-summary a {
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.artifact-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  gap: 8px;
+  min-height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px;
+}
+
+.artifact-row strong {
+  display: block;
+  font-size: 13px;
+}
+
+.artifact-row span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.artifact-score {
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.artifact-score b {
+  font-size: 22px;
+}
+
+.artifact-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.severity-0 {
+  border-color: #cfe2d7;
+  background: #e5f4ea;
+  color: #1e6a3d;
+}
+
+.severity-1 {
+  border-color: #efdfb9;
+  background: var(--gold-soft);
+  color: #704507;
+}
+
+.severity-2 {
+  border-color: #e7b9a7;
+  background: #f7dfd4;
+  color: #914323;
+}
+
+.severity-3 {
+  border-color: #dca5a1;
+  background: var(--red-soft);
+  color: #731f1b;
+}
+
+.severity-unknown {
+  border-color: var(--line);
+  background: #eee9df;
+  color: var(--muted);
+}
+
+.severity-invalid {
+  border-color: #d8b064;
+  background: #f6ead0;
+  color: #6d4304;
+}
+
+.artifact-warning {
+  border: 1px solid #d8b064;
+  border-radius: 8px;
+  background: #fff8e8;
+  padding: 10px;
+}
+
+.artifact-warning strong,
+.artifact-warning span {
+  display: block;
+}
+
+.artifact-warning strong {
+  font-size: 13px;
+}
+
+.artifact-warning span {
+  margin-top: 4px;
+  color: #6d4304;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.contact-sheet-preview {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111;
+}
+
 .top-clips {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -373,6 +530,10 @@ button:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.score-pill + .artifact-badge {
+  margin-left: 6px;
+}
+
 .table-panel {
   margin-top: 16px;
   padding: 14px;
@@ -391,7 +552,7 @@ button:focus {
 
 table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1180px;
   border-collapse: collapse;
   background: #fff;
 }
@@ -487,6 +648,7 @@ tbody tr.is-selected {
   .summary-metrics,
   .selected-meta,
   .top-clips,
+  .artifact-rows,
   .toolbar {
     grid-template-columns: 1fr;
   }

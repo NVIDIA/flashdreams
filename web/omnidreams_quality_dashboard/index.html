@@ -22,6 +22,13 @@
           <span>Sort</span>
           <select id="sortMetric">
             <option value="composite">Composite quality</option>
+            <option value="artifact_severity">VLM artifact severity</option>
+            <option value="hallucinated_vehicle">Hallucinated vehicle</option>
+            <option value="sign_glyph">Sign glyph</option>
+            <option value="traffic_light">Traffic light</option>
+            <option value="lane_geometry">Lane geometry</option>
+            <option value="road_user_anomaly">Road user anomaly</option>
+            <option value="temporal_inconsistency">Temporal inconsistency</option>
             <option value="niqe">NIQE</option>
             <option value="musiq">MUSIQ</option>
             <option value="clipiqa">CLIPIQA</option>
@@ -48,6 +55,21 @@
             <option value="stacked">Stacked source</option>
           </select>
         </label>
+        <label>
+          <span>Artifacts</span>
+          <select id="artifactFilter">
+            <option value="all">All statuses</option>
+            <option value="needs-review">Needs review</option>
+            <option value="schema-warning">Schema warnings</option>
+            <option value="clean">No VLM issues</option>
+            <option value="hallucinated_vehicle">Hallucinated vehicle</option>
+            <option value="sign_glyph">Sign glyph</option>
+            <option value="traffic_light">Traffic light</option>
+            <option value="lane_geometry">Lane geometry</option>
+            <option value="road_user_anomaly">Road user anomaly</option>
+            <option value="temporal_inconsistency">Temporal inconsistency</option>
+          </select>
+        </label>
         <label class="search-label">
           <span>Search</span>
           <input id="searchBox" type="search" placeholder="clip, seed, path" />
@@ -68,6 +90,7 @@
           </div>
           <div class="selected-meta" id="selectedMeta"></div>
           <div class="metric-bars" id="selectedMetrics"></div>
+          <div class="artifact-panel" id="selectedArtifacts"></div>
         </section>
 
         <section class="top-panel" aria-label="Top ranked clips">
@@ -109,6 +132,10 @@
                 <th>
                   <button class="column-sort" data-sort="clipiqa" type="button">CLIPIQA</button>
                 </th>
+                <th>
+                  <button class="column-sort" data-sort="artifact_severity" type="button">VLM</button>
+                </th>
+                <th>Top Artifact</th>
                 <th>Frames</th>
                 <th>Resolution</th>
               </tr>
