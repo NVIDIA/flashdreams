@@ -342,8 +342,14 @@ def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
     assert isinstance(transformer, HyWorldPlayWan21TransformerConfig)
     assert isinstance(transformer.network, HyWorldPlayWanDiTNetworkConfig)
     # Critical Wan 2.2 TI2V 5B knobs must be propagated, not silently
-    # reset to subclass defaults.
-    assert transformer.len_t == 21
+    # reset to subclass defaults. ``len_t`` is the one exception: the
+    # HY-WorldPlay swap overrides it from the base recipe's 21 down to
+    # 4 to match upstream's ``pred_latent_size=4`` per-AR-step chunk
+    # size (see ``_swap_in_action_conditioning_configs`` for the
+    # rationale). Without this override, native vs vendor produce
+    # different total frame counts and are not parity-comparable.
+    assert transformer.len_t == 4
+    assert transformer.window_size_t == 4
     assert transformer.stamp_image_latent is True
     assert transformer.ti2v_first_frame_per_token_timestep is True
     assert transformer.guidance_scale == 5.0

@@ -469,9 +469,26 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     checkpoint_path=transformer_cfg.checkpoint_path,
                     state_dict_transform=transformer_cfg.state_dict_transform,
                     batch_shape=transformer_cfg.batch_shape,
-                    len_t=transformer_cfg.len_t,
+                    # HY-WorldPlay's autoregressive WAN-5B uses
+                    # ``pred_latent_size=4`` per AR step (see upstream
+                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
+                    # and ``select_mem_frames_wan(..., pred_latent_size=4)``),
+                    # *not* the base recipe's 21. Without this override
+                    # the native pipeline produces 21-latent chunks
+                    # while upstream produces 4-latent chunks, and the
+                    # two outputs are not comparable for parity
+                    # (different total frame counts, different RoPE
+                    # positions, different memory-selection cadence).
+                    # Phase 2b.5b-part2-followup parity bring-up
+                    # surfaced this; previous phases happened to test
+                    # at len_t=21 without comparing against the vendor
+                    # baseline's actual chunk size.
+                    len_t=4,
                     guidance_scale=transformer_cfg.guidance_scale,
-                    window_size_t=transformer_cfg.window_size_t,
+                    # Match window_size_t to len_t so the rolling KV
+                    # cache holds exactly the current chunk's tokens
+                    # (matches upstream's per-AR-step cache eviction).
+                    window_size_t=4,
                     sink_size_t=transformer_cfg.sink_size_t,
                     h_extrapolation_ratio=transformer_cfg.h_extrapolation_ratio,
                     w_extrapolation_ratio=transformer_cfg.w_extrapolation_ratio,

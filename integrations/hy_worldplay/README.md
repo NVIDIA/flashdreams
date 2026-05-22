@@ -327,14 +327,69 @@ feature flag and lands incrementally:
       VAE's first `CausalConv3d` doesn't see a fp32-vs-bf16 dtype
       mismatch.
 
-- **2b.5b-part2-followup (still pending).** Three remaining
-  items: (1) end-to-end parity diff vs the phase-1 vendor-wrapper
-  baseline at production resolution (704x1280) with the full
-  upstream FOV memory selector; (2) drop the parity sub-venv
-  (`sageattention`, `cloudpickle`, `accelerate`,
-  `transformers==4.57.6`) once parity passes; (3) flip
-  `--use-native-pipeline` to the default for the
-  `hy-worldplay-wan-i2v-5b` recipe.
+- **2b.5b-part2-followup (parity attempt landed; sub-venv removal
+  + default flip deferred to 2b.6).** The parity diff infrastructure
+  ran end-to-end against the phase-1 vendor-wrapper baseline at
+  production resolution (704x1280, `num_chunk=2`, `pose=w-8` on the
+  vendor side / `pose=w-7` on the native side -- vendor consumes only
+  the first `num_chunk * CHUNK_SIZE=8` of the 9 keys produced by
+  `w-8`, while native expects exactly `n_latents=8`, so `w-7` -> 8
+  keys gives identical motion-integrated trajectories on both sides).
+  The diff surfaced one config bug and one deeper algorithmic
+  divergence that gates the cleanup items:
+  - *Config bug (fixed in this release).* The HY-WorldPlay swap in
+    `HyWorldPlayWanI2VRunnerConfig._swap_in_action_conditioning_configs`
+    was inheriting the base recipe's `len_t=21` /
+    `window_size_t=21` directly into the
+    `HyWorldPlayWan21TransformerConfig`. Upstream's autoregressive
+    WAN-5B uses `pred_latent_size=4` per AR step (see
+    `wan/inference/pipeline_wan_w_mem_relative_rope.py` and
+    `wan/inference/helper.py`'s `CHUNK_SIZE=4`), so without an
+    override the native path produced 21-latent chunks while the
+    vendor produced 4-latent chunks (different total frame counts,
+    different RoPE positions, different memory-selection cadence).
+    The swap now forces `len_t=4` / `window_size_t=4`; the
+    `test_use_action_conditioning_swaps_encoder_and_transformer`
+    smoke test was tightened to pin both values. Previous phases
+    happened to test at `len_t=21` without comparing against the
+    vendor baseline's actual chunk size, which is what kept this
+    latent.
+  - *Algorithmic divergence (open, blocking cleanup).* With matching
+    frame counts and the distilled checkpoint loaded
+    (`load_state_dict(strict=True)` succeeds with 0 missing / 0
+    unexpected keys), pixel diff against vendor still reports
+    `mean |Δ| = 110.7 / 255` and `PSNR = 5.81 dB`, far outside the
+    `mean |Δ| <= 5 / 255` parity bar. Concretely, native frame 0 has
+    `mean rgb = [148.7, 137.1, 144.6]`, while the input image and
+    vendor frame 0 both sit at `~[106, 117, 103]` -- i.e. the
+    conditioning frame is *not* reconstructing through the HY swap
+    path even though `stamp_image_latent=True` survives the swap and
+    a pre-HY native rollout (May-16 baseline at
+    `/devwork/flashdreams/outputs/hy-worldplay-wan-i2v-5b.mp4`)
+    reproduces the input image perfectly. The bug is therefore
+    somewhere on the HY-specific code path, not in the base
+    `PIPELINE_WAN22_TI2V_5B` I2V conditioning. Ruled out so far:
+    `torch.compile` / CUDA graph (disabling both reproduces the
+    same delta), checkpoint loading (strict load succeeds, sampled
+    weights have realistic stats), pose-trajectory math (vendor and
+    native motion integrators are byte-identical), input image
+    preprocessing (vendor's `resize_and_center_crop` and native's
+    `preprocess_first_frame` are equivalent), `len_t` semantics
+    (now fixed). Root-causing this is tracked as a new follow-on
+    **2b.6** (likely an I2V mask / latent-stamping override that
+    the HY transformer subclass tree silently breaks, or a clean-
+    latent / first-frame-timestep wiring mismatch between
+    `HyWorldPlayWan21Transformer.predict_flow` and the base
+    `Wan21Transformer`).
+  - *Cleanup deferred.* The original 2b.5b-part2-followup also
+    listed (a) dropping the parity sub-venv and (b) flipping
+    `--use-native-pipeline` to the default. Both stay deferred
+    until 2b.6 closes the algorithmic divergence -- the sub-venv
+    is still needed to run vendor-wrapper baselines for parity
+    iteration, and we can't make the broken native path the
+    default. The parity diff harness itself (vendor run command +
+    `imageio[FFMPEG]`-based per-frame uint8 RGB delta) is now
+    documented and reusable for the 2b.6 round.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -368,14 +423,19 @@ cache, collapsed-position RoPE prefill, dual-branch concat, per-chunk
 rolling-cache reset), the per-rollout viewmats / Ks / action
 threading, and the GPU boot path have all landed. 99 CPU tests pin
 the structural invariants and a 2-chunk GPU smoke at 256x448 confirms
-the prefill executor runs on real bf16 weights without crashing. What
-remains for full numerical parity is the end-to-end parity diff at
-production resolution against the phase-1 vendor-wrapper baseline,
-which feeds the parity sub-venv removal and the
-`--use-native-pipeline` default flip (the still-pending three
-**2b.5b-part2-followup** items). For bit-for-bit parity with upstream
-`wan/generate.py` today, use the default (vendor-wrapper) invocation
-above. See
+the prefill executor runs on real bf16 weights without crashing.
+**Numerical parity does not yet hold** -- the end-to-end diff at
+704x1280 against the phase-1 vendor-wrapper baseline reports `mean
+|Δ| = 110.7 / 255` (parity bar is `5 / 255`), traced to an as-yet-
+unrooted I2V conditioning divergence on the HY-specific path (see
+**2b.5b-part2-followup** above for the diagnostic + ruled-out
+causes). The remaining cleanup items -- dropping the parity sub-
+venv (`sageattention`, `cloudpickle`, `accelerate`,
+`transformers==4.57.6`) and flipping `--use-native-pipeline` to
+default -- stay deferred under a new **2b.6** until that divergence
+is rooted and the parity bar is met. For bit-for-bit parity with
+upstream `wan/generate.py` today, use the default (vendor-wrapper)
+invocation above. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
 for the full design.
 
