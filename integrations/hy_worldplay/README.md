@@ -183,14 +183,23 @@ feature flag and lands incrementally:
   4-step schedule. Native mode now uses the same denoising loop as
   the vendor wrapper, so any remaining drift comes from the missing
   conditioners + non-distilled checkpoint.
-- **2b.3 (this release).** Action conditioner: 81-class discrete
-  labels (`trans * 9 + rotate`) embedded by a dedicated MLP and
-  summed into the time embedding before the AdaLN modulation
-  projection. Activated by `--use-action-conditioning` alongside
-  `--use-native-pipeline`. The action MLP's residual head is
-  zero-initialised, so flipping the flag on without HY-WorldPlay's
-  distilled weights is a strict identity (no parity regression).
-- **2b.4.** Camera-trajectory conditioner (PRoPE dual-branch attention).
+- **2b.3.** Action conditioner: 81-class discrete labels
+  (`trans * 9 + rotate`) embedded by a dedicated MLP and summed into
+  the time embedding before the AdaLN modulation projection. Activated
+  by `--use-action-conditioning` alongside `--use-native-pipeline`. The
+  action MLP's residual head is zero-initialised, so flipping the flag
+  on without HY-WorldPlay's distilled weights is a strict identity.
+- **2b.4 (this release).** Camera-trajectory conditioner: PRoPE
+  dual-branch self-attention. Each block runs the stock RoPE attention
+  branch *plus* a parallel branch that applies per-frame camera-
+  projective transforms (`P = lift(K) @ viewmats`) to Q / K / V via
+  `flashdreams.core.attention.prope.prope_qkv`, attends against a
+  dedicated second KV cache, and projects through a separate `o_prope`
+  linear before summing back into the block output. Activated by
+  `--use-camera-conditioning` alongside `--use-native-pipeline`. The
+  `o_prope` projection is zero-initialised so the branch contributes
+  exactly zero residual until HY-WorldPlay's distilled checkpoint
+  loads non-zero weights for it (strict no-op until then).
 - **2b.5.** Reconstituted-context memory + KV prefill; drop the parity
   sub-venv; flip `--use-native-pipeline` to default.
 
@@ -201,18 +210,26 @@ venv -- no parity sub-venv needed):
 uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --use-native-pipeline \
     --use-action-conditioning \
+    --use-camera-conditioning \
     --image-path ./assets/img/test.png \
     --num-chunk 1 \
     --pose "w-4" \
     --output-dir outputs
 ```
 
+`--use-action-conditioning` and `--use-camera-conditioning` are
+independent toggles -- either, both, or neither can be set, depending
+on which conditioner you want to ablate. Both share the same encoder /
+transformer / network subclass tree; flipping either flag triggers the
+swap, and the camera flag additionally enables the PRoPE dual-branch
+block path on the DiT.
+
 The current native path **does not match** the vendor-wrapper
 baseline numerically: the action MLP / camera PRoPE / memory KV
 prefill weights from HY-WorldPlay's distilled checkpoint are not
 loaded yet (those land alongside 2b.5's weight remapping pass). As
-of 2b.3 the architecture is in place -- once the distilled checkpoint
-loads on top, the conditioner becomes active automatically. For
+of 2b.4 the architecture is in place -- once the distilled checkpoint
+loads on top, the conditioners become active automatically. For
 parity with upstream `wan/generate.py` today, use the default
 (vendor-wrapper) invocation above. The native path is checked in to
 let early adopters benchmark the flashdreams runtime stack on the
@@ -363,8 +380,15 @@ land first.
      `--use-action-conditioning`. The action MLP's residual head
      ships zero-initialised so the conditioner is a strict identity
      until HY-WorldPlay's distilled checkpoint is layered on top.
-   - **2b.4.** Port the **camera-trajectory conditioner** (PRoPE
-     dual-branch self-attention) onto a `HyWorldPlayWanBlock` subclass.
+   - **2b.4 (landed).** Camera-trajectory conditioner (PRoPE dual-
+     branch self-attention) on a `HyWorldPlayPRoPEBlock` subclass,
+     plus the `prope_qkv` math port to
+     `flashdreams.core.attention.prope` and per-AR-step
+     `viewmats` / `Ks` slicing through the existing encoder. Gated
+     behind `--use-camera-conditioning`. The block's `o_prope`
+     projection ships zero-initialised so the PRoPE branch
+     contributes exactly zero residual until the distilled
+     checkpoint loads on top (strict identity until then).
    - **2b.5.** Port the **reconstituted-context-memory** module
      (frame-index selection policy + KV prefill); re-run the parity
      check against the phase-1 baseline; drop the parity sub-venv

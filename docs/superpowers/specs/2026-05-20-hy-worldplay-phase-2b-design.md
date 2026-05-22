@@ -49,7 +49,7 @@ under ~1,000 LoC and each ending in a verifiable state.
 | **2b.1 (landed)** | Native runner driving `PIPELINE_WAN22_TI2V_5B`, I2V base case only (no conditioners). Behind a `--use-native-pipeline` feature flag; vendor wrapper stays default. Single-GPU only. | ~300-500 | none |
 | **2b.2 (landed)** | Add `FlowMatchEulerDiscreteSchedulerConfig` (with the upstream-specific distilled 4-step hardcoded schedule) to `flashdreams.infra.diffusion.scheduler`. Swap the scheduler in HY-WorldPlay's `__post_init__` only; `PIPELINE_WAN22_TI2V_5B` stays neutral with UniPC for non-HY callers. | ~200-300 | 2b.1 |
 | **2b.3 (landed)** | Action conditioner: `HyWorldPlayWanDiTNetworkConfig` + `HyWorldPlayWanDiTNetwork` subclass with a zero-init `action_embedding` MLP summed into `temb` before AdaLN modulation. Companion `HyWorldPlayWanCtrlEncoder` slices per-AR-step labels; `HyWorldPlayWan21Transformer` threads them via `network_extra_kwargs`. Gated by `--use-action-conditioning`. | ~300-500 | 2b.2 |
-| **2b.4** | Camera-trajectory conditioner: port `prope_qkv` and the dual-branch RoPE+PRoPE attention. New `HyWorldPlayWanBlock` mirroring upstream's Q/K/V split + recombination. Plumb viewmats + intrinsics via streaming encoder. | ~600-1,000 | 2b.3 |
+| **2b.4 (landed)** | Camera-trajectory conditioner: port `prope_qkv` to `flashdreams.core.attention.prope` and ship the dual-branch RoPE+PRoPE attention as `HyWorldPlayPRoPESelfAttention` + `HyWorldPlayPRoPEBlock`. Plumb viewmats + intrinsics through `HyWorldPlayCtrl` / encoder. Gated by `--use-camera-conditioning`. `o_prope` zero-init keeps the branch a strict identity at random init. | ~900 | 2b.3 |
 | **2b.5** | Memory module + KV-prefill hook: port `select_mem_frames_wan` selection policy, extend transformer cache with "prefill from these frame indices" semantics, hook into `Wan21Transformer.predict_flow` for per-chunk prefill at step 0. Drop parity sub-venv. Re-run parity. Flip `--use-native-pipeline` to default. | ~400-700 + cleanup | 2b.4 |
 
 Total: ~1,800-3,000 LoC of new code + ~500-1,000 LoC of tests + docs.
@@ -383,39 +383,77 @@ path stays parity-aligned with the 2b.2 baseline even with
 active once HY-WorldPlay's distilled checkpoint loads on top
 (2b.5 weight remap).
 
-## Sub-PR 2b.4 design (later)
+## Sub-PR 2b.4 design (landed)
 
-**Camera-trajectory conditioner (PRoPE).** Heaviest sub-PR. Upstream's
-camera conditioning fuses positional information from per-latent
-`viewmats` (4×4 W2C matrices) and `intrinsics` (3×3) into the
-self-attention Q/K/V via PRoPE (positional rotation via camera-derived
-frequencies):
+**Camera-trajectory conditioner (PRoPE).** Heaviest conditioner sub-PR.
+Upstream's camera conditioning fuses positional information from
+per-latent `viewmats` (4×4 W2C matrices) and `intrinsics` (3×3) into
+the self-attention Q/K/V via PRoPE (projective positional encoding):
 
 ```
 query_prope, key_prope, value_prope = prope_qkv(
-    query, key, value, viewmats, Ks, patches_x, patches_y
+    query, key, value, viewmats=viewmats, Ks=Ks
 )
-hidden_states_prope = sageattn(query_prope, key_prope, value_prope, ...)
-hidden_states = hidden_states_rope + hidden_states_prope
+hidden_states_prope = sdpa(query_prope, key_prope, value_prope, ...)
+hidden_states = self.o(rope_branch) + self.o_prope(prope_branch)
 ```
 
-Native implementation:
+Implementation as shipped:
 
-- Port `hyvideo.prope.camera_rope.prope_qkv` to
-  `flashdreams.core.attention.prope` (new module). Document numeric
-  semantics + cite upstream commit.
-- New `HyWorldPlayWanBlock` (subclass of `Block`) with the dual-branch
-  attention: standard RoPE branch + PRoPE branch, summed at the
-  attention output. Use flashdreams' native attention (drop
-  `sageattention`); accept any 1-2 ULP delta as the cost of dependency
-  reduction.
-- `HyWorldPlayWanDiTNetwork` (extended from 2b.3) uses
-  `HyWorldPlayWanBlock` in its `nn.ModuleList`.
-- Encoder produces per-chunk `viewmats` and `Ks` slices; plumb via
-  `network_extra_kwargs`.
+- `flashdreams.core.attention.prope` (new core module) ports
+  `prope_qkv` + the per-camera 4×4 block-diagonal projection helpers.
+  Cross-checked against a numpy reference in
+  `flashdreams/tests/test_prope.py` (6 tests covering the intrinsic
+  and intrinsic-free branches, identity round-trip, and the head-dim
+  / camera-divisibility shape contracts). One precision fix vs
+  upstream: the lift-K helper now allocates with the input dtype so
+  float64 callers don't get a silent fp32 downcast on the
+  `out[..., :3, :3] = Ks` write (no observable diff at fp32 / bf16).
+- `hy_worldplay._camera` ships three classes:
+  - `HyWorldPlayPRoPESelfAttention`: subclass of `SelfAttention` with
+    a parallel `o_prope` linear (zero-init) and an independent
+    `attn_op_prope`. Its `forward_dual_branch` computes Q/K/V once,
+    writes raw K/V to the standard cache and PRoPE-transformed K/V to
+    a second cache, runs two SDPA calls, applies `apply_fn_o` to the
+    PRoPE branch output, then sums `self.o(rope) + self.o_prope(prope)`.
+  - `HyWorldPlayPRoPEBlockCache`: extends `BlockCache` with a
+    `prope_self_attn: BlockKVCache` slot and routes
+    `before_update` / `after_update` to both caches.
+  - `HyWorldPlayPRoPEBlock`: subclass of `Block` that swaps in the
+    dual-branch self-attn and overrides `initialize_cache` /
+    `forward` to thread `viewmats` + `Ks` through. The block raises
+    a clear `ValueError` if `viewmats` is missing so misconfigured
+    runs surface at the first block invocation, not as a confusing
+    parity drift later.
+- `HyWorldPlayWanDiTNetworkConfig` gains a `use_prope_blocks: bool`
+  knob; `HyWorldPlayWanDiTNetwork._build_block` returns
+  `HyWorldPlayPRoPEBlock` instances when it's set (and the `forward`
+  routes `viewmats` / `Ks` through `block_extra_kwargs`). The action-
+  only path keeps the stock `Block` so 2b.3 callers are not affected.
+- `HyWorldPlayCtrl` gains optional `viewmats` / `Ks` fields;
+  `HyWorldPlayWanCtrlEncoder.set_camera_data` binds them per-rollout
+  and each `forward` slices the per-AR-step window.
+  `HyWorldPlayWan21Transformer.predict_flow` threads them via
+  `network_extra_kwargs` and `patchify_and_maybe_split_cp` preserves
+  them through the I2V payload rebuild.
+- `HyWorldPlayWanI2VRunnerConfig.use_camera_conditioning` flag.
+  `__post_init__` reuses the same encoder / transformer / network
+  subclass swap as `use_action_conditioning` (the two share a single
+  subclass tree) and additionally flips `use_prope_blocks=True` on
+  the network config. The native runner parses the pose string into
+  `(viewmats, Ks)` via the shared `_pose.parse_pose_data` helper and
+  binds them on the encoder before the rollout.
 
-Parity target: with camera conditioning on top of action + scheduler,
-the only remaining residual should come from the memory module (still
+Parity caveats:
+- CP > 1 is intentionally gated off here (both the action branch and
+  the new PRoPE branch); multi-rank lands in a follow-up alongside
+  memory.
+- `sageattention` is replaced by flashdreams' native SDPA-backed
+  attention (single `attn_op_prope: RingAttention`). Expect ~1-2 ULP
+  delta vs upstream attributable to the kernel switch.
+
+Parity target: with action + camera + scheduler all matched, the
+only remaining residual should come from the memory module (still
 not implemented) and from the `sageattention` → native-attention
 substitution.
 

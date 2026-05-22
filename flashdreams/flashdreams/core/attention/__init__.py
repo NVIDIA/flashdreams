@@ -17,6 +17,7 @@
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.native import NativeAttention
+from flashdreams.core.attention.prope import build_prope_apply_fns, prope_qkv
 from flashdreams.core.attention.ring import RingAttention
 from flashdreams.core.attention.rope import (
     KVCacheRelativeRotaryPositionEmbedding3D,
@@ -31,4 +32,6 @@ __all__ = [
     "NativeAttention",
     "RingAttention",
     "apply_rope_freqs",
+    "build_prope_apply_fns",
+    "prope_qkv",
 ]

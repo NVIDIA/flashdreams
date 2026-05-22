@@ -220,8 +220,24 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     head is only meaningful once HY-WorldPlay's distilled checkpoint
     has been loaded; with zero-init weights the conditioner is a strict
     no-op so flipping this on without those weights stays parity-safe.
-    Camera-trajectory PRoPE and reconstituted-context memory still land
-    in 2b.4 / 2b.5 respectively."""
+    Reconstituted-context memory still lands in 2b.5."""
+
+    use_camera_conditioning: bool = False
+    """Enable HY-WorldPlay's camera-trajectory PRoPE conditioner (phase 2b.4).
+    Only honoured when :attr:`use_native_pipeline` is ``True``; in that
+    case ``__post_init__`` (a) ensures the action-aware encoder /
+    transformer / network swap has been performed -- the camera
+    conditioner sits on the same :class:`HyWorldPlayCtrl` payload as the
+    action labels and shares its plumbing -- and (b) flips
+    :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` on so each
+    transformer block runs the dual-branch RoPE + PRoPE self-attention
+    from :class:`hy_worldplay._camera.HyWorldPlayPRoPEBlock`. The native
+    runner then parses :attr:`pose` into per-latent W2C + intrinsics and
+    binds them on the encoder before the rollout. Defaults to ``False``
+    because the PRoPE branch's ``o_prope`` projection is zero-init -- the
+    branch contributes exactly zero residual until HY-WorldPlay's
+    distilled checkpoint loads non-zero weights for it, so flipping this
+    on without those weights stays parity-safe."""
 
     def __post_init__(self) -> None:
         """Swap ``_target`` and ``pipeline`` to the native preset when
@@ -247,12 +263,18 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
         UniPC so non-HY callers of ``PIPELINE_WAN22_TI2V_5B`` keep
         their existing scheduler.
 
-        When :attr:`use_action_conditioning` is also set, the deep-
-        copied pipeline's encoder and transformer slots are further
-        swapped to the action-aware variants from :mod:`hy_worldplay._action`,
+        When :attr:`use_action_conditioning` is set, the deep-
+        copied pipeline's encoder and transformer slots are swapped to
+        the action-aware variants from :mod:`hy_worldplay._action`,
         which subclass the standard I2V encoder / Wan 2.1 transformer /
         DiT network to thread the per-AR-step action slice through to
-        the AdaLN modulation path.
+        the AdaLN modulation path. When :attr:`use_camera_conditioning`
+        is also (or independently) set, the same swap is performed --
+        the action-aware classes already carry the ``viewmats`` / ``Ks``
+        fields on :class:`HyWorldPlayCtrl` -- and
+        :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` is
+        flipped on so each block runs the dual-branch RoPE + PRoPE
+        self-attention.
         """
         if not self.use_native_pipeline:
             return
@@ -276,8 +298,14 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                 )
             )
 
-        if self.use_action_conditioning:
+        # Both action and camera conditioning use the same subclass tree
+        # (encoder + transformer + network); flipping either flag triggers
+        # the swap. Camera conditioning then additionally enables the
+        # PRoPE-block path on the DiT.
+        if self.use_action_conditioning or self.use_camera_conditioning:
             self._swap_in_action_conditioning_configs()
+        if self.use_camera_conditioning:
+            self._enable_prope_blocks_on_network()
 
         if self._target is HyWorldPlayWanI2VRunner:
             # Lazy import: the native runner pulls in torch, the Wan
@@ -288,15 +316,19 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             self._target = HyWorldPlayWanI2VNativeRunner
 
     def _swap_in_action_conditioning_configs(self) -> None:
-        """Replace the pipeline's I2V encoder + transformer with the action-aware variants.
+        """Replace the pipeline's I2V encoder + transformer with the HY-WorldPlay variants.
 
         Lazy-imported so :mod:`hy_worldplay._action` -- which pulls in
         ``torch`` and the Wan transformer stack -- is only loaded when
-        the action flag is actually set. Honours user-supplied encoder /
-        transformer overrides by only swapping the stock
-        :class:`WanI2VCtrlEncoderConfig` / :class:`Wan21TransformerConfig`
-        instances we just deep-copied from
-        :data:`PIPELINE_WAN22_TI2V_5B`.
+        either the action or the camera flag is actually set. Honours
+        user-supplied encoder / transformer overrides by only swapping
+        the stock :class:`WanI2VCtrlEncoderConfig` /
+        :class:`Wan21TransformerConfig` instances we just deep-copied
+        from :data:`PIPELINE_WAN22_TI2V_5B`. Both action and camera
+        conditioning share this swap: the per-AR-step ``viewmats`` /
+        ``Ks`` slices live on the same :class:`HyWorldPlayCtrl` payload
+        as the action labels, so a single subclass tree covers both
+        conditioners.
         """
         from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
         from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
@@ -380,6 +412,34 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     ),
                 )
             )
+
+    def _enable_prope_blocks_on_network(self) -> None:
+        """Flip ``use_prope_blocks`` on the (already-swapped) HY DiT config.
+
+        Idempotent + lazy: requires that
+        :meth:`_swap_in_action_conditioning_configs` has already
+        installed the action-aware transformer config, since
+        :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` only
+        exists on that subclass. The actual PRoPE-block construction
+        happens later inside
+        :meth:`HyWorldPlayWanDiTNetwork._build_block`.
+        """
+        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+
+        from hy_worldplay._action import HyWorldPlayWanDiTNetworkConfig
+
+        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
+            "_enable_prope_blocks_on_network expected a "
+            f"WanInferencePipelineConfig after the deepcopy; got "
+            f"{type(self.pipeline).__name__}"
+        )
+        network_cfg = self.pipeline.diffusion_model.transformer.network
+        assert isinstance(network_cfg, HyWorldPlayWanDiTNetworkConfig), (
+            "use_camera_conditioning=True requires the network slot to be a "
+            "HyWorldPlayWanDiTNetworkConfig; ensure _swap_in_action_conditioning_configs "
+            f"ran before this method (got {type(network_cfg).__name__})."
+        )
+        network_cfg.use_prope_blocks = True
 
 
 class HyWorldPlayWanI2VRunner:

@@ -367,6 +367,94 @@ def test_use_action_conditioning_requires_native_pipeline() -> None:
     assert isinstance(cfg.pipeline, _NoopPipelineConfig)
 
 
+def test_use_camera_conditioning_off_by_default() -> None:
+    """Phase 2b.4 feature flag defaults off; PRoPE blocks stay disabled.
+
+    With only ``use_native_pipeline`` (and even with
+    ``use_action_conditioning``) set, the deep-copied network config must
+    keep ``use_prope_blocks=False`` so the DiT keeps building stock
+    :class:`Block` instances. Guards against accidentally promoting PRoPE
+    blocks (which need bound camera data) when callers only want action
+    conditioning.
+    """
+    from hy_worldplay._action import HyWorldPlayWanDiTNetworkConfig
+
+    only_action = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+    )
+    network = only_action.pipeline.diffusion_model.transformer.network
+    assert isinstance(network, HyWorldPlayWanDiTNetworkConfig)
+    assert network.use_prope_blocks is False
+
+
+def test_use_camera_conditioning_flips_prope_blocks_flag() -> None:
+    """Phase 2b.4 wiring: camera flag enables the dual-branch block path.
+
+    ``use_camera_conditioning=True`` must (a) trigger the encoder /
+    transformer / network swap (the camera tensors ride on the same
+    :class:`HyWorldPlayCtrl` payload as the action labels, so there's
+    one subclass tree, not two) and (b) flip ``use_prope_blocks=True``
+    on the resulting :class:`HyWorldPlayWanDiTNetworkConfig` so
+    :meth:`HyWorldPlayWanDiTNetwork._build_block` emits
+    :class:`HyWorldPlayPRoPEBlock` instances at network construction.
+    """
+    from hy_worldplay._action import (
+        HyWorldPlayWan21TransformerConfig,
+        HyWorldPlayWanCtrlEncoderConfig,
+        HyWorldPlayWanDiTNetworkConfig,
+    )
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_camera_conditioning=True,
+    )
+    assert isinstance(cfg.pipeline.encoder, HyWorldPlayWanCtrlEncoderConfig)
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert isinstance(transformer, HyWorldPlayWan21TransformerConfig)
+    assert isinstance(transformer.network, HyWorldPlayWanDiTNetworkConfig)
+    assert transformer.network.use_prope_blocks is True
+
+
+def test_use_camera_conditioning_composes_with_action() -> None:
+    """Action + camera flags together must yield a single combined config.
+
+    The camera swap reuses the action subclass tree, so flipping both
+    flags should not produce duplicate / nested swaps -- exactly one
+    :class:`HyWorldPlayWanCtrlEncoderConfig` instance with
+    ``use_prope_blocks=True`` on its network sibling.
+    """
+    from hy_worldplay._action import (
+        HyWorldPlayWan21TransformerConfig,
+        HyWorldPlayWanCtrlEncoderConfig,
+        HyWorldPlayWanDiTNetworkConfig,
+    )
+
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=True,
+        use_action_conditioning=True,
+        use_camera_conditioning=True,
+    )
+    assert isinstance(cfg.pipeline.encoder, HyWorldPlayWanCtrlEncoderConfig)
+    transformer = cfg.pipeline.diffusion_model.transformer
+    assert isinstance(transformer, HyWorldPlayWan21TransformerConfig)
+    network = transformer.network
+    assert isinstance(network, HyWorldPlayWanDiTNetworkConfig)
+    assert network.use_prope_blocks is True
+
+
+def test_use_camera_conditioning_requires_native_pipeline() -> None:
+    """``use_camera_conditioning`` without ``use_native_pipeline`` is a no-op."""
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_camera_conditioning=True,
+    )
+    assert isinstance(cfg.pipeline, _NoopPipelineConfig)
+
+
 def test_use_action_conditioning_respects_user_encoder_override() -> None:
     """User-supplied encoder overrides must not be clobbered by the action swap."""
     from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B

@@ -21,9 +21,11 @@ incrementally with the rest of phase 2b: the base I2V case (2b.1) and
 distilled scheduler (2b.2) are wired here unconditionally, the action
 conditioner (2b.3) activates when
 :attr:`HyWorldPlayWanI2VRunnerConfig.use_action_conditioning` is set,
-and camera / memory conditioning land in 2b.4 / 2b.5 respectively. The
-phase-1 vendor wrapper in :class:`hy_worldplay.runner.HyWorldPlayWanI2VRunner`
-stays as the default; this module's runner is selected by setting
+the camera-trajectory PRoPE conditioner (2b.4) activates when
+:attr:`HyWorldPlayWanI2VRunnerConfig.use_camera_conditioning` is set,
+and reconstituted-context memory lands in 2b.5. The phase-1 vendor
+wrapper in :class:`hy_worldplay.runner.HyWorldPlayWanI2VRunner` stays
+as the default; this module's runner is selected by setting
 ``use_native_pipeline=True`` on
 :class:`hy_worldplay.runner.HyWorldPlayWanI2VRunnerConfig`.
 
@@ -116,16 +118,21 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
     What's intentionally *not* here yet (lands incrementally per the
     phase-2b design spec):
 
-    - **Action conditioning** (2b.3). The action-aware encoder /
+    - **Action conditioning** (2b.3, landed). The action-aware encoder /
       transformer / network swap is wired through ``__post_init__``
       when ``use_action_conditioning=True``; this runner parses the
-      pose string into discrete labels and binds them on the
-      encoder before the rollout. With zero-init action weights the
-      conditioner is still a strict identity, so output continues to
-      match the base recipe until HY-WorldPlay's distilled checkpoint
-      is loaded on top.
-    - **Camera-trajectory conditioning** (2b.4). Camera pose is
-      ignored; no PRoPE attention.
+      pose string into discrete labels and binds them on the encoder
+      before the rollout. With zero-init action weights the conditioner
+      is still a strict identity, so output continues to match the base
+      recipe until HY-WorldPlay's distilled checkpoint is loaded on top.
+    - **Camera-trajectory conditioning** (2b.4, landed). The PRoPE
+      dual-branch block swap is wired through ``__post_init__`` when
+      ``use_camera_conditioning=True``; this runner parses the pose
+      string into per-latent W2C extrinsics + intrinsics and binds them
+      on the encoder before the rollout. With zero-init ``o_prope``
+      weights the PRoPE branch contributes exactly zero residual, so
+      output continues to match the base recipe until HY-WorldPlay's
+      distilled checkpoint is loaded on top.
     - **Reconstituted-context memory** (2b.5). No KV prefill from past
       chunks; each chunk denoises independently from the previous
       chunk's last-frame KV cache only.
@@ -159,6 +166,8 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
 
         if cfg.use_action_conditioning:
             self._bind_action_labels()
+        if cfg.use_camera_conditioning:
+            self._bind_camera_data()
 
         chunks: list[Tensor] = []
         start_time = time.time()
@@ -188,26 +197,68 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         be exercised in isolation by tests without spinning up the full
         rollout.
         """
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._pose import parse_pose_action_labels
+
+        encoder, n_latents = self._resolve_encoder_and_n_latents(
+            flag_name="use_action_conditioning"
+        )
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        labels = parse_pose_action_labels(self.config.pose, n_latents)
+        encoder.set_action_labels(labels)
+
+    def _bind_camera_data(self) -> None:
+        """Parse the pose string and bind per-rollout viewmats + intrinsics on the encoder.
+
+        Mirrors :meth:`_bind_action_labels`: the same :func:`parse_pose_data`
+        call returns both the per-latent W2C / K and the action labels, but
+        we only consume the camera tensors here so callers can flip the
+        two flags independently.
+        """
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._pose import parse_pose_data
+
+        encoder, n_latents = self._resolve_encoder_and_n_latents(
+            flag_name="use_camera_conditioning"
+        )
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        viewmats, Ks, _ = parse_pose_data(self.config.pose, n_latents)
+        # PRoPE math + cudnn attention run in the pipeline dtype (fp16 /
+        # bf16); cast here so the per-frame transforms inside
+        # ``prope_qkv`` don't kick the network into fp64 unintentionally.
+        target_dtype = next(self.pipeline.parameters()).dtype
+        encoder.set_camera_data(
+            viewmats.to(dtype=target_dtype), Ks.to(dtype=target_dtype)
+        )
+
+    def _resolve_encoder_and_n_latents(
+        self, *, flag_name: str
+    ) -> tuple[object, int]:
+        """Return ``(encoder, n_latents)`` after asserting the swap ran.
+
+        Centralises the ``isinstance`` + ``len_t``-lookup boilerplate
+        shared by :meth:`_bind_action_labels` and :meth:`_bind_camera_data`.
+        ``flag_name`` is included in the assertion text so misconfigured
+        runs point at the right config knob.
+        """
         from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
         from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
-        from hy_worldplay._pose import parse_pose_action_labels
 
         cfg = self.config
         encoder = self.pipeline.encoder
         assert isinstance(encoder, HyWorldPlayWanCtrlEncoder), (
-            "use_action_conditioning=True requires the pipeline's encoder to be "
+            f"{flag_name}=True requires the pipeline's encoder to be "
             f"HyWorldPlayWanCtrlEncoder; got {type(encoder).__name__}. "
             "Did __post_init__ run? (Constructing the config via setup() drives it.)"
         )
         transformer_cfg = self.pipeline.diffusion_model.transformer.config
         assert isinstance(transformer_cfg, Wan21TransformerConfig), (
-            "use_action_conditioning=True expected a Wan21TransformerConfig (or subclass) "
+            f"{flag_name}=True expected a Wan21TransformerConfig (or subclass) "
             f"on the diffusion model; got {type(transformer_cfg).__name__}."
         )
         n_latents = cfg.num_chunk * transformer_cfg.len_t
-        labels = parse_pose_action_labels(cfg.pose, n_latents)
-        encoder.set_action_labels(labels)
+        return encoder, n_latents
 
 
 def _resolve_prompt(value: str | Path) -> str:
