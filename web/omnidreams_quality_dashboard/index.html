@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OmniDreams Quality Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-block">
+          <p class="eyebrow">OmniDreams Sweep</p>
+          <h1>Quality Dashboard</h1>
+          <p id="summaryLine" class="summary-line">Loading metrics...</p>
+        </div>
+        <div class="summary-metrics" id="summaryMetrics" aria-live="polite"></div>
+      </header>
+
+      <section class="toolbar" aria-label="Dashboard controls">
+        <label>
+          <span>Sort</span>
+          <select id="sortMetric">
+            <option value="composite">Composite quality</option>
+            <option value="niqe">NIQE</option>
+            <option value="musiq">MUSIQ</option>
+            <option value="clipiqa">CLIPIQA</option>
+          </select>
+        </label>
+        <label>
+          <span>Order</span>
+          <select id="sortOrder">
+            <option value="best">Best first</option>
+            <option value="worst">Worst first</option>
+          </select>
+        </label>
+        <label>
+          <span>View</span>
+          <select id="viewMode">
+            <option value="all">All rollouts</option>
+            <option value="best-per-clip">Best seed per clip</option>
+          </select>
+        </label>
+        <label>
+          <span>Video</span>
+          <select id="videoMode">
+            <option value="generated">Generated crop</option>
+            <option value="stacked">Stacked source</option>
+          </select>
+        </label>
+        <label class="search-label">
+          <span>Search</span>
+          <input id="searchBox" type="search" placeholder="clip, seed, path" />
+        </label>
+      </section>
+
+      <main class="dashboard-grid">
+        <section class="viewer-panel" aria-label="Selected clip">
+          <div class="viewer-header">
+            <div>
+              <p class="eyebrow">Selected Output</p>
+              <h2 id="selectedTitle">Loading...</h2>
+            </div>
+            <div id="selectedRank" class="rank-badge"></div>
+          </div>
+          <div class="video-frame">
+            <video id="mainVideo" controls muted loop playsinline preload="metadata"></video>
+          </div>
+          <div class="selected-meta" id="selectedMeta"></div>
+          <div class="metric-bars" id="selectedMetrics"></div>
+        </section>
+
+        <section class="top-panel" aria-label="Top ranked clips">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Ranked</p>
+              <h2>Best Quality Clips</h2>
+            </div>
+            <span id="resultCount" class="muted"></span>
+          </div>
+          <div id="topClips" class="top-clips"></div>
+        </section>
+      </main>
+
+      <section class="table-panel" aria-label="All ranked outputs">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Sweep Table</p>
+            <h2>Ranked Outputs</h2>
+          </div>
+          <button id="resetFilters" type="button">Reset</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Clip</th>
+                <th>Seed</th>
+                <th>
+                  <button class="column-sort" data-sort="composite" type="button">Score</button>
+                </th>
+                <th>
+                  <button class="column-sort" data-sort="niqe" type="button">NIQE</button>
+                </th>
+                <th>
+                  <button class="column-sort" data-sort="musiq" type="button">MUSIQ</button>
+                </th>
+                <th>
+                  <button class="column-sort" data-sort="clipiqa" type="button">CLIPIQA</button>
+                </th>
+                <th>Frames</th>
+                <th>Resolution</th>
+              </tr>
+            </thead>
+            <tbody id="rankTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div id="errorBox" class="error-box" hidden></div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
