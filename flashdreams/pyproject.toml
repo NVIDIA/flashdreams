@@ -98,6 +98,15 @@ runners = [
     "opencv-python-headless",
     "scipy>=1.11",
 ]
+eval = [
+    # PyPI only publishes decord wheels for Linux x86_64 and Windows amd64.
+    # Other platforms use the OpenCV fallback in flashdreams.eval._video_decode.
+    "decord>=0.6; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+    "opencv-python-headless>=4.8",
+    "pyiqa>=0.1.10",
+    "tabulate>=0.9",
+    "torchmetrics>=1.4",
+]
 serving = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
