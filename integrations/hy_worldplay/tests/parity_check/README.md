@@ -49,6 +49,38 @@ Other tunables (defaults shown):
 | `PROMPT` | `"First-person view ... ancient Athens ..."` | text prompt |
 | `IMAGE_PATH` | `${REPO_DIR}/assets/img/test.png` | first-frame I2V input |
 | `OUTPUT_DIR` | `${REPO_DIR}/outputs/parity` | benchmark output dir |
+| `USE_KV_CACHE_TRUE` | `0` | when `1`, swap vendor's `wan/generate.py` for the `use_kv_cache=True` monkey-patch (phase 2b.6 acceptance baseline -- see below) |
+
+### Re-baselining against vendor's `use_kv_cache=True` code path
+
+Phase 2b.6 closes the native HY-WorldPlay runner by validating
+parity against vendor's *cache-prefill* code path
+(`use_kv_cache=True`) rather than the single-forward-pass default.
+Set `USE_KV_CACHE_TRUE=1` to swap the default `wan/generate.py`
+invocation for `run_vendor_use_kv_cache.py`, which runtime-monkey-
+patches `WanPipeline.__setattr__` so `self.use_kv_cache = False`
+(vendor's line 707 inside `predict`) is silently coerced to `True`:
+
+```bash
+USE_KV_CACHE_TRUE=1 \
+    NUM_CHUNK=2 POSE='w-8' SEED=0 \
+    OUTPUT_DIR="${PWD}/HY-WorldPlay/outputs/parity_use_kv_cache_true" \
+    bash run.sh
+```
+
+The output MP4 lands in `${OUTPUT_DIR}`. Diff against the native
+HY runner's output via the inline `imageio` snippet above (or the
+ad-hoc `tmp/hy_parity_diff.py` script if it's still present) and
+confirm `mean |Δ| ≤ 5 / 255`.
+
+This mode is the **2b.6 acceptance baseline**. The default
+(no env var) mode keeps producing the phase-1
+`use_kv_cache=False` baseline so older parity numbers remain
+comparable. See
+[`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
+for why option C (re-baseline) was preferred over option A
+(refactor native to vendor's published single-forward-pass
+default).
 
 The script is idempotent: on first run it clones upstream, downloads
 `tencent/HY-WorldPlay`'s `wan_transformer/` and `wan_distilled_model/`

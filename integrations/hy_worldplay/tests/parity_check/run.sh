@@ -130,10 +130,28 @@ mkdir -p "${OUTPUT_DIR}"
 #       --ar_model_path .../wan_transformer \
 #       --ckpt_path .../wan_distilled_model/model.pt \
 #       --out outputs
+#
+# Set ``USE_KV_CACHE_TRUE=1`` to swap in ``run_vendor_use_kv_cache.py``:
+# a runtime monkey-patch that coerces ``WanPipeline.use_kv_cache=True``
+# (vendor's ``predict`` defaults it to ``False`` at line 707 of
+# ``pipeline_wan_w_mem_relative_rope.py``). The mode re-baselines the
+# vendor reference against the cache-prefill code path the native HY
+# runner mirrors -- the phase 2b.6 acceptance baseline; see
+# ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
+# Default (no env var) keeps producing the
+# phase-1 ``use_kv_cache=False`` baseline so older parity numbers
+# stay comparable.
 export PYTHONPATH="${REPO_DIR}:${REPO_DIR}/wan:${PYTHONPATH:-}"
 
+if [[ "${USE_KV_CACHE_TRUE:-0}" == "1" ]]; then
+    GENERATE_SCRIPT="${SCRIPT_DIR}/run_vendor_use_kv_cache.py"
+    echo "[run] USE_KV_CACHE_TRUE=1 -> wrapping wan/generate.py via ${GENERATE_SCRIPT}"
+else
+    GENERATE_SCRIPT="${REPO_DIR}/wan/generate.py"
+fi
+
 echo "[run] starting upstream WAN-5B benchmark [${NUM_GPU} GPU(s), num_chunk=${NUM_CHUNK}, pose=${POSE}]"
-uv run torchrun --nproc_per_node="${NUM_GPU}" wan/generate.py \
+uv run torchrun --nproc_per_node="${NUM_GPU}" "${GENERATE_SCRIPT}" \
     --input "${PROMPT}" \
     --image_path "${IMAGE_PATH}" \
     --num_chunk "${NUM_CHUNK}" \
