@@ -50,6 +50,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
@@ -60,6 +61,37 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     BlockCache,
     SelfAttention,
 )
+
+
+def _fp32_layer_norm(x: Tensor, norm: nn.LayerNorm) -> Tensor:
+    """Run ``norm`` in float32 regardless of the input / weight dtype, returning fp32.
+
+    Phase 2b.6.2 -- mirrors diffusers' ``FP32LayerNorm`` and vendor's
+    ``WanTransformerBlock.forward`` precision pipeline. Vendor's
+    ``norm1`` / ``norm2`` / ``norm3`` are :class:`FP32LayerNorm`
+    instances (kept in fp32 via ``_keep_in_fp32_modules`` in the
+    diffusers config); flashdreams' ``Block`` uses plain
+    :class:`nn.LayerNorm` with weights / biases stored in the same
+    dtype as the rest of the model (bf16 for the distilled WAN-5B
+    checkpoint). This helper bridges the two by casting *both* the
+    input and any affine parameters to fp32 for the norm call.
+
+    Returns the *fp32* normalised tensor so callers can keep the
+    subsequent AdaLN ``scale_shift`` blend in fp32 too; the final
+    ``.type_as(x)`` cast happens at the AdaLN output boundary
+    (matches vendor's
+    ``(self.norm1(hidden_states.float()) * (1 + scale_msa) + shift_msa).type_as(hidden_states)``
+    pattern in ``arwan_w_action_w_mem_relative_rope.py`` lines 670-672).
+    """
+    weight = norm.weight.float() if norm.weight is not None else None
+    bias = norm.bias.float() if norm.bias is not None else None
+    return F.layer_norm(
+        x.float(),
+        norm.normalized_shape,
+        weight,
+        bias,
+        norm.eps,
+    )
 
 __all__ = [
     "HyWorldPlayMemoryKVCache",
@@ -746,9 +778,32 @@ class HyWorldPlayPRoPEBlock(Block):
             "Did HyWorldPlayWanDiTNetwork.initialize_cache run?"
         )
 
-        e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(6, dim=-2)]
+        # Phase 2b.6.2 -- FP32 AdaLN to match vendor's
+        # ``WanTransformerBlock.forward`` precision exactly. Vendor's
+        # ``arwan_w_action_w_mem_relative_rope.py`` line 622 onwards
+        # does every AdaLN math op (modulation table + temb, norm +
+        # scale + shift, residual gates, FFN residual) in float32 via
+        # explicit ``.float()`` casts on the bf16 hidden state, then
+        # ``.type_as(hidden_states)`` casts back. The base
+        # :class:`Block.forward` does these in bf16. The two paths
+        # produce per-block outputs that match to ~1 ULP individually
+        # but accumulate to ~12 / 255 of pixel drift across 30 blocks
+        # + a VAE decode -- this was the dominant residual divergence
+        # after the CFG / RNG / prefill structural bugs landed (see
+        # the parity diff probe ``HY_VENDOR_SDPA=1``, which confirmed
+        # sageattn vs cudnn alone contributes only ~4 / 255).
+        e_chunks = [
+            c.squeeze(-2)
+            for c in (self.modulation + e).float().chunk(6, dim=-2)
+        ]
 
-        y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
+        # Self-attn AdaLN: norm1 has no affine params
+        # (elementwise_affine=False) so a direct ``norm1(x.float())``
+        # would also work; we go through the helper for symmetry with
+        # the norm3 / norm2 call sites that *do* need the weight cast.
+        y = (
+            _fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]
+        ).type_as(x)
         y = self.self_attn.forward_dual_branch(
             y,
             kv_cache=cache.self_attn,
@@ -758,15 +813,22 @@ class HyWorldPlayPRoPEBlock(Block):
             Ks=Ks,
             memory_kv_cache=cache.memory,
         )
-        x = x + (y * e_chunks[2])
+        x = (x.float() + y.float() * e_chunks[2]).type_as(x)
 
+        # Cross-attn: vendor keeps the residual in bf16 (line 693:
+        # ``hidden_states = hidden_states + attn_output``), so we
+        # mirror that. Only the norm before attn2 runs in fp32 -- the
+        # affine weights on flashdreams' ``norm3`` are loaded in bf16,
+        # so the helper casts them to fp32 for the kernel call.
         x = x + self.cross_attn(
-            self.norm3(x),
+            _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,
         )
-        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
+        y = (
+            _fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]
+        ).type_as(x)
         y = self.ffn(y)
-        x = x + (y * e_chunks[5])
+        x = (x.float() + y.float() * e_chunks[5]).type_as(x)
         return x
 
     def prefill_memory_kv(
@@ -843,9 +905,22 @@ class HyWorldPlayPRoPEBlock(Block):
                 "the prefill executor must slice the per-rollout viewmats "
                 "by selected_frame_indices before calling."
             )
-        e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(6, dim=-2)]
+        # Phase 2b.6.2 -- FP32 AdaLN (see :meth:`forward` for the
+        # rationale and the vendor-line cross-reference). The prefill
+        # path must use the same precision pipeline as the main forward
+        # because vendor's ``is_cache=True`` and ``is_cache=False``
+        # branches share ``WanTransformerBlock.forward`` -- both do
+        # AdaLN in fp32. Without this match, the memory K / V cache
+        # would carry block-by-block bf16-rounding drift that the
+        # subsequent chunk's forward then attends over.
+        e_chunks = [
+            c.squeeze(-2)
+            for c in (self.modulation + e).float().chunk(6, dim=-2)
+        ]
 
-        y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
+        y = (
+            _fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]
+        ).type_as(x)
         y = self.self_attn.prefill_memory_kv(
             y,
             rope_freqs=rope_freqs,
@@ -853,14 +928,16 @@ class HyWorldPlayPRoPEBlock(Block):
             Ks=Ks,
             memory_kv_cache=cache.memory,
         )
-        x = x + (y * e_chunks[2])
+        x = (x.float() + y.float() * e_chunks[2]).type_as(x)
 
         x = x + self.cross_attn(
-            self.norm3(x),
+            _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,
         )
-        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
+        y = (
+            _fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]
+        ).type_as(x)
         y = self.ffn(y)
-        x = x + (y * e_chunks[5])
+        x = (x.float() + y.float() * e_chunks[5]).type_as(x)
         return x
 

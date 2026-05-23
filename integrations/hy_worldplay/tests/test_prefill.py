@@ -137,13 +137,19 @@ def test_memory_kv_cache_reset_clears_both_branches() -> None:
 ## ---------------------------------------------------------------------------
 
 
-def _make_block_cache(*, dim: int = 64, num_heads: int = 2):
+def _make_block_cache(*, dim: int = 64, num_heads: int = 2, device: str = "cpu"):
     """Build a minimal :class:`HyWorldPlayPRoPEBlockCache` for direct surface tests.
 
     Mirrors the ``_make_prope_block`` helper in ``test_camera.py`` --
     we deliberately avoid spinning up a full :class:`HyWorldPlayPRoPEBlock`
     here because the block-cache surface tests are about the *cache
     container's* invariants, not the block's forward.
+
+    The optional ``device`` argument lets tests that need a full block
+    forward (e.g. ``prefill_memory_kv`` post 2b.6.2 -- now runs the
+    real attention path, which is cudnn / CUDA only) build the block
+    and its cache on the same device so the per-layer norm / proj
+    tensors don't fight a mixed-device cudnn SDPA call.
     """
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
@@ -155,8 +161,8 @@ def _make_block_cache(*, dim: int = 64, num_heads: int = 2):
         eps=1e-6,
         i2v=False,
         apply_rope_before_kvcache=True,
-    )
-    text_ctx = torch.zeros(1, 8, dim)
+    ).to(device)
+    text_ctx = torch.zeros(1, 8, dim, device=device)
     return block, block.initialize_cache(
         chunk_size=4, window_size=4, sink_size=0, context_text=text_ctx
     )
@@ -200,6 +206,18 @@ def test_block_cache_reset_current_chunk_skips_memory_slot() -> None:
 ## ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason=(
+        "Phase 2b.6.2 -- prefill_memory_kv now runs the FULL block "
+        "(self-attn + cross-attn + FFN with residuals) to match "
+        "vendor's is_cache=True path. The self-attn uses cudnn's "
+        "fused SDPA which is CUDA-only; the structural invariant "
+        "this test pins is still exercised by the GPU smoke (and the "
+        "next test in this module pins the cache-write side effect "
+        "more narrowly via the attention-layer-level prefill_memory_kv)."
+    ),
+)
 def test_prefill_memory_kv_writes_both_branches() -> None:
     """``HyWorldPlayPRoPEBlock.prefill_memory_kv`` populates both branches of the memory cache.
 
@@ -210,18 +228,12 @@ def test_prefill_memory_kv_writes_both_branches() -> None:
     something to attend over -- numerical correctness vs upstream is
     a parity-diff concern that lives behind the GPU smoke marker.
     """
-    block, cache = _make_block_cache(dim=64, num_heads=2)
+    block, cache = _make_block_cache(dim=64, num_heads=2, device="cuda")
     block._parameters_updated_after_loading_checkpoint = True
 
-    # 4 memory tokens (1 "frame" with 4 tokens each in this tiny
-    # geometry); shape matches what the network's prefill pass would
-    # produce after patchify + AdaLN modulation. ``rope_freqs=None``
-    # skips the fused-Triton RoPE kernel that requires CUDA so this
-    # test stays CPU-only; the kernel itself is exercised by the
-    # base flashdreams CUDA tests.
-    x = torch.randn(1, 4, 64)
-    e = torch.zeros(1, 6, 64)
-    viewmats = torch.eye(4).expand(1, 1, 4, 4).contiguous()
+    x = torch.randn(1, 4, 64, device="cuda")
+    e = torch.zeros(1, 6, 64, device="cuda")
+    viewmats = torch.eye(4, device="cuda").expand(1, 1, 4, 4).contiguous()
 
     block.prefill_memory_kv(
         x=x, e=e, rope_freqs=None, viewmats=viewmats, Ks=None, cache=cache
@@ -239,6 +251,15 @@ def test_prefill_memory_kv_writes_both_branches() -> None:
     assert cache.memory.v_prope.shape[-3] == x.shape[-2]
 
 
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason=(
+        "Phase 2b.6.2 -- see prefill_memory_kv_writes_both_branches "
+        "for rationale. The cache-isolation invariant pinned here "
+        "still holds; we just need CUDA to exercise the full block "
+        "now that prefill runs cross-attn + FFN end-to-end."
+    ),
+)
 def test_prefill_memory_kv_does_not_touch_rolling_caches() -> None:
     """The prefill must not write into ``self_attn`` / ``prope_self_attn``.
 
@@ -249,15 +270,15 @@ def test_prefill_memory_kv_does_not_touch_rolling_caches() -> None:
     rolling), and the rolling cache would point at non-current-chunk
     positions.
     """
-    block, cache = _make_block_cache(dim=64, num_heads=2)
+    block, cache = _make_block_cache(dim=64, num_heads=2, device="cuda")
     block._parameters_updated_after_loading_checkpoint = True
 
     rolling_n_before = cache.self_attn._n_cached
     prope_n_before = cache.prope_self_attn._n_cached
 
-    x = torch.randn(1, 4, 64)
-    e = torch.zeros(1, 6, 64)
-    viewmats = torch.eye(4).expand(1, 1, 4, 4).contiguous()
+    x = torch.randn(1, 4, 64, device="cuda")
+    e = torch.zeros(1, 6, 64, device="cuda")
+    viewmats = torch.eye(4, device="cuda").expand(1, 1, 4, 4).contiguous()
     block.prefill_memory_kv(
         x=x, e=e, rope_freqs=None, viewmats=viewmats, Ks=None, cache=cache
     )
