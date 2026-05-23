@@ -113,6 +113,18 @@ def _patch_and_run() -> None:
         _vendor_pipe_mod.WanPipeline
     )
 
+    # Phase 2b.6.2 attention-impl probe. When ``HY_VENDOR_SDPA=1`` is
+    # set the sdpa_patch swaps vendor's ``sageattn`` import for
+    # ``F.scaled_dot_product_attention`` so vendor + native both
+    # exercise the same attention kernel. Useful for isolating
+    # numerical drift caused by sageattn's INT8 / FP8 path vs cudnn's
+    # bf16 path -- once the structural bugs are closed, sageattn vs
+    # cudnn is the dominant residual divergence source. No-op when
+    # ``HY_VENDOR_SDPA`` is unset (default behaviour preserved).
+    from sdpa_patch import install_sdpa_patch  # noqa: E402
+
+    install_sdpa_patch()
+
     runpy.run_path(
         str(_REPO_DIR / "wan" / "generate.py"),
         run_name="__main__",
