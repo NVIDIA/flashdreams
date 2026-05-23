@@ -530,14 +530,20 @@ def test_index_rollout_buffer_falls_back_to_per_step_when_rollout_is_none() -> N
     assert sliced is per_step, "fallback must pass through the per-step tensor unchanged"
 
 
-def test_is_first_step_of_chunk_detects_empty_rolling_cache() -> None:
-    """``_is_first_step_of_chunk`` reports True iff no rolling K / V are cached.
+def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
+    """``_is_first_step_of_chunk`` reads the prefill-completed latch.
 
     The prefill executor reads this to gate "run prefill exactly
     once per chunk"; mis-detecting the first step would either
     re-run the prefill on every scheduler step (wasteful but
-    correct) or skip it entirely (incorrect). This test pins the
-    correct behaviour at the boundary cases.
+    correct -- writes are deterministic) or skip it entirely
+    (incorrect). The check is via
+    :attr:`HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`
+    rather than the rolling cache's ``_n_cached`` because the
+    Wan-2.1 fast path runs ``before_update`` / ``after_update``
+    once per chunk (not per scheduler step), so ``_n_cached`` does
+    not flip mid-chunk -- relying on it caused 4x redundant
+    prefill calls per chunk (2b.6.2 diagnosis).
     """
     from hy_worldplay._action import (
         HyWorldPlayWan21Transformer,
@@ -554,11 +560,19 @@ def test_is_first_step_of_chunk_detects_empty_rolling_cache() -> None:
         network_cache=WanDiTNetworkCache(block_caches=[block_cache]),
         network_cache_uncond=None,
         rope_adapter=type("R", (), {})(),  # type: ignore[arg-type]
+        autoregressive_index=1,
     )
 
+    # Chunk-1 just started; latch is at -1 -> "first step".
     assert transformer._is_first_step_of_chunk(cache) is True
-    block_cache.self_attn._n_cached = 4  # simulate post-step state
+    # Predict_flow has run the prefill once and bumped the latch.
+    cache.prefill_completed_for_chunk = 1
     assert transformer._is_first_step_of_chunk(cache) is False
+    # New chunk (ar_idx=2) starts; predict_flow hasn't fired prefill
+    # yet for this chunk so the latch (still 1) doesn't match the
+    # current ar_idx (2) and we report "first step" again.
+    cache.autoregressive_index = 2
+    assert transformer._is_first_step_of_chunk(cache) is True
 
 
 def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:

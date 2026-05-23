@@ -1046,6 +1046,30 @@ class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
     """Post-patchify tokens per latent frame, ``= (height // kh) * (width // kw)``.
     Cached for the same reason as :attr:`hy_chunk_size_t`."""
 
+    prefill_completed_for_chunk: int = -1
+    """``autoregressive_index`` of the chunk for which the reconstituted-context
+    KV prefill has already run, or ``-1`` if no prefill has run yet on this
+    rollout. The HY transformer reads this in
+    :meth:`HyWorldPlayWan21Transformer.predict_flow` to skip redundant
+    prefill calls on the 2nd / 3rd / 4th denoising step of a chunk
+    (``predict_flow`` is called once per scheduler step but the prefill
+    K / V are stable across the chunk, so one call per chunk suffices).
+
+    The previous build relied on
+    ``cache.network_cache.block_caches[0].self_attn._n_cached == 0`` as
+    a "step 0" signal, but that signal only flips at chunk *finalize*
+    when ``eager_mode=False`` (the WAN-2.1 fast path -- ``before_update`` /
+    ``after_update`` are hoisted out of the network forward, see
+    :meth:`Wan21Transformer.start` line 89). Within a chunk
+    ``_n_cached`` therefore stays at 0 across all scheduler steps and
+    the old check returned ``True`` every step, re-running the
+    prefill 4x per chunk. The writes are idempotent so this was a
+    perf bug, not a correctness bug -- but each redundant prefill
+    pays one full memory-token forward through every block, so it
+    inflates HY rollouts measurably. Diagnosed via dump diff in
+    2b.6.2 (4x ``prefill.entry`` records vs vendor's 1).
+    """
+
     def start(self, autoregressive_index: int) -> None:
         # On HY path, reset the per-block rolling self-attention caches
         # at the start of every chunk past the first; the dedicated
@@ -1054,6 +1078,9 @@ class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
         # starts with a clean window.
         if autoregressive_index > 0:
             self._reset_per_block_rolling_caches(autoregressive_index)
+        # Reset the prefill latch so the next chunk's first
+        # ``predict_flow`` call runs the prefill once.
+        self.prefill_completed_for_chunk = -1
         super().start(autoregressive_index)
 
     def _reset_per_block_rolling_caches(self, autoregressive_index: int) -> None:
@@ -1206,7 +1233,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         )
         is_first_step = (
             isinstance(cache, HyWorldPlayWan21TransformerCache)
-            and self._is_first_step_of_chunk(cache)
+            and cache.prefill_completed_for_chunk != ar_idx
         )
         # Bind chunk + step context so per-block dumps below carry it.
         _debug_dump.set_context(
@@ -1249,9 +1276,10 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             and input.memory_frame_indices is not None
             and len(input.memory_frame_indices) > 0
             and cache.clean_latent_history is not None
-            and self._is_first_step_of_chunk(cache)
+            and cache.prefill_completed_for_chunk != ar_idx
         ):
             self.prefill_memory_kv_cache(cache=cache, input=input, timestep=timestep)
+            cache.prefill_completed_for_chunk = ar_idx
 
         if isinstance(input, HyWorldPlayCtrl):
             if input.action is not None and "action" not in network_extra_kwargs:
@@ -1682,20 +1710,22 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         self,
         cache: HyWorldPlayWan21TransformerCache,
     ) -> bool:
-        """Detect "denoising step 0" so the prefill runs at most once per chunk.
+        """Detect "first denoising step of the current chunk" via the prefill latch.
 
-        ``predict_flow`` is called once per scheduler step. The prefill
-        executor must run only at the *first* step (step 0) so its
-        K / V are stable across the rest of the chunk's denoising
-        loop. We detect "step 0" by inspecting the rolling cache's
-        ``_n_cached``: ``cache.start`` has just reset / pre-set
-        ``_prev_chunk_idx`` for HY mode, so an empty rolling window
-        means no scheduler step has populated K / V for this chunk
-        yet. After the first step, the standard self-attention
-        ``update_kv`` writes to the rolling cache, so ``_n_cached``
-        is non-zero on subsequent steps.
+        Reads the explicit
+        :attr:`HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`
+        latch -- ``True`` when ``cache.start`` has reset it to ``-1`` for
+        the new chunk but no ``predict_flow`` call has yet incremented
+        it to the current ``autoregressive_index``. The latch replaces
+        the previous heuristic that read ``self_attn._n_cached``;
+        ``_n_cached`` only flips at chunk *finalize* on the Wan-2.1
+        ``eager_mode=False`` fast path
+        (``before_update`` / ``after_update`` are hoisted out of
+        the network forward; see
+        :meth:`Wan21Transformer.start`), so the old check returned
+        ``True`` on every scheduler step within a chunk -- causing the
+        prefill executor to redundantly recompute the (deterministic)
+        memory K / V on every step, 4x the necessary work. Diagnosed
+        via dump diff in 2b.6.2.
         """
-        if not cache.network_cache.block_caches:
-            return False
-        first_block_cache = cache.network_cache.block_caches[0]
-        return first_block_cache.self_attn._n_cached == 0
+        return cache.prefill_completed_for_chunk != cache.autoregressive_index

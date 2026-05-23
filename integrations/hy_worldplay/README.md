@@ -556,14 +556,19 @@ These do not block parity but are worth tracking for the eventual
 parity diff:
 
 - **Prefill executor fires once per denoising step rather than
-  once per chunk.** `_is_first_step_of_chunk` returns `True` at
+  once per chunk.** ~~`_is_first_step_of_chunk` returns `True` at
   every scheduler step of chunk N (N > 0), causing
   `prefill_memory_kv_cache` to fire `num_inference_steps` times
-  per chunk instead of once. The prefill is idempotent (same
-  inputs -> same K/V), so this is correct-but-wasteful: it costs
-  `num_inference_steps - 1 = 3` extra prefill passes per chunk on
-  the distilled 4-step schedule. Worth fixing as a perf
-  optimization in a separate phase.
+  per chunk instead of once.~~ Fixed in 2b.6.2 -- the prefill is
+  now gated by an explicit
+  `HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`
+  latch (the old `_n_cached`-based heuristic never flipped
+  mid-chunk on the Wan-2.1 `eager_mode=False` fast path because
+  `before_update` / `after_update` are hoisted out of the
+  per-step network forward, so the latch never bumped within a
+  chunk). The prefill is idempotent (same inputs -> same K/V)
+  so the old behaviour was correct-but-wasteful (~3 extra prefill
+  passes per chunk on the 4-step schedule).
 - **Upstream FOV-selector boundary on short rollouts.** The
   upstream `select_mem_frames_wan` algorithm (faithfully ported
   in `_memory.py`) has `historical_clip_starts` that allow clip

@@ -214,11 +214,25 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         # with ``cudaErrorStreamCaptureInvalidated``. Production runs leave
         # the env var unset so the CUDA graph fast path stays intact.
         if os.environ.get("HY_DEBUG_DISABLE_CUDA_GRAPH", "") == "1":
-            transformer = getattr(self.pipeline, "diffusion_model", None)
-            if transformer is not None and hasattr(transformer, "network"):
-                transformer._use_cuda_graph = False
-                transformer._network_call = transformer.network
-                transformer._network_call_uncond = transformer.network
+            # ``self.pipeline.diffusion_model`` is the
+            # :class:`DiffusionModel` wrapper (scheduler + transformer);
+            # the CUDA-graph state lives on the inner ``.transformer``
+            # (Wan21Transformer), not on the wrapper. Reach through one
+            # level so the disable actually takes effect. The previous
+            # build set the attributes on the wrapper, which silently
+            # no-op'd because ``DiffusionModel`` has no
+            # ``_use_cuda_graph`` field -- the capture proceeded for
+            # AR steps >= ``_cuda_graph_capture_ar_idx`` (== 1 for
+            # ``len_t == window_size_t == 4``) and the dump harness'
+            # ``is_current_stream_capturing()`` guard suppressed every
+            # per-block dump from inside the captured region (chunk-1
+            # steps 2 / 3 silently lost their ``attn.x_in`` records).
+            diffusion_model = getattr(self.pipeline, "diffusion_model", None)
+            wan_transformer = getattr(diffusion_model, "transformer", None)
+            if wan_transformer is not None and hasattr(wan_transformer, "network"):
+                wan_transformer._use_cuda_graph = False
+                wan_transformer._network_call = wan_transformer.network
+                wan_transformer._network_call_uncond = wan_transformer.network
                 logger.info(
                     "HY_DEBUG_DISABLE_CUDA_GRAPH=1: bypassing the per-network "
                     "CUDAGraphWrapper for diagnostic dumps."
