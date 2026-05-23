@@ -5,16 +5,23 @@ description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark 
 # Match flashdreams' supported Python range exactly (it pins 3.12).
 requires-python = ">=3.12,<3.13"
 
-# This sub-venv has *two* jobs and we deliberately collapse them onto
-# the same dep set:
-#   1. Run upstream's ``wan/generate.py`` end-to-end for the parity
-#      baseline (the historical reason this sub-venv exists, mirroring
-#      the ``self_forcing/tests/parity_check`` layout).
-#   2. Run the in-tree plugin --
-#      ``flashdreams-run hy-worldplay-wan-i2v-5b`` -- against the same
-#      dep stack so the parity comparison stays apples-to-apples and so
-#      the heavyweight upstream deps stay out of the repo-root
-#      ``uv.lock``.
+# Phase 2b.6.2 (close commit) trimmed this sub-venv from a two-jobs-
+# in-one stack to a thin "run the in-tree native plugin" stack. The
+# sub-venv now exists primarily to keep the heavyweight upstream
+# deps out of the repo-root ``uv.lock``. Job inventory:
+#
+#   1. Run the in-tree native plugin --
+#      ``flashdreams-run hy-worldplay-wan-i2v-5b`` -- against the
+#      stable pinned ``torch==2.11.*`` so parity numbers stay
+#      reproducible. (The native runner stays on flashdreams' own
+#      transformer + attention, so it does NOT need sageattention,
+#      cloudpickle, accelerate, or upstream's ``transformers==4.57.6``
+#      pin.)
+#   2. Provide a working ``cd HY-WorldPlay && torchrun wan/generate.py``
+#      harness *iff* the four heavy deps are re-installed manually
+#      (e.g. when re-baselining for a future 2b.6.1 Option-A refactor).
+#      ``run.sh`` documents the manual ``uv pip install`` step;
+#      production parity numbers come from the native path.
 #
 # The plugin workspace member (``flashdreams-hy-worldplay``) only
 # carries the lightweight config / runner shim, so installing it here
@@ -22,27 +29,22 @@ requires-python = ">=3.12,<3.13"
 # heavy.
 #
 # flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
-# numpy, tqdm, safetensors, etc. HY-WorldPlay's WAN pipeline only needs a
-# handful of extras layered on top. Transitive deps come along via these
-# top-level entries.
+# numpy, tqdm, safetensors, etc. The native runner's video / VAE / camera
+# stack adds just a few extras on top. Transitive deps come along via
+# these top-level entries:
 #
-# Notable upstream dependencies pulled in here:
-#   * diffusers              -- WanPipeline base + AutoencoderKLWan + scheduler
-#   * sageattention          -- "Required for the WAN pipeline" per
-#                               HY-WorldPlay/README.md (top-level import in
-#                               wan/models/dits/arwan_w_action_w_mem_relative_rope.py).
-#                               Wheels ship on PyPI; for non-PyPI-supported
-#                               GPU SMs (e.g. very new Blackwell sm_120),
-#                               build from source per upstream's README.
-#   * cloudpickle / filelock / pyyaml / remote-pdb
-#                            -- top-level imports in wan/utils.py (vendored
-#                               from vLLM's utils module).
+#   * diffusers              -- AutoencoderKLWan + scheduler (the native
+#                               recipe builds the VAE through diffusers'
+#                               state-dict transform).
 #   * scipy                  -- camera trajectory math (Rotation, etc.)
-#   * moviepy                -- generate.py uses VideoFileClip / VideoClip for
-#                               the optional WASD overlay
+#   * moviepy                -- optional WASD overlay on chunk outputs
 #   * imageio[ffmpeg]        -- export_to_video MP4 writer backend
-#   * opencv-python-headless -- image preprocessing in upstream's pipeline
-#   * easydict / lmdb        -- transitively required by upstream's hyvideo/
+#   * opencv-python-headless -- image preprocessing in the runner
+#   * easydict / lmdb / filelock / pyyaml / loguru / omegaconf / regex
+#                             / remote-pdb / pillow / safetensors / numpy
+#                             / ftfy / einops / tqdm
+#                            -- transitively required by ``hy_worldplay``
+#                               or by ``flashdreams.recipes.wan`` runtime.
 dependencies = [
     "flashdreams",
     # Plugin workspace member -- adds the ``hy_worldplay`` import path
@@ -60,13 +62,6 @@ dependencies = [
     # diagnostic that surfaced this (torch 2.11 vs 2.12 -> mean |Δ| ≈ 5/255).
     # Bump this in lockstep with ``flashdreams/uv.lock``.
     "torch==2.11.*",
-    # ``accelerate`` is required for diffusers' ``low_cpu_mem_usage=True``
-    # path, which is the only loading mode compatible with the Wan VAE's
-    # ``keep_in_fp32_modules=True``. Upstream pulls this in via the
-    # ``transformers[accelerate,tiktoken]`` extra; we pin it explicitly so
-    # bumping transformers later doesn't silently drop it.
-    "accelerate>=0.30",
-    "cloudpickle",
     "diffusers>=0.34",
     "easydict",
     "filelock",
@@ -82,24 +77,10 @@ dependencies = [
     "regex",
     "remote-pdb",
     "safetensors>=0.4",
-    "sageattention",
     "scipy>=1.11",
     "tqdm>=4.60",
-    "transformers==4.57.6",
     "ftfy>=6.0",
     "einops>=0.7",
-]
-
-[tool.uv]
-# flashdreams main floors ``transformers>=5.0`` (security PR #116).
-# Upstream HY-WorldPlay's ``wan/`` pipeline pins ``transformers==4.56.0``
-# for parity reproducibility, and the flashdreams code paths exercised
-# here (``UMT5EncoderModel`` + ``T5Tokenizer`` + CLIP) work identically
-# on the patched 4.x line. Override transformers down to the parity
-# version so this isolated dev/test venv resolves; the wider repo keeps
-# the 5.x security floor untouched.
-override-dependencies = [
-    "transformers==4.57.6",
 ]
 
 [tool.uv.sources]

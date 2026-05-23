@@ -109,8 +109,38 @@ fi
 # ${SCRIPT_DIR} so uv finds *this* project's pyproject (not flashdreams').
 # All subsequent ``uv run`` calls (from inside ${REPO_DIR}) walk up and
 # resolve to the same ``${SCRIPT_DIR}/.venv``.
+#
+# Phase 2b.6.2 close: the lightweight sync below covers the *native*
+# plugin path only. Vendor's ``wan/generate.py`` additionally requires
+# the four heavy deps that were dropped from ``pyproject.toml`` (their
+# release toll on the repo-root resolution was deemed too high once
+# parity closed). Re-install them on demand when re-baselining:
+#
+#   ( cd "${SCRIPT_DIR}" && \
+#       uv pip install \
+#           sageattention cloudpickle "accelerate>=0.30" \
+#           "transformers==4.57.6" \
+#           --override "transformers==4.57.6" )
+#
+# Skip the manual step if you're only re-running the native plugin
+# from this sub-venv (the default now that
+# ``HyWorldPlayWanI2VRunnerConfig.use_native_pipeline=True`` is on by
+# default). See ``integrations/hy_worldplay/README.md`` "Re-baselining
+# vendor" for the full procedure.
 echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
+
+if [[ "${SKIP_HEAVY_DEPS:-0}" != "1" ]]; then
+    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate, transformers==4.57.6)"
+    echo "        set SKIP_HEAVY_DEPS=1 to skip if you only need the native plugin"
+    ( cd "${SCRIPT_DIR}" && uv pip install \
+        sageattention \
+        cloudpickle \
+        "accelerate>=0.30" \
+        "transformers==4.57.6" )
+else
+    echo "[setup] SKIP_HEAVY_DEPS=1 -> assuming vendor heavy deps already installed (or running native plugin only)"
+fi
 
 # --------------------------------------------------------------------- inputs
 if [[ ! -f "${IMAGE_PATH}" ]]; then
