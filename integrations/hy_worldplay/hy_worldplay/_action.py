@@ -711,10 +711,13 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
             block_kwargs["viewmats"] = viewmats
             block_kwargs["Ks"] = Ks
 
+        from hy_worldplay import _debug_dump
+
         if eager_mode:
             cache.before_update(current_chunk_idx)
         for block_idx, block in enumerate(self.blocks):
             assert isinstance(block, Block)
+            _debug_dump.set_context(phase="forward", block_idx=block_idx)
             x = block(
                 x=x,
                 e=block_e,
@@ -722,6 +725,7 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 cache=cache[block_idx],
                 **block_kwargs,
             )
+        _debug_dump.clear_context("phase", "block_idx")
         if eager_mode:
             cache.after_update(current_chunk_idx)
 
@@ -849,6 +853,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         # No before_update / after_update on the per-block rolling caches
         # here -- the prefill writes only into cache[block_idx].memory,
         # which has its own reset / write cycle owned by the executor.
+        from hy_worldplay import _debug_dump
+
         for block_idx, block in enumerate(self.blocks):
             block_cache = cache[block_idx]
             # Only PRoPE blocks have a memory slot; the prefill executor
@@ -866,6 +872,7 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 f"prefill expects HyWorldPlayPRoPEBlockCache, got "
                 f"{type(block_cache).__name__}"
             )
+            _debug_dump.set_context(phase="prefill", block_idx=block_idx)
             block.prefill_memory_kv(
                 x=x,
                 e=block_e,
@@ -874,6 +881,7 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 Ks=Ks,
                 cache=block_cache,
             )
+        _debug_dump.clear_context("phase", "block_idx")
 
     def _compute_action_embedding(
         self,
@@ -1121,6 +1129,43 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         input: I2VCtrl | None = None,
         network_extra_kwargs: dict[str, Any] | None = None,
     ) -> Tensor:
+        from hy_worldplay import _debug_dump
+
+        ar_idx = (
+            cache.autoregressive_index
+            if hasattr(cache, "autoregressive_index")
+            else -1
+        )
+        is_first_step = (
+            isinstance(cache, HyWorldPlayWan21TransformerCache)
+            and self._is_first_step_of_chunk(cache)
+        )
+        # Bind chunk + step context so per-block dumps below carry it.
+        _debug_dump.set_context(
+            ar_idx=ar_idx,
+            is_first_step_of_chunk=is_first_step,
+        )
+        if _debug_dump.enabled():
+            cfg_self = getattr(self, "config", None)
+            extra_cfg = {}
+            if cfg_self is not None:
+                extra_cfg = {
+                    "cfg_len_t": getattr(cfg_self, "len_t", None),
+                    "cfg_window_size_t": getattr(cfg_self, "window_size_t", None),
+                    "cfg_batch_shape": list(getattr(cfg_self, "batch_shape", ())),
+                    "cfg_patch_size": list(getattr(cfg_self.network, "patch_size", ())),
+                    "_cp_size": getattr(self, "_cp_size", None),
+                    "_output_height": getattr(self, "_output_height", None),
+                    "_output_width": getattr(self, "_output_width", None),
+                }
+            _debug_dump.dump(
+                "predict_flow.entry",
+                None,
+                timestep_shape=list(timestep.shape),
+                **extra_cfg,
+            )
+            _debug_dump.dump("predict_flow.noisy_latent", noisy_latent)
+            _debug_dump.dump("predict_flow.timestep", timestep)
         network_extra_kwargs = dict(network_extra_kwargs or {})
         # Run the reconstituted-context prefill at the very first
         # denoising step of every chunk past the first, when memory
@@ -1225,7 +1270,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
 
     ## ---- Reconstituted-context prefill driver (phase 2b.5b-part2) ----
 
-    def prefill_memory_kv_cache(
+    def prefill_memory_kv_cache(  # noqa: C901 (debug instrumentation)
         self,
         cache: HyWorldPlayWan21TransformerCache,
         input: HyWorldPlayCtrl,
@@ -1358,6 +1403,31 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         context_timestep = torch.full_like(
             timestep, fill_value=_HY_STABILIZATION_TIMESTEP
         )
+
+        # Phase 2b.6.2 debug dump (env-var-gated; see _debug_dump.py).
+        # Captures the inputs to the prefill executor at chunk-1+ so
+        # they can be diffed against vendor's matched call site.
+        from hy_worldplay import _debug_dump
+
+        if _debug_dump.enabled():
+            _debug_dump.dump(
+                "prefill.entry",
+                None,
+                selected=list(selected),
+                K=K,
+                tokens_per_frame=tokens_per_frame,
+                stabilization_timestep=_HY_STABILIZATION_TIMESTEP,
+            )
+            _debug_dump.dump("prefill.memory_x", memory_x)
+            _debug_dump.dump("prefill.rope_freqs", rope_freqs)
+            _debug_dump.dump("prefill.context_timestep", context_timestep)
+            _debug_dump.dump("prefill.timestep_input", timestep)
+            if memory_viewmats is not None:
+                _debug_dump.dump("prefill.memory_viewmats", memory_viewmats)
+            if memory_Ks is not None:
+                _debug_dump.dump("prefill.memory_Ks", memory_Ks)
+            if memory_action is not None:
+                _debug_dump.dump("prefill.memory_action", memory_action)
 
         # Run the prefill on whichever network branches are active.
         # Each branch has its own per-block memory cache; reset

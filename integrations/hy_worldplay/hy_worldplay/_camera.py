@@ -284,6 +284,20 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         k_raw = self.norm_k(self.k(x)).reshape(batch_size, L, n, d)
         v_raw = self.v(x).reshape(batch_size, L, n, d)
 
+        from hy_worldplay import _debug_dump
+
+        if _debug_dump.enabled():
+            _debug_dump.dump("attn.x_in", x)
+            _debug_dump.dump("attn.q_raw", q_raw)
+            _debug_dump.dump("attn.k_raw", k_raw)
+            _debug_dump.dump("attn.v_raw", v_raw)
+            if rope_freqs is not None:
+                _debug_dump.dump("attn.rope_freqs_full", rope_freqs)
+            if rope_freqs_q is not None:
+                _debug_dump.dump("attn.rope_freqs_q", rope_freqs_q)
+            if rope_freqs_k is not None:
+                _debug_dump.dump("attn.rope_freqs_k", rope_freqs_k)
+
         # --- RoPE branch K cache write --------------------------------
         k_for_rope_cache = k_raw
         if rope_freqs_k is not None and self.apply_rope_before_kvcache:
@@ -325,13 +339,23 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         # so the attention sees ``[memory_K, current_K]`` along the
         # sequence dim. Mirrors upstream's prefill prepend at
         # ``arwan_w_action_w_mem_relative_rope.py`` line 169-170.
+        if _debug_dump.enabled():
+            _debug_dump.dump("attn.q_rope_post", q_rope)
+            _debug_dump.dump("attn.cached_k_pre_mem_concat", cached_k)
+            _debug_dump.dump("attn.cached_v_pre_mem_concat", cached_v)
         if memory_kv_cache is not None and memory_kv_cache.has_rope_kv:
+            if _debug_dump.enabled():
+                _debug_dump.dump("attn.memory_k_rope_prepend", memory_kv_cache.k_rope)
+                _debug_dump.dump("attn.memory_v_rope_prepend", memory_kv_cache.v_rope)
             cached_k = torch.cat(
                 [memory_kv_cache.k_rope, cached_k], dim=-3
             )
             cached_v = torch.cat(
                 [memory_kv_cache.v_rope, cached_v], dim=-3
             )
+        if _debug_dump.enabled():
+            _debug_dump.dump("attn.cached_k_final", cached_k)
+            _debug_dump.dump("attn.cached_v_final", cached_v)
         out_rope = self.attn_op(q_rope, cached_k, cached_v)
         out_rope = out_rope.reshape(batch_shape + (L, n * d))
         out_rope = self.o(out_rope)
@@ -423,6 +447,16 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         # but its output is discarded -- attention is not run here.
         q_raw = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
 
+        from hy_worldplay import _debug_dump
+
+        if _debug_dump.enabled():
+            _debug_dump.dump("prefill.block.x_in", x)
+            _debug_dump.dump("prefill.block.q_raw", q_raw)
+            _debug_dump.dump("prefill.block.k_raw", k_raw)
+            _debug_dump.dump("prefill.block.v_raw", v_raw)
+            if rope_freqs is not None:
+                _debug_dump.dump("prefill.block.rope_freqs", rope_freqs)
+
         # --- RoPE branch K (V is always raw) --------------------------
         k_for_rope = k_raw
         if rope_freqs is not None and self.apply_rope_before_kvcache:
@@ -447,6 +481,12 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             k_prope_bhsd.transpose(1, 2),
             v_prope_bhsd.transpose(1, 2),
         )
+
+        if _debug_dump.enabled():
+            _debug_dump.dump("prefill.block.k_rope_written", memory_kv_cache.k_rope)
+            _debug_dump.dump("prefill.block.v_rope_written", memory_kv_cache.v_rope)
+            _debug_dump.dump("prefill.block.k_prope_written", memory_kv_cache.k_prope)
+            _debug_dump.dump("prefill.block.v_prope_written", memory_kv_cache.v_prope)
 
 
 ## ---------------------------------------------------------------------------

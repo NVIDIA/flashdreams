@@ -202,9 +202,28 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
 
     def run(self) -> None:
         """Roll one autoregressive sequence and persist the mp4 on rank 0."""
+        import os
+
         from loguru import logger
 
         cfg = self.config
+        # Phase 2b.6.2 diagnostic toggle. ``HY_DEBUG_DISABLE_CUDA_GRAPH=1``
+        # disables the per-network CUDAGraphWrapper so the env-var-gated
+        # tensor dumps in :mod:`_debug_dump` (which do file I/O + host-
+        # synchronous ``.item()`` calls) don't crash CUDA stream capture
+        # with ``cudaErrorStreamCaptureInvalidated``. Production runs leave
+        # the env var unset so the CUDA graph fast path stays intact.
+        if os.environ.get("HY_DEBUG_DISABLE_CUDA_GRAPH", "") == "1":
+            transformer = getattr(self.pipeline, "diffusion_model", None)
+            if transformer is not None and hasattr(transformer, "network"):
+                transformer._use_cuda_graph = False
+                transformer._network_call = transformer.network
+                transformer._network_call_uncond = transformer.network
+                logger.info(
+                    "HY_DEBUG_DISABLE_CUDA_GRAPH=1: bypassing the per-network "
+                    "CUDAGraphWrapper for diagnostic dumps."
+                )
+
         if cfg.image_path is None:
             raise ValueError(
                 "HY-WorldPlay WAN-5B is I2V only -- pass "
