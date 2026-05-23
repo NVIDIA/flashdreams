@@ -65,6 +65,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.recipes.wan.autoencoder.i2v import (
@@ -99,6 +100,49 @@ from flashdreams.recipes.wan.transformer.wan21 import (
 # the memory K / V as if chunk-0 were still being denoised and
 # produces the chunk-1 attention blow-up surfaced by 2b.6.
 _HY_STABILIZATION_TIMESTEP: int = 14
+
+
+def _fp32_sequential(seq: nn.Sequential, x: Tensor) -> Tensor:
+    """Run ``seq`` (a chain of ``nn.Linear`` + activations) in fp32.
+
+    Vendor's ``WanTransformer3DModel`` lists ``time_embedder`` in
+    ``_keep_in_fp32_modules`` so its weights and biases stay in fp32
+    even when the surrounding model is bf16. flashdreams loads the
+    same checkpoint with every parameter coerced to the model dtype
+    (bf16 for the distilled WAN-5B), which forces the chained
+    Linear/SiLU/Linear MLP to accumulate in bf16 and drops ~3 bits
+    of precision per op. This helper bridges the two by casting
+    *both* the input and any ``nn.Linear`` weights to fp32 for the
+    matmul; SiLU / GELU / Tanh activations are dtype-stable and pass
+    through unchanged.
+
+    The output is fp32; callers can ``.type_as(x)`` at the boundary
+    to keep downstream broadcast targets aligned with the network's
+    nominal dtype.
+
+    Limitations: this only handles the subset of ``nn.Sequential``
+    layouts used by Wan 2.1's ``time_embedding`` /
+    ``time_projection`` and HY-WorldPlay's ``action_embedding``
+    (``Linear -> Activation -> Linear`` or
+    ``Activation -> Linear``). Layers that hold dtype-coupled state
+    (e.g. layer norms with fp32 weights stored as bf16) would need
+    the more general treatment in
+    :func:`hy_worldplay._camera._fp32_layer_norm`.
+    """
+    out = x.to(torch.float32)
+    for module in seq:
+        if isinstance(module, nn.Linear):
+            weight = module.weight.to(torch.float32)
+            bias = (
+                module.bias.to(torch.float32)
+                if module.bias is not None
+                else None
+            )
+            out = F.linear(out, weight, bias)
+        else:
+            out = module(out)
+    return out
+
 
 ## ---------------------------------------------------------------------------
 ## Per-AR-step control payload
@@ -674,15 +718,30 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         per_token_timestep = (
             timesteps.ndim > len(batch_shape) and timesteps.shape[-1] == L
         )
-        e = self.time_embedding(
-            sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x)
+        # Run ``time_embedding`` in fp32 to match vendor's
+        # ``_keep_in_fp32_modules = ["time_embedder", ...]`` behaviour.
+        # Vendor's diffusers config keeps the *time embedder* in fp32
+        # weights so the chained ``Linear -> SiLU -> Linear`` MLP
+        # accumulates in fp32 even when the surrounding model is bf16
+        # (the output is then cast back via ``.type_as(...)`` before
+        # the per-block AdaLN blend). Native loads the same checkpoint
+        # in bf16 throughout, so without the explicit upcast we drop
+        # ~3 bits of precision per Linear in the embedding head.
+        # ``time_projection`` (vendor: ``time_proj``) is *not* in
+        # vendor's fp32 list and stays in bf16; we follow suit.
+        e_fp32 = _fp32_sequential(
+            self.time_embedding,
+            sinusoidal_embedding_1d(self.freq_dim, timesteps).to(torch.float32),
         )
+        e = e_fp32.type_as(x)
 
         if action is not None:
             action_e = self._compute_action_embedding(action=action, x=x, L=L)
-            # Adding ``[..., L, D]`` to a scalar-timestep ``[..., D]`` e
-            # broadcasts e per-token; the rest of the path then takes the
-            # per-token branch.
+            # Vendor performs this add in bf16 (both ``temb`` and
+            # ``action`` have already been ``.type_as``'d to bf16
+            # before the ``temb = temb + action`` line); we mirror
+            # that by casting ``e_fp32`` back to ``x.dtype`` before
+            # the add.
             e = e + action_e
             per_token_timestep = True
 
