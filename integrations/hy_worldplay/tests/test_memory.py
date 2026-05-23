@@ -489,12 +489,17 @@ def test_use_memory_selection_composes_with_camera_conditioning() -> None:
 
 
 def test_use_memory_selection_requires_native_pipeline() -> None:
-    """``use_memory_selection`` without ``use_native_pipeline`` is a no-op."""
+    """``use_memory_selection`` without ``use_native_pipeline`` is a no-op.
+
+    Phase 2b.6.2 default-flip note: the test must opt out of
+    ``use_native_pipeline`` explicitly (default is now ``True``).
+    """
     from hy_worldplay._vendor_pipeline import _NoopPipelineConfig
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
         use_memory_selection=True,
     )
     # Without ``use_native_pipeline`` the whole ``__post_init__`` body

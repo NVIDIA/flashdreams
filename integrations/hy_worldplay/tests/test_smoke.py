@@ -135,9 +135,17 @@ def test_default_pose_string_well_formed() -> None:
 
 
 def test_setup_without_required_paths_raises() -> None:
-    """Constructing the runner without the three required paths should
-    fail loudly rather than try to import upstream and segfault."""
-    cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")
+    """Constructing the *vendor-wrapper* runner without the three
+    required paths should fail loudly rather than try to import
+    upstream and segfault. Phase 2b.6.2 default-flip note: now that
+    ``use_native_pipeline`` defaults to ``True`` (native runner
+    path), this test must explicitly opt back into the wrapper to
+    exercise its path validation.
+    """
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
+    )
     assert cfg.ar_model_path is None
     assert cfg.ckpt_path is None
     assert cfg.hy_worldplay_repo_root is None
@@ -147,9 +155,14 @@ def test_setup_without_required_paths_raises() -> None:
 
 def test_missing_repo_root_raises_filenotfound() -> None:
     """Pointing at a non-existent repo root should give a clear error
-    rather than a cryptic ``ImportError``."""
+    rather than a cryptic ``ImportError``. Vendor-wrapper-specific (the
+    native runner does not consume ``hy_worldplay_repo_root``); see
+    ``test_setup_without_required_paths_raises`` for the default-flip
+    rationale on the explicit ``use_native_pipeline=False`` opt-in.
+    """
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
         ar_model_path=Path("/nonexistent/wan_transformer"),
         ckpt_path=Path("/nonexistent/model.pt"),
         hy_worldplay_repo_root=Path("/nonexistent/HY-WorldPlay"),
@@ -166,25 +179,48 @@ def test_runner_config_is_runner_config_subclass() -> None:
     assert isinstance(RUNNER_HY_WORLDPLAY_WAN_I2V_5B, RunnerConfig)
 
 
-def test_pipeline_is_vendor_wrapper_noop() -> None:
-    """Phase-1 ``pipeline`` slot must be the inert :class:`_NoopPipelineConfig`.
+def test_default_runner_uses_native_pipeline() -> None:
+    """Phase 2b.6.2 default-flip: the shipped runner config defaults to the
+    native :class:`HyWorldPlayWanI2VNativeRunner` path with a real
+    :class:`WanInferencePipelineConfig` from
+    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B`.
 
-    The base :class:`RunnerConfig.pipeline` field is non-optional, so
-    the vendor-wrapper runner pins it to a no-op stand-in instead of a
-    real flashdreams pipeline (upstream's ``WanRunner.predict()`` does
-    all the work). Guards against accidentally swapping in a real
-    :class:`WanInferencePipelineConfig` before the matching recipe
-    lands in :mod:`flashdreams.recipes.wan`.
+    Previously (phases 2b.1 - 2b.6) the default was the inert
+    :class:`_NoopPipelineConfig` stand-in routed through upstream's
+    :class:`wan.generate.WanRunner`. The phase 2b.6.2 parity close
+    moves the native path to production default; callers who need
+    bit-exact match against upstream's ``use_kv_cache=False`` default
+    explicitly opt back into the wrapper with
+    ``use_native_pipeline=False``.
     """
-    cfg_pipeline = RUNNER_HY_WORLDPLAY_WAN_I2V_5B.pipeline
-    assert isinstance(cfg_pipeline, _NoopPipelineConfig), (
-        f"expected _NoopPipelineConfig, got {type(cfg_pipeline).__name__}"
+    from flashdreams.recipes.wan.config import WanInferencePipelineConfig
+    from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
+
+    cfg = RUNNER_HY_WORLDPLAY_WAN_I2V_5B
+    assert cfg.use_native_pipeline is True
+    assert isinstance(cfg.pipeline, WanInferencePipelineConfig), (
+        f"expected WanInferencePipelineConfig, got {type(cfg.pipeline).__name__}"
     )
-    assert cfg_pipeline.recipe_name == VENDOR_WRAPPER_RECIPE_NAME
-    # ``cfg.setup()`` must yield the matching no-op pipeline instance --
-    # this is the path ``Runner.__init__`` would take if the runner
-    # were ever promoted onto the base ABC.
-    pipeline = cfg_pipeline.setup()
+    assert cfg.pipeline.recipe_name == "wan22-ti2v-5b"
+    assert cfg._target is HyWorldPlayWanI2VNativeRunner
+
+
+def test_vendor_wrapper_still_available_via_explicit_optout() -> None:
+    """``use_native_pipeline=False`` keeps the phase-1 vendor wrapper path.
+
+    The :class:`_NoopPipelineConfig` stand-in is still constructable
+    so downstream callers who need bit-exact match against upstream's
+    ``use_kv_cache=False`` default can fall back to it via the
+    explicit opt-out. The setup() call returns the matching no-op
+    pipeline instance.
+    """
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
+    )
+    assert isinstance(cfg.pipeline, _NoopPipelineConfig)
+    assert cfg.pipeline.recipe_name == VENDOR_WRAPPER_RECIPE_NAME
+    pipeline = cfg.pipeline.setup()
     assert isinstance(pipeline, _NoopPipeline)
 
 
@@ -194,28 +230,43 @@ def test_use_native_pipeline_routes_to_wan_pipeline() -> None:
     :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` and swaps
     ``_target`` to :class:`HyWorldPlayWanI2VNativeRunner`.
 
-    Default (``use_native_pipeline=False``) must continue to pin the
-    no-op pipeline so the phase-1 vendor wrapper stays the bit-stable
-    baseline.
+    Phase 2b.6.2 closing step: the default flipped to ``True``, so the
+    native :class:`HyWorldPlayWanI2VNativeRunner` is the production
+    target. ``use_native_pipeline=False`` is preserved as an explicit
+    opt-in for the phase-1 vendor wrapper (callers who specifically
+    need bit-exact match against upstream's ``use_kv_cache=False``
+    default).
     """
     from flashdreams.recipes.wan.config import WanInferencePipelineConfig
     from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
     from hy_worldplay.runner import HyWorldPlayWanI2VRunner
 
+    # Default config: native path is now the production target.
+    default_cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+    )
+    assert default_cfg.use_native_pipeline is True
+    assert isinstance(default_cfg.pipeline, WanInferencePipelineConfig), (
+        f"expected WanInferencePipelineConfig, got "
+        f"{type(default_cfg.pipeline).__name__}"
+    )
+    assert default_cfg.pipeline.recipe_name == "wan22-ti2v-5b"
+    assert default_cfg._target is HyWorldPlayWanI2VNativeRunner
+
+    # Explicit opt-out preserves the phase-1 vendor wrapper path.
     wrapper_cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
     )
     assert isinstance(wrapper_cfg.pipeline, _NoopPipelineConfig)
     assert wrapper_cfg._target is HyWorldPlayWanI2VRunner
 
+    # Explicit opt-in (== default) lands on the native target.
     native_cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=True,
     )
-    assert isinstance(native_cfg.pipeline, WanInferencePipelineConfig), (
-        f"expected WanInferencePipelineConfig, got "
-        f"{type(native_cfg.pipeline).__name__}"
-    )
+    assert isinstance(native_cfg.pipeline, WanInferencePipelineConfig)
     assert native_cfg.pipeline.recipe_name == "wan22-ti2v-5b"
     assert native_cfg._target is HyWorldPlayWanI2VNativeRunner
 
@@ -371,10 +422,13 @@ def test_use_action_conditioning_requires_native_pipeline() -> None:
     The vendor-wrapper path drives upstream's runner end-to-end, so the
     action-aware encoder / transformer swap has nothing to attach to; we
     leave the inert :class:`_NoopPipelineConfig` in place and let the
-    vendor wrapper carry through its own action conditioning.
+    vendor wrapper carry through its own action conditioning. Phase
+    2b.6.2 default-flip note: the test must opt out of
+    ``use_native_pipeline`` explicitly (the default is now ``True``).
     """
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
         use_action_conditioning=True,
     )
     assert isinstance(cfg.pipeline, _NoopPipelineConfig)
@@ -460,9 +514,14 @@ def test_use_camera_conditioning_composes_with_action() -> None:
 
 
 def test_use_camera_conditioning_requires_native_pipeline() -> None:
-    """``use_camera_conditioning`` without ``use_native_pipeline`` is a no-op."""
+    """``use_camera_conditioning`` without ``use_native_pipeline`` is a no-op.
+
+    Phase 2b.6.2 default-flip note: the test must opt out of
+    ``use_native_pipeline`` explicitly (default is now ``True``).
+    """
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        use_native_pipeline=False,
         use_camera_conditioning=True,
     )
     assert isinstance(cfg.pipeline, _NoopPipelineConfig)

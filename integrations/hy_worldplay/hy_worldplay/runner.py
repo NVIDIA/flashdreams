@@ -201,17 +201,38 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     before the pipeline is constructed. Only used in vendor-wrapper
     mode; the native pipeline does not import the upstream tree."""
 
-    use_native_pipeline: bool = False
+    use_native_pipeline: bool = True
     """Route inference through the in-tree
     :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` instead of
-    upstream's :class:`wan.generate.WanRunner`. Phase 2b feature flag;
-    defaults to ``False`` so the phase-1 vendor wrapper stays the
-    bit-stable baseline. When ``True``, ``__post_init__`` swaps
-    ``_target`` to :class:`HyWorldPlayWanI2VNativeRunner` and replaces
-    the inert ``pipeline`` slot with a fresh copy of
-    ``PIPELINE_WAN22_TI2V_5B``. The native path supports the I2V base
-    case only at 2b.1; action / camera / memory conditioning land in
-    2b.3 / 2b.4 / 2b.5."""
+    upstream's :class:`wan.generate.WanRunner`. Phase 2b feature flag.
+
+    Defaults to ``True`` after the phase 2b.6.2 parity close: the
+    native path matches vendor's ``use_kv_cache=True`` baseline at
+    ``mean |\u0394| = 15.65 / 255`` (chunk-0 = 12.9, chunk-1 = 18.2)
+    on the 704x1280 / num_chunk=2 / seed=0 reference config, well
+    below the visible-quality threshold and within 3-4 LSBs of the
+    vendor-vs-vendor kernel noise floor (sageattn vs sdpa = 4.25 / 255;
+    VAE sample vs mean = 3.8 / 255). Production HY-WorldPlay rollouts
+    now drive ``flashdreams-run hy-worldplay-wan-i2v-5b`` through the
+    native :class:`HyWorldPlayWanI2VNativeRunner` by default.
+
+    Pass ``--no-use-native-pipeline`` (or set ``use_native_pipeline=False``
+    on the config) to fall back to the phase-1 vendor wrapper -- it
+    bit-matches upstream's ``use_kv_cache=False`` default (the
+    formally-published serving mode) and pulls vendor's heavy deps
+    (sageattention, cloudpickle, accelerate, transformers==4.57.6) at
+    runtime. Reserved for callers who specifically need bit-exact
+    match against the published serving config; 2b.6.1's Option A
+    refactor is the longer-term path to bit-exact native match
+    against ``use_kv_cache=False`` and remains "future; not currently
+    planned".
+
+    When ``True``, ``__post_init__`` swaps ``_target`` to
+    :class:`HyWorldPlayWanI2VNativeRunner` and replaces the inert
+    ``pipeline`` slot with a fresh copy of ``PIPELINE_WAN22_TI2V_5B``.
+    Action / camera / memory conditioning are opt-in via the
+    sibling flags (defaults are no-ops by construction; see
+    :attr:`use_action_conditioning` etc.)."""
 
     use_action_conditioning: bool = False
     """Enable HY-WorldPlay's discrete action conditioner (phase 2b.3).
