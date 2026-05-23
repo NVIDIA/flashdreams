@@ -523,6 +523,20 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     ti2v_first_frame_per_token_timestep=(
                         transformer_cfg.ti2v_first_frame_per_token_timestep
                     ),
+                    # Vendor's HY pipeline runs the first-frame
+                    # context tokens at the stabilisation sigma
+                    # ``stabilization_level - 1 == 14`` (see vendor
+                    # ``pipeline_wan_w_mem_relative_rope.py`` lines
+                    # 680, 892), not the Wan 2.2 TI2V 5B base
+                    # default of ``0``. The distilled WAN-5B
+                    # checkpoint was fine-tuned with this offset so
+                    # the AdaLN modulation table at the first frame
+                    # expects a small-but-nonzero sigma; sending
+                    # ``t == 0`` shifts the chunk-0 prediction by
+                    # ~9 / 255 (2b.6.2 diagnosis). Setting the
+                    # override only on the action-conditioning
+                    # config keeps base WAN-5B parity intact.
+                    first_frame_timestep_value=14.0,
                 )
             )
 

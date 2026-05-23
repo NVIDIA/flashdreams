@@ -181,10 +181,11 @@ class Wan21TransformerConfig(TransformerConfig):
     """Wan 2.2 TI2V 5B first-frame conditioning. When ``True`` and an
     :class:`I2VCtrl` input is provided at AR step 0, ``predict_flow``
     rewrites the scheduler's scalar timestep into a per-token tensor:
-    ``t = 0`` at positions marked by the I2V mask (i.e. the
-    first-frame latent), and the scheduler's ``t`` elsewhere. AR steps
-    ``>= 1`` continue to use the scalar timestep, which keeps the
-    CUDA-graph-captured replay branch on a single stable input shape.
+    ``t = first_frame_timestep_value`` at positions marked by the I2V
+    mask (i.e. the first-frame latent), and the scheduler's ``t``
+    elsewhere. AR steps ``>= 1`` continue to use the scalar timestep,
+    which keeps the CUDA-graph-captured replay branch on a single
+    stable input shape.
 
     Composes with ``stamp_image_latent``: together they implement the
     upstream Wan 2.2 5B "VAE-seeded first-frame + per-token ``t=0``"
@@ -192,6 +193,23 @@ class Wan21TransformerConfig(TransformerConfig):
     while the network sees ``t=0`` for those tokens. The standard
     mask-inject I2V recipe leaves this flag off and relies on the
     classifier-free stamp alone."""
+
+    first_frame_timestep_value: float = 0.0
+    """Per-token timestep value assigned to the first-frame conditioning
+    tokens when :attr:`ti2v_first_frame_per_token_timestep` is ``True``.
+
+    Wan 2.2 TI2V 5B's base recipe uses ``0.0`` (the default) so the
+    first frame is treated as fully clean by the AdaLN modulation.
+    HY-WorldPlay's distilled WAN-5B pipeline raises this to
+    ``stabilization_level - 1 == 14.0`` (see vendor's
+    ``pipeline_wan_w_mem_relative_rope.py`` lines 680, 892) so the
+    network sees the first frame at a small-but-nonzero sigma; that
+    matters for parity because the distilled model was trained with
+    this offset and the AdaLN modulation table is a small enough
+    perturbation that ``t == 0`` vs ``t == 14`` measurably shifts the
+    chunk-0 prediction (~9 of ~12 / 255 chunk-0 drift in 2b.6.2
+    diagnosis). The value is unused when
+    ``ti2v_first_frame_per_token_timestep`` is ``False``."""
 
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
@@ -477,12 +495,25 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             f"payload to be an I2VCtrl (got {type(input).__name__})"
         )
         per_token_mask = input.mask[..., 0]  # [..., L]
-        # Broadcast scalar / per-batch ``timestep`` to ``[..., L]`` and zero
-        # the first-frame conditioning tokens. The product preserves the
-        # scheduler's dtype so downstream sinusoidal embedding stays
-        # bit-identical to the scalar path on non-masked tokens.
+        # Broadcast scalar / per-batch ``timestep`` to ``[..., L]`` and
+        # blend with ``first_frame_timestep_value`` at masked positions.
+        # The product preserves the scheduler's dtype so downstream
+        # sinusoidal embedding stays bit-identical to the scalar path on
+        # non-masked tokens. When ``first_frame_timestep_value == 0.0``
+        # (the Wan 2.2 TI2V 5B base default) this collapses to the
+        # previous ``t * (1 - mask)`` formula; HY-WorldPlay's distilled
+        # WAN-5B overrides it to ``14.0`` so the first frame sees a
+        # nonzero stabilisation sigma (mirrors vendor's
+        # ``stabilization_level - 1``).
         timestep = timestep.to(per_token_mask.device)
-        return timestep.unsqueeze(-1) * (1.0 - per_token_mask.to(timestep.dtype))
+        mask = per_token_mask.to(timestep.dtype)
+        first_frame_value = timestep.new_tensor(
+            self.config.first_frame_timestep_value
+        )
+        return (
+            timestep.unsqueeze(-1) * (1.0 - mask)
+            + first_frame_value * mask
+        )
 
     def _stamp_image_latent(
         self,
