@@ -224,6 +224,24 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
                     "CUDAGraphWrapper for diagnostic dumps."
                 )
 
+        # Phase 2b.6.2 parity toggle. ``HY_VENDOR_NOISE_MODE=1`` pre-draws
+        # one big ``randn([1, 48, num_chunk*len_t, H_lat, W_lat])`` tensor
+        # with the rollout seed (matching vendor's ``prepare_latents`` call
+        # in ``wan/inference/pipeline_wan_w_mem_relative_rope.py`` which
+        # samples all chunks' noise in a single ``randn`` and slices per
+        # chunk thereafter) and patchifies a slice per AR step so native's
+        # ``DiffusionModel.generate`` consumes bit-identical noise to
+        # vendor's ``latents[:, :, ar*len_t:(ar+1)*len_t]`` slice. Without
+        # this flag native draws ``randn(latent_shape)`` once per chunk via
+        # a private ``torch.Generator`` seeded at ``DiffusionModelConfig.seed``
+        # (default 42), which is a completely independent RNG stream from
+        # vendor's global ``torch.manual_seed(seed)`` stream -- the chunk-1+
+        # noise diverges bit-for-bit (e.g. vendor's chunk-1 first 8 values
+        # ``[0.875, 0.965, -0.132, -1.602, ...]`` vs native's
+        # ``[0.139, -0.108, -0.719, 0.758, ...]``) and the resulting clean
+        # latents drift apart, which dominates the parity diff once the
+        # CFG mismatch is fixed.
+
         if cfg.image_path is None:
             raise ValueError(
                 "HY-WorldPlay WAN-5B is I2V only -- pass "
@@ -263,13 +281,18 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
             # point.
             self._bind_memory_config(device=device)
 
+        vendor_noise_ctx = self._maybe_vendor_aligned_noise_ctx(
+            device=device, dtype=first_param.dtype
+        )
+
         chunks: list[Tensor] = []
         start_time = time.time()
-        for ar_idx in range(cfg.num_chunk):
-            chunk = self.pipeline.generate(ar_idx, cache)
-            chunks.append(chunk)
-            if ar_idx < cfg.num_chunk - 1:
-                self.pipeline.finalize(ar_idx, cache)
+        with vendor_noise_ctx:
+            for ar_idx in range(cfg.num_chunk):
+                chunk = self.pipeline.generate(ar_idx, cache)
+                chunks.append(chunk)
+                if ar_idx < cfg.num_chunk - 1:
+                    self.pipeline.finalize(ar_idx, cache)
         elapsed = time.time() - start_time
 
         if not self.is_rank_zero:
@@ -368,6 +391,161 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
             fov_v_deg=cfg.memory_fov_v_deg,
             device=device,
         )
+
+    def _maybe_vendor_aligned_noise_ctx(
+        self,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> object:
+        """Build a context manager that overrides the diffusion noise per chunk.
+
+        When ``HY_VENDOR_NOISE_MODE=1`` is set the runner pre-draws the
+        full multi-chunk noise tensor using the same shape and seed as
+        vendor's ``prepare_latents`` call (a single ``randn([1, 48, T,
+        H_lat, W_lat])`` over all chunks) and patchifies a per-AR-step
+        slice. While the chunk loop runs the helper monkey-patches
+        ``torch.randn`` to return the pre-computed slice whenever the
+        request matches the diffusion model's ``latent_shape``; all
+        other randn calls fall through to the original implementation.
+
+        When the env var is unset returns ``nullcontext()`` and the
+        pipeline draws noise from its private ``torch.Generator`` as
+        usual.
+        """
+        import contextlib
+        import math
+        import os
+        from unittest.mock import patch as _mock_patch
+
+        from einops import rearrange
+        from loguru import logger
+
+        if os.environ.get("HY_VENDOR_NOISE_MODE", "") != "1":
+            return contextlib.nullcontext()
+
+        cfg = self.config
+        diffusion_model = self.pipeline.diffusion_model
+        transformer = diffusion_model.transformer
+        transformer_cfg = transformer.config
+
+        len_t = transformer_cfg.len_t
+        kt, kh, kw = transformer_cfg.network.patch_size
+        # 16x spatial compression for the WAN-5B residual VAE.
+        h_lat = cfg.pixel_height // 16
+        w_lat = cfg.pixel_width // 16
+        # Vendor's prepare_latents draws the full ``num_latent_frames`` of
+        # noise in one randn call (see
+        # ``HY-WorldPlay/wan/inference/pipeline_wan_w_mem_relative_rope.py``
+        # line 313 and the ``num_latent_frames`` derivation a few lines
+        # above), independent of how many chunks the rollout actually
+        # consumes. To match the RNG stream bit-for-bit we must replicate
+        # that full tensor here -- a smaller ``randn(big_t = num_chunk *
+        # len_t, ...)`` would put each subsequent channel slice at a
+        # different flat-memory offset and the per-chunk noise would no
+        # longer line up with vendor's. ``num_latent_frames = (num_frames
+        # - 1) // 4 + 1`` for the 4x temporal compression in the WAN-5B
+        # residual VAE.
+        vendor_full_t = (cfg.num_frames - 1) // 4 + 1
+        unpatched_shape = (
+            1,
+            transformer_cfg.network.in_dim,
+            vendor_full_t,
+            h_lat,
+            w_lat,
+        )
+        target_shape = tuple(transformer.latent_shape)
+        target_numel = math.prod(target_shape)
+        # Sanity: the patched per-chunk noise must reshape into the
+        # patchified latent shape.
+        per_chunk_numel = (
+            transformer_cfg.network.in_dim * len_t * h_lat * w_lat
+        )
+        assert per_chunk_numel == target_numel, (
+            f"vendor-aligned noise per-chunk numel ({per_chunk_numel}) "
+            f"!= native latent_shape numel ({target_numel}); shapes are "
+            f"unpatched={unpatched_shape}, target={target_shape}."
+        )
+
+        seed = cfg.seed
+        if cfg.offset_seed_by_global_rank and self.global_rank != 0:
+            seed = seed + self.global_rank
+
+        # Draw the full noise tensor in fp32 to mirror vendor's
+        # ``randn_tensor(..., dtype=torch.float32)`` call site, then cast
+        # to the diffusion model's dtype. ``torch.manual_seed`` seeds the
+        # global RNG which matches vendor's ``generate.py``'s
+        # ``torch.manual_seed(seed)`` call at the top of ``predict``.
+        torch.manual_seed(seed)
+        big_noise_fp32 = torch.randn(
+            unpatched_shape,
+            dtype=torch.float32,
+            device=device,
+        )
+
+        # Patchify per chunk to match the format ``DiffusionModel.generate``
+        # would otherwise draw directly via ``randn(latent_shape)``. Vendor's
+        # transformer applies the same ``... (t kt) c (h kh) (w kw) ->
+        # ... (t h w) (c kt kh kw)`` rearrange inside its patch embedding
+        # (see ``patchify_and_maybe_split_cp`` in
+        # ``flashdreams/recipes/wan/transformer/impl/network.py``); replicating
+        # it on the unpatched slice keeps the per-position bit values aligned
+        # between native and vendor.
+        chunk_noise_queue: list[Tensor] = []
+        for ar_idx in range(cfg.num_chunk):
+            chunk_slice = big_noise_fp32[
+                :, :, ar_idx * len_t : (ar_idx + 1) * len_t, :, :
+            ]
+            # Permute [B, C, T, H, W] -> [B, T, C, H, W] so the patchify
+            # pattern's ``(t kt) c`` axes line up with the input order.
+            chunk_slice = chunk_slice.permute(0, 2, 1, 3, 4).contiguous()
+            patched = rearrange(
+                chunk_slice,
+                "b (t kt) c (h kh) (w kw) -> b (t h w) (c kt kh kw)",
+                kt=kt,
+                kh=kh,
+                kw=kw,
+            )
+            # Drop the batch axis when the transformer's batch_shape is
+            # empty; native's ``latent_shape = (L, D)`` in that case and
+            # the reshape below would otherwise complain.
+            if not transformer_cfg.batch_shape:
+                patched = patched.squeeze(0)
+            chunk_noise_queue.append(patched.to(dtype=dtype))
+
+        orig_randn = torch.randn
+
+        def patched_randn(*args: object, **kwargs: object) -> Tensor:
+            shape_arg: tuple[int, ...] | None = None
+            if args:
+                first = args[0]
+                if isinstance(first, (tuple, list, torch.Size)):
+                    shape_arg = tuple(int(x) for x in first)
+                elif isinstance(first, int):
+                    shape_arg = tuple(int(x) for x in args)
+            else:
+                size = kwargs.get("size", None)
+                if isinstance(size, (tuple, list, torch.Size)):
+                    shape_arg = tuple(int(x) for x in size)
+
+            if (
+                shape_arg is not None
+                and shape_arg == target_shape
+                and chunk_noise_queue
+            ):
+                noise = chunk_noise_queue.pop(0)
+                kwarg_device = kwargs.get("device", noise.device)
+                kwarg_dtype = kwargs.get("dtype", noise.dtype)
+                return noise.to(device=kwarg_device, dtype=kwarg_dtype)
+            return orig_randn(*args, **kwargs)
+
+        logger.info(
+            f"HY_VENDOR_NOISE_MODE=1: pre-drew "
+            f"randn({list(unpatched_shape)}) at seed={seed} and queued "
+            f"{cfg.num_chunk} patchified per-chunk slices matching "
+            f"latent_shape={target_shape}."
+        )
+        return _mock_patch.object(torch, "randn", patched_randn)
 
     def _resolve_encoder_and_n_latents(
         self, *, flag_name: str

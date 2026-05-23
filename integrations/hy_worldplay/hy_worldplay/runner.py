@@ -484,7 +484,26 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     # at len_t=21 without comparing against the vendor
                     # baseline's actual chunk size.
                     len_t=4,
-                    guidance_scale=transformer_cfg.guidance_scale,
+                    # HY-WorldPlay's distilled WAN-5B checkpoint
+                    # already bakes CFG into its weights -- the
+                    # 4-step few-step path runs a single conditional
+                    # forward per scheduler step and skips the
+                    # ``flow_uncond + s * (flow_cond - flow_uncond)``
+                    # combine (see upstream
+                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
+                    # which only calls ``current_model`` once per
+                    # step regardless of the ``do_classifier_free_guidance``
+                    # flag). The base TI2V-5B recipe ships with
+                    # ``guidance_scale=5.0`` because the *non-distilled*
+                    # WAN-5B model does need explicit CFG; we override
+                    # to ``1.0`` here so flashdreams' transformer drops
+                    # the uncond branch (and its dedicated network
+                    # cache) and matches vendor's single-pass output.
+                    # Phase 2b.6.2 parity diagnosis -- the residual
+                    # ~65/255 chunk-1+ divergence was the CFG combine
+                    # firing on top of the already-distilled noise
+                    # prediction.
+                    guidance_scale=1.0,
                     # Match window_size_t to len_t so the rolling KV
                     # cache holds exactly the current chunk's tokens
                     # (matches upstream's per-AR-step cache eviction).

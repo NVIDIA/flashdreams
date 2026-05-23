@@ -352,7 +352,14 @@ def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
     assert transformer.window_size_t == 4
     assert transformer.stamp_image_latent is True
     assert transformer.ti2v_first_frame_per_token_timestep is True
-    assert transformer.guidance_scale == 5.0
+    # HY-WorldPlay distilled WAN-5B bakes CFG into the checkpoint; the
+    # swap pins ``guidance_scale=1.0`` so ``Wan21Transformer.predict_flow``
+    # skips the uncond forward + ``flow_uncond + s * (flow_cond -
+    # flow_uncond)`` combine (which upstream
+    # ``pipeline_wan_w_mem_relative_rope.py`` also skips on its
+    # few-step distilled path). The base WAN-5B recipe stays at ``5.0``
+    # because the non-distilled model needs explicit CFG.
+    assert transformer.guidance_scale == 1.0
     assert transformer.network.in_dim == 48
     assert transformer.network.out_dim == 48
     assert transformer.network.dim == 3072
