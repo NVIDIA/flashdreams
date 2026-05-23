@@ -1,20 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Phase 2b.6.2 attention-impl parity probe.
+"""Monkey-patch vendor sageattention to use cuDNN SDPA (parity diagnostic).
 
-Monkey-patches vendor's ``sageattention.sageattn`` import to delegate
-to ``torch.nn.functional.scaled_dot_product_attention``. SageAttention
-uses INT8 / FP8 quantized matmuls; cudnn SDPA uses bf16 with fp32
-accumulation. The two produce slightly different outputs per attention
-call, which compounds across 30 transformer blocks and dominates the
-residual chunk-0 + chunk-1+ numerical drift once the three structural
-bugs (CFG, RNG, prefill block-forward) are closed.
-
-Setting ``HY_VENDOR_SDPA=1`` together with this patch installed gives
-us a vendor baseline that uses the same attention kernel as native
-(both go through SDPA / cudnn) so we can isolate any *remaining*
-non-attention divergence in the native port.
+Vendor uses ``sageattention.sageattn`` (INT8/FP8 matmuls); native uses
+``F.scaled_dot_product_attention`` (bf16 + fp32 accumulation). Set
+``HY_VENDOR_SDPA=1`` and install this patch to force vendor onto the
+same kernel so vendor-vs-native diffs isolate non-attention drift.
 """
 
 from __future__ import annotations
@@ -38,10 +30,9 @@ def _sdpa_replacement(
     is_causal: bool = False,
     **_unused: Any,
 ) -> torch.Tensor:
-    # ``HND`` in SageAttention's API == ``[batch, num_heads, seqlen,
-    # head_dim]`` which is exactly SDPA's expected layout. The
-    # ``NHD`` layout would need a transpose; we don't see that in
-    # vendor's dits so the simple passthrough below is sufficient.
+    # ``HND`` (``[batch, num_heads, seqlen, head_dim]``) matches SDPA's
+    # expected layout directly; ``NHD`` would need a transpose but
+    # vendor's dits never use it.
     if tensor_layout not in ("HND",):
         raise NotImplementedError(
             f"sdpa_patch only supports tensor_layout='HND'; got {tensor_layout!r}."
@@ -54,16 +45,11 @@ def _sdpa_replacement(
 def install_sdpa_patch() -> None:
     if not enabled():
         return
-    # Rebind the vendor module's ``sageattn`` symbol *before*
-    # the dit module imports finish wiring -- the function is
-    # captured at call time via attribute lookup on the
-    # ``sageattention`` package, so replacing the package's
-    # exported function is enough.
     import sageattention
 
     sageattention.sageattn = _sdpa_replacement
-    # Also rebind any direct ``from sageattention import sageattn``
-    # imports the vendor dit module has already done.
+    # Also rebind any ``from sageattention import sageattn`` already
+    # captured by the vendor dit module.
     try:
         from wan.models.dits import arwan_w_action_w_mem_relative_rope as _vendor_mod
 

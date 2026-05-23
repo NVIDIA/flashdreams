@@ -195,21 +195,17 @@ class Wan21TransformerConfig(TransformerConfig):
     classifier-free stamp alone."""
 
     first_frame_timestep_value: float = 0.0
-    """Per-token timestep value assigned to the first-frame conditioning
-    tokens when :attr:`ti2v_first_frame_per_token_timestep` is ``True``.
+    """Per-token timestep assigned to first-frame conditioning tokens
+    when :attr:`ti2v_first_frame_per_token_timestep` is ``True``.
 
-    Wan 2.2 TI2V 5B's base recipe uses ``0.0`` (the default) so the
-    first frame is treated as fully clean by the AdaLN modulation.
-    HY-WorldPlay's distilled WAN-5B pipeline raises this to
-    ``stabilization_level - 1 == 14.0`` (see vendor's
-    ``pipeline_wan_w_mem_relative_rope.py`` lines 680, 892) so the
-    network sees the first frame at a small-but-nonzero sigma; that
-    matters for parity because the distilled model was trained with
-    this offset and the AdaLN modulation table is a small enough
-    perturbation that ``t == 0`` vs ``t == 14`` measurably shifts the
-    chunk-0 prediction (~9 of ~12 / 255 chunk-0 drift in 2b.6.2
-    diagnosis). The value is unused when
-    ``ti2v_first_frame_per_token_timestep`` is ``False``."""
+    Defaults to ``0.0`` (Wan 2.2 TI2V 5B's base recipe — treats the
+    first frame as fully clean by AdaLN). HY-WorldPlay's distilled
+    WAN-5B raises it to ``14.0`` (vendor's
+    ``stabilization_level - 1``) so the AdaLN table sees a small
+    nonzero sigma at the first frame.
+
+    Unused when :attr:`ti2v_first_frame_per_token_timestep` is ``False``.
+    """
 
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
@@ -497,14 +493,9 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         per_token_mask = input.mask[..., 0]  # [..., L]
         # Broadcast scalar / per-batch ``timestep`` to ``[..., L]`` and
         # blend with ``first_frame_timestep_value`` at masked positions.
-        # The product preserves the scheduler's dtype so downstream
-        # sinusoidal embedding stays bit-identical to the scalar path on
-        # non-masked tokens. When ``first_frame_timestep_value == 0.0``
-        # (the Wan 2.2 TI2V 5B base default) this collapses to the
-        # previous ``t * (1 - mask)`` formula; HY-WorldPlay's distilled
-        # WAN-5B overrides it to ``14.0`` so the first frame sees a
-        # nonzero stabilisation sigma (mirrors vendor's
-        # ``stabilization_level - 1``).
+        # Multiplying preserves the scheduler dtype so downstream
+        # sinusoidal embedding stays bit-identical to the scalar path
+        # on non-masked tokens.
         timestep = timestep.to(per_token_mask.device)
         mask = per_token_mask.to(timestep.dtype)
         first_frame_value = timestep.new_tensor(

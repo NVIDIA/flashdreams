@@ -13,27 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pytest collection guard for the parity-check directory.
-
-This directory hosts two things pytest must NOT recurse into:
-
-* ``HY-WorldPlay/`` -- the cloned vendor tree. It contains internal
-  ``test_*.py`` files (e.g.
-  ``worldcompass/reward_function/HunyuanWorldMirror/test_setup.py``)
-  that import vendor-internal deps (``gsplat``, ``sageattention``)
-  which only live in the parity sub-venv. Letting pytest collect
-  those from the main flashdreams venv breaks ``pytest
-  integrations/hy_worldplay/tests/``.
-
-* ``.venv/`` -- the parity sub-venv, with its own installed packages
-  that show up as importable test modules under
-  ``.venv/lib/python*/site-packages/``.
-
-The CPU tests that exercise this directory (e.g. the phase 2b.6
-``test_parity_helper.py`` for the ``use_kv_cache=True`` helper)
-live one level up under ``integrations/hy_worldplay/tests/`` so
-the main pytest discovery picks them up naturally.
-"""
+"""Pytest collection guard: keep main discovery out of the cloned vendor tree and sub-venv."""
 
 from __future__ import annotations
 

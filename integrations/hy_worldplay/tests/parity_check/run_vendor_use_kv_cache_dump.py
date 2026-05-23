@@ -13,19 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run vendor's WAN-5B generate.py with use_kv_cache=True forced AND
-the phase-2b.6.2 dump harness installed.
+"""Run vendor's ``wan/generate.py`` with ``use_kv_cache=True`` AND tensor dumps enabled.
 
-Combines the two existing helpers:
-
-* ``run_vendor_use_kv_cache.py`` -- subclasses :class:`WanPipeline` to
-  coerce ``use_kv_cache=True`` so the cache-prefill code path runs
-  (matching native HY architecture).
-* ``dump_patch.py`` -- monkey-patches the attention processor + top-
-  level transformer forward to write JSONL dump records mirroring
-  ``hy_worldplay/_debug_dump.py``.
-
-Enable the dumps with ``HY_DEBUG_DUMP=/path/to/vendor_dump.jsonl``.
+Combines :mod:`run_vendor_use_kv_cache` (coerces ``use_kv_cache=True``)
+with :mod:`dump_patch` (monkey-patches attention + transformer to
+write JSONL records mirroring :mod:`hy_worldplay._debug_dump`).
+Activate dumps with ``HY_DEBUG_DUMP=/path/to/vendor_dump.jsonl``.
 """
 
 from __future__ import annotations
@@ -51,7 +44,6 @@ def _patch_and_run() -> None:
     sys.path.insert(0, str(_REPO_DIR / "wan"))
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-    # 1) Coerce use_kv_cache=True.
     from wan.inference import (  # noqa: E402
         pipeline_wan_w_mem_relative_rope as _vendor_pipe_mod,
     )
@@ -60,18 +52,14 @@ def _patch_and_run() -> None:
         _vendor_pipe_mod.WanPipeline
     )
 
-    # 2) Install dump patches on the attention + transformer modules.
     import dump_patch  # noqa: E402
 
     dump_patch.install_patches()
 
-    # 3) Apply the optional VAE-sample-vs-mean patch (no-op unless
-    #    ``HY_VENDOR_VAE_MEAN=1`` is set; see ``vae_mean_patch.py``).
     from vae_mean_patch import install_vae_mean_patch  # noqa: E402
 
     install_vae_mean_patch()
 
-    # 4) Run vendor's generate.py.
     runpy.run_path(
         str(_REPO_DIR / "wan" / "generate.py"),
         run_name="__main__",

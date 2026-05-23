@@ -13,19 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU tests for the phase 2b.6 ``use_kv_cache=True`` parity helper.
+"""CPU tests for the ``use_kv_cache=True`` parity helper's subclass factory.
 
-The helper at
-``integrations/hy_worldplay/tests/parity_check/run_vendor_use_kv_cache.py``
-is GPU-only at runtime (it delegates to vendor's
-``HY-WorldPlay/wan/generate.py`` via :func:`runpy.run_path`), but the
-``__setattr__`` coercion that forces ``use_kv_cache=True`` on the
-vendor ``WanPipeline`` is a pure-Python class transformation and
-fully testable on CPU. We exercise the
-:func:`make_use_kv_cache_true_subclass` factory through a tiny
-:class:`WanPipeline` stand-in -- the real vendor class is not
-imported here (it would pull the entire HY-WorldPlay tree + heavy
-deps which only live in the parity sub-venv).
+The helper script at ``parity_check/run_vendor_use_kv_cache.py`` runs
+under GPU (it delegates to vendor's ``wan/generate.py`` via
+``runpy``), but the ``__setattr__`` coercion that forces
+``use_kv_cache=True`` is a pure-Python class transformation and
+testable on CPU through a tiny ``WanPipeline`` stand-in.
 """
 
 from __future__ import annotations
@@ -46,10 +40,9 @@ _HELPER_PATH = (
 def _load_helper_module():
     """Import the helper script without executing its ``__main__`` block.
 
-    Uses :mod:`importlib.util` so the helper's top-level definitions
+    Uses :mod:`importlib.util` so the top-level definitions
     (``make_use_kv_cache_true_subclass``) become importable without
-    triggering ``_patch_and_run`` (which requires the HY-WorldPlay
-    vendor tree + GPU). The helper module is registered under a
+    triggering the GPU-only ``_patch_and_run``. Registered under a
     distinct name so it doesn't shadow any sibling module.
     """
     spec = importlib.util.spec_from_file_location(
@@ -64,13 +57,12 @@ def _load_helper_module():
 
 
 def test_make_subclass_coerces_use_kv_cache_to_true() -> None:
-    """The subclass factory intercepts ``use_kv_cache=False`` assignments.
+    """Subclass factory coerces ``self.use_kv_cache = False`` assignments back to ``True``.
 
     Mirrors the path vendor takes inside
-    ``pipeline_wan_w_mem_relative_rope.WanPipeline.predict`` (line 707:
-    ``self.use_kv_cache = False``): after the helper's transform, that
-    same assignment is silently coerced to ``True`` so vendor's predict
-    body takes the cache-prefill branch.
+    ``pipeline_wan_w_mem_relative_rope.WanPipeline.predict``: the
+    in-method ``self.use_kv_cache = False`` is silently coerced so
+    vendor's predict body takes the cache-prefill branch.
     """
     helper = _load_helper_module()
 
@@ -78,8 +70,8 @@ def test_make_subclass_coerces_use_kv_cache_to_true() -> None:
         """Stand-in for vendor's :class:`WanPipeline`."""
 
         def __init__(self) -> None:
-            # WanPipeline initialises use_kv_cache=True in __init__; the
-            # False reassignment happens mid-predict (line 707).
+            # Vendor initialises use_kv_cache=True; the False
+            # reassignment happens mid-predict.
             self.use_kv_cache = True
 
         def predict(self) -> None:
@@ -115,12 +107,11 @@ def test_make_subclass_preserves_other_attributes() -> None:
 
 
 def test_make_subclass_idempotent() -> None:
-    """Applying the transform twice doesn't break the coercion chain.
+    """Applying the transform twice still coerces the assignment.
 
-    Double-wrapping produces a deeper subclass tree but every level's
-    ``__setattr__`` still routes through ``super().__setattr__``, so
-    the outermost layer's coercion still fires. Guards against future
-    refactors that might accidentally short-circuit the recursion.
+    Double-wrapping produces a deeper subclass tree, but every level's
+    ``__setattr__`` routes through ``super().__setattr__`` so the
+    outermost layer's coercion still fires.
     """
     helper = _load_helper_module()
 
@@ -135,11 +126,10 @@ def test_make_subclass_idempotent() -> None:
 
 
 def test_make_subclass_sets_descriptive_name() -> None:
-    """The generated class has a discoverable ``__name__`` for debugging.
+    """Generated subclass ``__name__`` includes both the base name and the ``UseKvCacheTrue`` tag.
 
-    When we patch ``_vendor_pipe_mod.WanPipeline = make_use_kv_cache_true_subclass(...)``
-    and later traceback / repr inspection shows the class name, we
-    want the override to be obvious (not just ``_UseKvCacheTrue``).
+    Makes the override obvious in tracebacks / ``repr`` rather than
+    showing a bare ``_UseKvCacheTrue``.
     """
     helper = _load_helper_module()
 

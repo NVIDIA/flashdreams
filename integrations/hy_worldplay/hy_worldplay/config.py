@@ -13,31 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configs for the HY-WorldPlay integration.
-
-The phase-1 plugin only ships the WAN-5B I2V variant, since the WAN
-backbone is the only one that maps cleanly onto flashdreams' existing
-Wan recipe family. The HunyuanVideo-1.5 8B variant
-(``hyvideo/generate.py`` upstream) is a much heavier integration --
-multiple text encoders (Qwen2.5-VL-7B, ByT5, Glyph-SDXL-v2), gated
-vision encoder (FLUX.1-Redux-dev), 8-way SP -- and is tracked as a
-follow-up. See the integration ``README.md`` for the staging plan.
-
-The runner config is registered with ``flashdreams-run`` via the
-``flashdreams.runner_configs`` entry-point group declared in this
-package's ``pyproject.toml``; the registry key always comes from
-``cfg.runner_name``.
-"""
+"""Runner configs for the HY-WorldPlay integration (WAN-5B I2V)."""
 
 from __future__ import annotations
 
 from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
-# Default literal: every field at its upstream-matching default. Users
-# *must* override at least ``ar_model_path`` / ``ckpt_path`` /
-# ``hy_worldplay_repo_root`` (and ``image_path``) at runtime; we don't
-# bake in real paths here because they're machine-specific.
+# Callers must override ``ar_model_path`` / ``ckpt_path`` /
+# ``hy_worldplay_repo_root`` (and ``image_path``) at runtime; real paths
+# are machine-specific and intentionally not baked in here.
 RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig(
     runner_name="hy-worldplay-wan-i2v-5b",
     description=(
@@ -50,4 +35,4 @@ RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig(
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg for cfg in (RUNNER_HY_WORLDPLAY_WAN_I2V_5B,)
 }
-"""All shipped HY-WorldPlay runners, keyed by ``runner_name``."""
+"""Shipped HY-WorldPlay runner configs keyed by ``runner_name``."""

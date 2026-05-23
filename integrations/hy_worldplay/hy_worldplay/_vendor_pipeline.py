@@ -13,18 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""No-op :class:`StreamInferencePipeline` stand-in for the phase-1 vendor wrapper.
-
-The phase-1 ``HyWorldPlayWanI2VRunner`` delegates encode / diffuse /
-decode to upstream's ``wan.generate.WanRunner`` and has no flashdreams
-pipeline to drive, but :attr:`RunnerConfig.pipeline` is non-optional.
-:class:`_NoopPipelineConfig` and :class:`_NoopPipeline` satisfy that
-contract: the config redefines the parent's required
-``diffusion_model`` field with a stub default factory, and the
-pipeline replaces the parent ``__init__`` with a bare
-:class:`nn.Module` init so ``config.diffusion_model.setup()`` never
-runs.
-"""
+"""Inert :class:`StreamInferencePipeline` stand-in for the vendor-wrapped runner."""
 
 from __future__ import annotations
 
@@ -50,8 +39,7 @@ __all__ = [
 ## Sentinel recipe slug
 
 VENDOR_WRAPPER_RECIPE_NAME = "hy-worldplay-vendor-wrapper-noop"
-"""Sentinel ``recipe_name`` for the no-op pipeline; chosen to never
-collide with any real ``flashdreams.recipes.wan`` slug."""
+"""Sentinel ``recipe_name`` chosen never to collide with a real ``flashdreams.recipes.wan`` slug."""
 
 
 ## No-op configs
@@ -61,12 +49,10 @@ class _NoopDiffusionModelConfig(DiffusionModelConfig):
     """Stub :class:`DiffusionModelConfig` whose nested configs are never resolved."""
 
     transformer: TransformerConfig = field(default_factory=TransformerConfig)
-    """Abstract-base placeholder. :class:`_NoopPipeline` skips ``setup()``
-    on its parent diffusion-model config, so this is never instantiated
-    (the abstract :class:`Transformer` base would refuse anyway)."""
+    """Abstract-base placeholder; never ``setup()``-ed because :class:`_NoopPipeline` skips it."""
 
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
-    """Abstract-base placeholder. Same reasoning as ``transformer``."""
+    """Abstract-base placeholder; never ``setup()``-ed because :class:`_NoopPipeline` skips it."""
 
 
 @dataclass(kw_only=True)
@@ -81,22 +67,18 @@ class _NoopPipelineConfig(StreamInferencePipelineConfig):
     diffusion_model: DiffusionModelConfig = field(
         default_factory=_NoopDiffusionModelConfig,
     )
-    """Stub diffusion-model config. ``seed=None`` (the inherited default)
-    short-circuits the per-rank seed-offset branch in
-    :meth:`Runner.__init__`; ``transformer`` / ``scheduler`` are never
-    ``setup()``-ed because :class:`_NoopPipeline` overrides ``__init__``."""
+    """Stub diffusion-model config; its ``transformer`` / ``scheduler`` are never resolved."""
 
 
 ## No-op pipeline
 
 class _NoopPipeline(StreamInferencePipeline):
-    """Inert pipeline -- an :class:`nn.Module` with no encoder, decoder, or diffusion model.
+    """Inert :class:`nn.Module` standing in for a real :class:`StreamInferencePipeline`.
 
     The owning runner drives upstream's :class:`wan.generate.WanRunner`
     directly and never reads :attr:`encoder`, :attr:`decoder`, or
     :attr:`diffusion_model`; the base :class:`Runner` only needs
-    ``pipeline.to(device).eval()`` to succeed, which
-    :class:`nn.Module` provides for free.
+    ``pipeline.to(device).eval()`` to succeed.
     """
 
     def __init__(self, config: _NoopPipelineConfig) -> None:

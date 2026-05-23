@@ -13,30 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only structural tests for the HY-WorldPlay KV-prefill executor (phase 2b.5b-part2).
-
-Covers the four moving pieces introduced in phase 2b.5b-part2:
-
-* :class:`HyWorldPlayMemoryKVCache` -- the per-block flat cache that
-  stores prefilled K / V at upstream's RoPE-collapsed positions
-  ``[0, K)``. Read / write / reset semantics are isolated and
-  independent of the rolling :class:`BlockKVCache`.
-* :class:`HyWorldPlayPRoPEBlockCache` -- now owns a ``memory`` slot
-  alongside ``self_attn`` / ``prope_self_attn``. ``reset_current_chunk``
-  must wipe only the latter two; the memory cache has its own
-  reset cycle owned by the prefill executor.
-* :class:`HyWorldPlayPRoPESelfAttention` and
-  :class:`HyWorldPlayPRoPEBlock` -- new ``prefill_memory_kv`` side-
-  effect calls that write into the memory cache without invoking
-  attention / cross-attn / FFN.
-* :class:`HyWorldPlayWan21TransformerCache` -- adds the per-rollout
-  clean-latent history buffer + the chunk-start rolling-cache reset
-  that diverges HY mode from the standard rolling-window semantics.
-
-GPU validation (full 2-chunk rollout, parity diff against the vendor
-wrapper) is intentionally deferred -- it lives behind a marker run
-that the CI excludes from the CPU sweep these tests participate in.
-"""
+"""CPU-only structural tests for the HY-WorldPlay KV-prefill executor."""
 
 from __future__ import annotations
 
@@ -55,10 +32,9 @@ def test_memory_kv_cache_defaults_to_empty() -> None:
     """A freshly constructed cache holds no K / V on either branch.
 
     The dual-branch attention reads ``has_rope_kv`` / ``has_prope_kv``
-    to decide whether to prepend memory K / V to the current step's
-    K / V; the default-empty state must let it short-circuit so the
-    forward stays bit-identical to the 2b.4 baseline when no prefill
-    has been issued yet (i.e. on chunk 0 of every rollout).
+    to decide whether to prepend memory K / V; the default-empty state
+    lets it short-circuit so chunk 0 (no prefill yet) stays bit-
+    identical to the pre-memory baseline.
     """
     from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
@@ -73,13 +49,7 @@ def test_memory_kv_cache_defaults_to_empty() -> None:
 
 
 def test_memory_kv_cache_write_rope_round_trip() -> None:
-    """``write_rope`` populates only the standard branch, not the PRoPE one.
-
-    Two-call test in the same vein as the existing ``BlockKVCache``
-    update tests: the cache should treat the two branches as
-    independent state, so writing one never silently leaks K / V
-    into the other.
-    """
+    """``write_rope`` populates only the standard branch, not the PRoPE one."""
     from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
     cache = HyWorldPlayMemoryKVCache()
@@ -94,11 +64,7 @@ def test_memory_kv_cache_write_rope_round_trip() -> None:
 
 
 def test_memory_kv_cache_write_prope_round_trip() -> None:
-    """``write_prope`` populates only the PRoPE branch.
-
-    Symmetric to the ``write_rope`` test; together they pin the
-    branch-independence invariant on both sides.
-    """
+    """``write_prope`` populates only the PRoPE branch (symmetric to ``write_rope``)."""
     from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
     cache = HyWorldPlayMemoryKVCache()
@@ -116,9 +82,7 @@ def test_memory_kv_cache_reset_clears_both_branches() -> None:
 
     The prefill executor calls ``reset`` before each new chunk's
     prefill so leftover K / V from the previous chunk's memory image
-    cannot leak into the new one. This test pins that invariant
-    independently of any prefill driver, so a regression in the
-    cache itself surfaces immediately.
+    cannot leak into the new one.
     """
     from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
@@ -140,16 +104,13 @@ def test_memory_kv_cache_reset_clears_both_branches() -> None:
 def _make_block_cache(*, dim: int = 64, num_heads: int = 2, device: str = "cpu"):
     """Build a minimal :class:`HyWorldPlayPRoPEBlockCache` for direct surface tests.
 
-    Mirrors the ``_make_prope_block`` helper in ``test_camera.py`` --
-    we deliberately avoid spinning up a full :class:`HyWorldPlayPRoPEBlock`
-    here because the block-cache surface tests are about the *cache
-    container's* invariants, not the block's forward.
+    The block-cache surface tests only need the cache container's
+    invariants, not the block's forward.
 
     The optional ``device`` argument lets tests that need a full block
-    forward (e.g. ``prefill_memory_kv`` post 2b.6.2 -- now runs the
-    real attention path, which is cudnn / CUDA only) build the block
-    and its cache on the same device so the per-layer norm / proj
-    tensors don't fight a mixed-device cudnn SDPA call.
+    forward (``prefill_memory_kv`` runs the real cudnn-only attention
+    path) build the block and its cache on the same device so per-layer
+    norm / proj tensors don't fight a mixed-device cudnn SDPA call.
     """
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
@@ -169,12 +130,12 @@ def _make_block_cache(*, dim: int = 64, num_heads: int = 2, device: str = "cpu")
 
 
 def test_block_cache_has_memory_slot() -> None:
-    """The 2b.5b-part2 block cache must expose a ``memory`` slot by default.
+    """Block cache exposes a default-constructed ``memory`` slot.
 
-    The slot is constructed via ``field(default_factory=...)`` so that
-    builders that don't know about the new field still get a working
-    empty cache rather than a ``None`` that would crash the dual-
-    branch attention path.
+    The slot is constructed via ``field(default_factory=...)`` so
+    builders that don't know about the field still get a working empty
+    cache rather than a ``None`` that would crash the dual-branch
+    attention path.
     """
     from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
@@ -186,11 +147,10 @@ def test_block_cache_has_memory_slot() -> None:
 def test_block_cache_reset_current_chunk_skips_memory_slot() -> None:
     """``reset_current_chunk`` wipes only the rolling caches, not the memory slot.
 
-    The two lifecycles are independent: rolling caches reset per
-    chunk start; memory cache resets only when a new prefill is
-    about to run. This test pins that separation; without it, a
-    regression that wired ``memory.reset()`` into the per-chunk
-    reset path would silently nullify the prefill on chunks > 0.
+    The two lifecycles are independent: rolling caches reset at chunk
+    start, memory cache resets only when a new prefill is about to run.
+    A regression that wired ``memory.reset()`` into the per-chunk reset
+    path would silently nullify the prefill on chunks > 0.
     """
     _, cache = _make_block_cache()
     cache.memory.write_rope(torch.randn(1, 4, 2, 32), torch.randn(1, 4, 2, 32))
@@ -209,24 +169,17 @@ def test_block_cache_reset_current_chunk_skips_memory_slot() -> None:
 @pytest.mark.skipif(
     not torch.cuda.is_available(),
     reason=(
-        "Phase 2b.6.2 -- prefill_memory_kv now runs the FULL block "
-        "(self-attn + cross-attn + FFN with residuals) to match "
-        "vendor's is_cache=True path. The self-attn uses cudnn's "
-        "fused SDPA which is CUDA-only; the structural invariant "
-        "this test pins is still exercised by the GPU smoke (and the "
-        "next test in this module pins the cache-write side effect "
-        "more narrowly via the attention-layer-level prefill_memory_kv)."
+        "prefill_memory_kv runs the full block (self-attn + cross-attn "
+        "+ FFN with residuals) to match vendor's is_cache=True path; "
+        "self-attn uses cudnn's fused SDPA which is CUDA-only."
     ),
 )
 def test_prefill_memory_kv_writes_both_branches() -> None:
-    """``HyWorldPlayPRoPEBlock.prefill_memory_kv`` populates both branches of the memory cache.
+    """``HyWorldPlayPRoPEBlock.prefill_memory_kv`` populates both memory-cache branches.
 
-    Structural smoke: a small block on CPU, fed a tiny memory slice
-    + dummy viewmats, must end with both ``has_rope_kv`` and
-    ``has_prope_kv`` ``True``. This is the *minimum* structural
-    invariant the block needs to satisfy for the executor to have
-    something to attend over -- numerical correctness vs upstream is
-    a parity-diff concern that lives behind the GPU smoke marker.
+    Minimum structural invariant for the executor to have something to
+    attend over; numerical correctness vs upstream lives behind the
+    GPU parity smoke.
     """
     block, cache = _make_block_cache(dim=64, num_heads=2, device="cuda")
     block._parameters_updated_after_loading_checkpoint = True
@@ -254,21 +207,18 @@ def test_prefill_memory_kv_writes_both_branches() -> None:
 @pytest.mark.skipif(
     not torch.cuda.is_available(),
     reason=(
-        "Phase 2b.6.2 -- see prefill_memory_kv_writes_both_branches "
-        "for rationale. The cache-isolation invariant pinned here "
-        "still holds; we just need CUDA to exercise the full block "
-        "now that prefill runs cross-attn + FFN end-to-end."
+        "See prefill_memory_kv_writes_both_branches; the full block "
+        "(cross-attn + FFN) needs CUDA / cudnn SDPA."
     ),
 )
 def test_prefill_memory_kv_does_not_touch_rolling_caches() -> None:
-    """The prefill must not write into ``self_attn`` / ``prope_self_attn``.
+    """Prefill must not write into ``self_attn`` / ``prope_self_attn`` rolling caches.
 
-    The rolling caches are the *current chunk's* K / V; the prefill
-    is for *historical* K / V at collapsed positions. Mixing them
-    would corrupt both sides: the dual-branch attention would
-    attend to the prefilled K / V twice (once as memory, once as
-    rolling), and the rolling cache would point at non-current-chunk
-    positions.
+    The rolling caches hold the *current chunk's* K / V; the prefill
+    writes *historical* K / V at collapsed positions. Mixing them
+    would let the dual-branch attention attend to the prefilled
+    K / V twice (memory + rolling) and point the rolling cache at
+    non-current-chunk positions.
     """
     block, cache = _make_block_cache(dim=64, num_heads=2, device="cuda")
     block._parameters_updated_after_loading_checkpoint = True
@@ -292,12 +242,12 @@ def test_prefill_memory_kv_does_not_touch_rolling_caches() -> None:
 
 
 def test_prefill_memory_kv_requires_viewmats() -> None:
-    """The prefill executor must surface a missing-viewmats misconfiguration loudly.
+    """Prefill must raise ``ValueError`` when ``viewmats`` is missing.
 
-    Mirrors the equivalent gate on :meth:`HyWorldPlayPRoPEBlock.forward`:
-    silent fallback would let the prefill produce zero-PRoPE memory
-    K / V and the dual-branch attention would silently drop camera
-    context for the historical frames.
+    Mirrors the gate on :meth:`HyWorldPlayPRoPEBlock.forward`: silent
+    fallback would let the prefill produce zero-PRoPE memory K / V
+    and the dual-branch attention would silently drop camera context
+    for the historical frames.
     """
     block, cache = _make_block_cache(dim=64, num_heads=2)
     block._parameters_updated_after_loading_checkpoint = True
@@ -314,16 +264,13 @@ def test_prefill_memory_kv_requires_viewmats() -> None:
 
 
 def test_dual_branch_attention_short_circuits_empty_memory_cache() -> None:
-    """``forward_dual_branch`` with ``memory_kv_cache=None`` keeps the 2b.4 path live.
+    """Empty / ``None`` memory cache must skip the ``torch.cat`` prepend in ``forward_dual_branch``.
 
-    The two ``has_*_kv`` short-circuits inside ``forward_dual_branch``
-    must let an empty / ``None`` memory cache pass through without
-    invoking the new ``torch.cat`` prepend. We can't easily pin
-    bit-identity of the attention output on CPU (the fused RoPE
-    kernel is CUDA-only), but we *can* drive the fast-path branch
-    explicitly and assert it doesn't fault. This catches any
-    regression that would unconditionally try to materialise
-    ``memory_kv_cache.k_rope`` (which is ``None`` by default).
+    Reaching the slow prepend arm with ``k_rope=None`` would raise;
+    this test pins the fast-path gate so a regression that
+    unconditionally materialises ``memory_kv_cache.k_rope`` surfaces
+    here (the fused RoPE kernel is CUDA-only so we can't pin attention
+    bit-identity from CPU).
     """
     from hy_worldplay._camera import (
         HyWorldPlayMemoryKVCache,
@@ -336,16 +283,12 @@ def test_dual_branch_attention_short_circuits_empty_memory_cache() -> None:
 
     empty_memory = HyWorldPlayMemoryKVCache()
     assert empty_memory.is_empty
-    # The fast-path branch is the ``has_*_kv == False`` arm. Reaching
-    # the slow ``torch.cat`` arm with ``k_rope=None`` would raise; the
-    # fast-path branch is structurally distinct -- this test is the
-    # only place that pins the gate.
+    # Fast-path branch is the ``has_*_kv == False`` arm.
     assert empty_memory.has_rope_kv is False
     assert empty_memory.has_prope_kv is False
-    # And the equivalent ``memory_kv_cache=None`` argument keeps the
-    # same fast path -- the block forward passes ``cache.memory``,
-    # but other call sites may pass ``None`` for tests / future
-    # phases. Both paths must skip the prepend.
+    # The equivalent ``memory_kv_cache=None`` argument keeps the same
+    # fast path; the block forward passes ``cache.memory`` but other
+    # call sites may pass ``None``. Both paths must skip the prepend.
     assert empty_memory.k_rope is None and empty_memory.v_rope is None
 
 
@@ -355,19 +298,18 @@ def test_dual_branch_attention_short_circuits_empty_memory_cache() -> None:
 
 
 def test_transformer_cache_history_defaults_to_empty() -> None:
-    """A fresh HY transformer cache reports no chunks and a ``None`` history.
+    """Fresh HY transformer cache reports no chunks and a ``None`` history.
 
     The prefill executor uses ``finished_chunks`` to short-circuit on
-    chunk 0 (when the history is empty); pinning the default here
-    avoids a regression where a non-zero default would cause the
-    executor to attempt a slice on a non-existent buffer.
+    chunk 0 (when the history is empty); a non-zero default would have
+    the executor slice a non-existent buffer.
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
         WanDiTNetworkCache,
     )
 
-    fake_rope = type("R", (), {})()  # the tests below don't exercise it
+    fake_rope = type("R", (), {})()  # not exercised here
     cache = HyWorldPlayWan21TransformerCache(
         network_cache=WanDiTNetworkCache(block_caches=[]),
         network_cache_uncond=None,
@@ -382,10 +324,10 @@ def test_transformer_cache_history_defaults_to_empty() -> None:
 def test_append_clean_latent_grows_history_and_detaches() -> None:
     """``_append_clean_latent_to_history`` concats along the token axis and detaches.
 
-    The history outlives the autograd graph of the chunk that
-    produced it (each chunk's denoising graph is freed before the
-    next chunk's); the append must therefore detach so a stale
-    graph never re-enters via the next chunk's prefill input.
+    The history outlives the autograd graph of the chunk that produced
+    it (each chunk's denoising graph is freed before the next chunk's),
+    so the append must detach to keep a stale graph from re-entering
+    via the next chunk's prefill input.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
@@ -408,15 +350,11 @@ def test_append_clean_latent_grows_history_and_detaches() -> None:
 
 
 def test_index_rollout_buffer_slices_action_at_rollout_indices() -> None:
-    """``_index_rollout_buffer`` action path indexes the trailing axis at the selected rollout indices.
+    """``_index_rollout_buffer`` indexes the action buffer at rollout positions, not a chunk slice.
 
-    Phase 2b.5b-part2-followup: replaces the parity-incorrect
-    ``_slice_per_frame`` stub from 2b.5b-part2. The new helper
-    expects the per-rollout buffer (full trajectory's worth of
-    frames) and indexes into it with the rollout-coordinate
-    selection from the encoder. This test pins the action int /
-    long dispatch and the trailing-axis indexing so a regression
-    that flips back to the ``[:K]`` truncation surfaces here.
+    Catches regressions that flip back to a contiguous ``[:K]``
+    truncation -- the executor must read the rollout-coordinate
+    positions the encoder selected.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
@@ -432,27 +370,25 @@ def test_index_rollout_buffer_slices_action_at_rollout_indices() -> None:
     )
     assert sliced is not None
     assert sliced.shape == (1, 3)
-    # The crucial parity-correctness assertion: indices match the
-    # rollout positions we asked for, not a contiguous chunk slice.
+    # Indices must match the requested rollout positions, not a
+    # contiguous chunk slice.
     assert torch.equal(sliced, torch.tensor([[0, 3, 5]]))
 
 
 def test_index_rollout_buffer_slices_matrices_at_frame_axis() -> None:
-    """``_index_rollout_buffer`` indexes matrix tensors at axis -3 (the F axis).
+    """``_index_rollout_buffer`` indexes viewmats / Ks at axis -3 (the F axis).
 
     viewmats / Ks have rank ``len(batch_shape) + 3``: ``[..., F, M, N]``.
-    The frame axis is -3, the matrix axes are -2 / -1. The helper must
-    use ``index_select(-3, selected)`` so the matrix payload is
-    preserved unchanged; an off-by-one on the axis would turn a
-    ``[1, 8, 4, 4]`` viewmats buffer into a transposed ``[1, 8, 4, K]``
-    or similar -- this test catches that.
+    The frame axis is -3, the matrix axes are -2 / -1. An off-by-one
+    here would turn a ``[1, 8, 4, 4]`` viewmats buffer into a transposed
+    ``[1, 8, 4, K]`` or similar.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
     transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
 
-    # Build a viewmats buffer where each frame's matrix is its index *
-    # I -- so we can verify the indexing picks the right rows.
+    # Each frame's matrix is ``i * I``, so the indexing picks distinct
+    # rows we can verify.
     rollout_viewmats = torch.stack(
         [torch.eye(4) * float(i) for i in range(8)], dim=0
     ).unsqueeze(0)  # [1, 8, 4, 4]
@@ -469,7 +405,7 @@ def test_index_rollout_buffer_slices_matrices_at_frame_axis() -> None:
     assert torch.equal(sliced[0, 1], torch.eye(4) * 3.0)
     assert torch.equal(sliced[0, 2], torch.eye(4) * 5.0)
 
-    # Ks works the same way, with the smaller 3x3 matrix payload.
+    # Ks works the same way with the smaller 3x3 matrix payload.
     rollout_Ks = torch.stack(
         [torch.eye(3) * float(i) for i in range(8)], dim=0
     ).unsqueeze(0)  # [1, 8, 3, 3]
@@ -485,12 +421,10 @@ def test_index_rollout_buffer_slices_matrices_at_frame_axis() -> None:
 
 
 def test_index_rollout_buffer_returns_none_when_both_inputs_are_none() -> None:
-    """Conditioner not bound on either path -> the helper passes through ``None``.
+    """Conditioner not bound on either path -> helper returns ``None``.
 
-    The prefill executor only consumes the slice when its conditioner
-    is active; if both the rollout and per-step buffers are ``None``
-    we surface that to the caller so it can shortcut the downstream
-    AdaLN / PRoPE math.
+    Lets the caller shortcut the downstream AdaLN / PRoPE math when
+    the prefill executor has no slice to consume.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
@@ -507,15 +441,12 @@ def test_index_rollout_buffer_returns_none_when_both_inputs_are_none() -> None:
 
 
 def test_index_rollout_buffer_falls_back_to_per_step_when_rollout_is_none() -> None:
-    """``rollout is None`` triggers the per-step fallback (parity-incorrect, structurally safe).
+    """``rollout is None`` returns the per-step slice unchanged (parity-incorrect, crash-safe).
 
-    This is the safety net for callers that bind the per-step
-    conditioner state (via the runner's existing per-AR-step path)
-    but have not migrated to the per-rollout setter yet. The
-    fallback is documented as parity-incorrect; it returns the
-    per-step slice unmodified so the prefill doesn't crash, and
-    the conditioner's own gate ensures the slice is not consumed
-    in a way that affects the noise prediction.
+    Safety net for callers still on the per-AR-step path that have
+    not migrated to the per-rollout setter. The conditioner's own
+    gate keeps the (parity-incorrect) slice from affecting the noise
+    prediction.
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
@@ -531,19 +462,14 @@ def test_index_rollout_buffer_falls_back_to_per_step_when_rollout_is_none() -> N
 
 
 def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
-    """``_is_first_step_of_chunk`` reads the prefill-completed latch.
+    """``_is_first_step_of_chunk`` reads the prefill-completed latch on the transformer cache.
 
-    The prefill executor reads this to gate "run prefill exactly
-    once per chunk"; mis-detecting the first step would either
-    re-run the prefill on every scheduler step (wasteful but
-    correct -- writes are deterministic) or skip it entirely
-    (incorrect). The check is via
-    :attr:`HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`
-    rather than the rolling cache's ``_n_cached`` because the
-    Wan-2.1 fast path runs ``before_update`` / ``after_update``
-    once per chunk (not per scheduler step), so ``_n_cached`` does
-    not flip mid-chunk -- relying on it caused 4x redundant
-    prefill calls per chunk (2b.6.2 diagnosis).
+    The gate must consult
+    :attr:`HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`,
+    not the rolling cache's ``_n_cached``: the Wan-2.1 fast path runs
+    ``before_update`` / ``after_update`` once per chunk (not per
+    scheduler step), so ``_n_cached`` doesn't flip mid-chunk and
+    relying on it would re-run the prefill on every scheduler step.
     """
     from hy_worldplay._action import (
         HyWorldPlayWan21Transformer,
@@ -576,12 +502,11 @@ def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
 
 
 def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:
-    """At chunk_idx > 0, ``cache.start`` must wipe per-block rolling caches.
+    """``cache.start(idx > 0)`` must wipe per-block rolling caches.
 
-    Phase 2b.5b-part2: HY mode pushes cross-chunk K / V into the
-    dedicated memory cache; the rolling cache should only ever
-    contain the current chunk's tokens. ``cache.start(idx > 0)``
-    is responsible for clearing the previous chunk's residue.
+    HY mode pushes cross-chunk K / V into the dedicated memory cache;
+    the rolling cache should only ever contain the current chunk's
+    tokens, so ``start`` clears the previous chunk's residue.
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
@@ -619,12 +544,10 @@ def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:
 
 
 def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
-    """At chunk_idx == 0, ``start`` must *not* touch the rolling caches.
+    """``cache.start(0)`` must not touch the rolling caches.
 
-    Otherwise the very first chunk of a rollout would see a wiped
-    cache between the test setup and the first scheduler step, which
-    is a no-op today but would break any future caller that
-    pre-stamps initial K / V before chunk 0.
+    A wipe here is a no-op today, but would break any future caller
+    that pre-stamps initial K / V before chunk 0.
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
@@ -656,13 +579,12 @@ def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
 
 
 def test_ctrl_rollout_fields_default_to_none() -> None:
-    """Rollout buffers default to ``None`` so vendor-wrapper / per-step-only callers stay opt-in.
+    """Per-rollout buffers default to ``None`` so non-prefill callers stay opt-in.
 
-    The rollout buffers are an additive plumbing layer for the
-    prefill executor; ctors that don't bind them must keep producing
-    ctrls that the rest of the codebase treats as if 2b.5b-part2 had
-    never landed. ``None`` is the universal "not bound" signal that
-    ``_index_rollout_buffer`` checks.
+    ``None`` is the universal "not bound" signal that
+    ``_index_rollout_buffer`` checks; ctors that don't bind these
+    buffers must keep producing ctrls the rest of the codebase
+    treats as unchanged.
     """
     from hy_worldplay._action import HyWorldPlayCtrl
 
@@ -675,13 +597,9 @@ def test_ctrl_rollout_fields_default_to_none() -> None:
 def test_ctrl_rollout_fields_survive_patchify_rebuild() -> None:
     """Patchify must pass through the per-rollout buffers unchanged.
 
-    The ``HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp``
-    override rebuilds the ctrl after patchify; if the new rollout
-    fields aren't included in the rebuild, the prefill executor
-    downstream of patchify would read ``None`` and silently fall
-    back to the per-AR-step (parity-incorrect) slice. This test
-    pins the inclusion at the patchify rebuild without spinning up
-    a full transformer forward.
+    Without inclusion at the patchify rebuild, the prefill executor
+    downstream would read ``None`` and silently fall back to the
+    per-AR-step (parity-incorrect) slice.
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
@@ -696,11 +614,10 @@ def test_ctrl_rollout_fields_survive_patchify_rebuild() -> None:
     rollout_action = torch.zeros(1, 16, dtype=torch.long)
 
     # Already-patchified ctrl: the override returns the ctrl as-is,
-    # which is enough to confirm the ``_is_patchified`` early-return
-    # sees the new fields. The non-patchified branch can't be tested
-    # here without a real transformer (it calls
-    # ``self.patchify_and_maybe_split_cp(x.latent)`` recursively),
-    # so we exercise the equivalent rebuild via the ctor below.
+    # which exercises the ``_is_patchified`` early-return path against
+    # the new fields. The non-patchified branch recurses into
+    # ``self.patchify_and_maybe_split_cp(x.latent)`` and needs a real
+    # transformer, so we cover the equivalent rebuild via the ctor.
     ctrl_patched = HyWorldPlayCtrl(
         latent=torch.randn(1, 4, 16, 8, 8),
         mask=torch.zeros(1, 4, 16, 8, 8),
@@ -717,14 +634,12 @@ def test_ctrl_rollout_fields_survive_patchify_rebuild() -> None:
 
 
 def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
-    """``HyWorldPlayWanCtrlEncoder.forward`` puts the bound per-rollout buffers on the ctrl.
+    """``HyWorldPlayWanCtrlEncoder.forward`` attaches bound per-rollout buffers to the ctrl.
 
-    End-to-end check of the 2b.5b-part2-followup plumbing: bind the
-    full-trajectory action / viewmats / Ks via the encoder's
-    setters, then drive a single ``forward`` and assert the output
-    ctrl carries the per-rollout buffers in ``rollout_*``. Pins the
-    contract between the encoder (data source) and the prefill
-    driver (consumer) without touching the transformer / network.
+    End-to-end check of the encoder -> prefill plumbing: bind the
+    full-trajectory action / viewmats / Ks via the encoder's setters,
+    drive a single ``forward``, and assert the output ctrl carries
+    them in ``rollout_*`` alongside the per-AR-step slice.
     """
     from hy_worldplay._action import (
         HyWorldPlayWanCtrlEncoder,
@@ -734,8 +649,8 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
     cfg = HyWorldPlayWanCtrlEncoderConfig()
     encoder = HyWorldPlayWanCtrlEncoder(cfg)
 
-    # Stub the parent's forward so we don't have to spin up a VAE -
-    # we only exercise the action / viewmats / Ks attach paths.
+    # Stub the parent's forward so we don't have to spin up a VAE --
+    # this test only exercises the action / viewmats / Ks attach paths.
     from hy_worldplay._action import HyWorldPlayCtrl
     from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 
@@ -750,15 +665,13 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
     encoder.set_action_labels(rollout_action)
 
     # Stub the parent's forward to return a minimal I2VCtrl with a
-    # latent that has the required ``len_t`` axis (4 latent frames
-    # per chunk). Bypasses the VAE encode pipeline that the real
-    # parent forward would otherwise spin up.
+    # latent that has the required ``len_t`` axis (4 latent frames per
+    # chunk). Bypasses the VAE encode pipeline.
     def fake_super_forward(*, input, autoregressive_index, cache):
         latent = torch.zeros(1, 4, 4, 8, 8)  # [B, C, len_t=4, H, W]
         mask = torch.zeros(1, 4, 4, 8, 8)
         return I2VCtrl(latent=latent, mask=mask)
 
-    # Patch the parent's forward at the bound-method level.
     import unittest.mock as _mock
 
     with _mock.patch(
@@ -778,7 +691,7 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
     assert ctrl.viewmats is not None
     assert ctrl.viewmats.shape == (1, 4, 4, 4)
 
-    # NEW: per-rollout buffers carry the FULL trajectory.
+    # Per-rollout buffers carry the full trajectory.
     assert ctrl.rollout_viewmats is not None
     assert ctrl.rollout_viewmats.shape == (1, F_total, 4, 4)
     assert ctrl.rollout_Ks is not None
@@ -788,14 +701,13 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
 
 
 def test_encoder_omits_rollout_buffers_when_unbound() -> None:
-    """Unbound conditioner -> ``rollout_*`` is ``None`` (matches the per-step contract).
+    """Unbound conditioner -> ``rollout_*`` is ``None`` (the three streams stay independent).
 
-    A user that only enables, say, ``--use-action-conditioning``
-    (not ``--use-camera-conditioning``) should see ``rollout_action``
-    populated and ``rollout_viewmats`` / ``rollout_Ks`` ``None``;
-    the prefill driver's ``_index_rollout_buffer`` then falls back
-    to its safe per-step path for the camera conditioner. Pins
-    independence of the three streams.
+    Enabling only ``--use-action-conditioning`` should leave
+    ``rollout_action`` populated and ``rollout_viewmats`` /
+    ``rollout_Ks`` ``None``; the prefill driver's
+    ``_index_rollout_buffer`` then takes its safe per-step fallback
+    for the unbound camera conditioner.
     """
     from hy_worldplay._action import (
         HyWorldPlayWanCtrlEncoder,

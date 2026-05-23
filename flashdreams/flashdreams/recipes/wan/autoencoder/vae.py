@@ -1531,13 +1531,10 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     r"^decoder\.conv_out\.(.*)$": r"decoder.head.2.\1",
     # Mid block: diffusers stores ``resnets.{0,1}`` + ``attentions.0``
     # while our Sequential is (Residual, Attention, Residual) ->
-    # indices (0, 1, 2). The diffusers ``WanMidBlock.forward`` runs
-    # resnets[0], then (attentions[0], resnets[1]), so the residual
-    # ordering matches our (middle.0, middle.2) layout. The two
-    # mid-block resnets share the inner Sequential layout with the
-    # down/up-block resnets, so we apply the same per-field remap
-    # (``norm1`` -> ``residual.0`` etc.) before the catch-all
-    # ``mid_block.resnets`` -> ``middle`` rewrite.
+    # indices (0, 1, 2). ``WanMidBlock.forward`` runs resnets[0], then
+    # (attentions[0], resnets[1]), so the ordering matches our
+    # (middle.0, middle.2) layout. Per-field remap mirrors the
+    # down/up-block resnets below.
     r"^encoder\.mid_block\.resnets\.0\.norm1\.(.*)$": r"encoder.middle.0.residual.0.\1",
     r"^encoder\.mid_block\.resnets\.0\.conv1\.(.*)$": r"encoder.middle.0.residual.2.\1",
     r"^encoder\.mid_block\.resnets\.0\.norm2\.(.*)$": r"encoder.middle.0.residual.3.\1",

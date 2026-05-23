@@ -13,21 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Phase 2b.6.2 runtime tensor-dump harness for HY-WorldPlay chunk-1+ diagnosis.
+"""Env-var-gated, CUDA-graph-safe tensor-dump harness for HY-WorldPlay parity diagnosis.
 
-Env-var-gated. Set ``HY_DEBUG_DUMP=/path/to/file.jsonl`` (or any
-non-empty value to dump to ``hy_debug_dump.jsonl`` in CWD) to enable.
-Every :func:`dump` call writes a single JSON line with tensor stats
-(shape, dtype, abs_mean, mean, std, min, max, first-32 flat values).
-Default-disabled so production / parity runs pay zero overhead.
-
-Used to diff per-block tensor shapes / norms between native and vendor
-at matched call sites (chunk-1+ prefill, dual-branch attention, etc.)
-when the static review of phase 2b.6 didn't surface the 65/255 native
-divergence root cause.
+Set ``HY_DEBUG_DUMP=/path/to/file.jsonl`` (or any truthy value to dump
+to ``hy_debug_dump.jsonl`` in CWD) to enable. Every :func:`dump` call
+appends a single JSON line with tensor stats (shape, dtype, abs_mean,
+mean, std, min, max, first-32 flat values). Disabled by default so
+production and parity runs pay zero overhead, and silently no-ops
+during CUDA graph capture so dump calls embedded in the graph-captured
+forward don't invalidate the capture.
 
 The vendor side gets parallel dumps via
-``tests/parity_check/dump_patch.py`` which monkey-patches the same
+``tests/parity_check/dump_patch.py``, which monkey-patches the same
 call sites in the vendor source tree.
 """
 
@@ -49,7 +46,7 @@ _context: dict[str, Any] = {}
 
 
 def enabled() -> bool:
-    """Return True iff HY_DEBUG_DUMP env var is set to a non-empty value."""
+    """Return ``True`` iff ``HY_DEBUG_DUMP`` is set to a non-empty value."""
     return bool(os.environ.get(_DUMP_ENV_VAR, ""))
 
 
@@ -57,28 +54,25 @@ def _dump_path() -> str:
     val = os.environ.get(_DUMP_ENV_VAR, "")
     if not val:
         return ""
-    # When the env var is just "1" or "true" / similar, use a default
-    # filename in CWD; otherwise treat the env var value as the target
-    # path.
+    # Generic truthy values map to a default file in CWD; anything else
+    # is taken as the dump path itself.
     if val in {"1", "true", "True", "yes", "on"}:
         return os.path.abspath("hy_debug_dump.jsonl")
     return os.path.abspath(val)
 
 
 def set_context(**kwargs: Any) -> None:
-    """Bind per-call-site context (chunk_idx, step_idx, block_idx, branch).
+    """Bind per-call-site context (e.g. ``chunk_idx``, ``step_idx``, ``block_idx``).
 
     Context is merged into every subsequent :func:`dump` line until
-    overridden or :func:`clear_context` is called. Useful for setting
-    a per-step header (chunk_idx, step_idx) once outside the block
-    loop and not repeating it on every dump call.
+    overridden or :func:`clear_context` is called.
     """
     with _lock:
         _context.update(kwargs)
 
 
 def clear_context(*keys: str) -> None:
-    """Drop one or more keys from the context (or all if no keys passed)."""
+    """Drop one or more keys from the context, or all if no keys are passed."""
     with _lock:
         if not keys:
             _context.clear()
@@ -104,11 +98,11 @@ def context(**kwargs: Any) -> Iterator[None]:
 
 
 def _tensor_stats(t: Tensor) -> dict[str, Any]:
-    """Compute scalar stats + a short prefix sample of ``t``.
+    """Compute scalar stats and a short prefix sample of ``t``.
 
-    All stats run in float32 on the tensor's device and the resulting
-    Python floats are captured eagerly (``.item()``) so the dumped
-    record is JSON-serialisable without holding device memory.
+    Runs in float32 on the tensor's device and captures the resulting
+    Python floats eagerly (``.item()``) so the dumped record is
+    JSON-serialisable without holding device memory.
     """
     if not isinstance(t, Tensor):
         return {"non_tensor_repr": repr(t)[:200]}
@@ -138,25 +132,18 @@ def _tensor_stats(t: Tensor) -> dict[str, Any]:
 
 
 def dump(name: str, tensor: Tensor | None, **extra: Any) -> None:
-    """Append a JSON-line record for ``tensor`` with stats + current context.
+    """Append a JSON-line record for ``tensor`` plus the current context.
 
-    No-op when :func:`enabled` is False. ``tensor=None`` is allowed
-    and records only the context + extra fields (useful for marking
-    control-flow events that don't have an obvious tensor).
-
-    Also a no-op while a CUDA graph capture is active: file I/O and
-    host-synchronous tensor stats (``.item()``) are illegal inside
-    ``torch.cuda.graph`` capture and crash the run with
-    ``cudaErrorStreamCaptureInvalidated``. Disable CUDA graph mode
-    (e.g. ``FLASHDREAMS_DISABLE_CUDA_GRAPH=1`` if the toggle exists,
-    or run from a build that doesn't compile the predict_flow path)
-    when iterating with dumps enabled.
+    No-op when :func:`enabled` is ``False`` and during CUDA graph
+    capture (``.item()`` / file I/O inside a graph capture window would
+    invalidate the capture). ``tensor=None`` records only the context
+    and ``extra`` fields, which is useful for marking control-flow
+    events that don't have an obvious tensor.
     """
     if not enabled():
         return
-    # Skip if we're inside a CUDA graph capture window -- otherwise
-    # the .item() / file I/O calls below would fail capture and
-    # crash the run with cudaErrorStreamCaptureInvalidated.
+    # CUDA graph capture forbids host-synchronous tensor reads and file
+    # I/O; bail before either can invalidate the capture.
     if torch.cuda.is_available():
         try:
             if torch.cuda.is_current_stream_capturing():
@@ -176,8 +163,8 @@ def dump(name: str, tensor: Tensor | None, **extra: Any) -> None:
         try:
             line = json.dumps(record, default=str)
         except (TypeError, ValueError) as e:
-            # Best-effort: fall back to a stringified extra payload if
-            # something in the record isn't JSON-clean.
+            # Best-effort fallback: stringify the non-JSON-clean payload
+            # rather than failing the run for a diagnostic write.
             record["__json_error"] = str(e)
             record["__repr"] = repr({k: v for k, v in record.items() if k != "tensor"})[:500]
             line = json.dumps({"name": name, "__error": str(e)})
@@ -186,5 +173,5 @@ def dump(name: str, tensor: Tensor | None, **extra: Any) -> None:
             with open(path, "a") as f:
                 f.write(line + "\n")
         except OSError:
-            # Don't let a dump failure break the run.
+            # Diagnostic-only: never let a dump failure abort the run.
             pass

@@ -13,13 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cheap import-time checks for the ``hy_worldplay`` plugin.
-
-These tests deliberately avoid touching the upstream HY-WorldPlay tree
-or any GPU code; they only exercise the dataclass surface and the
-``flashdreams-run`` registration wiring so that
-``uv run pytest integrations/hy_worldplay/tests`` is fast and CPU-only.
-"""
+"""Cheap import-time smoke checks for the ``hy_worldplay`` plugin."""
 
 from __future__ import annotations
 
@@ -49,8 +43,7 @@ def test_runners_dict_is_non_empty() -> None:
 
 
 def test_runner_keyed_by_runner_name() -> None:
-    """Dict key must mirror ``cfg.runner_name`` (matches the
-    self_forcing / wan21 conventions)."""
+    """Each ``RUNNER_CONFIGS`` key must match its ``cfg.runner_name``."""
     drifted = {
         slug: cfg.runner_name
         for slug, cfg in RUNNER_CONFIGS.items()
@@ -68,22 +61,16 @@ def test_runners_have_descriptions() -> None:
 
 
 def test_default_prompts_are_nonempty() -> None:
-    """Sanity: default prompts shouldn't drift to empty strings."""
+    """Default prompts must be non-empty."""
     assert DEFAULT_PROMPT.strip(), "DEFAULT_PROMPT is empty"
     assert DEFAULT_NEGATIVE_PROMPT.strip(), "DEFAULT_NEGATIVE_PROMPT is empty"
 
 
-# Reference strings copied verbatim from upstream
-# ``HY-WorldPlay/wan/generate.py`` (``--input`` / ``--negative_prompt``
-# argparse defaults). Pinned here so the parity-check delta against
-# upstream cannot regress without a test failure first; bump in
-# lockstep when upstream rotates its example prompt.
-#
-# This test exists because phase-1 development hit a 36%-of-total
-# parity drift (mean |Δ| 5.35 -> 3.41 on uint8 RGB) that turned out to
-# be a single trailing ``.`` on ``DEFAULT_PROMPT`` -- UMT5 tokenises
-# the period as an extra token, which shifts the text embedding and
-# perturbs every diffusion step. Cheap test, expensive bug to find.
+# Pinned verbatim from upstream ``HY-WorldPlay/wan/generate.py``
+# (``--input`` / ``--negative_prompt`` argparse defaults). UMT5
+# tokenises trailing punctuation / whitespace as extra tokens, so any
+# byte drift here shifts the text embedding and breaks parity -- bump
+# in lockstep when upstream rotates its example prompt.
 _UPSTREAM_INPUT_DEFAULT = (
     "First-person view walking around ancient Athens, "
     "with Greek architecture and marble structures"
@@ -97,8 +84,7 @@ _UPSTREAM_NEGATIVE_PROMPT_DEFAULT = (
 
 
 def test_default_prompt_byte_matches_upstream() -> None:
-    """Parity guard: ``DEFAULT_PROMPT`` must byte-match upstream's
-    ``--input`` argparse default."""
+    """Assert ``DEFAULT_PROMPT`` byte-matches upstream's ``--input`` argparse default."""
     assert DEFAULT_PROMPT == _UPSTREAM_INPUT_DEFAULT, (
         "DEFAULT_PROMPT drifted from upstream wan/generate.py --input "
         "default. UMT5 tokenises trailing punctuation, whitespace, and "
@@ -110,8 +96,7 @@ def test_default_prompt_byte_matches_upstream() -> None:
 
 
 def test_default_negative_prompt_byte_matches_upstream() -> None:
-    """Parity guard: ``DEFAULT_NEGATIVE_PROMPT`` must byte-match
-    upstream's ``--negative_prompt`` argparse default."""
+    """Assert ``DEFAULT_NEGATIVE_PROMPT`` byte-matches upstream's ``--negative_prompt`` default."""
     assert DEFAULT_NEGATIVE_PROMPT == _UPSTREAM_NEGATIVE_PROMPT_DEFAULT, (
         "DEFAULT_NEGATIVE_PROMPT drifted from upstream wan/generate.py "
         "--negative_prompt default. Same risk as the positive prompt: "
@@ -122,8 +107,7 @@ def test_default_negative_prompt_byte_matches_upstream() -> None:
 
 
 def test_default_pose_string_well_formed() -> None:
-    """Pose string ``num_chunk * 4`` invariant from upstream's
-    ``WanRunner.predict`` -> ``pose_to_input`` assertion."""
+    """Default pose must satisfy upstream's ``num_chunk * 4`` latent-count invariant."""
     cfg = RUNNER_HY_WORLDPLAY_WAN_I2V_5B
     # ``"w-16"`` -> 16 latents; default num_chunk=4 -> 4*4=16 latents.
     parts = cfg.pose.split("-")
@@ -135,13 +119,7 @@ def test_default_pose_string_well_formed() -> None:
 
 
 def test_setup_without_required_paths_raises() -> None:
-    """Constructing the *vendor-wrapper* runner without the three
-    required paths should fail loudly rather than try to import
-    upstream and segfault. Phase 2b.6.2 default-flip note: now that
-    ``use_native_pipeline`` defaults to ``True`` (native runner
-    path), this test must explicitly opt back into the wrapper to
-    exercise its path validation.
-    """
+    """Vendor-wrapper ``setup()`` without the required paths must raise ``ValueError``."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -154,12 +132,7 @@ def test_setup_without_required_paths_raises() -> None:
 
 
 def test_missing_repo_root_raises_filenotfound() -> None:
-    """Pointing at a non-existent repo root should give a clear error
-    rather than a cryptic ``ImportError``. Vendor-wrapper-specific (the
-    native runner does not consume ``hy_worldplay_repo_root``); see
-    ``test_setup_without_required_paths_raises`` for the default-flip
-    rationale on the explicit ``use_native_pipeline=False`` opt-in.
-    """
+    """Vendor-wrapper ``setup()`` with a missing repo root must raise ``FileNotFoundError``."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -172,27 +145,12 @@ def test_missing_repo_root_raises_filenotfound() -> None:
 
 
 def test_runner_config_is_runner_config_subclass() -> None:
-    """``HyWorldPlayWanI2VRunnerConfig`` must subclass
-    :class:`flashdreams.infra.runner.RunnerConfig` so the
-    ``flashdreams.runner_configs`` entry-point discovery layer (which
-    ``isinstance``-checks against ``RunnerConfig``) accepts it."""
+    """Runner config must subclass :class:`RunnerConfig` so entry-point discovery accepts it."""
     assert isinstance(RUNNER_HY_WORLDPLAY_WAN_I2V_5B, RunnerConfig)
 
 
 def test_default_runner_uses_native_pipeline() -> None:
-    """Phase 2b.6.2 default-flip: the shipped runner config defaults to the
-    native :class:`HyWorldPlayWanI2VNativeRunner` path with a real
-    :class:`WanInferencePipelineConfig` from
-    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B`.
-
-    Previously (phases 2b.1 - 2b.6) the default was the inert
-    :class:`_NoopPipelineConfig` stand-in routed through upstream's
-    :class:`wan.generate.WanRunner`. The phase 2b.6.2 parity close
-    moves the native path to production default; callers who need
-    bit-exact match against upstream's ``use_kv_cache=False`` default
-    explicitly opt back into the wrapper with
-    ``use_native_pipeline=False``.
-    """
+    """Default runner config routes through the native runner + real ``WanInferencePipelineConfig``."""
     from flashdreams.recipes.wan.config import WanInferencePipelineConfig
     from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
 
@@ -206,14 +164,7 @@ def test_default_runner_uses_native_pipeline() -> None:
 
 
 def test_vendor_wrapper_still_available_via_explicit_optout() -> None:
-    """``use_native_pipeline=False`` keeps the phase-1 vendor wrapper path.
-
-    The :class:`_NoopPipelineConfig` stand-in is still constructable
-    so downstream callers who need bit-exact match against upstream's
-    ``use_kv_cache=False`` default can fall back to it via the
-    explicit opt-out. The setup() call returns the matching no-op
-    pipeline instance.
-    """
+    """``use_native_pipeline=False`` keeps the vendor-wrapper :class:`_NoopPipelineConfig` path."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -225,23 +176,12 @@ def test_vendor_wrapper_still_available_via_explicit_optout() -> None:
 
 
 def test_use_native_pipeline_routes_to_wan_pipeline() -> None:
-    """Phase 2b.1 feature flag: ``use_native_pipeline=True`` swaps the
-    pipeline slot from :class:`_NoopPipelineConfig` to a fresh copy of
-    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` and swaps
-    ``_target`` to :class:`HyWorldPlayWanI2VNativeRunner`.
-
-    Phase 2b.6.2 closing step: the default flipped to ``True``, so the
-    native :class:`HyWorldPlayWanI2VNativeRunner` is the production
-    target. ``use_native_pipeline=False`` is preserved as an explicit
-    opt-in for the phase-1 vendor wrapper (callers who specifically
-    need bit-exact match against upstream's ``use_kv_cache=False``
-    default).
-    """
+    """``use_native_pipeline`` selects the native vs vendor-wrapper pipeline + ``_target`` pair."""
     from flashdreams.recipes.wan.config import WanInferencePipelineConfig
     from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
     from hy_worldplay.runner import HyWorldPlayWanI2VRunner
 
-    # Default config: native path is now the production target.
+    # Default config: native path is the production target.
     default_cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
     )
@@ -253,7 +193,7 @@ def test_use_native_pipeline_routes_to_wan_pipeline() -> None:
     assert default_cfg.pipeline.recipe_name == "wan22-ti2v-5b"
     assert default_cfg._target is HyWorldPlayWanI2VNativeRunner
 
-    # Explicit opt-out preserves the phase-1 vendor wrapper path.
+    # Explicit opt-out preserves the vendor wrapper path.
     wrapper_cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -272,10 +212,7 @@ def test_use_native_pipeline_routes_to_wan_pipeline() -> None:
 
 
 def test_use_native_pipeline_deepcopies_singleton() -> None:
-    """Two native-mode configs must own distinct pipeline-config
-    instances so per-rank seed offsets / ``derive_config`` mutations on
-    one config cannot leak into another or into the module-level
-    :data:`PIPELINE_WAN22_TI2V_5B` singleton."""
+    """Each native-mode config owns a distinct pipeline copy so mutations cannot leak between them."""
     from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
 
     cfg_a = HyWorldPlayWanI2VRunnerConfig(
@@ -291,25 +228,15 @@ def test_use_native_pipeline_deepcopies_singleton() -> None:
 
 
 def test_use_native_pipeline_swaps_scheduler_to_euler_distilled() -> None:
-    """Phase 2b.2: native mode must swap the base recipe's UniPC
-    scheduler for the upstream-distilled Euler schedule.
-
-    Guards against the pipeline silently falling back to UniPC: at
-    sub-PR 2b.1 the native runner produced visibly drifted output
-    against the vendor wrapper because the schedulers diverged
-    (UniPC 40-step vs Euler 4-step). 2b.2 closes that gap; this test
-    pins both the scheduler class and the exact 5-entry timestep
-    schedule lifted from upstream
-    ``wan/inference/pipeline_wan_w_mem_relative_rope.py``.
-    """
+    """Native mode swaps the base recipe's UniPC scheduler for upstream's distilled Euler schedule."""
     from flashdreams.infra.diffusion.scheduler import (
         FlowMatchEulerDiscreteSchedulerConfig,
         FlowMatchUniPCSchedulerConfig,
     )
     from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
 
-    # Base recipe stays neutral so non-HY callers of PIPELINE_WAN22_TI2V_5B
-    # keep their existing UniPC scheduler.
+    # Base recipe stays on UniPC so non-HY callers of PIPELINE_WAN22_TI2V_5B
+    # keep their existing scheduler.
     assert isinstance(
         PIPELINE_WAN22_TI2V_5B.diffusion_model.scheduler,
         FlowMatchUniPCSchedulerConfig,
@@ -329,10 +256,7 @@ def test_use_native_pipeline_swaps_scheduler_to_euler_distilled() -> None:
 
 
 def test_use_native_pipeline_respects_user_override() -> None:
-    """A user-supplied ``pipeline=`` override must not be clobbered by
-    the ``use_native_pipeline`` swap. Lets power users plug in custom
-    pipeline configs (e.g. a derived ``PIPELINE_WAN22_TI2V_5B`` with a
-    different scheduler) without round-tripping through the flag."""
+    """A user-supplied ``pipeline=`` override must not be clobbered by the ``use_native_pipeline`` swap."""
     from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
     from flashdreams.infra.config import derive_config
 
@@ -347,14 +271,7 @@ def test_use_native_pipeline_respects_user_override() -> None:
 
 
 def test_use_action_conditioning_off_by_default() -> None:
-    """Phase 2b.3 feature flag defaults off so the 2b.1/2b.2 baseline is untouched.
-
-    Without ``use_action_conditioning=True`` the deep-copied
-    ``PIPELINE_WAN22_TI2V_5B`` must keep its stock
-    :class:`WanI2VCtrlEncoderConfig` / :class:`Wan21TransformerConfig`
-    pair, so a runner that only opts into ``use_native_pipeline`` sees
-    the same encoder + transformer it saw at 2b.2 even after 2b.3 lands.
-    """
+    """``use_action_conditioning`` defaults off; the encoder / transformer pair stays stock."""
     from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
     from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
@@ -367,16 +284,7 @@ def test_use_action_conditioning_off_by_default() -> None:
 
 
 def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
-    """Phase 2b.3 wiring: action flag swaps in the HY encoder / transformer / network.
-
-    The encoder becomes :class:`HyWorldPlayWanCtrlEncoderConfig`, the
-    transformer becomes :class:`HyWorldPlayWan21TransformerConfig`, and
-    the nested network becomes :class:`HyWorldPlayWanDiTNetworkConfig`.
-    All other transformer fields (``len_t``, ``stamp_image_latent``,
-    ``ti2v_first_frame_per_token_timestep``, ...) must be propagated so
-    the subclassed transformer behaves identically apart from the action
-    plumbing.
-    """
+    """``use_action_conditioning`` swaps in the HY encoder / transformer / network triple."""
     from hy_worldplay._action import (
         HyWorldPlayWan21TransformerConfig,
         HyWorldPlayWanCtrlEncoderConfig,
@@ -392,24 +300,19 @@ def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
     transformer = cfg.pipeline.diffusion_model.transformer
     assert isinstance(transformer, HyWorldPlayWan21TransformerConfig)
     assert isinstance(transformer.network, HyWorldPlayWanDiTNetworkConfig)
-    # Critical Wan 2.2 TI2V 5B knobs must be propagated, not silently
-    # reset to subclass defaults. ``len_t`` is the one exception: the
-    # HY-WorldPlay swap overrides it from the base recipe's 21 down to
-    # 4 to match upstream's ``pred_latent_size=4`` per-AR-step chunk
-    # size (see ``_swap_in_action_conditioning_configs`` for the
-    # rationale). Without this override, native vs vendor produce
-    # different total frame counts and are not parity-comparable.
+    # Wan 2.2 TI2V 5B knobs must propagate through the swap. ``len_t``
+    # is overridden from the base recipe's 21 down to 4 to match
+    # upstream's ``pred_latent_size=4`` per-AR-step chunk; without that
+    # override the native and vendor paths produce different frame
+    # counts and are not parity-comparable.
     assert transformer.len_t == 4
     assert transformer.window_size_t == 4
     assert transformer.stamp_image_latent is True
     assert transformer.ti2v_first_frame_per_token_timestep is True
-    # HY-WorldPlay distilled WAN-5B bakes CFG into the checkpoint; the
-    # swap pins ``guidance_scale=1.0`` so ``Wan21Transformer.predict_flow``
-    # skips the uncond forward + ``flow_uncond + s * (flow_cond -
-    # flow_uncond)`` combine (which upstream
-    # ``pipeline_wan_w_mem_relative_rope.py`` also skips on its
-    # few-step distilled path). The base WAN-5B recipe stays at ``5.0``
-    # because the non-distilled model needs explicit CFG.
+    # Distilled WAN-5B bakes CFG into the checkpoint, so the swap pins
+    # ``guidance_scale=1.0`` to skip the uncond forward in
+    # ``Wan21Transformer.predict_flow``. The base (non-distilled)
+    # WAN-5B recipe stays at 5.0 because it still needs explicit CFG.
     assert transformer.guidance_scale == 1.0
     assert transformer.network.in_dim == 48
     assert transformer.network.out_dim == 48
@@ -417,15 +320,7 @@ def test_use_action_conditioning_swaps_encoder_and_transformer() -> None:
 
 
 def test_use_action_conditioning_requires_native_pipeline() -> None:
-    """``use_action_conditioning`` without ``use_native_pipeline`` is a no-op.
-
-    The vendor-wrapper path drives upstream's runner end-to-end, so the
-    action-aware encoder / transformer swap has nothing to attach to; we
-    leave the inert :class:`_NoopPipelineConfig` in place and let the
-    vendor wrapper carry through its own action conditioning. Phase
-    2b.6.2 default-flip note: the test must opt out of
-    ``use_native_pipeline`` explicitly (the default is now ``True``).
-    """
+    """``use_action_conditioning`` without ``use_native_pipeline`` leaves the vendor wrapper in place."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -435,15 +330,7 @@ def test_use_action_conditioning_requires_native_pipeline() -> None:
 
 
 def test_use_camera_conditioning_off_by_default() -> None:
-    """Phase 2b.4 feature flag defaults off; PRoPE blocks stay disabled.
-
-    With only ``use_native_pipeline`` (and even with
-    ``use_action_conditioning``) set, the deep-copied network config must
-    keep ``use_prope_blocks=False`` so the DiT keeps building stock
-    :class:`Block` instances. Guards against accidentally promoting PRoPE
-    blocks (which need bound camera data) when callers only want action
-    conditioning.
-    """
+    """``use_camera_conditioning`` defaults off; PRoPE blocks stay disabled even when action is on."""
     from hy_worldplay._action import HyWorldPlayWanDiTNetworkConfig
 
     only_action = HyWorldPlayWanI2VRunnerConfig(
@@ -457,16 +344,7 @@ def test_use_camera_conditioning_off_by_default() -> None:
 
 
 def test_use_camera_conditioning_flips_prope_blocks_flag() -> None:
-    """Phase 2b.4 wiring: camera flag enables the dual-branch block path.
-
-    ``use_camera_conditioning=True`` must (a) trigger the encoder /
-    transformer / network swap (the camera tensors ride on the same
-    :class:`HyWorldPlayCtrl` payload as the action labels, so there's
-    one subclass tree, not two) and (b) flip ``use_prope_blocks=True``
-    on the resulting :class:`HyWorldPlayWanDiTNetworkConfig` so
-    :meth:`HyWorldPlayWanDiTNetwork._build_block` emits
-    :class:`HyWorldPlayPRoPEBlock` instances at network construction.
-    """
+    """``use_camera_conditioning=True`` triggers the HY subclass swap and flips ``use_prope_blocks``."""
     from hy_worldplay._action import (
         HyWorldPlayWan21TransformerConfig,
         HyWorldPlayWanCtrlEncoderConfig,
@@ -486,13 +364,7 @@ def test_use_camera_conditioning_flips_prope_blocks_flag() -> None:
 
 
 def test_use_camera_conditioning_composes_with_action() -> None:
-    """Action + camera flags together must yield a single combined config.
-
-    The camera swap reuses the action subclass tree, so flipping both
-    flags should not produce duplicate / nested swaps -- exactly one
-    :class:`HyWorldPlayWanCtrlEncoderConfig` instance with
-    ``use_prope_blocks=True`` on its network sibling.
-    """
+    """Action + camera flags together yield a single combined config, not nested swaps."""
     from hy_worldplay._action import (
         HyWorldPlayWan21TransformerConfig,
         HyWorldPlayWanCtrlEncoderConfig,
@@ -514,11 +386,7 @@ def test_use_camera_conditioning_composes_with_action() -> None:
 
 
 def test_use_camera_conditioning_requires_native_pipeline() -> None:
-    """``use_camera_conditioning`` without ``use_native_pipeline`` is a no-op.
-
-    Phase 2b.6.2 default-flip note: the test must opt out of
-    ``use_native_pipeline`` explicitly (default is now ``True``).
-    """
+    """``use_camera_conditioning`` without ``use_native_pipeline`` is a no-op."""
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
         use_native_pipeline=False,
@@ -533,8 +401,8 @@ def test_use_action_conditioning_respects_user_encoder_override() -> None:
     from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
     from flashdreams.infra.config import derive_config
 
-    # Build a custom pipeline with a custom (subclassed) encoder so the
-    # swap's ``type(...) is WanI2VCtrlEncoderConfig`` guard rejects it.
+    # Subclass the encoder so the swap's
+    # ``type(...) is WanI2VCtrlEncoderConfig`` guard rejects it.
     class _CustomEncoderConfig(WanI2VCtrlEncoderConfig):
         pass
 
@@ -551,15 +419,7 @@ def test_use_action_conditioning_respects_user_encoder_override() -> None:
 
 
 def test_distilled_checkpoint_routing_off_by_default() -> None:
-    """Phase 2b.5b routing: without ``ckpt_path`` the transformer keeps
-    the base 5B diffusers safetensors checkpoint + remap.
-
-    Used by the swap-config smoke tests above (which intentionally
-    don't supply a ``ckpt_path``); also covers the case where a user
-    enables conditioners without yet downloading the distilled
-    checkpoint. The conditioners stay as zero-init identities so
-    output continues to match the base recipe.
-    """
+    """Without ``ckpt_path``, the transformer keeps the base 5B safetensors checkpoint + remap."""
     from flashdreams.recipes.wan.config import (
         WAN22_TI2V_5B_DIT_DIFFUSERS_PATH,
         wan22_ti2v_5b_dit_state_dict_transform,
@@ -578,15 +438,7 @@ def test_distilled_checkpoint_routing_off_by_default() -> None:
 
 
 def test_distilled_checkpoint_routing_swaps_when_ckpt_path_set() -> None:
-    """Phase 2b.5b routing: setting ``ckpt_path`` re-routes the transformer
-    load to the distilled ``.pt`` and swaps the state-dict transform to
-    the HY-specific remap.
-
-    The actual remap function is exercised end-to-end in
-    ``test_checkpoint.py::test_distilled_checkpoint_loads_strict``;
-    here we just verify the runner's ``__post_init__`` plumbs the
-    user-supplied path + transform through to the transformer config.
-    """
+    """Setting ``ckpt_path`` re-routes the transformer to the distilled ``.pt`` + HY remap."""
     from hy_worldplay._checkpoint import hy_worldplay_distilled_state_dict_transform
 
     distilled_path = Path("/some/distilled/model.pt")
@@ -606,15 +458,11 @@ def test_distilled_checkpoint_routing_swaps_when_ckpt_path_set() -> None:
 
 
 def test_distilled_checkpoint_routing_skipped_without_conditioners() -> None:
-    """Phase 2b.5b routing: even with ``ckpt_path`` set, the transformer
-    keeps the base 5B safetensors when neither action nor camera
-    conditioning is enabled.
+    """``ckpt_path`` without action / camera conditioning keeps the base 5B safetensors load.
 
-    Conservative gate: 2b.1's bit-stable native baseline (no
-    conditioners) must keep loading the same diffusers checkpoint
-    it loaded at 2b.1 -- the distilled ``.pt`` is only the right
-    source of truth once the action / PRoPE deltas are actually
-    being consumed.
+    The distilled ``.pt`` is only the right source of truth once the
+    action / PRoPE deltas are actually being consumed; the bit-stable
+    native baseline keeps the diffusers checkpoint otherwise.
     """
     from flashdreams.recipes.wan.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
 
@@ -628,17 +476,11 @@ def test_distilled_checkpoint_routing_skipped_without_conditioners() -> None:
 
 
 def test_entry_point_registered() -> None:
-    """The plugin's ``pyproject.toml`` must publish the runner under the
-    ``flashdreams.runner_configs`` entry-point group so
-    ``flashdreams-run`` discovers it. Importing the entry point exercises
-    the same code path ``flashdreams.plugins.registry.discover_runners``
-    uses at CLI startup -- a missing or misnamed entry would surface here
-    rather than as a confusing "no such subcommand" later.
+    """Runner must be registered under the ``flashdreams.runner_configs`` entry-point group.
 
-    Requires the plugin to be installed (``uv sync`` from repo root, or
-    ``uv pip install -e integrations/hy_worldplay``); skipped if not
-    installed so the test still works in editable checkouts that didn't
-    sync yet.
+    Skipped when the plugin isn't installed (``uv sync`` /
+    ``uv pip install -e integrations/hy_worldplay``) so editable
+    checkouts that haven't synced yet still run the rest of the suite.
     """
     import sys
 

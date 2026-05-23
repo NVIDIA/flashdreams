@@ -13,43 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HY-WorldPlay reconstituted-context memory selection (phase 2b.5a).
+"""HY-WorldPlay reconstituted-context memory frame-index selection.
 
-Ports the per-chunk frame-index *selection policy* from upstream's
-``wan/models/utils.py::select_mem_frames_wan`` and the supporting
-field-of-view overlap helpers from
-``hyvideo/utils/retrieval_context.py``. The selection policy answers a
-single question: at the start of denoising for a non-first AR chunk,
-which historical frame indices should the transformer attend to via
-KV cache?
-
-Upstream's answer combines two pieces:
+At the start of denoising for a non-first AR chunk, picks which
+historical frame indices the transformer attends to via KV cache.
+The selection combines:
 
 * **Temporal context** -- the most recent ``temporal_context_size``
-  frames before the current chunk. These are kept unconditionally so
-  short-range continuity is preserved.
+  frames before the current chunk, kept unconditionally for
+  short-range continuity.
 * **FOV-overlap memory** -- of all older 4-frame clips, score each by
-  the mean *1 - FOV overlap* (a Monte-Carlo similarity computed on a
-  fixed cloud of points around the current camera) between the
-  clip's 1st / 3rd frame and the predicted clip's frames, then greedy-
-  pick clips in ascending distance until ``memory_frames -
-  temporal_context_size`` frames have been collected.
+  the mean ``1 - FOV overlap`` (a Monte-Carlo similarity over a fixed
+  point cloud around the current camera) between the clip's 1st / 3rd
+  frame and the predicted clip's frames, then greedy-pick clips in
+  ascending distance until ``memory_frames - temporal_context_size``
+  frames are collected.
 
-This module ships only the **selection policy** (this PR) and the
-plumbing it needs (per-AR-step ``memory_frame_indices`` on
-:class:`HyWorldPlayCtrl`, encoder-side computation). The matching
-**KV cache prefill** -- which actually executes the transformer with
-``is_cache=True`` on the selected frames before the regular denoising
-loop -- requires extending :class:`flashdreams.core.attention.kvcache.BlockKVCache`
-with arbitrary-frame-index write semantics and lands in a follow-up
-together with the HY-WorldPlay weight-remap pass and the parity-check
-re-run (collectively "2b.5b"). See the spec doc for the full plan.
-
-CPU-only by default: ``calculate_fov_overlap_similarity`` accepts an
-explicit ``device`` so GPU callers (the native runner's actual rollout)
-can pre-allocate ``points_local`` on the same device as the rest of
-the pipeline. With ``device=None`` everything runs on CPU, which is
-slower but lets the algorithm be unit-tested without a GPU.
+All routines accept an explicit ``device`` so GPU callers can
+pre-allocate ``points_local`` alongside the rest of the pipeline.
+``device=None`` keeps everything on CPU, which is slower but lets the
+algorithm be unit-tested without a GPU.
 """
 
 from __future__ import annotations
@@ -75,45 +58,31 @@ __all__ = [
 ]
 
 
-## ---------------------------------------------------------------------------
-## Defaults lifted verbatim from upstream's call site
-## ---------------------------------------------------------------------------
+## Selection defaults
 
-# Memory budget knobs from
-# ``wan/inference/pipeline_wan_w_mem_relative_rope.py`` line 858-866:
-# ``memory_frames=16, temporal_context_size=12, pred_latent_size=4``.
 DEFAULT_MEMORY_FRAMES = 16
-"""Total budget of memory frames per AR step (temporal context + FOV-
-selected historical frames)."""
+"""Total budget of memory frames per AR step (temporal context + FOV-selected)."""
 
 DEFAULT_TEMPORAL_CONTEXT_SIZE = 12
 """Number of most-recent past frames kept unconditionally each AR step."""
 
 DEFAULT_PREDICT_LATENT_SIZE = 4
-"""Number of latent frames the current AR step is about to predict;
-used to size the query clip against which historical clips are scored."""
+"""Latent frames the current AR step predicts; sizes the query clip for FOV scoring."""
 
-# FOV parameters from the same upstream call site (line 862-865 -
-# ``fov_h_deg=60.0, fov_v_deg=35.0``). Narrower than the wider 105/75
-# defaults baked into ``calculate_fov_overlap_similarity`` so the
-# overlap metric is more discriminating on small camera moves.
 DEFAULT_FOV_H_DEG = 60.0
-"""Horizontal FOV (degrees) used by the selection-time overlap computation."""
+"""Horizontal FOV (degrees) for the selection-time overlap computation."""
 
 DEFAULT_FOV_V_DEG = 35.0
-"""Vertical FOV (degrees) used by the selection-time overlap computation."""
+"""Vertical FOV (degrees) for the selection-time overlap computation."""
 
 DEFAULT_SPHERE_POINTS_COUNT = 50_000
-"""Monte-Carlo sample count used by upstream's
-``WanInferencePipeline.__init__`` for the FOV-overlap point cloud."""
+"""Monte-Carlo sample count for the FOV-overlap point cloud."""
 
 DEFAULT_SPHERE_POINTS_RADIUS = 8.0
 """Radius of the uniform-in-sphere Monte-Carlo cloud."""
 
 
-## ---------------------------------------------------------------------------
-## FOV-overlap utilities (ported from hyvideo/utils/retrieval_context.py)
-## ---------------------------------------------------------------------------
+## FOV-overlap utilities
 
 
 def generate_points_in_sphere(
@@ -125,13 +94,15 @@ def generate_points_in_sphere(
 ) -> Tensor:
     """Uniformly sample ``n_points`` 3D points inside a sphere of ``radius``.
 
-    Differs from upstream only in accepting an explicit ``generator`` so
-    tests can pin the sample cloud deterministically. The default
-    ``generator=None`` path matches upstream's ``torch.rand`` global-
-    RNG draw bit-for-bit when callers seed ``torch.manual_seed`` first.
+    Args:
+        n_points: Number of points to draw.
+        radius: Sphere radius (world units).
+        generator: Optional :class:`torch.Generator` for deterministic
+            sampling; ``None`` draws from the global RNG.
+        device: Target device for the returned tensor; ``None`` is CPU.
 
-    Returns a tensor of shape ``[n_points, 3]`` on ``device`` (default
-    CPU); the columns are ``(x, y, z)`` cartesian coordinates.
+    Returns:
+        ``[n_points, 3]`` tensor of ``(x, y, z)`` cartesian coordinates.
     """
     samples_r = torch.rand(n_points, generator=generator, device=device)
     samples_phi = torch.rand(n_points, generator=generator, device=device)
@@ -148,10 +119,9 @@ def generate_points_in_sphere(
 
 
 def _rotation_to_pitch_yaw_deg(R: Tensor) -> tuple[Tensor, Tensor]:
-    """Extract (pitch, yaw) in degrees from a 3x3 W2C rotation matrix.
+    """Extract ``(pitch, yaw)`` in degrees from a 3x3 W2C rotation matrix.
 
-    Conventions match upstream's ``rotation_matrix_to_angles`` so the
-    selection metric stays bit-compatible:
+    Conventions:
 
     * X = right, Y = up, Z = forward (computer-vision convention).
     * Yaw is in the XZ plane (``atan2(x, z)``).
@@ -180,8 +150,7 @@ def _is_inside_fov(
 ) -> Tensor:
     """Boolean mask for which 3D ``points`` lie inside the camera's view frustum.
 
-    See upstream's ``is_inside_fov_3d_hv``. ``points`` is ``[N, 3]``,
-    ``center`` is ``[3]``; returns a ``[N]`` bool tensor.
+    ``points`` is ``[N, 3]``, ``center`` is ``[3]``; returns a ``[N]`` bool tensor.
     """
     vectors = points - center[None, :]
     x = vectors[..., 0]
@@ -209,19 +178,18 @@ def calculate_fov_overlap_similarity(
 
     Estimates ``|Curr_FOV ∩ Hist_FOV| / |Curr_FOV|`` over a
     pre-sampled cloud of ``points_local`` (uniform-in-sphere; see
-    :func:`generate_points_in_sphere`). Mirrors upstream's
-    ``calculate_fov_overlap_similarity`` -- including the
-    ``hist`` < 8.0 distance gate -- so the resulting per-clip distance
-    ranking matches.
+    :func:`generate_points_in_sphere`). Includes a ``hist < 8.0``
+    distance gate so far-away viewpoints that share an angular bin
+    with the current view don't inflate the score.
 
-    Returns a Python ``float`` in ``[0.0, 1.0]``.
+    Returns:
+        ``float`` in ``[0.0, 1.0]``.
     """
     w2c_curr_t = torch.as_tensor(w2c_curr, device=device)
     w2c_hist_t = torch.as_tensor(w2c_hist, device=device)
 
     # Re-frame both poses into the current camera's coordinate system
-    # (``C_inv`` is the current W2C). This mirrors upstream and keeps
-    # the point cloud in a consistent local frame across calls.
+    # so the point cloud stays in a consistent local frame across calls.
     c2w_curr = torch.linalg.inv(w2c_curr_t)
     c2w_hist = torch.linalg.inv(w2c_hist_t)
     C_inv = w2c_curr_t
@@ -249,10 +217,9 @@ def calculate_fov_overlap_similarity(
         points_world, P_hist, pitch_hist, yaw_hist, fov_half_h, fov_half_v
     )
 
-    # Distance gate from upstream (line 202 of retrieval_context.py):
-    # historical points are only counted if also within 8.0 units of the
-    # historical camera, which cheaply prunes far-away viewpoints that
-    # happen to share an angular bin with the current view.
+    # Distance gate: only count historical points within 8.0 units of the
+    # historical camera, to prune far-away viewpoints that happen to
+    # share an angular bin with the current view.
     dist_mask = torch.norm(points_world - P_hist[None, :], dim=1) < 8.0
     in_fov_hist = in_fov_hist & dist_mask
 
@@ -263,9 +230,7 @@ def calculate_fov_overlap_similarity(
     return float((overlap_count.float() / fov_curr_count.float()).item())
 
 
-## ---------------------------------------------------------------------------
 ## Selection policy
-## ---------------------------------------------------------------------------
 
 
 def select_memory_frame_indices(
@@ -282,41 +247,43 @@ def select_memory_frame_indices(
 ) -> list[int]:
     """Pick the memory + temporal-context frame indices for the current AR step.
 
-    Direct port of upstream's
-    ``wan/models/utils.py::select_mem_frames_wan``. Returns a sorted
-    list of unique frame indices to read from history for the AR step
-    that's about to denoise frames
+    Returns a sorted list of unique frame indices to read from history
+    for the AR step about to denoise frames
     ``[current_frame_idx, current_frame_idx + pred_latent_size)``.
 
     Args:
         w2c: All per-frame world-to-camera matrices for the full
-            rollout, shape ``[num_total_frames, 4, 4]``. Can be a numpy
+            rollout, shape ``[num_total_frames, 4, 4]``. May be a numpy
             array (cheap) or a torch tensor (avoids a copy on the GPU
             path).
         current_frame_idx: Index of the *first* frame the current AR
-            step is about to generate. Must be ``>= 3`` and
-            ``< num_total_frames`` (mirrors upstream's bounds check).
+            step is about to generate. Must satisfy
+            ``3 <= current_frame_idx < num_total_frames``.
         points_local: Pre-sampled Monte-Carlo sphere points, shape
             ``[N, 3]``. Build once per pipeline via
-            :func:`generate_points_in_sphere` and reuse across AR
-            steps.
+            :func:`generate_points_in_sphere` and reuse across AR steps.
         memory_frames: Total budget of historical frame indices to
             return (temporal context + FOV-selected).
         temporal_context_size: Number of most-recent past frames kept
             unconditionally.
-        pred_latent_size: Number of latent frames the current AR step
-            is about to predict; sized the query clip against which
-            historical clips are scored.
-        fov_h_deg / fov_v_deg: FOV (degrees) used by the selection-
-            time overlap computation.
-        device: Optional torch device for the FOV-overlap computation.
+        pred_latent_size: Latent frames the current AR step predicts;
+            sizes the query clip against which historical clips are
+            scored.
+        fov_h_deg: Horizontal FOV (degrees) for the overlap metric.
+        fov_v_deg: Vertical FOV (degrees) for the overlap metric.
+        device: Optional torch device for the FOV-overlap computation;
             ``None`` (default) keeps everything on CPU.
 
     Returns:
-        Sorted ``list[int]`` of length
-        ``memory_frames`` (= ``temporal_context_size`` of recent
-        frames + ``memory_frames - temporal_context_size`` of
-        FOV-selected older frames).
+        Sorted ``list[int]`` of length ``memory_frames``
+        (= ``temporal_context_size`` recent frames +
+        ``memory_frames - temporal_context_size`` FOV-selected older
+        frames).
+
+    Raises:
+        ValueError: ``current_frame_idx`` is out of range, or
+            ``memory_frames < temporal_context_size`` (negative
+            FOV-selection budget).
     """
     w2c_t = w2c if isinstance(w2c, Tensor) else torch.as_tensor(np.asarray(w2c))
     num_total_frames = w2c_t.shape[0]
@@ -382,14 +349,10 @@ def select_memory_frame_indices(
 
     combined = set(context_indices) | set(memory_indices)
     final = sorted(combined)
-    # Upstream's same final assertion, restated in pre-mutation
-    # terms: temporal context + FOV-selected disjoint sets must sum
+    # Invariant: temporal context + FOV-selected sets must sum exactly
     # to ``memory_frames``. The greedy ``extend(range(start, start+4))``
-    # loop may over-shoot ``fov_budget`` by up to 3 (it breaks *after*
-    # adding a clip), so this is a "fov_budget plus the last clip
-    # rounding" upper bound that upstream just asserts equals
-    # ``memory_frames``. Mirrored exactly so anyone bisecting against
-    # upstream sees the same failure when budgets don't fit.
+    # loop above may over-shoot ``fov_budget`` by up to 3 (it breaks
+    # *after* adding a clip), so misconfigured budgets surface here.
     assert len(final) == memory_frames, (
         f"memory selection produced {len(final)} frames; expected "
         f"memory_frames={memory_frames} "
@@ -399,17 +362,15 @@ def select_memory_frame_indices(
     return final
 
 
-## ---------------------------------------------------------------------------
-## Misc helper -- kept here so other call sites import a single module
-## ---------------------------------------------------------------------------
+## Helpers
 
 
 def coerce_indices(indices: Sequence[int] | Tensor) -> list[int]:
     """Normalise a frame-index container to a plain ``list[int]``.
 
-    Useful for keeping :class:`HyWorldPlayCtrl.memory_frame_indices`'s
-    type stable across the encoder / transformer boundary regardless of
-    whether the producer handed back a torch tensor or a numpy array.
+    Keeps :attr:`HyWorldPlayCtrl.memory_frame_indices` type-stable across
+    the encoder / transformer boundary regardless of whether the producer
+    returned a torch tensor or a numpy array.
     """
     if isinstance(indices, Tensor):
         return [int(x) for x in indices.tolist()]

@@ -13,26 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Phase 2b.6.2 vendor-side dump harness.
+"""Vendor-side tensor dump harness mirroring :mod:`hy_worldplay._debug_dump`.
 
-Monkey-patches vendor's ``CausalCameraPRopeWanAttnProcessor2_0`` (attention)
-and ``WanTransformer3DModel`` (top-level forward) to write the same dump
-records as the native HY-WorldPlay code path. Run together with
-``run_vendor_use_kv_cache.py`` so the cache-prefill architecture matches
-native and the dumps are directly diffable.
-
-Usage::
-
-    HY_DEBUG_DUMP=/tmp/vendor_dump.jsonl USE_KV_CACHE_TRUE=1 \\
-        python tests/parity_check/dump_patch_runner.py [generate.py args]
-
-The dump format / call-site names mirror
-``hy_worldplay/_debug_dump.py`` so the diff script can match records by
-``(name, chunk_idx, step_idx, block_idx)`` keys.
-
-Disabled by default: the patch only installs when ``HY_DEBUG_DUMP`` is a
-non-empty env var, so production parity / benchmark runs pay zero
-overhead even if this module is imported.
+Monkey-patches vendor's ``CausalCameraPRopeWanAttnProcessor2_0``
+(attention) and ``WanTransformer3DModel`` (top-level forward) so
+records match native's call-site names + keys
+(``(name, chunk_idx, step_idx, block_idx)``) and the diff script can
+align them. No-op unless ``HY_DEBUG_DUMP`` is set; pair with
+:mod:`run_vendor_use_kv_cache` so the architectures match.
 """
 
 from __future__ import annotations
@@ -156,21 +144,11 @@ def dump(name: str, tensor: Tensor | None, **extra: Any) -> None:
 def _make_patched_attention(original_call):
     """Return a wrapper around ``CausalCameraPRopeWanAttnProcessor2_0.__call__``.
 
-    Vendor's attention processor handles BOTH prefill (``is_cache=True``)
-    and the main forward (``is_cache=False``) call sites. We dump the
-    matched call-site tensors:
-
-    * ``is_cache=True`` -> ``prefill.block.*`` (mirrors native's
-      ``HyWorldPlayPRoPESelfAttention.prefill_memory_kv``).
-    * ``is_cache=False`` -> ``attn.*`` (mirrors native's
-      ``HyWorldPlayPRoPESelfAttention.forward_dual_branch``).
-
-    We dump the inputs (raw Q/K/V, rotary_emb) BEFORE the original call
-    runs, and the cache state (cache_key, cache_value) is observable via
-    the ``kv_cache`` arg so we dump the pre-concat snapshot too. The
-    post-concat / final K is reconstructed from the same monkey-patched
-    locals in the wrapper -- it isn't worth a second monkey-patch on
-    the attention internals because the wrapper has all inputs needed.
+    Vendor's processor handles both prefill (``is_cache=True``,
+    matched to native's ``prefill.block.*``) and the main forward
+    (``is_cache=False``, matched to ``attn.*``). The wrapper dumps
+    Q/K/V + rotary inputs before delegating, and the cache K/V
+    after, so the diff script can re-cat memory + current K.
     """
 
     def wrapper(
@@ -187,12 +165,11 @@ def _make_patched_attention(original_call):
         Ks=None,
         context_frames_list=None,
     ):
-        # Capture pre-call snapshot of inputs and cache state.
+        # Pre-call snapshot of inputs + cache state.
         if enabled():
             try:
-                # Compute Q/K/V via the same path as the attention
-                # processor so the dumps reflect the post-norm pre-RoPE
-                # tensors that native dumps too.
+                # Mirror the processor's own path so dumps are
+                # post-norm pre-RoPE (matches native's dump points).
                 q_raw_v = attn.to_q(hidden_states)
                 k_raw_v = attn.to_k(
                     encoder_hidden_states
@@ -208,9 +185,8 @@ def _make_patched_attention(original_call):
                     q_raw_v = attn.norm_q(q_raw_v)
                 if attn.norm_k is not None:
                     k_raw_v = attn.norm_k(k_raw_v)
-                # Match native's [B, L, H, D] layout for raw dumps (the
-                # attention processor immediately transposes to
-                # [B, H, L, D]; we dump pre-transpose for parity).
+                # Dump as ``[B, L, H, D]`` (native's layout); the
+                # processor itself transposes to ``[B, H, L, D]``.
                 q_btlhd = q_raw_v.unflatten(2, (attn.heads, -1))
                 k_btlhd = k_raw_v.unflatten(2, (attn.heads, -1))
                 v_btlhd = v_raw_v.unflatten(2, (attn.heads, -1))
@@ -241,7 +217,7 @@ def _make_patched_attention(original_call):
                             if isinstance(rotary_emb, (tuple, list))
                             else rotary_emb,
                         )
-                    # Cache state going into this forward (chunk-1+).
+                    # Cache state entering this forward (chunk-1+).
                     if kv_cache is not None:
                         cache_key = kv_cache.get("k") if kv_cache else None
                         cache_value = kv_cache.get("v") if kv_cache else None
@@ -269,13 +245,9 @@ def _make_patched_attention(original_call):
             context_frames_list=context_frames_list,
         )
 
-        # Post-call: capture the K/V written into the cache (prefill) or
-        # the (memory + current)-concatenated K (forward). The processor
-        # returns ``(hidden_states, kv_cache_return)``. For ``is_cache=True``
-        # we read kv_cache_return; for ``is_cache=False`` the concat already
-        # happened internally and isn't exposed, so we reconstruct from
-        # the cache snapshot above (already dumped) + current K (already
-        # dumped) -- the diff script can re-cat them.
+        # Post-call: capture K/V written into the cache (prefill); the
+        # forward path's concat is internal, so the diff script
+        # re-cats memory + current K from the pre-call dumps.
         if enabled():
             try:
                 _, kv_ret = result
@@ -285,7 +257,7 @@ def _make_patched_attention(original_call):
                     if k_combined is not None:
                         k_rope, k_prope = k_combined.chunk(2, dim=-1)
                         v_rope, v_prope = v_combined.chunk(2, dim=-1)
-                        # Match native layout [B, L, H, D] from [B, H, L, D].
+                        # Transpose [B, H, L, D] -> [B, L, H, D] for parity.
                         dump(
                             "prefill.block.k_rope_written",
                             k_rope.transpose(1, 2).contiguous(),
@@ -311,19 +283,12 @@ def _make_patched_attention(original_call):
 
 
 def _make_patched_transformer_forward(original_forward):
-    """Wrap ``WanTransformer3DModel.forward`` to bind per-step context.
+    """Wrap ``WanTransformer3DModel.forward`` to bind per-step dump context.
 
-    Mirrors native's per-step / per-chunk context-binding in
-    ``HyWorldPlayWan21Transformer.predict_flow``: dumps the entry stats
-    (timestep, current_start/end, is_cache) and sets ``ar_idx``
-    inferable from ``current_start // (4 * 880)`` (chunk_size=4 frames *
-    880 tokens/frame at vendor's standard resolution).
-
-    The ar_idx tag is derived because vendor's forward signature doesn't
-    accept it directly -- the pipeline encodes it implicitly via
-    ``current_start`` / ``current_end``. The diff script tolerates
-    minor ar_idx misalignments by matching on (name, block_idx, phase)
-    primarily.
+    Derives ``ar_idx`` from ``current_start`` because vendor's forward
+    signature doesn't carry it explicitly. The diff script primarily
+    matches on ``(name, block_idx, phase)``, so minor ar_idx slippage
+    is tolerated.
     """
 
     def wrapper(self, *args, **kwargs):
@@ -333,10 +298,9 @@ def _make_patched_transformer_forward(original_forward):
                 current_start = kwargs.get("current_start", 0)
                 current_end = kwargs.get("current_end", 0)
                 is_cache = kwargs.get("is_cache", False)
-                # Derive ar_idx + phase from current_start. Tokens per
-                # frame = 880 (vendor hardcoded; matches our 704x1280
-                # /patch_size=(1,2,2) layout = pph * ppw = 22 * 40). A
-                # 4-frame chunk is 3520 tokens, so chunk_i = start // 3520.
+                # Tokens per frame = 880 (vendor hardcoded; matches
+                # 704x1280 / patch_size=(1,2,2) = 22 * 40); a 4-frame
+                # chunk is 3520 tokens.
                 tokens_per_chunk = 4 * 880
                 ar_idx = int(current_start) // tokens_per_chunk
                 phase = "prefill" if is_cache else "forward"
@@ -363,14 +327,11 @@ def _make_patched_transformer_forward(original_forward):
 
 
 def install_patches() -> None:
-    """Install monkey-patches on vendor's attention + transformer.
+    """Install monkey-patches on vendor's attention + transformer modules.
 
-    Idempotent: re-installing the patch (e.g. when the runner imports
-    are re-evaluated) wraps the already-wrapped callable, but the
-    dumps still produce one record per real call because we set
-    ``_INSTALLED`` after the first install and short-circuit. The
-    install is a no-op when ``HY_DEBUG_DUMP`` is empty so the
-    one-line entry from the runner is safe to leave on.
+    Idempotent (the ``_INSTALLED`` latch short-circuits) and gated on
+    ``HY_DEBUG_DUMP`` so the caller can leave the install line on
+    without side effects.
     """
     if not enabled():
         return
@@ -378,9 +339,8 @@ def install_patches() -> None:
     if _INSTALLED:
         return
 
-    # Imports deferred until install time so this module can be
-    # safely imported even when the vendor tree isn't on sys.path
-    # (e.g. during unit tests of this dumper module itself).
+    # Lazy import: keeps this module importable without the vendor
+    # tree on ``sys.path``.
     from wan.models.dits import arwan_w_action_w_mem_relative_rope as vendor_mod
 
     proc_cls = vendor_mod.CausalCameraPRopeWanAttnProcessor2_0

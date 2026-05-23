@@ -15,15 +15,11 @@
 
 """Pose-string parser for the HY-WorldPlay action / camera conditioner.
 
-Ports the upstream ``hyvideo/generate.py`` + ``hyvideo/generate_custom_trajectory.py``
-trajectory + action-label pipeline. The same call site produces both the discrete
-action labels consumed by the action conditioner (phase 2b.3) and the per-latent
-W2C / intrinsic matrices the camera conditioner will consume next (phase 2b.4);
-2b.3 callers can ignore the camera return values.
-
-The discrete labels follow upstream's 81-class encoding ``trans * 9 + rotate``,
-with ``trans`` and ``rotate`` each drawn from the 9-entry one-hot mapping in
-``_TRANS_ROTATE_TABLE`` below.
+Produces both the discrete action labels consumed by the action
+conditioner and the per-latent W2C / intrinsic matrices consumed by
+the camera conditioner. Discrete labels follow the 81-class encoding
+``trans * 9 + rotate``, with ``trans`` and ``rotate`` each drawn from
+the 9-entry one-hot mapping in ``_TRANS_ROTATE_TABLE`` below.
 """
 
 from __future__ import annotations
@@ -37,7 +33,6 @@ import torch
 from scipy.spatial.transform import Rotation as _ScipyRotation
 from torch import Tensor
 
-# Mirrors upstream ``hyvideo/generate.py`` ``mapping`` (lines 41-51).
 # Maps 4-bit one-hot ``(forward, backward, right, left)`` (translation) or
 # ``(right, left, up, down)`` (rotation) to a single 0..8 class label so the
 # combined action lives in ``[0, 81)``.
@@ -53,20 +48,24 @@ _TRANS_ROTATE_TABLE: Mapping[tuple[int, int, int, int], int] = {
     (0, 1, 0, 1): 8,
 }
 
-# Upstream defaults from ``parse_pose_string`` (``hyvideo/generate.py`` lines 79-82).
 _FORWARD_SPEED = 0.08
-_YAW_SPEED = float(np.deg2rad(3))
-_PITCH_SPEED = float(np.deg2rad(3))
+"""Per-step forward / strafe translation magnitude in world units."""
 
-# Default camera intrinsics from ``pose_string_to_json`` (lines 159-164).
+_YAW_SPEED = float(np.deg2rad(3))
+"""Per-step yaw step in radians (3°)."""
+
+_PITCH_SPEED = float(np.deg2rad(3))
+"""Per-step pitch step in radians (3°)."""
+
 _DEFAULT_INTRINSIC: list[list[float]] = [
     [969.6969696969696, 0.0, 960.0],
     [0.0, 969.6969696969696, 540.0],
     [0.0, 0.0, 1.0],
 ]
+"""Default camera intrinsic matrix for a 1920x1080 image (pre-normalisation)."""
 
-# Movement detection threshold from ``pose_to_input`` line 235.
 _MOVE_NORM_THRESHOLD = 1e-4
+"""Translation magnitude below which a per-step move is treated as no translation."""
 
 
 def _rot_x(theta: float) -> np.ndarray:
@@ -80,14 +79,15 @@ def _rot_y(theta: float) -> np.ndarray:
 
 
 def _parse_pose_string(pose_string: str) -> list[dict[str, float]]:
-    """Parse a comma-separated motion script.
+    """Parse a comma-separated motion script into per-frame motion dicts.
 
-    Accepted commands (each followed by ``-N`` for the number of latent
-    frames to apply the motion across):
-      * ``w`` / ``s``: forward / backward translation
-      * ``a`` / ``d``: left / right strafe
-      * ``up`` / ``down``: pitch up / down
-      * ``left`` / ``right``: yaw left / right
+    Each command is ``action-N`` where ``N`` is the number of latent
+    frames to apply the motion across. Accepted actions:
+
+    * ``w`` / ``s``: forward / backward translation.
+    * ``a`` / ``d``: left / right strafe.
+    * ``up`` / ``down``: pitch up / down.
+    * ``left`` / ``right``: yaw left / right.
     """
     motions: list[dict[str, float]] = []
     for raw in pose_string.split(","):
@@ -130,10 +130,11 @@ def _parse_pose_string(pose_string: str) -> list[dict[str, float]]:
 
 
 def _generate_trajectory_c2w(motions: list[dict[str, float]]) -> np.ndarray:
-    """Integrate motions into a per-step camera-to-world trajectory.
+    """Integrate per-step motions into a camera-to-world trajectory.
 
-    Returns an ``[n_motions + 1, 4, 4]`` array of C2W matrices (the first
-    entry is the identity, matching upstream's initial pose).
+    Returns:
+        ``[n_motions + 1, 4, 4]`` array of C2W matrices; the first entry is
+        the identity (the rollout's initial pose).
     """
     poses: list[np.ndarray] = []
     T = np.eye(4)
@@ -156,8 +157,8 @@ def _generate_trajectory_c2w(motions: list[dict[str, float]]) -> np.ndarray:
 def _pose_string_to_json(pose_string: str) -> dict[str, dict[str, list]]:
     """Convert a pose string into the JSON-shaped dict the parity script consumes.
 
-    The JSON keys are stringified indices so that pose files dumped from
-    upstream can round-trip identically through ``json.load`` / ``json.dump``.
+    Keys are stringified indices so that pose files dumped from upstream
+    round-trip identically through ``json.load`` / ``json.dump``.
     """
     motions = _parse_pose_string(pose_string)
     c2w = _generate_trajectory_c2w(motions)
@@ -168,7 +169,7 @@ def _pose_string_to_json(pose_string: str) -> dict[str, dict[str, list]]:
 
 
 def _one_hot_to_label(one_hot: np.ndarray) -> Tensor:
-    """Map the per-frame 4-bit one-hot rows to single 0..8 class labels."""
+    """Map per-frame 4-bit one-hot rows to single 0..8 class labels."""
     return torch.tensor(
         [_TRANS_ROTATE_TABLE[tuple(row.tolist())] for row in one_hot],
         dtype=torch.long,
@@ -184,24 +185,26 @@ def parse_pose_data(
     """Parse a pose script (or file/dict) into per-latent W2C / K / action labels.
 
     Args:
-        pose_data: One of
-          * A path (``str`` ending in ``.json`` or ``Path``) to an upstream-format
-            pose JSON.
-          * A pose-script string like ``"w-3, right-0.5, d-4"``.
-          * A pre-parsed mapping with the same shape as the JSON file.
-        n_latents: Number of latent frames the rollout will produce (``len_t``
-            times the AR-step count). The parsed pose script must produce
-            exactly this many entries.
-        third_person: Set to ``True`` to gate translation classification on
-            small yaw / pitch (matches upstream's ``tps`` flag).
+        pose_data: One of:
+
+            * A path (``str`` ending in ``.json`` or ``Path``) to an
+              upstream-format pose JSON.
+            * A pose-script string like ``"w-3, right-0.5, d-4"``.
+            * A pre-parsed mapping with the same shape as the JSON file.
+        n_latents: Number of latent frames the rollout will produce
+            (``len_t`` times the AR-step count). The parsed pose script
+            must produce exactly this many entries.
+        third_person: When ``True``, only emit translation classes for
+            frames with small yaw / pitch (matches upstream's ``tps`` flag).
 
     Returns:
-        ``(w2c, K, action_labels)`` where:
-          * ``w2c`` has shape ``[n_latents, 4, 4]`` (world-to-camera matrices).
-          * ``K`` has shape ``[n_latents, 3, 3]`` (intrinsics with cx/cy
-            renormalised to 0.5).
-          * ``action_labels`` has shape ``[n_latents]`` and contains 0..80
-            class indices (``trans * 9 + rotate``).
+        Tuple ``(w2c, K, action_labels)``:
+
+            * ``w2c`` has shape ``[n_latents, 4, 4]`` (world-to-camera).
+            * ``K`` has shape ``[n_latents, 3, 3]`` with cx/cy renormalised
+              to 0.5.
+            * ``action_labels`` has shape ``[n_latents]`` and contains
+              0..80 class indices (``trans * 9 + rotate``).
     """
     if isinstance(pose_data, (str, Path)):
         s = str(pose_data)
@@ -235,7 +238,7 @@ def parse_pose_data(
         c2w_list.append(c2w_i)
 
         # Normalise principal point to (0.5, 0.5) and rescale focals so the
-        # resulting intrinsic is resolution-independent (matches upstream).
+        # resulting intrinsic is resolution-independent.
         K_i = K_i.copy()
         K_i[0, 0] /= K_i[0, 2] * 2.0
         K_i[1, 1] /= K_i[1, 2] * 2.0
@@ -247,7 +250,7 @@ def parse_pose_data(
     K = np.stack(K_list, axis=0)
     w2c = np.linalg.inv(c2w)
 
-    # Per-step relative C2W (frame 0 keeps its absolute pose to match upstream).
+    # Per-step relative C2W; frame 0 keeps its absolute pose.
     relative_c2w = np.zeros_like(c2w)
     relative_c2w[0] = c2w[0]
     relative_c2w[1:] = np.linalg.inv(c2w[:-1]) @ c2w[1:]
@@ -307,11 +310,7 @@ def parse_pose_action_labels(
     *,
     third_person: bool = False,
 ) -> Tensor:
-    """Return only the per-latent action labels (convenience wrapper).
-
-    Phase 2b.3 only needs the labels; the camera conditioner in phase 2b.4
-    will switch back to :func:`parse_pose_data` for the W2C / K tensors.
-    """
+    """Return only the per-latent action labels from :func:`parse_pose_data`."""
     _, _, action = parse_pose_data(
         pose_data, n_latents, third_person=third_person
     )

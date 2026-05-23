@@ -13,23 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only unit tests for the HY-WorldPlay memory selector (phase 2b.5a).
-
-Covers four surfaces:
-
-* The selection algorithm in :mod:`hy_worldplay._memory` -- output
-  shape, sortedness, deduplication, recent-frames invariant, and the
-  upstream-mirroring assertion when the budget cannot be filled.
-* The :class:`HyWorldPlayCtrl.memory_frame_indices` round-trip through
-  the transformer's patchify pass (the same risk profile as the 2b.3
-  ``action`` and 2b.4 ``viewmats`` round-trips).
-* :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config` /
-  :meth:`clear_memory_config` shape validation and per-AR-step gating
-  (selection only runs once enough history has accumulated).
-* Runner config plumbing: ``use_memory_selection`` defaults off,
-  composes with the action + camera swaps, and refuses to arm without
-  the camera-conditioning precondition.
-"""
+"""CPU-only unit tests for the HY-WorldPlay memory selector."""
 
 from __future__ import annotations
 
@@ -46,24 +30,22 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def _identity_w2c(n: int) -> np.ndarray:
-    """Return a stack of ``n`` identity 4x4 W2C matrices.
+    """Stack of ``n`` identity 4x4 W2C matrices.
 
-    All zero translation + identity rotation -- every camera sees the
+    All zero translation + identity rotation -- every camera shares the
     same FOV cone, so every historical clip has overlap 1.0 with the
-    query clip. Distances tie at 0.0; the selector breaks the tie by
-    iteration order (which is what we exercise in the recent-frames
-    invariant test below).
+    query clip. Distances tie at 0.0 and the selector breaks the tie by
+    iteration order.
     """
     return np.tile(np.eye(4, dtype=np.float64)[None, :, :], (n, 1, 1))
 
 
 def _small_points_cloud(seed: int = 0) -> torch.Tensor:
-    """A cheap 256-point sphere cloud for CPU tests.
+    """Cheap 256-point sphere cloud for CPU tests.
 
-    The selection algorithm's correctness doesn't depend on the cloud
-    size (only the FOV-overlap estimate's variance does), so we trade
-    upstream's 50k-point default for something that runs in
-    milliseconds.
+    Selection correctness doesn't depend on the cloud size (only the
+    FOV-overlap estimate's variance does), so we trade upstream's
+    50k-point default for something that runs in milliseconds.
     """
     gen = torch.Generator().manual_seed(seed)
     from hy_worldplay._memory import generate_points_in_sphere
@@ -93,7 +75,7 @@ def test_select_memory_frame_indices_invariants() -> None:
     assert len(indices) == len(set(indices)), "indices must be unique"
     assert len(indices) == 16, "len must match memory_frames"
     # Temporal context window [current_frame_idx - 12, current_frame_idx)
-    # is kept unconditionally; assert that explicitly.
+    # is kept unconditionally.
     for i in range(4, 16):
         assert i in indices, (
             f"temporal context frame {i} must be in selected indices; "
@@ -102,7 +84,7 @@ def test_select_memory_frame_indices_invariants() -> None:
 
 
 def test_select_memory_frame_indices_min_current_frame_idx_bound() -> None:
-    """``current_frame_idx < 3`` raises (mirrors upstream's bounds check)."""
+    """``current_frame_idx < 3`` raises ``ValueError`` (mirrors upstream's bounds check)."""
     from hy_worldplay._memory import select_memory_frame_indices
 
     with pytest.raises(ValueError, match="current_frame_idx must lie in"):
@@ -117,7 +99,7 @@ def test_select_memory_frame_indices_min_current_frame_idx_bound() -> None:
 
 
 def test_select_memory_frame_indices_oob_current_frame_idx_raises() -> None:
-    """``current_frame_idx >= num_total_frames`` raises."""
+    """``current_frame_idx >= num_total_frames`` raises ``ValueError``."""
     from hy_worldplay._memory import select_memory_frame_indices
 
     with pytest.raises(ValueError, match="current_frame_idx must lie in"):
@@ -132,15 +114,12 @@ def test_select_memory_frame_indices_oob_current_frame_idx_raises() -> None:
 
 
 def test_select_memory_frame_indices_budget_underfill_raises() -> None:
-    """Not enough history to fill the budget should surface the
-    upstream-mirroring length assertion as a clear ``AssertionError``.
+    """Insufficient history to fill the budget raises ``AssertionError``.
 
     With ``current_frame_idx=14, temporal_context_size=12`` the
-    historical-clip window is ``range(0, 2, 4)`` -- empty. The
-    selector can only return the 12 temporal-context frames, but the
-    budget asks for 16, so the assertion fires. This is the same
-    failure mode upstream has; the test pins the failure as
-    intentional so a future refactor doesn't silently swallow it.
+    historical-clip window is ``range(0, 2, 4)`` -- empty. The selector
+    can only return the 12 temporal-context frames but the budget asks
+    for 16, so the upstream-mirroring length assertion fires.
     """
     from hy_worldplay._memory import select_memory_frame_indices
 
@@ -171,14 +150,7 @@ def test_select_memory_frame_indices_rejects_budget_inversion() -> None:
 
 
 def test_calculate_fov_overlap_identity_is_one() -> None:
-    """Two identical W2C poses overlap perfectly (similarity == 1.0).
-
-    With identity rotation + zero translation both cameras look down +Z
-    from the origin, see the entire forward hemisphere, and the same
-    sphere of points falls in both frustums. The historical distance
-    gate (8.0 units) doesn't kick in because the cameras share the same
-    origin.
-    """
+    """Two identical W2C poses overlap perfectly (similarity == 1.0)."""
     from hy_worldplay._memory import calculate_fov_overlap_similarity
 
     eye = np.eye(4, dtype=np.float64)
@@ -215,7 +187,7 @@ def test_generate_points_in_sphere_shape() -> None:
 
 
 def test_hyworldplay_ctrl_memory_field_defaults_to_none() -> None:
-    """The 2b.5a ctrl field defaults ``None`` so non-memory callers stay opt-in."""
+    """``memory_frame_indices`` defaults ``None`` so non-memory callers stay opt-in."""
     from hy_worldplay._action import HyWorldPlayCtrl
 
     ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
@@ -223,16 +195,13 @@ def test_hyworldplay_ctrl_memory_field_defaults_to_none() -> None:
 
 
 def test_hyworldplay_transformer_patchify_preserves_memory_indices() -> None:
-    """``memory_frame_indices`` must survive the patchify rebuild.
+    """``memory_frame_indices`` survives the patchify rebuild.
 
-    Same regression target as the 2b.3 action / 2b.4 camera round-trip
-    tests: the base transformer rebuilds the ctrl via
-    ``I2VCtrl(latent=..., mask=...)`` after patchify, which would drop
-    subclass fields unless the subclass overrides the rebuild. We
-    exercise the ``_is_patchified=True`` short-circuit (same shape as
-    ``test_camera.py::test_hyworldplay_transformer_patchify_preserves_camera_fields``)
-    so we don't have to spin up the parent ``super()`` chain just to
-    pass the leaf tensors through.
+    Same regression target as the camera-fields round-trip: the base
+    transformer rebuilds the ctrl after patchify, which would drop
+    subclass fields unless the subclass overrides the rebuild. The
+    ``_is_patchified=True`` short-circuit exercises the same path
+    without spinning up the parent ``super()`` chain.
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
@@ -261,12 +230,11 @@ def test_hyworldplay_transformer_patchify_preserves_memory_indices() -> None:
 
 
 def _make_memory_encoder():
-    """Build a HY-WorldPlay encoder skeleton without touching ``__init__``.
+    """Build a HY-WorldPlay encoder skeleton, bypassing the heavy VAE init.
 
-    Mirrors ``test_camera.py::_make_camera_encoder`` -- the real
-    :class:`I2VCtrlEncoder` constructor pulls in the VAE encoder which
-    drags diffusers along. We only need the bookkeeping fields the
-    memory setter / gate look at.
+    Mirrors ``test_camera.py::_make_camera_encoder`` -- the memory
+    setter / gate only touches bookkeeping fields, so we sidestep
+    the diffusers-pulling :class:`I2VCtrlEncoder` constructor.
     """
     from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
 
@@ -331,15 +299,12 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
     """FOV selection only kicks in once ``current_frame_idx >= context_window_length``.
 
     Below that threshold the encoder returns the all-history list
-    ``list(range(0, current_frame_idx))`` -- mirroring vendor's
-    ``elif use_memory:`` branch in
-    ``pipeline_wan_w_mem_relative_rope.py`` line 868-869. The HY
-    native path *requires* this fall-back: it overrides
-    ``finalize_kv_cache`` to skip the base rolling-KV update and
-    resets the rolling cache at every chunk boundary, so without an
-    explicit prefill chunk-1+ would attend to nothing from previous
-    chunks. AR step 0 is the only case that returns ``None`` (no
-    history yet).
+    ``list(range(0, current_frame_idx))`` -- the HY native path
+    *requires* this fall-back because it overrides ``finalize_kv_cache``
+    to skip the rolling-KV update and resets the rolling cache at every
+    chunk boundary, so without an explicit prefill chunk-1+ would
+    attend to nothing from previous chunks. AR step 0 returns ``None``
+    (no history yet).
     """
     encoder = _make_memory_encoder()
     encoder._viewmats = torch.from_numpy(_identity_w2c(32)).unsqueeze(0)
@@ -353,7 +318,7 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
         fov_v_deg=35.0,
     )
 
-    # AR step 0 / no history -> None
+    # AR step 0 / no history -> None.
     assert (
         encoder._compute_memory_indices(
             autoregressive_index=0, current_frame_idx=0
@@ -368,7 +333,7 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
     )
     assert indices_below == [0, 1, 2, 3]
 
-    # Above threshold -> FOV-selected list of length ``memory_frames``.
+    # At/above threshold -> FOV-selected list of length ``memory_frames``.
     indices = encoder._compute_memory_indices(
         autoregressive_index=4, current_frame_idx=16
     )
@@ -378,18 +343,17 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
 
 
 def test_encoder_compute_memory_indices_disabled_uses_all_history() -> None:
-    """Without ``set_memory_config`` the encoder still emits all-history indices.
+    """Without ``set_memory_config`` the encoder still emits all-history indices for chunk-1+.
 
     The HY native path relies on the prefill executor for *all*
-    cross-chunk attention (see the gating-test docstring above),
-    so even when FOV-based selection is disarmed we have to emit
-    indices for chunk-1+. The executor consumes the bound
-    ``rollout_viewmats`` directly; it doesn't need the FOV
-    ``_memory_config`` to run. AR step 0 still returns ``None``.
+    cross-chunk attention, so even when FOV-based selection is disarmed
+    we still need indices for chunk-1+. The executor consumes the bound
+    ``rollout_viewmats`` directly and does not need ``_memory_config``.
+    AR step 0 still returns ``None``.
     """
     encoder = _make_memory_encoder()
     encoder._viewmats = torch.from_numpy(_identity_w2c(32)).unsqueeze(0)
-    # No set_memory_config() call -> FOV selection is off, but the
+    # No set_memory_config() call: FOV selection is off, but the
     # all-history fall-back still emits indices for chunk-1+.
 
     assert (
@@ -405,13 +369,12 @@ def test_encoder_compute_memory_indices_disabled_uses_all_history() -> None:
 
 
 def test_encoder_compute_memory_indices_no_camera_returns_none() -> None:
-    """No bound viewmats => no prefill possible => ``None``.
+    """No bound viewmats means no prefill is possible, so the encoder returns ``None``.
 
-    The prefill executor indexes ``rollout_viewmats`` (and friends)
-    at the selected indices, so without camera data bound the
-    executor can't run. In that configuration the dual-branch /
-    action paths are themselves no-ops, so the missing prefill is
-    also a no-op.
+    The prefill executor indexes ``rollout_viewmats`` at the selected
+    indices; without camera data bound it can't run. In that
+    configuration the dual-branch / action paths are themselves no-ops,
+    so the missing prefill is also a no-op.
     """
     encoder = _make_memory_encoder()
     # No set_camera_data() call -> _viewmats is None.
@@ -431,7 +394,7 @@ def test_encoder_compute_memory_indices_no_camera_returns_none() -> None:
 
 
 def test_use_memory_selection_off_by_default() -> None:
-    """Phase 2b.5a feature flag defaults off."""
+    """``use_memory_selection`` defaults off."""
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
     cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")
@@ -439,12 +402,12 @@ def test_use_memory_selection_off_by_default() -> None:
 
 
 def test_use_memory_selection_requires_camera_conditioning() -> None:
-    """Memory selection needs the per-rollout viewmats binding.
+    """``use_memory_selection`` without ``use_camera_conditioning`` raises ``ValueError``.
 
-    Without ``use_camera_conditioning=True`` the encoder has nothing to
-    score historical clips against, so ``__post_init__`` rejects the
-    combo with a clear error instead of silently emitting
-    ``memory_frame_indices=None`` on every AR step.
+    Without bound viewmats the encoder has nothing to score historical
+    clips against, so ``__post_init__`` rejects the combo with a clear
+    error instead of silently emitting ``memory_frame_indices=None``
+    on every AR step.
     """
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
@@ -459,12 +422,10 @@ def test_use_memory_selection_requires_camera_conditioning() -> None:
 def test_use_memory_selection_composes_with_camera_conditioning() -> None:
     """Camera + memory flags together must instantiate cleanly.
 
-    The camera swap already pulled in :class:`HyWorldPlayWanCtrlEncoderConfig`
-    and the HY transformer config; the memory flag just rides on top
-    of that with no further pipeline mutation (the encoder binding
-    happens at ``run()`` time inside the native runner). This test
-    pins the no-op shape so a future runner refactor doesn't try to
-    swap the network again.
+    The camera swap already provides the HY encoder / transformer
+    config; the memory flag rides on top with no further pipeline
+    mutation (encoder binding happens at ``run()`` time inside the
+    native runner).
     """
     from hy_worldplay._action import (
         HyWorldPlayWan21TransformerConfig,
@@ -489,11 +450,7 @@ def test_use_memory_selection_composes_with_camera_conditioning() -> None:
 
 
 def test_use_memory_selection_requires_native_pipeline() -> None:
-    """``use_memory_selection`` without ``use_native_pipeline`` is a no-op.
-
-    Phase 2b.6.2 default-flip note: the test must opt out of
-    ``use_native_pipeline`` explicitly (default is now ``True``).
-    """
+    """``use_memory_selection`` without ``use_native_pipeline`` carries through inertly."""
     from hy_worldplay._vendor_pipeline import _NoopPipelineConfig
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
@@ -503,15 +460,15 @@ def test_use_memory_selection_requires_native_pipeline() -> None:
         use_memory_selection=True,
     )
     # Without ``use_native_pipeline`` the whole ``__post_init__`` body
-    # is a no-op, so the precondition check on
-    # ``use_memory_selection`` is *also* skipped -- the flag just
-    # carries through inertly on the vendor wrapper.
+    # is a no-op, so the precondition check on ``use_memory_selection``
+    # is also skipped -- the flag just rides inertly on the vendor
+    # wrapper.
     assert isinstance(cfg.pipeline, _NoopPipelineConfig)
     assert cfg.use_memory_selection is True
 
 
 def test_use_memory_selection_memory_knobs_default_match_upstream() -> None:
-    """Defaults track upstream's ``wan/inference/pipeline_wan_w_mem_relative_rope.py`` call site."""
+    """Memory-knob defaults track upstream's ``pipeline_wan_w_mem_relative_rope.py`` call site."""
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
     cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")

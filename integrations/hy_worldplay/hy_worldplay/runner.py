@@ -13,36 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HY-WorldPlay WAN-5B I2V runner.
-
-Two routing modes share the same user-facing
-:class:`HyWorldPlayWanI2VRunnerConfig` surface:
-
-- **Vendor wrapper (default)** -- :class:`HyWorldPlayWanI2VRunner`
-  delegates inference to upstream's :class:`wan.generate.WanRunner`
-  (Wan 2.2 TI2V-5B backbone with action + camera-trajectory
-  conditioning and reconstituted-context memory). Output is
-  bit-for-bit identical to ``torchrun wan/generate.py`` with matching
-  flags. The mandatory :attr:`RunnerConfig.pipeline` slot is filled
-  with the inert :class:`_NoopPipelineConfig` from
-  :mod:`hy_worldplay._vendor_pipeline`.
-
-- **Native pipeline (preview, opt-in)** -- when
-  :attr:`HyWorldPlayWanI2VRunnerConfig.use_native_pipeline` is
-  ``True``, the config's ``_target`` and ``pipeline`` swap to
-  :class:`HyWorldPlayWanI2VNativeRunner` and a fresh copy of
-  :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` respectively.
-  Sub-PRs ship the layers incrementally: 2b.1 (I2V base case + 4-step
-  Euler), 2b.2 (distilled scheduler), 2b.3 (action conditioner via
-  :attr:`use_action_conditioning`), 2b.4 (camera-trajectory PRoPE via
-  :attr:`use_camera_conditioning`), and 2b.5a (reconstituted-context
-  memory-frame **selection** via :attr:`use_memory_selection` --
-  produces ``memory_frame_indices`` on the per-AR-step
-  :class:`HyWorldPlayCtrl` payload; the KV-prefill **executor** and
-  the matching arbitrary-position ``BlockKVCache`` extension land in
-  2b.5b together with the HY-WorldPlay weight remap + parity flip) per
-  ``docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md``.
-"""
+"""HY-WorldPlay WAN-5B I2V runner config and vendor-wrapper driver."""
 
 from __future__ import annotations
 
@@ -69,13 +40,10 @@ DEFAULT_PROMPT = (
     "First-person view walking around ancient Athens, with Greek "
     "architecture and marble structures"
 )
-"""Default text prompt mirroring HY-WorldPlay's ``wan/generate.py`` example
-(``--input`` argparse default). Kept *byte-for-byte identical* to upstream
--- including no trailing period -- because the UMT5 text encoder
-tokenizes a trailing ``.`` as an extra token, which shifts the
-conditioning embedding and produces a small-but-deterministic drift
-(~mean |delta|=5/255) vs upstream's reference output. See
-``tests/parity_check/README.md`` "Parity caveats" for the diagnostic."""
+"""Upstream ``wan/generate.py`` ``--input`` default. Kept byte-for-byte
+identical -- including no trailing period -- so UMT5 tokenization
+matches the reference output (trailing ``.`` adds an extra token and
+shifts conditioning by ~5/255)."""
 
 DEFAULT_NEGATIVE_PROMPT = (
     "色调艳丽,过曝,静态,细节模糊不清,字幕,风格,作品,画作,画面,静止,整体发灰,"
@@ -83,18 +51,16 @@ DEFAULT_NEGATIVE_PROMPT = (
     "画得不好的脸部,畸形的,毁容的,形态畸形的肢体,手指融合,静止不动的画面,"
     "杂乱的背景,三条腿,背景人很多,倒着走"
 )
-"""Default negative prompt taken verbatim from upstream
-``wan/generate.py`` so output matches the reference benchmark."""
+"""Upstream ``wan/generate.py`` negative-prompt default, verbatim."""
 
 
 def _ensure_upstream_importable(repo_root: Path) -> None:
-    """Make the cloned HY-WorldPlay tree importable.
+    """Add the cloned HY-WorldPlay tree to ``sys.path``.
 
     Upstream's ``wan/`` package imports siblings (``hyvideo``,
-    ``models``, ``distributed``, ``inference``) by *bare* package name,
-    so both the repo root and ``<repo_root>/wan`` must be on
-    ``sys.path`` -- exactly what upstream's ``run.sh`` /
-    ``wan/README.md`` does via ``PYTHONPATH``.
+    ``models``, ``distributed``, ``inference``) by bare name, so both
+    the repo root and ``<repo_root>/wan`` are prepended -- matching
+    what upstream's ``run.sh`` does via ``PYTHONPATH``.
     """
     if not repo_root.exists():
         raise FileNotFoundError(
@@ -113,9 +79,8 @@ def _ensure_upstream_importable(repo_root: Path) -> None:
 class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     """User-facing config for the HY-WorldPlay WAN-5B I2V runner.
 
-    Mirrors the upstream ``wan/generate.py`` argparse surface (see
-    ``HY-WorldPlay/wan/generate.py`` and ``HY-WorldPlay/wan/README.md``)
-    so users can map directly between the two.
+    Mirrors upstream's ``wan/generate.py`` argparse surface so users
+    can map between the CLIs one-to-one.
     """
 
     _target: type = field(default_factory=lambda: HyWorldPlayWanI2VRunner)
@@ -123,236 +88,180 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     pipeline: StreamInferencePipelineConfig = field(
         default_factory=_NoopPipelineConfig,
     )
-    """Inert :class:`_NoopPipelineConfig` instance. Pinned here because
-    the phase-1 wrapper drives upstream's :class:`wan.generate.WanRunner`
-    directly and has no flashdreams pipeline to construct."""
+    """Inert stand-in when ``use_native_pipeline=False`` -- the
+    vendor wrapper drives upstream's ``WanRunner`` directly and has
+    no flashdreams pipeline to construct."""
 
     prompt: str | Path = DEFAULT_PROMPT
-    """Inline text prompt or a path to a ``.txt`` file whose first
-    non-empty line is read as the prompt."""
+    """Inline text prompt, or a path to a ``.txt`` file whose first
+    non-empty line is used."""
 
     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
-    """Negative prompt forwarded to upstream's pipeline; defaults to the
-    upstream-bundled Chinese negative-prompt string for parity."""
+    """Negative prompt forwarded to the pipeline."""
 
     image_path: Path | None = None
-    """First-frame RGB image. Required for I2V (the only mode shipped
-    by upstream's WAN-5B model)."""
+    """First-frame RGB image. Required (HY-WorldPlay WAN-5B is I2V-only)."""
 
     pose: str = "w-16"
-    """Camera trajectory. Either a pose-string (e.g. ``"w-16"`` for 16
-    forward latents, or ``"w-3, right-1, d-4"``) or the path to a
-    JSON file produced by upstream's
-    ``hyvideo/generate_custom_trajectory.py``. Total latents must equal
-    ``num_chunk * 4``."""
+    """Camera trajectory as a pose-string (e.g. ``"w-16"``,
+    ``"w-3, right-1, d-4"``) or the path to a JSON file produced by
+    upstream's ``hyvideo/generate_custom_trajectory.py``. Total latent
+    count must equal ``num_chunk * 4``."""
 
     num_chunk: int = 4
-    """Number of autoregressive chunks to roll out. Each chunk produces
-    4 latents, i.e. roughly 16 decoded frames."""
+    """Autoregressive chunks to roll out; each chunk emits 4 latents
+    (~16 decoded frames)."""
 
     num_frames: int = 961
-    """Latent budget reserved by upstream's pipeline for the longest
-    rollout; passed through to ``WanRunner.predict`` unchanged."""
+    """Latent budget upstream's pipeline reserves for the longest
+    rollout."""
 
     num_inference_steps: int = 50
-    """Diffusion denoising steps per chunk. Upstream's distilled
-    ``wan_distilled_model`` checkpoint targets 4 steps -- override
-    when using non-distilled weights."""
+    """Diffusion denoising steps per chunk. The distilled
+    ``wan_distilled_model`` checkpoint targets 4; override when using
+    non-distilled weights."""
 
     pixel_height: int = 704
-    """Output video pixel height (default matches upstream)."""
+    """Output video pixel height."""
 
     pixel_width: int = 1280
-    """Output video pixel width (default matches upstream)."""
+    """Output video pixel width."""
 
     fps: int = 16
     """Output video frame rate."""
 
     use_memory: bool = True
-    """Enable HY-WorldPlay's reconstituted-context memory. Set False
-    only for ablation."""
+    """Enable reconstituted-context memory. Set ``False`` for ablation."""
 
     context_window_length: int = 16
-    """Number of past chunks retained by the memory module."""
+    """Past chunks retained by the memory module."""
 
     seed: int = 0
-    """RNG seed. Offset by ``RANK`` automatically when running under
-    torchrun if :attr:`RunnerConfig.offset_seed_by_global_rank` is set,
-    so each rank draws a distinct stream while preserving deterministic
-    replay per rank."""
+    """RNG seed. Offset by ``RANK`` under torchrun when
+    :attr:`RunnerConfig.offset_seed_by_global_rank` is set, so each
+    rank draws a distinct deterministic stream."""
 
     model_id: str = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
     """HuggingFace ID for the base Wan 2.2 backbone (VAE + scheduler +
     pipeline scaffolding)."""
 
     ar_model_path: Path | None = None
-    """Local directory containing HY-WorldPlay's
-    ``wan_transformer/`` (``config.json`` + safetensors). Required."""
+    """Local directory containing HY-WorldPlay's ``wan_transformer/``
+    (``config.json`` + safetensors). Required."""
 
     ckpt_path: Path | None = None
     """Path to HY-WorldPlay's ``wan_distilled_model/model.pt`` (or any
-    compatible action-conditioned ``.pt`` checkpoint). Required."""
+    compatible action-conditioned ``.pt``). Required."""
 
     hy_worldplay_repo_root: Path | None = None
-    """Path to the cloned upstream
-    https://github.com/Tencent-Hunyuan/HY-WorldPlay tree. Required
-    because the upstream ``wan/`` package imports siblings by bare
-    name; ``<root>`` and ``<root>/wan`` are added to ``sys.path``
-    before the pipeline is constructed. Only used in vendor-wrapper
-    mode; the native pipeline does not import the upstream tree."""
+    """Cloned upstream https://github.com/Tencent-Hunyuan/HY-WorldPlay
+    tree. Required in vendor-wrapper mode (the upstream ``wan/``
+    package imports siblings by bare name and needs to be on
+    ``sys.path``); unused on the native path."""
 
     use_native_pipeline: bool = True
     """Route inference through the in-tree
-    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B` instead of
-    upstream's :class:`wan.generate.WanRunner`. Phase 2b feature flag.
+    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B`.
 
-    Defaults to ``True`` after the phase 2b.6.2 parity close: the
-    native path matches vendor's ``use_kv_cache=True`` baseline at
-    ``mean |\u0394| = 15.65 / 255`` (chunk-0 = 12.9, chunk-1 = 18.2)
-    on the 704x1280 / num_chunk=2 / seed=0 reference config, well
-    below the visible-quality threshold and within 3-4 LSBs of the
-    vendor-vs-vendor kernel noise floor (sageattn vs sdpa = 4.25 / 255;
-    VAE sample vs mean = 3.8 / 255). Production HY-WorldPlay rollouts
-    now drive ``flashdreams-run hy-worldplay-wan-i2v-5b`` through the
-    native :class:`HyWorldPlayWanI2VNativeRunner` by default.
-
-    Pass ``--no-use-native-pipeline`` (or set ``use_native_pipeline=False``
-    on the config) to fall back to the phase-1 vendor wrapper -- it
-    bit-matches upstream's ``use_kv_cache=False`` default (the
-    formally-published serving mode) and pulls vendor's heavy deps
-    (sageattention, cloudpickle, accelerate, transformers==4.57.6) at
-    runtime. Reserved for callers who specifically need bit-exact
-    match against the published serving config; 2b.6.1's Option A
-    refactor is the longer-term path to bit-exact native match
-    against ``use_kv_cache=False`` and remains "future; not currently
-    planned".
-
-    When ``True``, ``__post_init__`` swaps ``_target`` to
+    When ``True`` (default), ``__post_init__`` swaps ``_target`` to
     :class:`HyWorldPlayWanI2VNativeRunner` and replaces the inert
-    ``pipeline`` slot with a fresh copy of ``PIPELINE_WAN22_TI2V_5B``.
-    Action / camera / memory conditioning are opt-in via the
-    sibling flags (defaults are no-ops by construction; see
-    :attr:`use_action_conditioning` etc.)."""
+    ``pipeline`` slot with a fresh deepcopy of
+    ``PIPELINE_WAN22_TI2V_5B`` (with the scheduler swapped to the
+    distilled 4-step Euler grid). Action / camera / memory conditioning
+    layer on via the sibling flags below.
+
+    Set ``False`` to fall back to the vendor wrapper, which bit-matches
+    upstream's ``use_kv_cache=False`` default but pulls vendor's heavy
+    deps (sageattention, cloudpickle, accelerate, transformers==4.57.6)
+    at runtime."""
 
     use_action_conditioning: bool = False
-    """Enable HY-WorldPlay's discrete action conditioner (phase 2b.3).
-    Only honoured when :attr:`use_native_pipeline` is ``True``; in that
-    case ``__post_init__`` swaps the pipeline's I2V encoder for
-    :class:`HyWorldPlayWanCtrlEncoder` and its transformer for the
-    :class:`HyWorldPlayWan21Transformer` + :class:`HyWorldPlayWanDiTNetwork`
-    pair so the per-AR-step :attr:`pose` is parsed into 81-class action
-    labels (``trans * 9 + rotate``) and summed into the AdaLN time
-    embedding. Defaults to ``False`` because the action MLP's residual
-    head is only meaningful once HY-WorldPlay's distilled checkpoint
-    has been loaded; with zero-init weights the conditioner is a strict
-    no-op so flipping this on without those weights stays parity-safe.
-    Reconstituted-context memory still lands in 2b.5."""
+    """Route per-AR-step :attr:`pose` through HY-WorldPlay's 81-class
+    discrete action conditioner (``trans * 9 + rotate``, summed into
+    the AdaLN time embedding).
+
+    Only honoured with ``use_native_pipeline=True``. The encoder and
+    transformer slots swap to the HY subclasses
+    (:class:`HyWorldPlayWanCtrlEncoder`,
+    :class:`HyWorldPlayWan21Transformer`, :class:`HyWorldPlayWanDiTNetwork`).
+    With zero-init weights the conditioner is a strict identity, so
+    flipping this on without HY-WorldPlay's distilled checkpoint is
+    parity-safe."""
 
     use_camera_conditioning: bool = False
-    """Enable HY-WorldPlay's camera-trajectory PRoPE conditioner (phase 2b.4).
-    Only honoured when :attr:`use_native_pipeline` is ``True``; in that
-    case ``__post_init__`` (a) ensures the action-aware encoder /
-    transformer / network swap has been performed -- the camera
-    conditioner sits on the same :class:`HyWorldPlayCtrl` payload as the
-    action labels and shares its plumbing -- and (b) flips
+    """Route the camera trajectory through PRoPE dual-branch
+    self-attention.
+
+    Only honoured with ``use_native_pipeline=True``. Triggers the same
+    encoder / transformer / network swap as
+    :attr:`use_action_conditioning` (both conditioners share the
+    :class:`HyWorldPlayCtrl` payload) and flips
     :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` on so each
-    transformer block runs the dual-branch RoPE + PRoPE self-attention
-    from :class:`hy_worldplay._camera.HyWorldPlayPRoPEBlock`. The native
-    runner then parses :attr:`pose` into per-latent W2C + intrinsics and
-    binds them on the encoder before the rollout. Defaults to ``False``
-    because the PRoPE branch's ``o_prope`` projection is zero-init -- the
-    branch contributes exactly zero residual until HY-WorldPlay's
-    distilled checkpoint loads non-zero weights for it, so flipping this
-    on without those weights stays parity-safe."""
+    block runs :class:`hy_worldplay._camera.HyWorldPlayPRoPEBlock`. The
+    PRoPE branch's ``o_prope`` projection is zero-init, so flipping
+    this on without the distilled checkpoint is parity-safe."""
 
     use_memory_selection: bool = False
-    """Enable HY-WorldPlay's reconstituted-context memory **selection**
-    (phase 2b.5a). Only honoured when both :attr:`use_native_pipeline`
-    and :attr:`use_camera_conditioning` are ``True`` -- the selector
-    needs the bound per-rollout ``viewmats`` history that
-    :attr:`use_camera_conditioning` is responsible for parsing and
-    binding. When set, the native runner arms the encoder via
-    :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config` so each AR step
-    that has enough history (``current_frame_idx >=
-    context_window_length``) attaches a sorted, deduplicated
-    ``memory_frame_indices`` slice to its :class:`HyWorldPlayCtrl`
-    payload. The list is consumed by the KV-prefill executor and the
-    arbitrary-position ``BlockKVCache`` extension that land together
-    in **phase 2b.5b**; until then the indices are produced but no
-    pre-pass is run, so flipping this flag on adds the per-AR selection
-    cost (a Monte-Carlo FOV-overlap sweep over the bound point cloud)
-    without changing the noise prediction. Defaults to ``False`` to keep
-    the cost off by default and to keep the smoke tests CPU-cheap."""
+    """Emit per-AR-step ``memory_frame_indices`` on the
+    :class:`HyWorldPlayCtrl` payload (FOV-overlap selection over the
+    bound viewmat history).
+
+    Requires both ``use_native_pipeline`` and
+    ``use_camera_conditioning`` (the FOV scorer consumes the bound
+    per-rollout viewmats). When set, the encoder is armed via
+    :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config` and emits a
+    sorted, deduplicated index list whenever
+    ``current_frame_idx >= context_window_length``. The KV-prefill
+    executor consumes these indices and prepends the selected K/V
+    history to each block's attention."""
 
     memory_frames: int = 16
-    """Total memory-frame budget per AR step (temporal context + FOV-
-    selected). Matches upstream's call site default
-    (``select_mem_frames_wan(..., memory_frames=16, ...)``). Only used
-    when :attr:`use_memory_selection` is set."""
+    """Total memory-frame budget per AR step (temporal context +
+    FOV-selected). Matches upstream's
+    ``select_mem_frames_wan(..., memory_frames=16)``. Only used when
+    :attr:`use_memory_selection` is set."""
 
     temporal_context_size: int = 12
-    """Recent-frames portion of the memory budget (kept unconditionally
-    each AR step). Mirrors upstream's
-    ``select_mem_frames_wan(..., temporal_context_size=12, ...)``."""
+    """Recent-frames portion of the memory budget, kept unconditionally
+    each AR step."""
 
     memory_pred_latent_size: int = 4
-    """Query-clip size for the FOV-overlap scorer. Matches upstream's
-    ``pred_latent_size=4`` arg."""
+    """Query-clip size for the FOV-overlap scorer (matches upstream's
+    ``pred_latent_size=4``)."""
 
     memory_fov_h_deg: float = 60.0
-    """Horizontal FOV (degrees) used by the selection-time overlap.
-    Matches upstream's ``fov_h_deg=60.0``."""
+    """Horizontal FOV (degrees) for the selection-time overlap."""
 
     memory_fov_v_deg: float = 35.0
-    """Vertical FOV (degrees) used by the selection-time overlap.
-    Matches upstream's ``fov_v_deg=35.0``."""
+    """Vertical FOV (degrees) for the selection-time overlap."""
 
     memory_points_count: int = 50_000
-    """Number of Monte-Carlo sample points in the shared point cloud
-    consumed by the FOV-overlap computation. Matches upstream's
-    ``generate_points_in_sphere(50_000, 8.0)`` call in
-    ``WanInferencePipeline.__init__``."""
+    """Monte-Carlo sample count in the shared point cloud consumed by
+    the FOV-overlap scorer."""
 
     memory_points_radius: float = 8.0
-    """Radius of the Monte-Carlo sphere. Matches upstream's
+    """Radius of the Monte-Carlo sphere; matches upstream's
     ``generate_points_in_sphere(50_000, 8.0)``."""
 
     def __post_init__(self) -> None:
-        """Swap ``_target`` and ``pipeline`` to the native preset when
-        ``use_native_pipeline`` is set.
+        """Swap ``_target`` and ``pipeline`` for the native preset.
 
-        Only swaps defaults: a user-supplied ``pipeline=`` override
-        (any non-:class:`_NoopPipelineConfig` instance) or a
-        user-supplied ``_target=`` override (any class other than
-        :class:`HyWorldPlayWanI2VRunner`) is respected as-is so power
-        users can plug in custom pipeline configs without round-tripping
-        through this flag.
+        No-op when ``use_native_pipeline=False``. User-supplied
+        ``pipeline=`` / ``_target=`` overrides are detected by identity
+        (non-:class:`_NoopPipelineConfig` / non-:class:`HyWorldPlayWanI2VRunner`)
+        and left untouched.
 
-        :data:`PIPELINE_WAN22_TI2V_5B` is a module-level singleton; the
-        deepcopy here keeps per-run mutations (``derive_config`` /
-        per-rank seed offset, and the scheduler swap below) isolated
-        to this config instance.
+        ``PIPELINE_WAN22_TI2V_5B`` is a module-level singleton; the
+        deepcopy isolates per-run mutations (scheduler swap, action /
+        camera / memory swaps below) to this config instance. The base
+        recipe's UniPC scheduler is replaced with the distilled
+        4-step Euler grid; the base recipe keeps UniPC so non-HY
+        callers are unaffected.
 
-        After the deepcopy, the base recipe's
-        :class:`FlowMatchUniPCSchedulerConfig` is replaced with
-        :class:`FlowMatchEulerDiscreteSchedulerConfig` pinned to the
-        distilled WAN-5B 4-step schedule (matches upstream's
-        ``few_step=True`` branch). The base recipe stays neutral with
-        UniPC so non-HY callers of ``PIPELINE_WAN22_TI2V_5B`` keep
-        their existing scheduler.
-
-        When :attr:`use_action_conditioning` is set, the deep-
-        copied pipeline's encoder and transformer slots are swapped to
-        the action-aware variants from :mod:`hy_worldplay._action`,
-        which subclass the standard I2V encoder / Wan 2.1 transformer /
-        DiT network to thread the per-AR-step action slice through to
-        the AdaLN modulation path. When :attr:`use_camera_conditioning`
-        is also (or independently) set, the same swap is performed --
-        the action-aware classes already carry the ``viewmats`` / ``Ks``
-        fields on :class:`HyWorldPlayCtrl` -- and
-        :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` is
-        flipped on so each block runs the dual-branch RoPE + PRoPE
-        self-attention.
+        Raises ``ValueError`` when ``use_memory_selection`` is set
+        without ``use_camera_conditioning`` (the FOV-overlap scorer
+        needs the bound viewmat history that camera conditioning
+        installs).
         """
         if not self.use_native_pipeline:
             return
@@ -363,40 +272,25 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
 
             self.pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
+            # Distilled WAN-5B fixed-timestep schedule (upstream's
+            # ``few_step=True`` branch in
+            # ``pipeline_wan_w_mem_relative_rope.py``).
             self.pipeline.diffusion_model.scheduler = (
                 FlowMatchEulerDiscreteSchedulerConfig(
                     num_inference_steps=4,
-                    # Distilled WAN-5B fixed-timestep schedule. Lifted
-                    # verbatim from upstream
-                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
-                    # ``few_step=True`` branch; the 4-step distilled
-                    # checkpoint is trained against exactly this
-                    # sigma grid.
                     fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
                 )
             )
 
-        # Both action and camera conditioning use the same subclass tree
-        # (encoder + transformer + network); flipping either flag triggers
-        # the swap. Camera conditioning then additionally enables the
-        # PRoPE-block path on the DiT.
+        # Action + camera share one subclass tree (encoder + transformer
+        # + network); either flag triggers the swap. Camera additionally
+        # flips on the PRoPE block path.
         if self.use_action_conditioning or self.use_camera_conditioning:
             self._swap_in_action_conditioning_configs()
-            # When a distilled checkpoint path is supplied, re-route the
-            # transformer load to it (HY-WorldPlay's distilled ``.pt`` is
-            # a superset of the base 5B safetensors -- it includes the
-            # action / PRoPE deltas with non-zero weights). Without a
-            # path, leave the base diffusers safetensors selected so
-            # the swap-config smoke tests in ``tests/test_smoke.py``
-            # keep working sans ckpt_path.
             if self.ckpt_path is not None:
                 self._route_distilled_checkpoint()
         if self.use_camera_conditioning:
             self._enable_prope_blocks_on_network()
-        # Memory selection (2b.5a) reuses the per-rollout viewmats
-        # binding that the camera conditioner sets up; enforce that
-        # precondition here so we fail fast instead of silently emitting
-        # ``memory_frame_indices=None`` on every AR step.
         if self.use_memory_selection and not self.use_camera_conditioning:
             raise ValueError(
                 "use_memory_selection=True requires "
@@ -406,27 +300,22 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             )
 
         if self._target is HyWorldPlayWanI2VRunner:
-            # Lazy import: the native runner pulls in torch, the Wan
-            # pipeline, and the diffusers stack. Importing eagerly would
-            # break the CPU-only smoke tests in vendor-wrapper mode.
+            # Lazy import: the native runner pulls in torch + diffusers
+            # + the Wan pipeline. Eager import would break the CPU-only
+            # smoke tests in vendor-wrapper mode.
             from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
 
             self._target = HyWorldPlayWanI2VNativeRunner
 
     def _swap_in_action_conditioning_configs(self) -> None:
-        """Replace the pipeline's I2V encoder + transformer with the HY-WorldPlay variants.
+        """Swap the deep-copied pipeline's I2V encoder + transformer for the HY variants.
 
-        Lazy-imported so :mod:`hy_worldplay._action` -- which pulls in
-        ``torch`` and the Wan transformer stack -- is only loaded when
-        either the action or the camera flag is actually set. Honours
-        user-supplied encoder / transformer overrides by only swapping
-        the stock :class:`WanI2VCtrlEncoderConfig` /
-        :class:`Wan21TransformerConfig` instances we just deep-copied
-        from :data:`PIPELINE_WAN22_TI2V_5B`. Both action and camera
-        conditioning share this swap: the per-AR-step ``viewmats`` /
-        ``Ks`` slices live on the same :class:`HyWorldPlayCtrl` payload
-        as the action labels, so a single subclass tree covers both
-        conditioners.
+        Idempotent: user-supplied overrides (any non-stock subclass of
+        ``WanI2VCtrlEncoderConfig`` / ``Wan21TransformerConfig``) are
+        left in place. Action and camera conditioning share the same
+        subclass tree because the per-AR-step ``viewmats`` / ``Ks``
+        slices ride on the same :class:`HyWorldPlayCtrl` payload as
+        the action labels.
         """
         from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
         from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
@@ -455,9 +344,8 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
             isinstance(transformer_cfg, Wan21TransformerConfig)
             and type(transformer_cfg) is Wan21TransformerConfig
         ):
-            # Mirror every Wan 2.1 knob into the HY subclass; copying
-            # field-by-field keeps any future Wan21TransformerConfig
-            # additions from silently disappearing on the swap.
+            # Mirror every Wan 2.1 knob field-by-field so additions to
+            # ``Wan21TransformerConfig`` don't silently drop on the swap.
             self.pipeline.diffusion_model.transformer = (
                 HyWorldPlayWan21TransformerConfig(
                     network=HyWorldPlayWanDiTNetworkConfig(
@@ -490,44 +378,18 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     checkpoint_path=transformer_cfg.checkpoint_path,
                     state_dict_transform=transformer_cfg.state_dict_transform,
                     batch_shape=transformer_cfg.batch_shape,
-                    # HY-WorldPlay's autoregressive WAN-5B uses
-                    # ``pred_latent_size=4`` per AR step (see upstream
-                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
-                    # and ``select_mem_frames_wan(..., pred_latent_size=4)``),
-                    # *not* the base recipe's 21. Without this override
-                    # the native pipeline produces 21-latent chunks
-                    # while upstream produces 4-latent chunks, and the
-                    # two outputs are not comparable for parity
-                    # (different total frame counts, different RoPE
-                    # positions, different memory-selection cadence).
-                    # Phase 2b.5b-part2-followup parity bring-up
-                    # surfaced this; previous phases happened to test
-                    # at len_t=21 without comparing against the vendor
-                    # baseline's actual chunk size.
+                    # HY-WorldPlay autoregressive WAN-5B uses 4-latent
+                    # chunks (upstream's ``pred_latent_size=4``); not
+                    # the base recipe's 21. Mismatched ``len_t`` gives
+                    # different total frame counts and RoPE positions.
                     len_t=4,
-                    # HY-WorldPlay's distilled WAN-5B checkpoint
-                    # already bakes CFG into its weights -- the
-                    # 4-step few-step path runs a single conditional
-                    # forward per scheduler step and skips the
-                    # ``flow_uncond + s * (flow_cond - flow_uncond)``
-                    # combine (see upstream
-                    # ``wan/inference/pipeline_wan_w_mem_relative_rope.py``
-                    # which only calls ``current_model`` once per
-                    # step regardless of the ``do_classifier_free_guidance``
-                    # flag). The base TI2V-5B recipe ships with
-                    # ``guidance_scale=5.0`` because the *non-distilled*
-                    # WAN-5B model does need explicit CFG; we override
-                    # to ``1.0`` here so flashdreams' transformer drops
-                    # the uncond branch (and its dedicated network
-                    # cache) and matches vendor's single-pass output.
-                    # Phase 2b.6.2 parity diagnosis -- the residual
-                    # ~65/255 chunk-1+ divergence was the CFG combine
-                    # firing on top of the already-distilled noise
-                    # prediction.
+                    # Distilled WAN-5B bakes CFG into the checkpoint
+                    # and runs a single conditional forward per step;
+                    # ``guidance_scale=1.0`` skips the uncond branch +
+                    # combine. (Base TI2V-5B stays at 5.0 for the
+                    # non-distilled model.)
                     guidance_scale=1.0,
-                    # Match window_size_t to len_t so the rolling KV
-                    # cache holds exactly the current chunk's tokens
-                    # (matches upstream's per-AR-step cache eviction).
+                    # Match the rolling KV window to a single chunk.
                     window_size_t=4,
                     sink_size_t=transformer_cfg.sink_size_t,
                     h_extrapolation_ratio=transformer_cfg.h_extrapolation_ratio,
@@ -544,19 +406,12 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
                     ti2v_first_frame_per_token_timestep=(
                         transformer_cfg.ti2v_first_frame_per_token_timestep
                     ),
-                    # Vendor's HY pipeline runs the first-frame
-                    # context tokens at the stabilisation sigma
-                    # ``stabilization_level - 1 == 14`` (see vendor
+                    # Upstream's HY pipeline runs the first-frame
+                    # context at the stabilisation sigma
+                    # ``stabilization_level - 1 = 14`` (vendor
                     # ``pipeline_wan_w_mem_relative_rope.py`` lines
-                    # 680, 892), not the Wan 2.2 TI2V 5B base
-                    # default of ``0``. The distilled WAN-5B
-                    # checkpoint was fine-tuned with this offset so
-                    # the AdaLN modulation table at the first frame
-                    # expects a small-but-nonzero sigma; sending
-                    # ``t == 0`` shifts the chunk-0 prediction by
-                    # ~9 / 255 (2b.6.2 diagnosis). Setting the
-                    # override only on the action-conditioning
-                    # config keeps base WAN-5B parity intact.
+                    # 680, 892); the distilled checkpoint's AdaLN
+                    # table at the first frame is fitted to it.
                     first_frame_timestep_value=14.0,
                 )
             )
@@ -564,12 +419,10 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     def _enable_prope_blocks_on_network(self) -> None:
         """Flip ``use_prope_blocks`` on the (already-swapped) HY DiT config.
 
-        Idempotent + lazy: requires that
-        :meth:`_swap_in_action_conditioning_configs` has already
-        installed the action-aware transformer config, since
+        Requires :meth:`_swap_in_action_conditioning_configs` to have
+        run first --
         :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` only
-        exists on that subclass. The actual PRoPE-block construction
-        happens later inside
+        exists on the HY subclass. Block construction lands later in
         :meth:`HyWorldPlayWanDiTNetwork._build_block`.
         """
         from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
@@ -590,30 +443,16 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
         network_cfg.use_prope_blocks = True
 
     def _route_distilled_checkpoint(self) -> None:
-        """Re-point the transformer load at the user-supplied distilled ``.pt``.
+        """Point the (already-swapped) transformer config at the distilled ``.pt``.
 
-        Runs immediately after :meth:`_swap_in_action_conditioning_configs`
-        when at least one of ``use_action_conditioning`` /
-        ``use_camera_conditioning`` is set *and* the user has provided
-        ``--ckpt-path``. Two effects on the (already-swapped)
-        :class:`HyWorldPlayWan21TransformerConfig`:
-
-        * ``checkpoint_path`` is reset to ``str(self.ckpt_path)`` --
-          upstream's distilled WAN-5B ``.pt`` (a torch-saved dict whose
-          ``generator`` subkey carries the FSDP-unwrapped weights).
-          The file is a superset of the base 5B diffusers safetensors:
-          same 3072-dim DiT trunk plus 64 HY-specific keys
-          (``action_embedder.linear_{1,2}`` + ``to_out_prope.0`` for
-          all 30 blocks), so a single load covers both the base trunk
-          and the conditioner deltas.
-        * ``state_dict_transform`` is swapped from the base 5B remap
-          (``wan22_ti2v_5b_dit_state_dict_transform``) to
-          :func:`hy_worldplay_distilled_state_dict_transform`, which
-          handles the distilled ``.pt`` envelope (``generator`` /
-          ``generator_ema`` subkey + ``model.`` /
-          ``_fsdp_wrapped_module.`` prefix stripping) on top of the
-          base remap and adds the HY-specific
-          ``action_embedder`` / ``to_out_prope`` rewrites.
+        Sets ``checkpoint_path`` to ``str(self.ckpt_path)`` and swaps
+        ``state_dict_transform`` to
+        :func:`hy_worldplay_distilled_state_dict_transform`, which
+        unwraps upstream's ``generator`` / ``_fsdp_wrapped_module.``
+        envelope and adds the ``action_embedder`` / ``to_out_prope``
+        rewrites on top of the base 5B remap. The distilled file is a
+        superset of the base safetensors (same 3072-dim trunk +
+        HY-specific keys), so one load covers both.
         """
         from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
 
@@ -646,14 +485,14 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
 
 class HyWorldPlayWanI2VRunner:
-    """HY-WorldPlay WAN-5B I2V driver.
+    """Vendor-wrapper driver: delegates inference to upstream's :class:`wan.generate.WanRunner`.
 
-    Plain class -- *not* a :class:`flashdreams.infra.runner.Runner`
-    subclass -- because distributed setup is deferred to upstream's
-    :class:`wan.generate.WanRunner`. The matching
-    :class:`HyWorldPlayWanI2VRunnerConfig` pins its ``pipeline`` slot to
-    a :class:`_NoopPipelineConfig`, so the framework contract is
-    satisfied without :meth:`StreamInferencePipeline.__init__` running.
+    Plain class -- not a :class:`flashdreams.infra.runner.Runner`
+    subclass -- because distributed setup is deferred to
+    ``WanRunner``. :class:`HyWorldPlayWanI2VRunnerConfig` pins its
+    ``pipeline`` slot to a :class:`_NoopPipelineConfig` so the
+    framework contract is satisfied without
+    :meth:`StreamInferencePipeline.__init__` running.
     """
 
     config: HyWorldPlayWanI2VRunnerConfig
@@ -661,9 +500,9 @@ class HyWorldPlayWanI2VRunner:
     def __init__(self, config: HyWorldPlayWanI2VRunnerConfig) -> None:
         self.config = config
 
-        # Validate config *before* importing any heavy optional deps
-        # so the smoke-tests can exercise these branches without torch
-        # or the upstream HY-WorldPlay tree installed.
+        # Validate *before* importing any heavy optional deps so the
+        # CPU-only smoke tests can exercise these branches without
+        # torch or the upstream tree installed.
         if config.ar_model_path is None or config.ckpt_path is None:
             raise ValueError(
                 "Both --ar-model-path and --ckpt-path are required. "
@@ -678,17 +517,11 @@ class HyWorldPlayWanI2VRunner:
                 "``tests/parity_check/run.sh`` once to provision one)."
             )
 
-        # Make the cloned upstream tree importable *before* the
-        # ``WanRunner`` import below: that module ultimately imports
-        # ``inference.helper`` / ``models.utils`` /
-        # ``distributed.parallel_state`` by bare name. Surfacing a
-        # missing upstream tree here gives a much clearer error than
-        # the ``ImportError`` we'd otherwise hit deeper in.
+        # Put the upstream tree on ``sys.path`` *before* importing
+        # ``wan.generate``; that module imports ``inference.helper`` /
+        # ``models.utils`` / ``distributed.parallel_state`` by bare name.
         _ensure_upstream_importable(config.hy_worldplay_repo_root)
 
-        # Heavy imports deferred so the dataclass surface (and the
-        # CPU-only smoke tests in ``tests/test_smoke.py``) work without
-        # torch / loguru / the upstream HY-WorldPlay tree present.
         import torch
 
         self.rank = int(os.environ.get("RANK", "0"))
@@ -720,9 +553,10 @@ class HyWorldPlayWanI2VRunner:
     def run(self) -> None:
         """Drive a single autoregressive rollout and persist outputs.
 
-        Mirrors :func:`wan.generate.__main__` in upstream: builds the
-        ``input_dict`` argparse-style, calls ``self._upstream.predict``,
-        and writes the resulting video on rank-zero only.
+        Mirrors upstream's ``wan/generate.py`` ``__main__``: builds
+        the argparse-style ``input_dict``, calls
+        ``self._upstream.predict``, and writes the video on rank-zero
+        only.
         """
         config = self.config
         if config.image_path is None:
@@ -769,10 +603,9 @@ class HyWorldPlayWanI2VRunner:
         video = result["video"]
         config.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = config.output_dir / f"{config.runner_name}.mp4"
-        # ``export_to_video`` expects a list of per-frame ndarrays; the
-        # upstream pipeline returns a single ``(T, H, W, 3)`` tensor, so
-        # we split along the time axis to produce the list shape diffusers
-        # iterates over with ``len()`` + index access.
+        # ``export_to_video`` iterates with ``len()`` + index access,
+        # so split the upstream ``(T, H, W, 3)`` tensor into a list of
+        # per-frame ndarrays.
         frames: list[np.ndarray] = list(np.asarray(video[0]))
         export_to_video(frames, str(out_path), fps=config.fps)
         logger.info(

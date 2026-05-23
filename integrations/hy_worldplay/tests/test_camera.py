@@ -13,23 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only unit tests for the HY-WorldPlay camera conditioner (phase 2b.4).
-
-Tests split into three groups:
-
-* Control payload surface: :class:`HyWorldPlayCtrl` carries the new
-  ``viewmats`` / ``Ks`` fields (default ``None``) and they survive the
-  patchify-rebuild that the base transformer otherwise reconstructs.
-* PRoPE block surface: constructs a tiny :class:`HyWorldPlayPRoPEBlock`
-  on CPU, asserts the dual-branch self-attn is wired in, that
-  ``o_prope`` is zero-init, and that the block raises a clear error
-  when called without ``viewmats``. Pose-string -> ``(w2c, K, action)``
-  parsing is covered by ``test_action.py``; this file focuses on the
-  2b.4 plumbing on top of it.
-* Encoder slicing surface: :meth:`HyWorldPlayWanCtrlEncoder.set_camera_data`
-  validates shapes up front and :meth:`clear_camera_data` resets the
-  per-rollout binding.
-"""
+"""CPU-only unit tests for the HY-WorldPlay camera conditioner."""
 
 from __future__ import annotations
 
@@ -45,7 +29,7 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def test_hyworldplay_ctrl_camera_fields_default_to_none() -> None:
-    """The 2b.4 ctrl fields default ``None`` so action-only callers stay opt-in."""
+    """Camera ctrl fields default ``None`` so action-only callers stay opt-in."""
     from hy_worldplay._action import HyWorldPlayCtrl
 
     ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
@@ -55,13 +39,11 @@ def test_hyworldplay_ctrl_camera_fields_default_to_none() -> None:
 
 
 def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
-    """``viewmats`` / ``Ks`` must survive the patchify-rebuild of the I2V payload.
+    """``viewmats`` / ``Ks`` survive the patchify rebuild of the I2V payload.
 
-    Same risk profile as the 2b.3 action-field round-trip: the base
-    transformer rebuilds the ctrl via ``I2VCtrl(latent=..., mask=...)``
-    after patchify, which drops subclass fields unless the subclass
-    overrides the rebuild. This test catches a regression there in
-    isolation, without spinning up a full forward pass.
+    The base transformer reconstructs the ctrl via
+    ``I2VCtrl(latent=..., mask=...)`` after patchify, which would drop
+    subclass fields unless the subclass overrides the rebuild.
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
@@ -74,8 +56,7 @@ def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
         HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp.__get__(fake_self)
     )
 
-    # Stub the super() rebuild for the leaf-tensor passthrough; the
-    # method short-circuits the I2VCtrl branch for HyWorldPlayCtrl
+    # The method short-circuits the I2VCtrl branch for HyWorldPlayCtrl
     # inputs, so the super() call is never reached on this path.
     latent = torch.randn(1, 4, 16, 8, 8)
     mask = torch.zeros(1, 4, 16, 8, 8)
@@ -92,7 +73,7 @@ def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
 
     # Force the no-op patchify branch (already patchified): the method
     # returns the ctrl as-is, which still exercises the type check and
-    # the dataclass plumbing.
+    # dataclass plumbing.
     ctrl_patched = HyWorldPlayCtrl(
         latent=latent,
         mask=mask,
@@ -114,7 +95,7 @@ def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
 
 
 def _make_prope_block(*, dim: int = 64, num_heads: int = 2) -> object:
-    """Construct a tiny :class:`HyWorldPlayPRoPEBlock` for the structural checks below."""
+    """Build a tiny :class:`HyWorldPlayPRoPEBlock` for the structural checks below."""
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
     return HyWorldPlayPRoPEBlock(
@@ -129,12 +110,12 @@ def _make_prope_block(*, dim: int = 64, num_heads: int = 2) -> object:
 
 
 def test_prope_block_self_attn_is_dual_branch_subclass() -> None:
-    """The PRoPE block must replace stock self-attn with the dual-branch subclass."""
+    """PRoPE block must replace stock self-attn with the dual-branch subclass."""
     from hy_worldplay._camera import HyWorldPlayPRoPESelfAttention
 
     block = _make_prope_block()
     assert isinstance(block.self_attn, HyWorldPlayPRoPESelfAttention)
-    # The dual-branch subclass adds ``o_prope`` and ``attn_op_prope`` on
+    # Dual-branch subclass adds ``o_prope`` and ``attn_op_prope`` on
     # top of the standard module surface.
     assert hasattr(block.self_attn, "o_prope")
     assert hasattr(block.self_attn, "attn_op_prope")
@@ -143,12 +124,10 @@ def test_prope_block_self_attn_is_dual_branch_subclass() -> None:
 def test_prope_block_o_prope_is_zero_init() -> None:
     """``o_prope`` is zero-init so the PRoPE branch contributes zero residual.
 
-    Mirrors the upstream
-    ``nn.init.zeros_(block.attn1.to_out_prope[0].weight)`` /
-    ``nn.init.zeros_(...bias)`` invariant: until HY-WorldPlay's
-    distilled checkpoint loads non-zero weights for it, the PRoPE
-    branch is a strict identity and the dual-branch block stays
-    parity-equivalent to the standard one.
+    Mirrors upstream's ``nn.init.zeros_(block.attn1.to_out_prope[0].weight)``
+    invariant -- until the distilled checkpoint loads non-zero weights,
+    the PRoPE branch is a strict identity and the dual-branch block
+    stays parity-equivalent to the standard one.
     """
     block = _make_prope_block()
     weight = block.self_attn.o_prope.weight
@@ -159,13 +138,11 @@ def test_prope_block_o_prope_is_zero_init() -> None:
 
 
 def test_prope_block_forward_requires_viewmats() -> None:
-    """The PRoPE block must fail loudly when ``viewmats`` is missing.
+    """PRoPE block must raise ``ValueError`` when ``viewmats`` is missing.
 
-    Calling the dual-branch forward without bound camera data would
-    silently fall through if viewmats were just defaulted to a zeros
-    tensor (the zero-init ``o_prope`` would mask the bug). The block
-    explicitly raises so misconfigured runs surface the broken
-    plumbing at the first block invocation rather than as a confusing
+    A silent fallback would let the zero-init ``o_prope`` mask the
+    missing camera binding -- the explicit raise surfaces the broken
+    plumbing at the first block invocation rather than as confusing
     parity drift much later.
     """
     block = _make_prope_block()
@@ -173,9 +150,8 @@ def test_prope_block_forward_requires_viewmats() -> None:
     block._parameters_updated_after_loading_checkpoint = True
 
     # ``cache`` and ``rope_freqs`` are never read on the viewmats=None
-    # path -- the explicit ValueError fires before any cache access --
-    # but the block's forward signature still typechecks the args, so
-    # we hand it placeholder values that satisfy the type contract.
+    # path (the ValueError fires first), but the block's forward
+    # signature still typechecks them, so we pass placeholders.
     x = torch.zeros(1, 4, 64)
     e = torch.zeros(1, 6, 64)
     rope_freqs = torch.zeros(4, 1, 1, 32)
@@ -185,12 +161,7 @@ def test_prope_block_forward_requires_viewmats() -> None:
 
 
 def test_prope_self_attention_rejects_context_parallel() -> None:
-    """CP > 1 is intentionally gated off here (lands with the memory branch).
-
-    Mirrors the explicit ``cp_size > 1`` gate in the 2b.3 action
-    embedding so the broken CP path is a loud ``NotImplementedError``,
-    not a silent shape mismatch deep inside attention.
-    """
+    """``forward_dual_branch`` must raise ``NotImplementedError`` when CP > 1."""
     from torch.distributed import ProcessGroup  # noqa: F401  (typing-only)
     from hy_worldplay._camera import HyWorldPlayPRoPESelfAttention
 
@@ -198,8 +169,8 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
         query_dim=64, n_heads=2, head_dim=32
     )
 
-    # Stub ``is_context_parallel_enabled`` so we can hit the gate without
-    # actually setting up a distributed mesh.
+    # Stub ``is_context_parallel_enabled`` so we can hit the gate
+    # without setting up a distributed mesh.
     attn.is_context_parallel_enabled = lambda: True  # type: ignore[assignment]
 
     with pytest.raises(NotImplementedError, match="context-parallel"):
@@ -214,15 +185,7 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
 
 
 def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
-    """``use_prope_blocks=True`` makes ``_build_block`` return :class:`HyWorldPlayPRoPEBlock`.
-
-    Constructs a tiny 2-layer network (deliberately not loading the full
-    Wan 2.2 TI2V 5B config so the test stays sub-second on CPU) and
-    asserts ``self.blocks`` is populated with PRoPE blocks rather than
-    stock ones. With ``use_prope_blocks=False`` the same construction
-    must keep the stock :class:`Block` so the action-only callsite at
-    2b.3 keeps its bit pattern.
-    """
+    """``use_prope_blocks`` toggles ``_build_block`` between stock :class:`Block` and PRoPE."""
     from flashdreams.recipes.wan.transformer.impl.network import Block
 
     from hy_worldplay._action import (
@@ -231,8 +194,8 @@ def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
     )
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
-    # A tiny but valid network config -- this construction is what we'd
-    # otherwise execute inside :class:`Wan21Transformer` at setup time.
+    # Tiny but valid network config -- mirrors what
+    # :class:`Wan21Transformer` would otherwise build at setup time.
     base_cfg = HyWorldPlayWanDiTNetworkConfig(use_prope_blocks=False)
     base_cfg.num_layers = 2
     base_cfg.num_heads = 4
@@ -265,13 +228,11 @@ def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
 
 
 def _make_camera_encoder():
-    """Build a HY-WorldPlay-aware encoder without touching the upstream tree.
+    """Build a HY-WorldPlay encoder skeleton, bypassing the heavy VAE init.
 
-    The :class:`I2VCtrlEncoder` constructor immediately builds the inner
-    :class:`WanVAEEncoder` (a heavy dependency that calls into diffusers);
-    we don't need a real VAE for the shape-validation tests, so we
-    sidestep ``__init__`` and just attach the bookkeeping fields the
-    setters / getters under test touch.
+    The real :class:`I2VCtrlEncoder` constructor builds an inner
+    :class:`WanVAEEncoder` that pulls in diffusers; the shape-validation
+    tests only need the bookkeeping fields, so we sidestep ``__init__``.
     """
     from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
 
@@ -294,7 +255,7 @@ def test_encoder_set_camera_data_validates_shapes() -> None:
     with pytest.raises(ValueError, match="Ks"):
         encoder.set_camera_data(torch.zeros(1, 4, 4, 4), torch.zeros(1, 4, 2, 3))
 
-    # leading dims must match.
+    # Leading dims must match.
     with pytest.raises(ValueError, match="leading dims"):
         encoder.set_camera_data(torch.zeros(2, 4, 4, 4), torch.zeros(1, 4, 3, 3))
 
