@@ -367,13 +367,24 @@ feature flag and lands incrementally:
     command + `imageio[FFMPEG]`-based per-frame uint8 RGB delta)
     landed here is reusable for both rounds.
 
-- **2b.6 (partially landed; cleanup still deferred to 2b.6.1).**
+- **2b.6 (Option C check landed; cleanup deferred to 2b.6.2).**
   Closed three real bugs surfaced by the 2b.5b-part2-followup
   parity diff. 704x1280 / `num_chunk=2` / `seed=0` parity went
   from `mean |Δ| = 110.7 / 255` to `61.4 / 255`; chunk-0
   (frames 0-12) now sits at `mean |Δ| ~ 7-20 / 255`, close to
   phase-1's 3.41/255 vendor-vs-vendor torch-version drift. All
-  99 HY-WorldPlay CPU tests still pass.
+  99 HY-WorldPlay CPU tests still pass. Also landed the Option C
+  parity-harness re-baseline (vendor `use_kv_cache=True` via
+  runtime monkey-patch, `USE_KV_CACHE_TRUE=1` switch in
+  `run.sh`). The Option C diff result **disproved the
+  architectural-mismatch hypothesis**: vendor's two modes are
+  equivalent at `mean |Δ| = 3.24 / 255`, but native ↔ vendor
+  (`use_kv_cache=True`) still sits at `mean |Δ| = 65.05 / 255`
+  (chunk 0 16.92, chunk 1 104.77, chunk 2 101.47 with a strong
+  G+B color cast at the chunk-0 → chunk-1 boundary). The
+  residual is therefore a native-side implementation bug in
+  chunk-1+ cache-prefill or cross-chunk attention, not
+  architecture. Diagnosis + fix punted to 2b.6.2.
   1. *MP4 export integer-overflow* in `_native_runner._write_mp4`:
      `diffusers.utils.export_to_video` reads `np.ndarray` frames
      as `float [0, 1]` and internally does
@@ -407,30 +418,35 @@ feature flag and lands incrementally:
      driver now builds a fresh context-timestep tensor of the
      right shape / dtype / device.
 
-- **2b.6.1 (new follow-on, not yet started).** Close the chunk-1
-  architectural gap surfaced by 2b.6. After the three bug fixes,
-  chunk-1 (frames 13-28) still sits at `mean |Δ| ~ 100 / 255`
-  because vendor's parity baseline runs with
-  `pipeline_wan_w_mem_relative_rope.py`'s `self.use_kv_cache =
-  False` (line 707) -- chunk-1's forward pass feeds **all 9
-  latents (chunk-0 clean + chunk-1 noisy) into the network
-  together** with mixed timesteps `[14, 14, 14, 14, 14, t, t, t,
-  t]`, and the bidirectional attention means chunk-0's
-  representation at deeper layers depends on chunk-1's noisy
-  tokens. The HY native runner instead does separate cache-
-  prefill of chunk-0 K / V into a memory cache, then a chunk-1-
-  only main forward that prepends the memory K / V -- equivalent
-  to vendor's `use_kv_cache=True` mode, which the baseline never
-  enables. Closing the gap means either (a) refactoring the
-  native runner to thread chunk-0 clean latents alongside chunk-1
-  noisy latents through a single `predict_flow` call (drop the
-  separate cache-prefill in favour of a "full forward" mode), or
-  (b) re-baselining vendor with `use_kv_cache=True` so the
-  parity reference uses the same cache-prefill code path the
-  native runner already mirrors. Cleanup items (parity sub-venv
-  removal + `--use-native-pipeline` default flip) stay deferred
-  until 2b.6.1 closes the chunk-1 gap and the `≤5 / 255` bar
-  holds at multi-chunk rollouts.
+- **2b.6.2 (next follow-on; chunk-1+ implementation-bug
+  diagnosis + fix).** After 2b.6's Option C re-baseline showed
+  vendor's two modes are functionally equivalent (3.24/255), the
+  residual 65/255 native ↔ vendor gap is an **implementation bug
+  in native's chunk-1+ path**, not an architectural gap. Static
+  review of `prefill_memory_kv_cache`, the per-block prefill
+  writers, the collapsed-position RoPE builder, the AdaLN
+  modulation at `_HY_STABILIZATION_TIMESTEP`, the per-rollout
+  buffer `index_select` path, and the dual-branch attention
+  concat did not surface an obvious defect. The diagnosis loop
+  now requires runtime tensor dumps from both native and vendor
+  at matched call sites (memory_x at prefill entry, per-block
+  K / V at prefill exit, post-concat cached_K at chunk-1's first
+  denoising step). 2b.6.2 will land that dump harness (env-var
+  gated), root-cause the bug, fix it, re-validate parity, and
+  *then* land the deferred cleanup (sub-venv removal +
+  `--use-native-pipeline` default flip + optional vendor-wrapper
+  retirement). Initial hypotheses ordered by likelihood are
+  documented in the 2b.6 design spec under "Diagnosis runway for
+  2b.6.2".
+
+- **2b.6.1 (conditional escape hatch only).** The Option A
+  refactor (single-forward-pass `predict_flow` over 9 latents
+  with mixed timesteps `[14×5, t×4]`) is no longer the primary
+  follow-on. With vendor's two modes parity-equivalent, the
+  cache-prefill architecture is a supported close path; only
+  trigger 2b.6.1 if 2b.6.2 reveals the bug is unfixable inside
+  the cache-prefill model **and** a downstream consumer needs
+  bit-exact match against vendor's published default.
 
 Try the native path (single GPU, runs in the main `flashdreams`
 venv -- no parity sub-venv needed):
@@ -502,36 +518,37 @@ fixes landed three real bugs:
    driver now builds a fresh context-timestep tensor of the right
    shape / dtype / device.
 
-The remaining `~61 / 255` divergence is **architectural**, not a
-single-bug patch away. Chunk-0 (frames 0-12) is in the ballpark of
-phase-1's 3.41/255 baseline (`mean |Δ|` 7-20). Chunk-1 (frames
-13-28) is still ~100 / 255 because vendor's parity baseline runs
-with `pipeline_wan_w_mem_relative_rope.py`'s `self.use_kv_cache =
-False` (line 707) -- chunk-1's forward pass feeds **all 9 latents
-(chunk-0 clean + chunk-1 noisy) into the network together** with
-mixed timesteps `[14, 14, 14, 14, 14, t, t, t, t]`, and the
-bidirectional attention means chunk-0's representation at deeper
-layers depends on chunk-1's noisy tokens. The HY native runner
-took a different design: separate cache-prefill of chunk-0 K / V
-into a memory cache, then a chunk-1-only main forward that
-prepends the memory K / V. This is equivalent to vendor's
-`use_kv_cache=True` mode (which the parity baseline never enables),
-not the single-forward-pass mode it actually uses. Closing the
-gap means either (a) refactoring the native runner to thread
-chunk-0 clean latents alongside chunk-1 noisy latents through a
-single `predict_flow` call, or (b) re-baselining vendor with
-`use_kv_cache=True`. Both are recipe-level design changes tracked
-as a follow-on to 2b.6.
+**The remaining `~65 / 255` divergence is a native-side
+implementation bug, not architecture.** The original "chunk-1 is
+architectural" hypothesis was disproved in 2b.6 by re-baselining
+vendor with `use_kv_cache=True` (a runtime monkey-patch through
+the helper at `tests/parity_check/run_vendor_use_kv_cache.py`,
+gated on `USE_KV_CACHE_TRUE=1` in `run.sh`). Vendor
+(`use_kv_cache=False`, the published default) ↔ vendor
+(`use_kv_cache=True`, the cache-prefill mode the native runner
+mirrors) diffs at `mean |Δ| = 3.24 / 255` -- the two code paths
+are functionally equivalent. Native ↔ vendor (`use_kv_cache=True`)
+still diffs at `mean |Δ| = 65.05 / 255` (chunk 0 16.92, chunk 1
+104.77, chunk 2 101.47) with a strong G+B color cast at the
+chunk-0 → chunk-1 boundary, so the bug lives in native's chunk-1+
+cache-prefill or its post-prefill cross-chunk attention. Static
+review (driver, per-block prefill writers, RoPE collapse, AdaLN
+modulation, per-rollout buffer indexing, dual-branch concat) did
+not surface an obvious defect; the next iteration needs runtime
+tensor dumps at matched native / vendor call sites.
 
-The remaining cleanup items -- dropping the parity sub-venv
-(`sageattention`, `cloudpickle`, `accelerate`,
-`transformers==4.57.6`) and flipping `--use-native-pipeline` to
-default -- stay deferred until that architectural gap closes and
-the `≤5 / 255` parity bar is met. For bit-for-bit parity with
-upstream `wan/generate.py` today, use the default (vendor-wrapper)
-invocation above. See
+Diagnosis + fix are tracked as **2b.6.2**. The deferred cleanup
+items -- dropping the parity sub-venv (`sageattention`,
+`cloudpickle`, `accelerate`, `transformers==4.57.6`) and flipping
+`--use-native-pipeline` to default -- stay gated on 2b.6.2
+closing the implementation bug and clearing the `≤5 / 255`
+parity bar. For bit-for-bit parity with upstream `wan/generate.py`
+today, use the default (vendor-wrapper) invocation above. To
+reproduce the Option C re-baseline diff locally, run
+`USE_KV_CACHE_TRUE=1 ./tests/parity_check/run.sh`. See
 [`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
-for the full design.
+for the full design and the "Diagnosis runway for 2b.6.2" hypothesis
+list.
 
 #### Known quirks observed during GPU smoke validation
 
@@ -744,36 +761,48 @@ land first.
      `len_t=4` config fix landed in **2b.5b-part2-followup**,
      which is also where the production-resolution parity diff
      against the phase-1 vendor baseline first ran.
-   - **2b.6 (partially landed).** Closed three real bugs surfaced
-     by the 2b.5b-part2-followup parity diff: (a) MP4 export
-     integer-overflow in `_native_runner._write_mp4`, (b) missing
-     cross-chunk attention on the HY native path in
+   - **2b.6 (Option C check landed; cleanup deferred to 2b.6.2).**
+     Closed three real bugs surfaced by the 2b.5b-part2-followup
+     parity diff: (a) MP4 export integer-overflow in
+     `_native_runner._write_mp4`, (b) missing cross-chunk
+     attention on the HY native path in
      `HyWorldPlayWanCtrlEncoder._compute_memory_indices`, and
      (c) wrong AdaLN timestep in the memory prefill in
      `HyWorldPlayWan21Transformer.prefill_memory_kv_cache`.
      Pixel parity at 704x1280 / `num_chunk=2` improved from
      `mean |Δ| = 110.7 / 255` to `61.4 / 255`; chunk-0 (frames
-     0-12) lands near the phase-1 baseline. Detail in
-     "Native pipeline (preview)" above.
-   - **2b.6.1 (not yet started).** Close the chunk-1 architectural
-     gap surfaced by 2b.6: vendor's parity baseline runs with
-     `use_kv_cache=False` (single forward pass over chunk-0 clean
-     + chunk-1 noisy latents with mixed timesteps), while the
-     HY native runner does cache-prefill of chunk-0 K / V then
-     a chunk-1-only main forward. The two are mathematically
-     non-equivalent on a bidirectional attention model, leaving
-     chunk-1 at `mean |Δ| ~ 100 / 255`. Options under
-     consideration: (a) refactor native to thread chunk-0 clean
-     latents through `predict_flow` alongside chunk-1 noisy
-     latents (drop the separate prefill), or (b) re-baseline
-     vendor with `use_kv_cache=True` so the parity reference
-     uses the same code path the native runner mirrors. After
-     2b.6.1 closes the gap and the `≤5 / 255` bar holds at
-     multi-chunk rollouts, the long-deferred cleanup lands:
-     drop the parity sub-venv (`sageattention`, `cloudpickle`,
-     `accelerate`, `transformers==4.57.6` are no longer needed
-     once the upstream tree imports are gone) and flip
-     `--use-native-pipeline` to default.
+     0-12) lands near the phase-1 baseline. Also landed the
+     Option C re-baseline harness:
+     `tests/parity_check/run_vendor_use_kv_cache.py` runtime
+     monkey-patches `WanPipeline.use_kv_cache = True` without
+     editing the cloned vendor source, gated on
+     `USE_KV_CACHE_TRUE=1` in `run.sh`. The Option C diff
+     disproved the architectural-mismatch hypothesis: vendor's
+     two modes are equivalent (`mean |Δ| = 3.24 / 255`), but
+     native ↔ vendor (`use_kv_cache=True`) still sits at
+     `mean |Δ| = 65.05 / 255`. Detail in "Native pipeline
+     (preview)" above.
+   - **2b.6.2 (next; chunk-1+ implementation-bug diagnosis +
+     fix).** The residual 65/255 native ↔ vendor gap is a
+     native-side implementation bug in chunk-1+ cache-prefill
+     or post-prefill cross-chunk attention, not an architectural
+     gap. Static review did not surface the defect; 2b.6.2 will
+     add a runtime tensor-dump harness (env-var gated) on both
+     native and vendor at matched call sites, root-cause the
+     divergence, fix it, and re-validate against the
+     `use_kv_cache=True` baseline. On pass, the long-deferred
+     cleanup lands: drop the parity sub-venv (`sageattention`,
+     `cloudpickle`, `accelerate`, `transformers==4.57.6` are no
+     longer needed once the upstream tree imports are gone) and
+     flip `--use-native-pipeline` to default.
+   - **2b.6.1 (conditional escape hatch only).** The Option A
+     refactor (single-forward-pass `predict_flow` over 9 latents
+     with mixed timesteps) is no longer the primary follow-on.
+     With vendor's two modes parity-equivalent, the cache-prefill
+     architecture is a supported close path; trigger 2b.6.1 only
+     if 2b.6.2 reveals the bug is unfixable inside the
+     cache-prefill model and a downstream consumer needs
+     bit-exact match against vendor's published default.
 
 4. **Phase 3 — future.** HunyuanVideo-1.5 8B variant
    (`hyvideo/generate.py` upstream). Heavier integration: multiple
