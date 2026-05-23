@@ -125,6 +125,22 @@ def _patch_and_run() -> None:
 
     install_sdpa_patch()
 
+    # Phase 2b.6.2 VAE-sample-vs-mean probe. When ``HY_VENDOR_VAE_MEAN=1``
+    # is set, vae_mean_patch overrides diffusers'
+    # ``DiagonalGaussianDistribution.sample`` to return the mean
+    # (no ``std * randn`` noise). Vendor's
+    # ``vae.encode(first_image).sample()`` is the only stochastic
+    # source remaining in the image latent path; native's
+    # :class:`WanVAE.encode` returns the mean directly, so this patch
+    # gives us a vendor baseline that produces the same deterministic
+    # image latent as native. Used to confirm that the ~0.008 abs_mean
+    # divergence at chunk-0 step-0 x_in (and the ~13 / 255 chunk-0
+    # mean |\u0394| that propagates from it) is dominated by sample
+    # noise rather than a genuine numerical bug downstream.
+    from vae_mean_patch import install_vae_mean_patch  # noqa: E402
+
+    install_vae_mean_patch()
+
     runpy.run_path(
         str(_REPO_DIR / "wan" / "generate.py"),
         run_name="__main__",

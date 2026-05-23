@@ -65,7 +65,13 @@ def _patch_and_run() -> None:
 
     dump_patch.install_patches()
 
-    # 3) Run vendor's generate.py.
+    # 3) Apply the optional VAE-sample-vs-mean patch (no-op unless
+    #    ``HY_VENDOR_VAE_MEAN=1`` is set; see ``vae_mean_patch.py``).
+    from vae_mean_patch import install_vae_mean_patch  # noqa: E402
+
+    install_vae_mean_patch()
+
+    # 4) Run vendor's generate.py.
     runpy.run_path(
         str(_REPO_DIR / "wan" / "generate.py"),
         run_name="__main__",
