@@ -395,19 +395,40 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         viewmats: Tensor,
         Ks: Tensor | None,
         memory_kv_cache: HyWorldPlayMemoryKVCache,
-    ) -> None:
-        """Compute K / V from ``x`` and write them into ``memory_kv_cache``.
+    ) -> Tensor:
+        """Run the dual-branch self-attention at collapsed memory positions.
 
-        Phase 2b.5b-part2: side-effect-only call used by the prefill
-        executor. Mirrors the K / V computation half of
-        :meth:`forward_dual_branch` (Q / K / V projection, RoPE / PRoPE
-        transforms) but does not run attention or the output
-        projections, so cross-attn / FFN / head can be skipped at the
-        block / network level too. The caller is responsible for
-        passing ``rope_freqs`` already sliced to upstream's collapsed
-        prefill positions ``[0, K * tokens_per_frame)`` -- the
-        attention layer itself does not know how to produce that
-        slice, only how to apply it.
+        Phase 2b.6.2 bug fix -- prior implementation only wrote K / V
+        into ``memory_kv_cache`` and returned ``None``, leaving the
+        per-block hidden state stuck at the patch-embedded /
+        AdaLN-modulated input for every block in the prefill loop.
+        Vendor's ``is_cache=True`` path in
+        ``arwan_w_action_w_mem_relative_rope.py`` runs the *full*
+        block (self-attn -> cross-attn -> FFN) for the cache-prefill
+        pass, so each successive block's K / V projections see an
+        already-attended hidden state. The previous native shortcut
+        produced block-1+ memory K / V that diverged by 100-155%
+        relative to vendor (rms diff ~1.0 on a tensor with rms ~0.9
+        at e.g. block 1's value branch), which dominated the residual
+        chunk-1 parity gap once the CFG and RNG mismatches landed.
+
+        The fix runs the full attention pipeline:
+
+        1. Project Q / K / V from the modulated ``x``.
+        2. Apply RoPE / PRoPE at the collapsed positions.
+        3. **Write** K / V (both branches) into ``memory_kv_cache``
+           for chunk-1+'s ``forward_dual_branch`` to prepend.
+        4. **Compute** attention output over the memory positions
+           themselves (no cross-chunk K / V prepending -- this *is*
+           the cross-chunk content) and return it so the caller can
+           apply the post-attention residual + cross-attn + FFN.
+
+        The returned tensor has the same shape as ``x`` and is
+        bit-equivalent (modulo the PRoPE branch's zero-residual at
+        random init) to what a single chunk-0 forward would have
+        produced at the selected memory positions had it been driven
+        at the collapsed RoPE positions instead of the original
+        per-frame positions.
 
         Args:
             x: Pre-norm-modulated input for the selected memory frames,
@@ -427,6 +448,14 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
                 ``[batch, K, 3, 3]``.
             memory_kv_cache: Cache to populate. Both branches are
                 written.
+
+        Returns:
+            The attention output at the memory positions, summed over
+            the standard-RoPE and PRoPE branches, shape
+            ``[..., L_mem, query_dim]``. The block caller chains this
+            into the post-attention residual + cross-attn + FFN to
+            evolve the hidden state for the next block's prefill,
+            mirroring vendor.
         """
         if self.is_context_parallel_enabled():
             raise NotImplementedError(
@@ -441,11 +470,9 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         L, _ = x.shape[-2:]
         n, d = self.n_heads, self.head_dim
 
+        q_raw = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
         k_raw = self.norm_k(self.k(x)).reshape(batch_size, L, n, d)
         v_raw = self.v(x).reshape(batch_size, L, n, d)
-        # Q is needed by ``prope_qkv`` to derive the per-frame transform
-        # but its output is discarded -- attention is not run here.
-        q_raw = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
 
         from hy_worldplay import _debug_dump
 
@@ -470,7 +497,7 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         # ``[batch, num_heads, seqlen, head_dim]`` for the math, store
         # the post-transform K / V back in the cache layout
         # (``[batch, seqlen, num_heads, head_dim]``).
-        _q_prope, k_prope_bhsd, v_prope_bhsd, _apply_fn_o = prope_qkv(
+        q_prope, k_prope_bhsd, v_prope_bhsd, apply_fn_o = prope_qkv(
             q_raw.transpose(1, 2),
             k_raw.transpose(1, 2),
             v_raw.transpose(1, 2),
@@ -487,6 +514,39 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             _debug_dump.dump("prefill.block.v_rope_written", memory_kv_cache.v_rope)
             _debug_dump.dump("prefill.block.k_prope_written", memory_kv_cache.k_prope)
             _debug_dump.dump("prefill.block.v_prope_written", memory_kv_cache.v_prope)
+
+        # --- Standard RoPE-branch attention ---------------------------
+        # Phase 2b.6.2 -- run attention *over the memory positions
+        # themselves* (no cross-chunk K / V to prepend; the memory
+        # tokens *are* the only sequence at the collapsed positions).
+        # Mirrors vendor's ``is_cache=True`` attention call:
+        # ``attn_op(q_rope, key_rope, value_rope)`` where key/value
+        # are the just-computed memory K / V, not a concatenation.
+        q_rope = q_raw
+        if rope_freqs is not None:
+            q_rope = apply_rope_freqs(q_rope, rope_freqs, interleaved=True)
+        out_rope = self.attn_op(q_rope, k_for_rope, v_raw)
+        out_rope = out_rope.reshape(batch_shape + (L, n * d))
+        out_rope = self.o(out_rope)
+
+        # --- PRoPE-branch attention -----------------------------------
+        # ``prope_qkv`` returns Q / K / V transposed to
+        # ``[batch, num_heads, seqlen, head_dim]``; attn_op_prope
+        # consumes ``[batch, seqlen, num_heads, head_dim]`` (bshd
+        # layout) so we transpose the K / V cache layout back. The
+        # ``apply_fn_o`` post-attention map needs ``[batch, num_heads,
+        # seqlen, head_dim]`` then we transpose back for the final
+        # ``[..., L, n*d]`` flatten + projection.
+        out_prope = self.attn_op_prope(
+            q_prope.transpose(1, 2),
+            k_prope_bhsd.transpose(1, 2),
+            v_prope_bhsd.transpose(1, 2),
+        )
+        out_prope = apply_fn_o(out_prope.transpose(1, 2)).transpose(1, 2)
+        out_prope = out_prope.reshape(batch_shape + (L, n * d))
+        out_prope = self.o_prope(out_prope)
+
+        return out_rope + out_prope
 
 
 ## ---------------------------------------------------------------------------
@@ -717,21 +777,42 @@ class HyWorldPlayPRoPEBlock(Block):
         viewmats: Tensor,
         Ks: Tensor | None,
         cache: "HyWorldPlayPRoPEBlockCache",
-    ) -> None:
-        """Mirror :meth:`forward`'s pre-attention path; populate the memory cache.
+    ) -> Tensor:
+        """Run the full block forward at the collapsed memory positions.
 
-        Phase 2b.5b-part2: side-effect-only call. Runs the AdaLN modulation
-        + ``norm1`` exactly as :meth:`forward` would, then delegates to
-        :meth:`HyWorldPlayPRoPESelfAttention.prefill_memory_kv` to write
-        the dual-branch K / V into ``cache.memory``. Cross-attn, FFN, and
-        the residual updates are *not* run -- the prefill executor only
-        needs the per-block self-attention K / V, and skipping the rest
-        cuts the per-prefill cost roughly in half. The chunk's
-        ``self_attn`` / ``prope_self_attn`` caches are also untouched
-        (the prefill writes only into the dedicated memory slot).
+        Phase 2b.6.2 bug fix -- previously this method only wrote K / V
+        into ``cache.memory`` and returned ``None``, leaving the
+        prefill executor to feed the same patch-embedded /
+        AdaLN-modulated input into every block. Vendor's
+        ``is_cache=True`` path in
+        ``arwan_w_action_w_mem_relative_rope.py`` instead runs the
+        complete block (self-attn -> cross-attn -> FFN with all three
+        residual gates) so each successive block's K / V projections
+        see an already-attended hidden state. The previous shortcut
+        produced block-1+ memory K / V that diverged by 100-155%
+        relative to vendor (rms diff ~1.0 on a tensor with rms ~0.9
+        at e.g. block 1's value branch), which dominated the residual
+        chunk-1 parity gap once the CFG (5.0 -> 1.0) and RNG
+        (``HY_VENDOR_NOISE_MODE``) mismatches were patched.
+
+        The fixed path now mirrors :meth:`forward` exactly:
+
+        1. ``self.modulation + e`` -> 6 AdaLN coefficients.
+        2. ``norm1`` + ``shift`` + ``(1 + scale)``-modulated self-attn.
+        3. **Side-effect**: the dual-branch self-attention writes
+           K / V into ``cache.memory`` (both branches) at the
+           collapsed RoPE positions.
+        4. ``gate`` * attention output + residual.
+        5. ``cross_attn`` using ``cache.cross_attn``'s pre-cached text
+           K / V (and image K / V on I2V). The text cache was
+           populated by ``HyWorldPlayPRoPEBlock.initialize_cache``
+           at runner-init, so the prefill call needs no extra plumbing.
+        6. ``norm2`` + AdaLN + FFN + ``c_gate`` residual.
+        7. Return the evolved hidden state for the next block's
+           prefill input.
 
         Args:
-            x: Pre-modulated input for the K selected memory frames,
+            x: Pre-AdaLN input for the K selected memory frames,
                 shape ``[..., L_mem, D]``.
             e: AdaLN modulation tensor for those frames (same contract
                 as :meth:`forward`).
@@ -740,8 +821,21 @@ class HyWorldPlayPRoPEBlock(Block):
             viewmats: Per-memory-frame W2C extrinsics (already sliced
                 to the selected indices).
             Ks: Optional per-memory-frame intrinsics.
-            cache: The block's per-rollout cache; only ``cache.memory``
-                is written.
+            cache: The block's per-rollout cache. ``cache.memory`` is
+                the only slot *written* by the self-attn side effect;
+                ``cache.cross_attn`` is *read* for the cross-attention
+                K / V (no write -- the text cache is static for the
+                full rollout). ``cache.self_attn`` /
+                ``cache.prope_self_attn`` are intentionally untouched
+                (the prefill operates at collapsed positions which
+                don't belong in the rolling current-chunk cache).
+
+        Returns:
+            Hidden state ``[..., L_mem, D]`` evolved through the full
+            block. Caller threads this into the next block's prefill
+            call (and the network's prefill driver discards the
+            final-block output -- nothing past the last block reads
+            it on the prefill code path).
         """
         if viewmats is None:
             raise ValueError(
@@ -749,17 +843,24 @@ class HyWorldPlayPRoPEBlock(Block):
                 "the prefill executor must slice the per-rollout viewmats "
                 "by selected_frame_indices before calling."
             )
-        # AdaLN modulation -- same chunk-of-6 layout as ``forward``.
-        # Only ``e_chunks[0]`` (shift) and ``e_chunks[1]`` (scale) feed
-        # the pre-attention norm; the other four govern the residual
-        # gates and FFN, which we skip here.
         e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(6, dim=-2)]
+
         y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
-        self.self_attn.prefill_memory_kv(
+        y = self.self_attn.prefill_memory_kv(
             y,
             rope_freqs=rope_freqs,
             viewmats=viewmats,
             Ks=Ks,
             memory_kv_cache=cache.memory,
         )
+        x = x + (y * e_chunks[2])
+
+        x = x + self.cross_attn(
+            self.norm3(x),
+            kv_cache=cache.cross_attn,
+        )
+        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
+        y = self.ffn(y)
+        x = x + (y * e_chunks[5])
+        return x
 

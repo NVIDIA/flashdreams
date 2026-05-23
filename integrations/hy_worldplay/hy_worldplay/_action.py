@@ -873,7 +873,16 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 f"{type(block_cache).__name__}"
             )
             _debug_dump.set_context(phase="prefill", block_idx=block_idx)
-            block.prefill_memory_kv(
+            # Phase 2b.6.2 -- ``prefill_memory_kv`` now runs the FULL
+            # block (self-attn writes ``cache.memory`` *and* returns
+            # the attention output that feeds cross-attn + FFN), so the
+            # evolving hidden state propagates block-to-block exactly
+            # like vendor's ``is_cache=True`` forward. The final-block
+            # return value is intentionally discarded -- nothing past
+            # the last block reads it on the prefill path (no head,
+            # no output projection); only the per-block ``cache.memory``
+            # side effects matter for the subsequent chunk's forward.
+            x = block.prefill_memory_kv(
                 x=x,
                 e=block_e,
                 rope_freqs=rope_freqs,
