@@ -76,6 +76,7 @@ SEED="${SEED:-42}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 IMAGE_PATH="${IMAGE_PATH:-${REPO_HOST_PATH}/${HY_TREE_REL}/assets/img/test.png}"
 OUTPUT_SUBDIR="${OUTPUT_SUBDIR:-hy-worldplay/$(date +%Y%m%d-%H%M%S)}"
+EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 # ---------------------------------------------------------------- preflight
 if [[ -z "${HF_TOKEN:-}" ]]; then
@@ -171,6 +172,7 @@ docker run --rm \
     -e HY_OUTPUT_SUBDIR="${OUTPUT_SUBDIR}" \
     -e HY_NEEDS_PROVISION="${NEEDS_PROVISION}" \
     -e HY_CONTAINER_REPO="${CONTAINER_REPO}" \
+    -e HY_EXTRA_ARGS="${EXTRA_ARGS}" \
     -w "${CONTAINER_REPO}" \
     "${FLASHDREAMS_IMAGE}" bash -lc '
 set -euo pipefail
@@ -194,6 +196,7 @@ fi
 mkdir -p "outputs/${HY_OUTPUT_SUBDIR}"
 
 echo "[infer] starting flashdreams-run hy-worldplay-wan-i2v-5b (gpus=${HY_NUM_GPU})"
+read -r -a EXTRA_ARG_ARRAY <<<"${HY_EXTRA_ARGS}"
 if [[ "${HY_NUM_GPU}" -le 1 ]]; then
     uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b \
         --image-path "${HY_IMAGE_PATH}" \
@@ -204,7 +207,8 @@ if [[ "${HY_NUM_GPU}" -le 1 ]]; then
         --num-chunk "${HY_NUM_CHUNK}" \
         --pose "${HY_POSE}" \
         --seed "${HY_SEED}" \
-        --output-dir "outputs/${HY_OUTPUT_SUBDIR}"
+        --output-dir "outputs/${HY_OUTPUT_SUBDIR}" \
+        "${EXTRA_ARG_ARRAY[@]}"
 else
     uv run --project "${PARITY}" torchrun \
         --nproc_per_node="${HY_NUM_GPU}" --no-python \
@@ -217,7 +221,8 @@ else
         --num-chunk "${HY_NUM_CHUNK}" \
         --pose "${HY_POSE}" \
         --seed "${HY_SEED}" \
-        --output-dir "outputs/${HY_OUTPUT_SUBDIR}"
+        --output-dir "outputs/${HY_OUTPUT_SUBDIR}" \
+        "${EXTRA_ARG_ARRAY[@]}"
 fi
 
 echo "[done] wrote outputs/${HY_OUTPUT_SUBDIR}/hy-worldplay-wan-i2v-5b.mp4"
