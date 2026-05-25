@@ -22,119 +22,170 @@ FlashDreams
      #furo-main-content > section > h1 { display: none; }
    </style>
    <div class="homepage-logo-wrap">
-     <img src="_static/flashdreams_logo_horizontal.png" alt="FlashDreams">
+     <img src="_static/flashdreams-logo-horizontal.png" alt="FlashDreams">
    </div>
 
-FlashDreams is a high-performance streaming inference stack for world and
-video models. It focuses on long-rollout autoregressive generation, efficient
-multi-GPU execution, and practical model serving.
+.. .. raw:: html
 
-Highlights
-----------
+..    <p style="text-align: center;"><strong>High-performance inference and serving for interactive autoregressive world models.</strong></p>
 
-- FlashDreams is built for **streaming long-rollout world-model inference**
-  with per-step cache updates and low overhead in autoregressive loops.
-- The unified ``flashdreams-run`` CLI exposes both built-in and plugin models
-  behind a single launch interface, from Self-Forcing and Causal-Forcing to
-  Lingbot-World and Causal Wan2.2.
-- FlashDreams is designed for **multi-GPU context-parallel execution** with
-  torchrun-based scaling and integration-level support for efficient transformer
-  attention/cache pipelines.
-- The framework is **modular and extensible**: pipelines and runner configs can
-  be added as external integration packages via entry points without forking
-  core infra.
-- Current benchmarks show strong practical speedups in matched environments,
-  including up to **2.49x** on Lingbot-World (H100, 4xGPU) and up to
-  **1.95x** on Self-Forcing (GB200, block-6 total latency) against official
-  baselines.
+Overview
+--------------------
+
+FlashDreams is a *high-performance inference and serving library for
+interactive autoregressive video and world models*. It began as the optimized
+runtime behind
+the `OmniDreams closed-loop demo for GTC 2026
+<https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_, and has
+since grown into a general platform for realtime world-model applications across
+gaming, autonomous vehicles, robotics, simulated or virtual environments, and more.
+
+.. Best-in-class Inference Speed
+.. -----------------------------
 
 .. raw:: html
 
-   <div class="video-slot">
-     <strong>Project overview media</strong><br>
-     See model-specific pages under ``Models`` for runnable commands and
-     available qualitative assets.
+   <p class="fd-subtitle">Best-in-class inference speed.</p>
+
+FlashDreams is engineered with efficiency in mind. With a bottom-up system
+design tailored to autoregressive world-model inference patterns, it delivers best-in-class
+speed across many popular open-source models and GPU architectures.
+
+.. raw:: html
+
+   <div class="fd-highlight-grid fd-kpi-grid">
+     <a class="fd-highlight-link" href="models/self_forcing.html#profiling-benchmark">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title fd-kpi-value">2.12x</div>
+         <div class="fd-highlight-body">Self-Forcing speedup</div>
+       </div>
+     </a>
+     <a class="fd-highlight-link" href="models/lingbot_world.html#profiling-benchmark">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title fd-kpi-value">3.10x</div>
+         <div class="fd-highlight-body">LingBot-World speedup</div>
+       </div>
+     </a>
+     <a class="fd-highlight-link" href="models/wan21.html#profiling-benchmark">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title fd-kpi-value">1.40x</div>
+         <div class="fd-highlight-body">Wan2.1 speedup</div>
+       </div>
+     </a>
+     <a class="fd-highlight-link" href="models/index.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title fd-kpi-value">8</div>
+         <div class="fd-highlight-body">Integrated models</div>
+       </div>
+     </a>
    </div>
 
-Quick install
--------------
+.. raw:: html
 
-.. code-block:: bash
+   <p style="margin-top:-14px; font-size:0.82rem; color:var(--color-foreground-secondary);"><em>Although FlashDreams is designed for autoregressive inference, the same optimization stack applies naturally to bidirectional inference (e.g., Wan2.1) by treating it as a single-rollout autoregressive pass.</em></p>
 
-   # Library usage
-   pip install flashdreams
+.. Interactive Serving Backend
+.. ---------------------------
 
-   # Latest main branch
-   pip install "git+https://github.com/NVIDIA/flashdreams.git"
+.. raw:: html
 
-   # Codebase workflow
-   git clone https://github.com/NVIDIA/flashdreams.git
-   cd flashdreams
-   uv sync --extra dev --extra runners
-   uv run flashdreams-run --help
+   <p class="fd-subtitle">Production-oriented interactive serving backend.</p>
 
-.. grid:: 1 1 2 2
-   :gutter: 2
+FlashDreams also includes a production-oriented serving backend for persistent,
+low-latency world-model sessions, with efficient inference execution, mult-GPU support, and
+streaming input/output. Explore the interactive demos powered by FlashDreams:
 
-   .. grid-item-card:: Getting Started
-      :link: getting_started/index
-      :link-type: doc
+.. raw:: html
 
-      Installation, first model launch, and supported model overview.
+   <div class="fd-highlight-grid">
+     <a class="fd-highlight-link" href="models/lingbot_world.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">LingBot-World</div>
+         <div class="fd-highlight-body">Camera-control world-model exploration.</div>
+       </div>
+     </a>
+     <a class="fd-highlight-link" href="models/omnidreams.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">OmniDreams</div>
+         <div class="fd-highlight-body">Closed-loop autonomous-vehicle simulator.</div>
+       </div>
+     </a>
+   </div>
 
-   .. grid-item-card:: Developer Guides
-      :link: developer_guides/index
-      :link-type: doc
+Start Here
+----------
 
-      Architecture, model integration, configs, and serving guidance.
+.. raw:: html
 
-   .. grid-item-card:: Reference
-      :link: reference/index
-      :link-type: doc
-
-      CLI usage and API surfaces.
-
-   .. grid-item-card:: Models
-      :link: models/index
-      :link-type: doc
-
-      Model catalog with per-model run commands and links.
+   <div class="fd-highlight-grid">
+     <a class="fd-highlight-link" href="quickstart/index.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">Quickstart</div>
+         <div class="fd-highlight-body">Install FlashDreams, launch your first world-model server, and start exploring quickly.</div>
+       </div>
+     </a>
+    <a class="fd-highlight-link" href="models/index.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">Model Cards</div>
+         <div class="fd-highlight-body">See supported models, how to launch each one, and their performance analysis.</div>
+       </div>
+     </a>
+     <a class="fd-highlight-link" href="api/index.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">API</div>
+         <div class="fd-highlight-body">Find CLI and Python API references, with links to lower-level modules.</div>
+       </div>
+     </a>
+    <a class="fd-highlight-link" href="developer_guides/index.html">
+       <div class="fd-highlight-card">
+         <div class="fd-highlight-title">Developer Guides</div>
+         <div class="fd-highlight-body">Learn the system design, how to integrate new models, and how to use it in your own projects.</div>
+       </div>
+     </a>
+   </div>
 
 .. toctree::
    :maxdepth: 1
-   :caption: Getting Started
+   :caption: Quickstart
    :hidden:
 
-   getting_started/installation
-   getting_started/first_world_model
-   getting_started/supported_models
+   Installation <quickstart/installation>
+   Launch your first model <quickstart/first_world_model>
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Model Cards
+   :hidden:
+
+   Self-Forcing <models/self_forcing>
+   OmniDreams <models/omnidreams>
+   LingBot-World <models/lingbot_world>
+   Causal-Forcing <models/causal_forcing>
+   Causal Wan2.2 <models/causal_wan22>
+   FlashVSR <models/flashvsr>
+   Wan2.1 <models/wan21>
+   Cosmos-Predict2.5 <models/cosmos_predict2>
 
 .. toctree::
    :maxdepth: 1
    :caption: Developer Guides
    :hidden:
 
-   developer_guides/new_recipes
-   developer_guides/system_overview
-   developer_guides/configs
-   developer_guides/interactive_serving
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Models
-   :hidden:
-
-   models/omnidreams
-   models/self_forcing
-   models/causal_forcing
-   models/fastvideo_wan22
-   models/lingbot_world
-   models/wan21
+   Offline vs online world-model flow <developer_guides/offline_vs_online>
+   Runtime system overview <developer_guides/system_overview>
+   Interactive serving architecture <developer_guides/interactive_serving>
+   Developer workflow patterns <developer_guides/usage_patterns>
+   Developer guides overview <developer_guides/index>
+   Add a new model integration <developer_guides/new_recipes>
+   Configure runs and overrides <developer_guides/configs>
 
 .. toctree::
    :maxdepth: 2
-   :caption: Reference
+   :caption: API and CLIs
    :hidden:
 
-   CLI <reference/cli>
-   API <apis/index>
+   CLI reference <api/cli>
+   Core <api/core>
+   Infra <api/infra>
+   Pipelines and runners <api/recipes>
+   Serving <api/serving>

@@ -11,7 +11,7 @@
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=fcd5aa15" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=cb2a5514" />
     
     
 
@@ -210,38 +210,39 @@ SPDX-License-Identifier: Apache-2.0
   <input type="hidden" name="area" value="default">
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
-  <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+  <p class="caption" role="heading"><span class="caption-text">Quickstart</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="getting_started/installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="getting_started/first_world_model.html">Launch your first world model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="getting_started/supported_models.html">Supported models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart/installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart/first_world_model.html">Launch your first model</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="models/self_forcing.html">Self-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/omnidreams.html">OmniDreams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/lingbot_world.html">LingBot-World</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/causal_forcing.html">Causal-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/causal_wan22.html">Causal Wan2.2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/flashvsr.html">FlashVSR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/wan21.html">Wan2.1</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="developer_guides/new_recipes.html">Adding a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="developer_guides/system_overview.html">System overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="developer_guides/configs.html">Configs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="developer_guides/interactive_serving.html">Interactive serving</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/offline_vs_online.html">Offline vs online world-model flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/system_overview.html">Runtime system overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/interactive_serving.html">Interactive serving architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/usage_patterns.html">Developer workflow patterns</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/index.html">Developer guides overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/new_recipes.html">Add a new model integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developer_guides/configs.html">Configure runs and overrides</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Models</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="models/omnidreams.html">OmniDreams</a></li>
-<li class="toctree-l1"><a class="reference internal" href="models/self_forcing.html">Self-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="models/causal_forcing.html">Causal-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="models/fastvideo_wan22.html">Causal Wan2.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="models/lingbot_world.html">Lingbot-World</a></li>
-<li class="toctree-l1"><a class="reference internal" href="models/wan21.html">Wan2.1</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="reference/cli.html">CLI</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="apis/index.html">API</a><input aria-label="Toggle navigation of API" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="apis/core.html">Core</a></li>
-<li class="toctree-l2"><a class="reference internal" href="apis/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="apis/recipes.html">Pipelines and runners</a></li>
-<li class="toctree-l2"><a class="reference internal" href="apis/serving.html">Serving</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="api/cli.html">CLI reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/core.html">Core</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/infra.html">Infra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/serving.html">Serving</a></li>
 </ul>
 
 </div>
@@ -283,27 +284,27 @@ SPDX-License-Identifier: Apache-2.0
   <h2>A</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.add_noise">add_noise() (FlowMatchScheduler method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.add_noise">add_noise() (FlowMatchScheduler method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.add_noise">(FlowMatchUniPCScheduler method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.add_noise">(FlowMatchUniPCScheduler method)</a>
 </li>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise">(Scheduler method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise">(Scheduler method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.after_update">after_update() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.after_update">after_update() (BlockKVCache method)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.apply_rope_before_kvcache">apply_rope_before_kvcache (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.apply_rope_before_kvcache">apply_rope_before_kvcache (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index">autoregressive_index (DiffusionModel.FinalState attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index">autoregressive_index (DiffusionModel.FinalState attribute)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.autoregressive_index">(StreamInferencePipelineCache attribute)</a>
+          <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.autoregressive_index">(StreamInferencePipelineCache attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.AVAILABLE_TAEHV_CHECKPOINT_PATHS">AVAILABLE_TAEHV_CHECKPOINT_PATHS (in module flashdreams.recipes.taehv)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.AVAILABLE_TAEHV_CHECKPOINT_PATHS">AVAILABLE_TAEHV_CHECKPOINT_PATHS (in module flashdreams.recipes.taehv)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -313,17 +314,17 @@ SPDX-License-Identifier: Apache-2.0
   <h2>B</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.batch_shape">batch_shape (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.batch_shape">batch_shape (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.before_update">before_update() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.before_update">before_update() (BlockKVCache method)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache">BlockKVCache (class in flashdreams.core.attention)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache">BlockKVCache (class in flashdreams.core.attention)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.boundary_ratio">boundary_ratio (Wan22TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.boundary_ratio">boundary_ratio (Wan22TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.boundary_timestep">boundary_timestep (Wan22TransformerConfig property)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.boundary_timestep">boundary_timestep (Wan22TransformerConfig property)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -333,37 +334,37 @@ SPDX-License-Identifier: Apache-2.0
   <h2>C</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache">cache (DiffusionModel.FinalState attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache">cache (DiffusionModel.FinalState attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.cached_k">cached_k() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.cached_k">cached_k() (BlockKVCache method)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.cached_v">cached_v() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.cached_v">cached_v() (BlockKVCache method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path">checkpoint_path (TeahvVAEDecoderConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path">checkpoint_path (TeahvVAEDecoderConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.chunk_size">chunk_size (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.chunk_size">chunk_size (BlockKVCache attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent">clean_latent (DiffusionModel.FinalState attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent">clean_latent (DiffusionModel.FinalState attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.compile_network">compile_network (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.compile_network">compile_network (Wan21TransformerConfig attribute)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.concat_image_mask_to_latent">concat_image_mask_to_latent (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.concat_image_mask_to_latent">concat_image_mask_to_latent (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.concat_padding_mask">concat_padding_mask (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.concat_padding_mask">concat_padding_mask (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise">context_noise (DiffusionModelConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise">context_noise (DiffusionModelConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.NativeAttention.context_parallel_size">context_parallel_size() (NativeAttention method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.context_parallel_size">context_parallel_size() (NativeAttention method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cp_method">cp_method (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cp_method">cp_method (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cross_attn_enable_img">cross_attn_enable_img (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cross_attn_enable_img">cross_attn_enable_img (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cross_attn_norm">cross_attn_norm (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.cross_attn_norm">cross_attn_norm (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.cuda_graph_warmup_iters">cuda_graph_warmup_iters (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.cuda_graph_warmup_iters">cuda_graph_warmup_iters (Wan21TransformerConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -373,40 +374,40 @@ SPDX-License-Identifier: Apache-2.0
   <h2>D</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder">decoder (StreamInferencePipelineConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder">decoder (StreamInferencePipelineConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache">decoder_cache (StreamInferencePipelineCache attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache">decoder_cache (StreamInferencePipelineCache attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.denoising_timesteps">denoising_timesteps (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.denoising_timesteps">denoising_timesteps (FlowMatchSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.config.derive_config">derive_config() (in module flashdreams.infra.config)</a>
+        <li><a href="api/infra.html#flashdreams.infra.config.derive_config">derive_config() (in module flashdreams.infra.config)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.device">device (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.device">device (BlockKVCache attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.distributed.Device">Device (class in flashdreams.core.distributed)</a>
+        <li><a href="api/core.html#flashdreams.core.distributed.Device">Device (class in flashdreams.core.distributed)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model">diffusion_model (StreamInferencePipelineConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model">diffusion_model (StreamInferencePipelineConfig attribute)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel">DiffusionModel (class in flashdreams.infra.diffusion.model)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel">DiffusionModel (class in flashdreams.infra.diffusion.model)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">DiffusionModel.FinalState (class in flashdreams.infra.diffusion.model)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">DiffusionModel.FinalState (class in flashdreams.infra.diffusion.model)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig">DiffusionModelConfig (class in flashdreams.infra.diffusion.model)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig">DiffusionModelConfig (class in flashdreams.infra.diffusion.model)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.dim">dim (WanDiTNetwork14BConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.dim">dim (WanDiTNetwork14BConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.dim">(WanDiTNetwork1pt3BConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.dim">(WanDiTNetwork1pt3BConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.dim">(WanDiTNetworkConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.dim">(WanDiTNetworkConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.dtype">dtype (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.dtype">dtype (BlockKVCache attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype">(TeahvVAEDecoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype">(TeahvVAEDecoderConfig attribute)</a>
 </li>
         </ul></li>
     </ul></td>
@@ -417,31 +418,31 @@ SPDX-License-Identifier: Apache-2.0
   <h2>E</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile">enable_sync_and_profile (StreamInferencePipelineConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile">enable_sync_and_profile (StreamInferencePipelineConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm">enable_tqdm (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm">enable_tqdm (FlowMatchSchedulerConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm">(FlowMatchUniPCSchedulerConfig attribute)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm">(FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.Encoder">Encoder (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.Encoder">Encoder (class in flashdreams.infra.encoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder">encoder (StreamInferencePipelineConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder">encoder (StreamInferencePipelineConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanI2VCtrlEncoderConfig.encoder">(WanI2VCtrlEncoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanI2VCtrlEncoderConfig.encoder">(WanI2VCtrlEncoderConfig attribute)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">encoder_cache (StreamInferencePipelineCache attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache">encoder_cache (StreamInferencePipelineCache attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.eps">eps (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.eps">eps (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler">event_profiler (StreamInferencePipelineCache attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler">event_profiler (StreamInferencePipelineCache attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step">extra_one_step (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step">extra_one_step (FlowMatchSchedulerConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -451,42 +452,42 @@ SPDX-License-Identifier: Apache-2.0
   <h2>F</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.ffn_dim">ffn_dim (WanDiTNetwork14BConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.ffn_dim">ffn_dim (WanDiTNetwork14BConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.ffn_dim">(WanDiTNetwork1pt3BConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.ffn_dim">(WanDiTNetwork1pt3BConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.ffn_dim">(WanDiTNetworkConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.ffn_dim">(WanDiTNetworkConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.final_state">final_state (StreamInferencePipelineCache attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.final_state">final_state (StreamInferencePipelineCache attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.finalize">finalize() (DiffusionModel method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.finalize">finalize() (DiffusionModel method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.finalize">(StreamInferencePipeline method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.finalize">(StreamInferencePipeline method)</a>
 </li>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.finalize">(TransformerAutoregressiveCache method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.finalize">(TransformerAutoregressiveCache method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.finalize_kv_cache">finalize_kv_cache() (Transformer method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.finalize_kv_cache">finalize_kv_cache() (Transformer method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.finalize_kv_cache">(Wan22Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.finalize_kv_cache">(Wan22Transformer method)</a>
 </li>
         </ul></li>
         <li>
     flashdreams.recipes.taehv
 
         <ul>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.taehv">module</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.taehv">module</a>
 </li>
         </ul></li>
         <li>
     flashdreams.recipes.wan
 
         <ul>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.wan">module</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.wan">module</a>
 </li>
         </ul></li>
     </ul></td>
@@ -495,34 +496,34 @@ SPDX-License-Identifier: Apache-2.0
     flashdreams.recipes.wan.pipeline
 
         <ul>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.wan.pipeline">module</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.wan.pipeline">module</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler">FlowMatchScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler">FlowMatchScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig">FlowMatchSchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig">FlowMatchSchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler">FlowMatchUniPCScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler">FlowMatchUniPCScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig">FlowMatchUniPCSchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig">FlowMatchUniPCSchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowPredictor">FlowPredictor (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowPredictor">FlowPredictor (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.NativeAttention.forward">forward() (NativeAttention method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.forward">forward() (NativeAttention method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.NullEncoder.forward">(NullEncoder method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder.forward">(NullEncoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.forward">(TeahvVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.forward">(TeahvVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.forward">(WanDiTNetwork method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.forward">(WanDiTNetwork method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.forward">(WanVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.forward">(WanVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.forward">(WanVAEEncoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.forward">(WanVAEEncoder method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.freq_dim">freq_dim (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.freq_dim">freq_dim (WanDiTNetworkConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -532,49 +533,49 @@ SPDX-License-Identifier: Apache-2.0
   <h2>G</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.generate">generate() (DiffusionModel method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.generate">generate() (DiffusionModel method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.generate">(StreamInferencePipeline method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.generate">(StreamInferencePipeline method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.generate">(WanInferencePipeline method)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.generate">[1]</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.generate">(WanInferencePipeline method)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.generate">[1]</a>
 </li>
         </ul></li>
-        <li><a href="apis/core.html#flashdreams.core.distributed.Device.get_cpu_affinity">get_cpu_affinity() (Device method)</a>
+        <li><a href="api/core.html#flashdreams.core.distributed.Device.get_cpu_affinity">get_cpu_affinity() (Device method)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">get_input_temporal_size() (StreamingVideoDecoder method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">get_input_temporal_size() (StreamingVideoDecoder method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size">(StreamingVideoEncoder method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size">(StreamingVideoEncoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size">(TeahvVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size">(TeahvVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.get_input_temporal_size">(WanVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.get_input_temporal_size">(WanVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.get_input_temporal_size">(WanVAEEncoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.get_input_temporal_size">(WanVAEEncoder method)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.distributed.Device.get_name">get_name() (Device method)</a>
+        <li><a href="api/core.html#flashdreams.core.distributed.Device.get_name">get_name() (Device method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_input_frames">get_num_input_frames() (WanInferencePipeline method)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_input_frames">get_num_input_frames() (WanInferencePipeline method)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_input_frames">[1]</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_output_frames">get_num_output_frames() (WanInferencePipeline method)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_output_frames">get_num_output_frames() (WanInferencePipeline method)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[1]</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">get_output_temporal_size() (StreamingVideoDecoder method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">get_output_temporal_size() (StreamingVideoDecoder method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size">(StreamingVideoEncoder method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size">(StreamingVideoEncoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size">(TeahvVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size">(TeahvVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.get_output_temporal_size">(WanVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.get_output_temporal_size">(WanVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.get_output_temporal_size">(WanVAEEncoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.get_output_temporal_size">(WanVAEEncoder method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.guidance_scale">guidance_scale (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.guidance_scale">guidance_scale (Wan21TransformerConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -584,49 +585,49 @@ SPDX-License-Identifier: Apache-2.0
   <h2>I</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineCache.image">image (WanInferencePipelineCache attribute)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache.image">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipelineCache.image">image (WanInferencePipelineCache attribute)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache.image">[1]</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig.image_encoder">image_encoder (WanInferencePipelineConfig attribute)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.image_encoder">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig.image_encoder">image_encoder (WanInferencePipelineConfig attribute)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.image_encoder">[1]</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.in_dim">in_dim (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.in_dim">in_dim (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.distributed.init">init() (in module flashdreams.core.distributed)</a>
+        <li><a href="api/core.html#flashdreams.core.distributed.init">init() (in module flashdreams.core.distributed)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">initialize_autoregressive_cache() (StreamingDecoder method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">initialize_autoregressive_cache() (StreamingDecoder method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache">(StreamingEncoder method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache">(StreamingEncoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">(TeahvVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">(TeahvVAEDecoder method)</a>
 </li>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache">(Transformer method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache">(Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.initialize_autoregressive_cache">(Wan21Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.initialize_autoregressive_cache">(Wan21Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.initialize_autoregressive_cache">(Wan22Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.initialize_autoregressive_cache">(Wan22Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.initialize_autoregressive_cache">(WanVAEDecoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.initialize_autoregressive_cache">(WanVAEDecoder method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.initialize_autoregressive_cache">(WanVAEEncoder method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.initialize_autoregressive_cache">(WanVAEEncoder method)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache">initialize_cache() (StreamInferencePipeline method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache">initialize_cache() (StreamInferencePipeline method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.initialize_cache">(WanDiTNetwork method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.initialize_cache">(WanDiTNetwork method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.initialize_cache">(WanInferencePipeline method)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.initialize_cache">[1]</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.initialize_cache">(WanInferencePipeline method)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.initialize_cache">[1]</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.input">input (DiffusionModel.FinalState attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.input">input (DiffusionModel.FinalState attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.config.InstantiateConfig">InstantiateConfig (class in flashdreams.infra.config)</a>
+        <li><a href="api/infra.html#flashdreams.infra.config.InstantiateConfig">InstantiateConfig (class in flashdreams.infra.config)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled">is_context_parallel_enabled() (NativeAttention method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled">is_context_parallel_enabled() (NativeAttention method)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.is_steady_state">is_steady_state() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.is_steady_state">is_steady_state() (BlockKVCache method)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -636,7 +637,7 @@ SPDX-License-Identifier: Apache-2.0
   <h2>K</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.k_shape">k_shape (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.k_shape">k_shape (BlockKVCache attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -646,19 +647,19 @@ SPDX-License-Identifier: Apache-2.0
   <h2>L</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.latent_shape">latent_shape (Transformer property)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.latent_shape">latent_shape (Transformer property)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.latent_shape">(Wan21Transformer property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.latent_shape">(Wan21Transformer property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.latent_shape">(Wan22Transformer property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.latent_shape">(Wan22Transformer property)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.len_t">len_t (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.len_t">len_t (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.lighttae_state_dict_transform">lighttae_state_dict_transform() (in module flashdreams.recipes.taehv)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.lighttae_state_dict_transform">lighttae_state_dict_transform() (in module flashdreams.recipes.taehv)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -668,17 +669,17 @@ SPDX-License-Identifier: Apache-2.0
   <h2>M</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.mean">mean (TeahvVAEDecoder attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.mean">mean (TeahvVAEDecoder attribute)</a>
 </li>
         <li>
     module
 
         <ul>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.taehv">flashdreams.recipes.taehv</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.taehv">flashdreams.recipes.taehv</a>
 </li>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.wan">flashdreams.recipes.wan</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.wan">flashdreams.recipes.wan</a>
 </li>
-          <li><a href="apis/recipes.html#module-flashdreams.recipes.wan.pipeline">flashdreams.recipes.wan.pipeline</a>
+          <li><a href="api/recipes.html#module-flashdreams.recipes.wan.pipeline">flashdreams.recipes.wan.pipeline</a>
 </li>
         </ul></li>
     </ul></td>
@@ -689,42 +690,42 @@ SPDX-License-Identifier: Apache-2.0
   <h2>N</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.attention.NativeAttention">NativeAttention (class in flashdreams.core.attention)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention">NativeAttention (class in flashdreams.core.attention)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape">noise_in_unpatchified_shape (DiffusionModelConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape">noise_in_unpatchified_shape (DiffusionModelConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.NullEncoder">NullEncoder (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder">NullEncoder (class in flashdreams.infra.encoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.NullEncoderConfig">NullEncoderConfig (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoderConfig">NullEncoderConfig (class in flashdreams.infra.encoder)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.num_heads">num_heads (WanDiTNetwork14BConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.num_heads">num_heads (WanDiTNetwork14BConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.num_heads">(WanDiTNetwork1pt3BConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.num_heads">(WanDiTNetwork1pt3BConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.num_heads">(WanDiTNetworkConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.num_heads">(WanDiTNetworkConfig attribute)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps">num_inference_steps (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps">num_inference_steps (FlowMatchSchedulerConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps">(FlowMatchUniPCSchedulerConfig attribute)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps">(FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.num_layers">num_layers (WanDiTNetwork14BConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig.num_layers">num_layers (WanDiTNetwork14BConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.num_layers">(WanDiTNetwork1pt3BConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig.num_layers">(WanDiTNetwork1pt3BConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.num_layers">(WanDiTNetworkConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.num_layers">(WanDiTNetworkConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps">num_train_timesteps (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps">num_train_timesteps (FlowMatchSchedulerConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps">(FlowMatchUniPCSchedulerConfig attribute)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps">(FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
         </ul></li>
     </ul></td>
@@ -735,7 +736,7 @@ SPDX-License-Identifier: Apache-2.0
   <h2>O</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.out_dim">out_dim (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.out_dim">out_dim (WanDiTNetworkConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -745,37 +746,37 @@ SPDX-License-Identifier: Apache-2.0
   <h2>P</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.patch_embedding_type">patch_embedding_type (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.patch_embedding_type">patch_embedding_type (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.patch_size">patch_size (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.patch_size">patch_size (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp">patchify_and_maybe_split_cp() (Transformer method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp">patchify_and_maybe_split_cp() (Transformer method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.patchify_and_maybe_split_cp">(Wan21Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.patchify_and_maybe_split_cp">(Wan21Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.patchify_and_maybe_split_cp">(Wan22Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.patchify_and_maybe_split_cp">(Wan22Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.patchify_and_maybe_split_cp">(WanDiTNetwork method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.patchify_and_maybe_split_cp">(WanDiTNetwork method)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.postprocess_clean_latent">postprocess_clean_latent() (Transformer method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.postprocess_clean_latent">postprocess_clean_latent() (Transformer method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.postprocess_clean_latent">(Wan21Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.postprocess_clean_latent">(Wan21Transformer method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.predict_flow">predict_flow() (Transformer method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.predict_flow">predict_flow() (Transformer method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.predict_flow">(Wan21Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.predict_flow">(Wan21Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.predict_flow">(Wan22Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.predict_flow">(Wan22Transformer method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.config.PrintableConfig">PrintableConfig (class in flashdreams.infra.config)</a>
+        <li><a href="api/infra.html#flashdreams.infra.config.PrintableConfig">PrintableConfig (class in flashdreams.infra.config)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -785,15 +786,15 @@ SPDX-License-Identifier: Apache-2.0
   <h2>R</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.recipe_name">recipe_name (StreamInferencePipelineConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.recipe_name">recipe_name (StreamInferencePipelineConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.release_oneshot_encoders">release_oneshot_encoders() (WanInferencePipeline method)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.release_oneshot_encoders">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline.release_oneshot_encoders">release_oneshot_encoders() (WanInferencePipeline method)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.release_oneshot_encoders">[1]</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.reset">reset() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.reset">reset() (BlockKVCache method)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.rng">rng (DiffusionModel property)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.rng">rng (DiffusionModel property)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -803,89 +804,89 @@ SPDX-License-Identifier: Apache-2.0
   <h2>S</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample">sample() (FlowMatchScheduler method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample">sample() (FlowMatchScheduler method)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample">(FlowMatchUniPCScheduler method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample">(FlowMatchUniPCScheduler method)</a>
 </li>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.sample">(Scheduler method)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.sample">(Scheduler method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler">Scheduler (class in flashdreams.infra.diffusion.scheduler)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler">Scheduler (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler">scheduler (DiffusionModelConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler">scheduler (DiffusionModelConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed">seed (DiffusionModelConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed">seed (DiffusionModelConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.seq_dim">seq_dim (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.seq_dim">seq_dim (BlockKVCache attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.NativeAttention.set_context_parallel_group">set_context_parallel_group() (NativeAttention method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.set_context_parallel_group">set_context_parallel_group() (NativeAttention method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.set_context_parallel_group">(WanDiTNetwork method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.set_context_parallel_group">(WanDiTNetwork method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.config.InstantiateConfig.setup">setup() (InstantiateConfig method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.config.InstantiateConfig.setup">setup() (InstantiateConfig method)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift">shift (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift">shift (FlowMatchSchedulerConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift">(FlowMatchUniPCSchedulerConfig attribute)</a>
+          <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift">(FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max">sigma_max (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max">sigma_max (FlowMatchSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min">sigma_min (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min">sigma_min (FlowMatchSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.sink_size">sink_size (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.sink_size">sink_size (BlockKVCache attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.sink_size_t">sink_size_t (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.sink_size_t">sink_size_t (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.size">size (BlockKVCache property)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.size">size (BlockKVCache property)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">solver_order (FlowMatchUniPCSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">solver_order (FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">spatial_compression_ratio (StreamingVideoDecoder property)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">spatial_compression_ratio (StreamingVideoDecoder property)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio">(StreamingVideoEncoder property)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio">(StreamingVideoEncoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio">(TeahvVAEDecoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio">(TeahvVAEDecoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.spatial_compression_ratio">(WanVAEDecoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.spatial_compression_ratio">(WanVAEDecoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.spatial_compression_ratio">(WanVAEEncoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.spatial_compression_ratio">(WanVAEEncoder property)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.stamp_image_latent">stamp_image_latent (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.stamp_image_latent">stamp_image_latent (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start">start() (TransformerAutoregressiveCache method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start">start() (TransformerAutoregressiveCache method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.state_dict_transform">state_dict_transform (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.state_dict_transform">state_dict_transform (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.state_dict_transform">state_dict_transform() (TeahvVAEDecoderConfig method)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.state_dict_transform">state_dict_transform() (TeahvVAEDecoderConfig method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.std">std (TeahvVAEDecoder attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.std">std (TeahvVAEDecoder attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline">StreamInferencePipeline (class in flashdreams.infra.pipeline)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline">StreamInferencePipeline (class in flashdreams.infra.pipeline)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache">StreamInferencePipelineCache (class in flashdreams.infra.pipeline)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache">StreamInferencePipelineCache (class in flashdreams.infra.pipeline)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig">StreamInferencePipelineConfig (class in flashdreams.infra.pipeline)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig">StreamInferencePipelineConfig (class in flashdreams.infra.pipeline)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingDecoder">StreamingDecoder (class in flashdreams.infra.decoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingDecoder">StreamingDecoder (class in flashdreams.infra.decoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingDecoderCache">StreamingDecoderCache (class in flashdreams.infra.decoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingDecoderCache">StreamingDecoderCache (class in flashdreams.infra.decoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingEncoder">StreamingEncoder (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingEncoder">StreamingEncoder (class in flashdreams.infra.encoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingEncoderCache">StreamingEncoderCache (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingEncoderCache">StreamingEncoderCache (class in flashdreams.infra.encoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder">StreamingVideoDecoder (class in flashdreams.infra.decoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder">StreamingVideoDecoder (class in flashdreams.infra.decoder)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder">StreamingVideoEncoder (class in flashdreams.infra.encoder)</a>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder">StreamingVideoEncoder (class in flashdreams.infra.encoder)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -895,43 +896,43 @@ SPDX-License-Identifier: Apache-2.0
   <h2>T</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder">TeahvVAEDecoder (class in flashdreams.recipes.taehv)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder">TeahvVAEDecoder (class in flashdreams.recipes.taehv)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig">TeahvVAEDecoderConfig (class in flashdreams.recipes.taehv)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig">TeahvVAEDecoderConfig (class in flashdreams.recipes.taehv)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio">temporal_compression_ratio (StreamingVideoDecoder property)</a>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio">temporal_compression_ratio (StreamingVideoDecoder property)</a>
 
         <ul>
-          <li><a href="apis/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio">(StreamingVideoEncoder property)</a>
+          <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio">(StreamingVideoEncoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.temporal_compression_ratio">(TeahvVAEDecoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoder.temporal_compression_ratio">(TeahvVAEDecoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.temporal_compression_ratio">(WanVAEDecoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder.temporal_compression_ratio">(WanVAEDecoder property)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.temporal_compression_ratio">(WanVAEEncoder property)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder.temporal_compression_ratio">(WanVAEEncoder property)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_dim">text_dim (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_dim">text_dim (WanDiTNetworkConfig attribute)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig.text_encoder">text_encoder (WanInferencePipelineConfig attribute)</a>, <a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.text_encoder">[1]</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig.text_encoder">text_encoder (WanInferencePipelineConfig attribute)</a>, <a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.text_encoder">[1]</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_len">text_len (WanDiTNetworkConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_len">text_len (WanDiTNetworkConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype">timestep_dtype (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype">timestep_dtype (FlowMatchSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer">Transformer (class in flashdreams.infra.diffusion.transformer)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer">Transformer (class in flashdreams.infra.diffusion.transformer)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer">transformer (DiffusionModelConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer">transformer (DiffusionModelConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.transformer_cache">transformer_cache (StreamInferencePipelineCache attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineCache.transformer_cache">transformer_cache (StreamInferencePipelineCache attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.transformer_high_noise">transformer_high_noise (Wan22TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.transformer_high_noise">transformer_high_noise (Wan22TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.transformer_low_noise">transformer_low_noise (Wan22TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig.transformer_low_noise">transformer_low_noise (Wan22TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache">TransformerAutoregressiveCache (class in flashdreams.infra.diffusion.transformer)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache">TransformerAutoregressiveCache (class in flashdreams.infra.diffusion.transformer)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -941,41 +942,41 @@ SPDX-License-Identifier: Apache-2.0
   <h2>U</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.transformer.Transformer.unpatchify_and_maybe_gather_cp">unpatchify_and_maybe_gather_cp() (Transformer method)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.unpatchify_and_maybe_gather_cp">unpatchify_and_maybe_gather_cp() (Transformer method)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer.unpatchify_and_maybe_gather_cp">(Wan21Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.unpatchify_and_maybe_gather_cp">(Wan21Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer.unpatchify_and_maybe_gather_cp">(Wan22Transformer method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer.unpatchify_and_maybe_gather_cp">(Wan22Transformer method)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.unpatchify_and_maybe_gather_cp">(WanDiTNetwork method)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.unpatchify_and_maybe_gather_cp">(WanDiTNetwork method)</a>
 </li>
         </ul></li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.update">update() (BlockKVCache method)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.update">update() (BlockKVCache method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.update_parameters_after_loading_checkpoint">update_parameters_after_loading_checkpoint() (WanDiTNetwork method)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.update_parameters_after_loading_checkpoint">update_parameters_after_loading_checkpoint() (WanDiTNetwork method)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_compile">use_compile (TeahvVAEDecoderConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_compile">use_compile (TeahvVAEDecoderConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_compile">(WanVAEDecoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_compile">(WanVAEDecoderConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig.use_compile">(WanVAEEncoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig.use_compile">(WanVAEEncoderConfig attribute)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph">use_cuda_graph (TeahvVAEDecoderConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph">use_cuda_graph (TeahvVAEDecoderConfig attribute)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.use_cuda_graph">(Wan21TransformerConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.use_cuda_graph">(Wan21TransformerConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_cuda_graph">(WanVAEDecoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_cuda_graph">(WanVAEDecoderConfig attribute)</a>
 </li>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig.use_cuda_graph">(WanVAEEncoderConfig attribute)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig.use_cuda_graph">(WanVAEEncoderConfig attribute)</a>
 </li>
         </ul></li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma">use_kerras_sigma (FlowMatchUniPCSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma">use_kerras_sigma (FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -985,7 +986,7 @@ SPDX-License-Identifier: Apache-2.0
   <h2>V</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.v_shape">v_shape (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.v_shape">v_shape (BlockKVCache attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -995,59 +996,59 @@ SPDX-License-Identifier: Apache-2.0
   <h2>W</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21Transformer">Wan21Transformer (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21Transformer">Wan21Transformer (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig">Wan21TransformerConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig">Wan21TransformerConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22Transformer">Wan22Transformer (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22Transformer">Wan22Transformer (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig">Wan22TransformerConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan22TransformerConfig">Wan22TransformerConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork">WanDiTNetwork (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork">WanDiTNetwork (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig">WanDiTNetwork14BConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig">WanDiTNetwork14BConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig">WanDiTNetwork1pt3BConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig">WanDiTNetwork1pt3BConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig">WanDiTNetworkConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig">WanDiTNetworkConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanI2VCtrlEncoderConfig">WanI2VCtrlEncoderConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanI2VCtrlEncoderConfig">WanI2VCtrlEncoderConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipeline">WanInferencePipeline (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipeline">WanInferencePipeline (class in flashdreams.recipes.wan)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline">(class in flashdreams.recipes.wan.pipeline)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline">(class in flashdreams.recipes.wan.pipeline)</a>
 </li>
         </ul></li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineCache">WanInferencePipelineCache (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipelineCache">WanInferencePipelineCache (class in flashdreams.recipes.wan)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache">(class in flashdreams.recipes.wan.pipeline)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineCache">(class in flashdreams.recipes.wan.pipeline)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig">WanInferencePipelineConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanInferencePipelineConfig">WanInferencePipelineConfig (class in flashdreams.recipes.wan)</a>
 
         <ul>
-          <li><a href="apis/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig">(class in flashdreams.recipes.wan.pipeline)</a>
+          <li><a href="api/recipes.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig">(class in flashdreams.recipes.wan.pipeline)</a>
 </li>
         </ul></li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoder">WanVAEDecoder (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoder">WanVAEDecoder (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig">WanVAEDecoderConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEDecoderConfig">WanVAEDecoderConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoder">WanVAEEncoder (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoder">WanVAEEncoder (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig">WanVAEEncoderConfig (class in flashdreams.recipes.wan)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.WanVAEEncoderConfig">WanVAEEncoderConfig (class in flashdreams.recipes.wan)</a>
 </li>
-        <li><a href="apis/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step">warp_denoising_step (FlowMatchSchedulerConfig attribute)</a>
+        <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step">warp_denoising_step (FlowMatchSchedulerConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.window_size">window_size (BlockKVCache attribute)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.window_size">window_size (BlockKVCache attribute)</a>
 </li>
-        <li><a href="apis/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.window_size_t">window_size_t (Wan21TransformerConfig attribute)</a>
+        <li><a href="api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig.window_size_t">window_size_t (Wan21TransformerConfig attribute)</a>
 </li>
-        <li><a href="apis/core.html#flashdreams.core.attention.BlockKVCache.write_end">write_end (BlockKVCache property)</a>
+        <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.write_end">write_end (BlockKVCache property)</a>
 </li>
     </ul></td>
   </tr></table>

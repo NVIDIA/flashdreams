@@ -16,78 +16,157 @@
 Adding a new model integration
 ===================================
 
-FlashDreams is designed for researchers to plug new streaming-inference
-integrations into the existing chassis without forking the core.
+FlashDreams is built so new world/video models can plug into the runtime
+without forking the core library. This page is the detailed authoring guide for
+external integrations. For the repo-wide architecture, read
+:doc:`/developer_guides/system_overview` first.
 
-In the current structure, an integration has two key layers:
+Use this guide when you want to:
 
-- A **pipeline** (``StreamInferencePipelineConfig`` + components) that defines
-  generation behavior.
-- A **runner** (``RunnerConfig`` + ``Runner``) that exposes user-facing CLI I/O
-  such as prompts, images, paths, and runtime toggles.
+- wrap an existing video/world model behind ``flashdreams-run``;
+- build an external package that depends on ``flashdreams``;
+- expose a model through both Python and CLI entry points;
+- upstream a polished integration back into this repository.
 
-The codebase still contains some legacy names like ``recipe_name`` in config
-fields, but the authoring model you should follow is **pipeline + runner**.
+Integration mental model
+------------------------
 
-Our vision is for users to keep their custom integration in its **own
-repository** that depends on ``flashdreams``, then register the
-runner with the unified CLI via a Python entry point. If a custom
-piece is broadly useful, we welcome a PR upstreaming it.
+An integration has two layers:
 
-The in-repo ``integrations/*`` packages are the reference design for this new
-structure. Treat each integration folder as an effectively standalone plugin
-repo that can be developed and released independently.
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: Pipeline
+
+      Defines generation behavior. It composes transformer, scheduler,
+      optional encoder, and optional decoder configs into a
+      ``StreamInferencePipelineConfig``.
+
+   .. grid-item-card:: Runner
+
+      Defines user-facing I/O. It turns CLI fields such as prompt, image path,
+      input video, output directory, and runtime toggles into pipeline calls.
+
+The code still uses ``recipe_name`` for the stable pipeline slug, but the
+authoring model to follow is **pipeline + runner**.
+
+.. raw:: html
+
+   <div class="ai-figure-placeholder">
+     <div class="ai-figure-title">Figure placeholder: adding a FlashDreams model integration</div>
+     <div class="ai-figure-body">
+       Replace this block with an AI-generated 16:9 figure that shows an
+       external model repository plugging into FlashDreams through pipeline
+       configs, runner configs, and the flashdreams.runner_configs entry point.
+     </div>
+   </div>
+
+.. dropdown:: AI figure prompt
+
+   .. code-block:: text
+
+      Create a polished technical illustration for a developer guide titled
+      "Adding a FlashDreams model integration".
+
+      Show an external model repository on the left with files: runner.py,
+      config.py, transformer/, optional encoder/, optional decoder.py, and
+      pyproject.toml. Show arrows into the FlashDreams runtime on the right:
+      RunnerConfig -> Runner -> StreamInferencePipeline -> Encoder -> Transformer
+      / Scheduler -> Decoder -> Output. Also show a Python entry point named
+      flashdreams.runner_configs connecting the external package to the unified
+      flashdreams-run CLI.
+
+      Make the diagram attractive and simple: modern developer documentation
+      style, vector-like blocks, tasteful accent colors, clean arrows, readable
+      labels, soft shadows, no clutter. Emphasize that the external integration
+      remains in its own repository while reusing FlashDreams core/infra. Aspect
+      ratio 16:9, high resolution, crisp text.
+
+Recommended workflow
+--------------------
+
+1. Start from the closest existing integration under ``integrations/*``.
+2. Create a standalone Python package that depends on ``flashdreams``.
+3. Implement the pipeline components and config literals.
+4. Implement a runner that owns CLI-facing I/O.
+5. Register runner configs through the ``flashdreams.runner_configs`` entry
+   point.
+6. Add a model page and tests once the integration is stable.
+
+The in-repo integrations are the reference design. Treat each folder under
+``integrations/*`` as an effectively standalone plugin repository that can be
+developed and released independently.
 
 File structure
 --------------
 
-We recommend the following layout for an external integration package::
+Use this layout for an external integration package::
 
-    my_recipe/
-    ├── my_recipe/
+    my_integration/
+    ├── my_integration/
     │   ├── __init__.py
-    │   ├── runner.py            # Runner subclass + RunnerConfig dataclass + I/O helpers
-    │   ├── config.py            # Pipeline + RunnerConfig literals (entry-point targets)
-    │   ├── pipeline.py          # optional: pipeline subclass / cache
-    │   ├── transformer/         # network + Transformer subclass + AR cache
-    │   ├── encoder/             # optional: control / text / image encoders
-    │   ├── decoder.py           # optional: streaming decoder
+    │   ├── runner.py            # Runner + RunnerConfig + I/O helpers
+    │   ├── config.py            # Pipeline and runner config literals
+    │   ├── pipeline.py          # optional: custom pipeline/cache behavior
+    │   ├── transformer/         # model network + Transformer + AR cache
+    │   ├── encoder/             # optional: control, text, image, or video encoders
+    │   ├── decoder.py           # optional: latent-to-pixel streaming decoder
     │   └── ...
     └── pyproject.toml
 
-Pipeline and runner authoring
------------------------------
+Add optional files only when the model actually needs them. Most integrations
+can use the base ``StreamInferencePipeline`` directly and only provide model
+components plus config literals.
 
-1. **Pipeline config.** Compose a
-   :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`
-   literal from your transformer / encoder / decoder configs. Use
-   :func:`~flashdreams.infra.config.derive_config` to spawn variants
-   without copy-pasting fields. ``recipe_name`` is the legacy config key used
-   by CLI slug wiring.
+Authoring checklist
+-------------------
 
-2. **Runner subclass + RunnerConfig dataclass.** In ``runner.py``,
-   subclass :class:`~flashdreams.infra.runner.RunnerConfig` with the
-   I/O fields the CLI should expose (prompt, image path, …) and
-   subclass :class:`~flashdreams.infra.runner.Runner` to implement
-   :meth:`~flashdreams.infra.runner.Runner.run`: resolve runtime
-   inputs, call ``self.pipeline.initialize_cache(...)``, loop
-   ``generate`` + ``finalize``, then persist the output on rank 0.
-   Mirror existing integration runners under ``integrations/*/*/runner.py``
-   for the canonical control flow.
+Pipeline config
+^^^^^^^^^^^^^^^
 
-3. **Per-slug runner literals.** In ``config.py``, instantiate one
-   :class:`RunnerConfig` literal per shipped variant alongside the
-   matching pipeline configs. ``runner_name`` is the
-   ``flashdreams-run`` subcommand slug; by convention it mirrors the
-   wrapped pipeline's ``recipe_name``. Always set ``description`` —
-   it shows up in ``flashdreams-run --help``. These literals are the
-   targets the entry-point declarations (next section) point at.
+Compose a :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`
+literal from transformer, scheduler, optional encoder, and optional decoder
+configs.
 
-4. **Module-level dict.** Still in ``config.py``, expose a single
-   ``MY_INTEGRATION_RUNNERS: dict[str, RunnerConfig]`` keyed by
-   ``runner_name`` for programmatic use.
+- Give every variant a stable ``recipe_name``. Treat it like a route, not a
+  local variable.
+- Use :func:`~flashdreams.infra.config.derive_config` to create variants from a
+  base config instead of copy-pasting full nested literals.
+- Keep configs as plain data. Put per-rollout shape checks in cache
+  initialization, not in config constructors.
 
-A minimal sketch:
+Runner
+^^^^^^
+
+In ``runner.py``, subclass :class:`~flashdreams.infra.runner.RunnerConfig` with
+the I/O fields the CLI should expose, then subclass
+:class:`~flashdreams.infra.runner.Runner` and implement
+:meth:`~flashdreams.infra.runner.Runner.run`.
+
+A runner should:
+
+- resolve user inputs such as prompts, images, videos, or control files;
+- call ``self.pipeline.initialize_cache(...)`` once per rollout/session;
+- loop over ``generate`` and ``finalize`` for autoregressive steps;
+- write outputs only on rank 0.
+
+Runner configs
+^^^^^^^^^^^^^^
+
+In ``config.py``, create one runner config literal per shipped variant. Set a
+clear ``description`` because it appears in ``flashdreams-run --help``. By
+convention, ``runner_name`` mirrors the wrapped pipeline's ``recipe_name``.
+
+Also expose a module-level dict keyed by ``runner_name`` for programmatic use:
+
+.. code-block:: python
+
+   MY_INTEGRATION_RUNNERS: dict[str, RunnerConfig] = {
+       cfg.runner_name: cfg for cfg in (MY_MODEL_FAST_RUNNER,)
+   }
+
+Minimal sketch
+--------------
 
 .. code-block:: python
 
@@ -118,7 +197,7 @@ A minimal sketch:
                if ar_idx < cfg.num_ar_steps - 1:
                    self.pipeline.finalize(ar_idx, cache)
            if self.is_rank_zero:
-               # save out → cfg.output_dir / f"{cfg.runner_name}.<ext>"
+               # Save out to cfg.output_dir / f"{cfg.runner_name}.<ext>"
                ...
 
 .. code-block:: python
@@ -141,7 +220,8 @@ A minimal sketch:
 
 Worked end-to-end examples live in this repo under ``integrations/``:
 ``self_forcing/``, ``causal_forcing/``, ``lingbot/``, ``wan21/``,
-``fastvideo_causal_wan22/``, ``omnidreams/``, and ``cosmos_predict2/``.
+``fastvideo_causal_wan22/``, ``omnidreams/``, ``flashvsr/``, and
+``cosmos_predict2/``.
 Each folder contains its own ``pyproject.toml``, pipeline config, and runner
 definitions, and should be treated as a standalone plugin-style repository.
 
@@ -153,12 +233,13 @@ Browse the corresponding GitHub folders directly:
 - `integrations/wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
 - `integrations/fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
 - `integrations/omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
+- `integrations/flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
 - `integrations/cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
 
 Registering the runner with ``flashdreams-run``
 -----------------------------------------------
 
-flashdreams discovers external runners through a Python *entry point*
+FlashDreams discovers external runners through a Python *entry point*
 under the ``flashdreams.runner_configs`` group (matches nerfstudio's
 ``nerfstudio.method_configs`` naming). The discovery layer lives in
 :mod:`flashdreams.plugins.registry`.
@@ -203,7 +284,7 @@ plugin-discovered runners on top of the in-tree registry returned by
 Environment-variable backdoor
 -----------------------------
 
-When iterating on an integration you don't always want to ``pip install`` it.
+When iterating on an integration, you do not always want to ``pip install`` it.
 Set ``FLASHDREAMS_RUNNER_CONFIGS`` to a comma-separated list of
 ``slug=module.path:attribute`` pairs and the CLI picks them up at
 startup:
@@ -261,6 +342,17 @@ its package imports — useful for serving, tests, and notebooks:
    pipeline = pipeline_cfg.setup().to("cuda")
 
 Runners are opt-in: only register one when you want a CLI surface.
+
+Testing and docs
+----------------
+
+Before upstreaming or sharing the integration, add the same practical surface
+users expect from built-in models:
+
+- a model page under ``docs/source/models/`` with install and launch commands;
+- smoke tests for config construction and runner registration;
+- parity or profiling tests when comparing against an official implementation;
+- small example inputs or clear instructions for obtaining them.
 
 Adding an integration to the in-tree distribution
 -------------------------------------------------

@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="OmniDreams" href="../models/omnidreams.html"><link rel="prev" title="Configs" href="configs.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="How to use FlashDreams as a developer" href="usage_patterns.html"><link rel="prev" title="System overview" href="system_overview.html">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal.png" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=fcd5aa15" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=cb2a5514" />
     
     
 
@@ -212,38 +212,39 @@ SPDX-License-Identifier: Apache-2.0
   <input type="hidden" name="area" value="default">
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
-  <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+  <p class="caption" role="heading"><span class="caption-text">Quickstart</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../getting_started/installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../getting_started/first_world_model.html">Launch your first world model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../getting_started/supported_models.html">Supported models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/lingbot_world.html">LingBot-World</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/causal_forcing.html">Causal-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/causal_wan22.html">Causal Wan2.2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/flashvsr.html">FlashVSR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="new_recipes.html">Adding a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="system_overview.html">System overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configs.html">Configs</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Interactive serving</a></li>
+<li class="toctree-l1"><a class="reference internal" href="offline_vs_online.html">Offline vs online world-model flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="system_overview.html">Runtime system overview</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Interactive serving architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage_patterns.html">Developer workflow patterns</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Developer guides overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="new_recipes.html">Add a new model integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configs.html">Configure runs and overrides</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Models</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../models/causal_forcing.html">Causal-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../models/fastvideo_wan22.html">Causal Wan2.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../models/lingbot_world.html">Lingbot-World</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../reference/cli.html">CLI</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../apis/index.html">API</a><input aria-label="Toggle navigation of API" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="../apis/core.html">Core</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../apis/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../apis/recipes.html">Pipelines and runners</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../apis/serving.html">Serving</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/infra.html">Infra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 
 </div>
@@ -288,34 +289,51 @@ SPDX-License-Identifier: Apache-2.0
         <article role="main" id="furo-main-content">
           <section id="interactive-serving">
 <h1>Interactive serving<a class="headerlink" href="#interactive-serving" title="Link to this heading">¶</a></h1>
-<p>FlashDreams supports interactive serving workflows through integration-specific
-integrations, with Lingbot-World as the primary reference implementation.</p>
-<section id="what-this-guide-covers">
-<h2>What this guide covers<a class="headerlink" href="#what-this-guide-covers" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p>launching serving-oriented runners,</p></li>
-<li><p>wiring serving state/control inputs into runner configuration,</p></li>
-<li><p>validating single-GPU and multi-GPU launch patterns.</p></li>
-</ul>
+<p>FlashDreams serving keeps a world-model session alive while inputs and outputs
+stream through the application loop.</p>
+<div class="ai-figure-placeholder">
+  <div class="ai-figure-title">Figure placeholder: persistent serving session</div>
+  <div class="ai-figure-body">
+    Replace this block with a diagram showing client input, serving session,
+    pipeline cache, model step, streaming decoder, and output returning to
+    the client.
+  </div>
+</div><section id="serving-model">
+<h2>Serving model<a class="headerlink" href="#serving-model" title="Link to this heading">¶</a></h2>
+<div class="fd-highlight-grid">
+  <div class="fd-highlight-card">
+    <div class="fd-highlight-title">Live input</div>
+    <div class="fd-highlight-body">Application controls or sensor updates arrive continuously.</div>
+  </div>
+  <div class="fd-highlight-card">
+    <div class="fd-highlight-title">Warm session</div>
+    <div class="fd-highlight-body">Pipeline and cache state persist across updates.</div>
+  </div>
+  <div class="fd-highlight-card">
+    <div class="fd-highlight-title">Model step</div>
+    <div class="fd-highlight-body">Encoder, transformer, scheduler, and decoder advance the world.</div>
+  </div>
+  <div class="fd-highlight-card">
+    <div class="fd-highlight-title">Streamed output</div>
+    <div class="fd-highlight-body">Frames or latent output return without closing the session.</div>
+  </div>
+</div><p>This is the online path described in
+<a class="reference internal" href="offline_vs_online.html"><span class="doc">What is world model serving?</span></a>.</p>
 </section>
-<section id="lingbot-world-serving-baseline">
-<h2>Lingbot-World serving baseline<a class="headerlink" href="#lingbot-world-serving-baseline" title="Link to this heading">¶</a></h2>
-<p>Single GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
-<p>Multi GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
+<section id="reference-integrations">
+<h2>Reference integrations<a class="headerlink" href="#reference-integrations" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> is the primary camera-control serving reference.</p></li>
+<li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">OmniDreams</span></a> shows closed-loop autonomous-vehicle simulation.</p></li>
+<li><p><a class="reference internal" href="../quickstart/first_world_model.html"><span class="doc">Launch your first model</span></a> provides the shortest command-level
+path for trying inference and serving side by side.</p></li>
+</ul>
 </section>
 <section id="serving-implementation-references">
 <h2>Serving implementation references<a class="headerlink" href="#serving-implementation-references" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../models/lingbot_world.html"><span class="doc">Lingbot-World</span></a> for model-specific launch options.</p></li>
-<li><p><a class="reference internal" href="../apis/serving.html"><span class="doc">Serving</span></a> for serving API concepts and component mapping.</p></li>
+<li><p><a class="reference internal" href="../api/serving.html"><span class="doc">Serving</span></a> for serving API concepts and component mapping.</p></li>
+<li><p><a class="reference internal" href="system_overview.html"><span class="doc">System overview</span></a> for runner/pipeline execution flow.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/webrtc</span></code> for the WebRTC serving stack.</p></li>
 </ul>
 </section>
@@ -326,23 +344,23 @@ integrations, with Lingbot-World as the primary reference implementation.</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="../models/omnidreams.html">
+          <a class="next-page" href="usage_patterns.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">OmniDreams</div>
+                <div class="title">How to use FlashDreams as a developer</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="configs.html">
+          <a class="prev-page" href="system_overview.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Configs</div>
+                <div class="title">System overview</div>
                 
               </div>
             </a>
@@ -376,8 +394,8 @@ integrations, with Lingbot-World as the primary reference implementation.</p>
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Interactive serving</a><ul>
-<li><a class="reference internal" href="#what-this-guide-covers">What this guide covers</a></li>
-<li><a class="reference internal" href="#lingbot-world-serving-baseline">Lingbot-World serving baseline</a></li>
+<li><a class="reference internal" href="#serving-model">Serving model</a></li>
+<li><a class="reference internal" href="#reference-integrations">Reference integrations</a></li>
 <li><a class="reference internal" href="#serving-implementation-references">Serving implementation references</a></li>
 </ul>
 </li>

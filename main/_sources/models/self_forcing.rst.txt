@@ -49,9 +49,10 @@ To run Self-Forcing, launch one of the registered runner slugs via
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
+   uv run --project integrations/self_forcing \
+       flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
-       --prompt "A cat surfing on a neon wave." \
+       --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
@@ -64,56 +65,87 @@ We provide the following variants:
    * - Method
      - Description
    * - ``self-forcing-wan2.1-t2v-1.3b``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (Wan VAE decoder, Official).
+     - Official checkpoint.
    * - ``self-forcing-wan2.1-t2v-1.3b-flash``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (Faster TAEHV decoder).
+     - Official checkpoint. Swap WAN VAE decoder with faster TAEHV decoder.
    * - ``self-forcing-wan2.1-t2v-1.3b-anti-drift``
-     - Self-Forcing distilled Wan 2.1 1.3B T2V (sink + sliding window, with KV cache re-ROPE).
+     - Configuration for steady long rollout (sink + sliding window, with KV cache re-ROPE).
 
-For multi-GPU inference, simply use ``uv run torchrun --nproc_per_node=4 --no-python flashdreams-run``
-instead of ``uv run flashdreams-run`` (taking 4 GPUs as an example).
+For multi-GPU inference, use:
 
+.. code-block:: bash
 
-.. TODO: update videos
+   uv run --project integrations/self_forcing \
+       torchrun --nproc_per_node=4 --no-python flashdreams-run \
+       self-forcing-wan2.1-t2v-1.3b \
+       --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 7
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/self_forcing \
+       flashdreams-run \
+       self-forcing-wan2.1-t2v-1.3b \
+       --help
+
+Some generated samples:
+
 .. raw:: html
 
    <div class="model-video-grid">
      <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-      <!-- Reference video:
-      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-        <source src="https://self-forcing.github.io/examples/movie-gen-5s/A%20close-up%20shot%20of%20a%20ceramic%20teacup%20slowly%20pouring%20water%20into%20a%20gla.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-      -->
+       <!-- <div class="model-video-placeholder">Video placeholder</div> -->
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
        <div class="model-video-overlay">
          A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.
        </div>
      </div>
      <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-      <!-- Reference video:
-      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-        <source src="https://self-forcing.github.io/examples/movie-gen-10s/A%20dramatic%20and%20dynamic%20scene%20in%20the%20style%20of%20a%20disaster%20movie,%20depicting%20a%20powerful%20tsunami%20rushing%20-0.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-      -->
+       <!-- <div class="model-video-placeholder">Video placeholder</div> -->
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_6.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
        <div class="model-video-overlay">
          A dramatic and dynamic scene in the style of a disaster movie, depicting a powerful tsunami rushing through a narrow alley in Bulgaria. The water is turbulent and chaotic, with waves crashing violently against the walls and buildings on either side. The alley is lined with old, weathered houses, their facades partially submerged and splintered. The camera angle is low, capturing the full force of the tsunami as it surges forward, creating a sense of urgency and danger. People can be seen running frantically, adding to the chaos. The background features a distant horizon, hinting at the larger scale of the tsunami. A dynamic, sweeping shot from a low-angle perspective, emphasizing the movement and intensity of the event.
        </div>
      </div>
    </div>
 
-Performance Comparison
-----------------------
 
-.. TODO: polish figure
-.. figure:: /_static/perf/self_forcing_total_ms.svg
-   :class: benchmark-figure
-   :figclass: benchmark-figure-wrap
-   :alt: Self-Forcing total latency bar chart by hardware and method.
+Profiling Benchmark
+-------------------
 
-   This chart shows the DiT runtime at 6-th autoregressive rollout on a signle GPU.
-   Both using CUDNN attention backend. See
-   `parity check <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check>`_
-   for scripts to run profiling on the official implementation.
+Here is the profiling benchmark on total DiT runtime for FlashDreams Self-Forcing compared to
+the `official Self-Forcing implementation <https://github.com/guandeh17/Self-Forcing>`_
+and the `FastVideo implementation <https://github.com/hao-ai-lab/FastVideo>`_
+under matched settings.
+
+.. raw:: html
+
+   <figure class="benchmark-figure-wrap">
+     <div
+       id="self-forcing-benchmark-chart"
+       class="benchmark-figure"
+       data-benchmark-md-url="/_static/performance/self_forcing/perf-0521.md"
+       data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+       data-chart-aria-label="Self-Forcing benchmark chart"
+     ></div>
+     <figcaption>
+       <p>
+         This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
+         For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
+         For profiling the official implementation, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check/README.md">this instruction</a>.
+         For profiling the FastVideo implementation, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
+       </p>
+     </figcaption>
+   </figure>
+   <script src="/_static/js/benchmark_chart.js"></script>

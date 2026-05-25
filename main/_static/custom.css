@@ -18,8 +18,148 @@ SPDX-License-Identifier: Apache-2.0
     background: var(--nv-color-neutral-100, rgba(127, 127, 127, 0.06));
 }
 
+.ai-figure-placeholder {
+    border: 1px solid color-mix(in srgb, #2563eb 45%, #cbd5e1);
+    border-radius: 16px;
+    padding: 22px;
+    margin: 18px 0 24px;
+    background:
+        radial-gradient(circle at 12% 20%, rgba(11, 119, 109, 0.18), transparent 34%),
+        linear-gradient(135deg, rgba(11, 119, 109, 0.10), rgba(59, 130, 246, 0.08));
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.ai-figure-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.ai-figure-body {
+    max-width: 760px;
+    color: var(--color-foreground-secondary);
+}
+
+.fd-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin: 16px 0 22px;
+}
+
+.fd-stat-card {
+    border: 1px solid #dce5ea;
+    border-radius: 10px;
+    padding: 14px;
+    background: var(--color-background-primary);
+}
+
+.fd-stat-value {
+    font-size: 1.55rem;
+    line-height: 1.2;
+    font-weight: 800;
+    color: #2563eb;
+}
+
+.fd-stat-label {
+    margin-top: 4px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--color-foreground-secondary);
+}
+
+.fd-highlight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 14px 0 20px;
+}
+
+.fd-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fd-highlight-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.fd-highlight-link:hover {
+    text-decoration: none;
+}
+
+.fd-highlight-card {
+    border: 1px solid #dce5ea;
+    border-radius: 10px;
+    padding: 15px;
+    background: var(--color-background-primary);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.fd-highlight-card:hover {
+    border-color: #9db2f5;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.14);
+    transform: translateY(-1px);
+}
+
+.fd-highlight-title {
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.fd-kpi-value {
+    display: inline-block;
+    color: #166534;
+    background: #dcfce7;
+    padding: 1px 8px;
+    border-radius: 6px;
+}
+
+.fd-kpi-grid .fd-highlight-body {
+    white-space: nowrap;
+}
+
+.fd-highlight-body {
+    color: var(--color-foreground-secondary);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.fd-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 20px;
+}
+
+.fd-pill {
+    border: 1px solid #dce5ea;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 0.86rem;
+    color: var(--color-foreground-secondary);
+    background: var(--color-background-primary);
+}
+
+.fd-subtitle {
+    margin: 18px 0 8px;
+    font-size: 1.2rem;
+    line-height: 1.35;
+    font-weight: 700;
+}
+
 .benchmark-figure {
     margin: 16px 0 8px;
+}
+
+.benchmark-chart-svg {
+    display: block;
+    width: 100%;
+    height: auto;
 }
 
 .benchmark-figure-wrap figcaption {
@@ -89,8 +229,8 @@ body.index .content h1 {
     justify-content: center;
     padding: 0.35rem 0.75rem;
     border-radius: 0.25rem;
-    border: 1px solid var(--color-brand-primary, #4f46e5);
-    color: var(--color-brand-primary, #4f46e5);
+    border: 1px solid #4f46e5;
+    color: #4f46e5;
     text-decoration: none;
     font-weight: 600;
     font-size: 0.9rem;
@@ -98,7 +238,7 @@ body.index .content h1 {
 
 .model-link-button:hover {
     text-decoration: none;
-    background: color-mix(in srgb, var(--color-brand-primary, #4f46e5) 8%, transparent);
+    background: color-mix(in srgb, #4f46e5 8%, transparent);
 }
 
 .model-video-grid {
@@ -149,7 +289,18 @@ body.index .content h1 {
     opacity: 1;
 }
 
+@media (max-width: 1100px) {
+    .fd-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 800px) {
+    .fd-stat-grid,
+    .fd-highlight-grid {
+        grid-template-columns: 1fr;
+    }
+
     .model-video-grid {
         grid-template-columns: 1fr;
     }

@@ -21,7 +21,6 @@ Wan2.1
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 Wan2.1 is the bidirectional reference family in FlashDreams, supporting both
@@ -69,3 +68,41 @@ We provide the following variants:
      - Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).
    * - ``wan21-i2v-14b-480p``
      - Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/wan21 flashdreams-run \
+       wan21-t2v-1.3b-480p \
+       --help
+
+Profiling Benchmark
+-------------------
+
+Here is the profiling benchmark on DiT per-step runtime for FlashDreams Wan2.1
+compared to the official Wan2.1 implementation and the FastVideo baseline under
+matched settings.
+
+.. raw:: html
+
+   <figure class="benchmark-figure-wrap">
+     <div
+       id="wan21-benchmark-chart"
+       class="benchmark-figure"
+       data-benchmark-md-url="/_static/performance/wan21/perf-0521.md"
+       data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+       data-chart-aria-label="Wan2.1 benchmark chart"
+     ></div>
+     <figcaption>
+       <p>
+         This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
+         For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
+         For the official Wan2.1 implementation, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/parity_check">this instruction</a>.
+         For the FastVideo baseline, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/baseline_fastvideo">this instruction</a>.
+       </p>
+     </figcaption>
+   </figure>
+   <script src="/_static/js/benchmark_chart.js"></script>

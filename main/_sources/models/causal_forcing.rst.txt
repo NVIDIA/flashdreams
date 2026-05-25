@@ -15,13 +15,13 @@
 
 Causal-Forcing
 ===================================
+(TODO: To be updated)
 
 .. raw:: html
 
    <div class="model-link-row">
      <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Project page</a>
      <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
 Causal-Forcing provides streaming Wan2.1 variants for both text-to-video (T2V)
@@ -74,3 +74,11 @@ We provide the following variants:
      - Causal-Forcing framewise Wan 2.1 1.3B T2V (``len_t=1``).
    * - ``causal-forcing-wan2.1-i2v-1.3b-framewise``
      - Causal-Forcing framewise Wan 2.1 1.3B I2V (``len_t=1``).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/causal_forcing flashdreams-run \
+       causal-forcing-wan2.1-t2v-1.3b-framewise \
+       --help

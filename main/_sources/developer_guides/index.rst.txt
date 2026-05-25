@@ -13,18 +13,19 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Developer Guides
 ===================================
 
-Use these guides to understand architecture, configure integrations, add new
-models, and build interactive serving workflows.
+Use these guides after the quick start to understand the runtime, choose a
+developer workflow, configure runs, build serving applications, or add a new
+model integration.
 
 Guides
 ------
 
-- :doc:`Adding a new model integration </developer_guides/new_recipes>`
+- :doc:`Offline vs online world-model flow </developer_guides/offline_vs_online>`
 - :doc:`System overview </developer_guides/system_overview>`
+- :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
 - :doc:`Configs </developer_guides/configs>`
 - :doc:`Interactive serving </developer_guides/interactive_serving>`
+- :doc:`Adding a new model integration </developer_guides/new_recipes>`

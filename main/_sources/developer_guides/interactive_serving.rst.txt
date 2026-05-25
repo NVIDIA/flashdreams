@@ -16,36 +16,58 @@
 Interactive serving
 ===================================
 
-FlashDreams supports interactive serving workflows through integration-specific
-integrations, with Lingbot-World as the primary reference implementation.
+FlashDreams serving keeps a world-model session alive while inputs and outputs
+stream through the application loop.
 
-What this guide covers
+.. raw:: html
+
+   <div class="ai-figure-placeholder">
+     <div class="ai-figure-title">Figure placeholder: persistent serving session</div>
+     <div class="ai-figure-body">
+       Replace this block with a diagram showing client input, serving session,
+       pipeline cache, model step, streaming decoder, and output returning to
+       the client.
+     </div>
+   </div>
+
+Serving model
+-------------
+
+.. raw:: html
+
+   <div class="fd-highlight-grid">
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Live input</div>
+       <div class="fd-highlight-body">Application controls or sensor updates arrive continuously.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Warm session</div>
+       <div class="fd-highlight-body">Pipeline and cache state persist across updates.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Model step</div>
+       <div class="fd-highlight-body">Encoder, transformer, scheduler, and decoder advance the world.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Streamed output</div>
+       <div class="fd-highlight-body">Frames or latent output return without closing the session.</div>
+     </div>
+   </div>
+
+This is the online path described in
+:doc:`/developer_guides/offline_vs_online`.
+
+Reference integrations
 ----------------------
 
-- launching serving-oriented runners,
-- wiring serving state/control inputs into runner configuration,
-- validating single-GPU and multi-GPU launch patterns.
-
-Lingbot-World serving baseline
-------------------------------
-
-Single GPU:
-
-.. code-block:: bash
-
-   uv run flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
-
-Multi GPU:
-
-.. code-block:: bash
-
-   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
+- :doc:`/models/lingbot_world` is the primary camera-control serving reference.
+- :doc:`/models/omnidreams` shows closed-loop autonomous-vehicle simulation.
+- :doc:`/quickstart/first_world_model` provides the shortest command-level
+  path for trying inference and serving side by side.
 
 Serving implementation references
 ---------------------------------
 
-- :doc:`/models/lingbot_world` for model-specific launch options.
-- :doc:`/apis/serving` for serving API concepts and component mapping.
+- :doc:`/api/serving` for serving API concepts and component mapping.
+- :doc:`/developer_guides/system_overview` for runner/pipeline execution flow.
 - ``integrations/lingbot/lingbot/webrtc`` for the WebRTC serving stack.
