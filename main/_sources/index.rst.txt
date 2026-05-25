@@ -80,9 +80,9 @@ speed across many popular open-source models and GPU architectures.
      </a>
    </div>
 
-.. raw:: html
-
-   <p style="margin-top:-14px; font-size:0.82rem; color:var(--color-foreground-secondary);"><em>Although FlashDreams is designed for autoregressive inference, the same optimization stack applies naturally to bidirectional inference (e.g., Wan2.1) by treating it as a single-rollout autoregressive pass.</em></p>
+Although FlashDreams is designed for autoregressive inference, the same
+optimization stack applies naturally to bidirectional inference (e.g.,
+Wan2.1) by treating it as a single-rollout autoregressive pass.
 
 .. Interactive Serving Backend
 .. ---------------------------

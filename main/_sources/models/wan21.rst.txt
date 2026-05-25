@@ -46,7 +46,7 @@ To run Wan2.1, launch one of the registered runner slugs via
        --prompt "A reindeer in cinematic sunset light." \
        --pixel-height 480 --pixel-width 832
 
-For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 (taking 4 GPUs as an example):
 
 .. code-block:: bash
@@ -90,12 +90,12 @@ matched settings.
      <div
        id="wan21-benchmark-chart"
        class="benchmark-figure"
-       data-benchmark-md-url="/_static/performance/wan21/perf-0521.md"
+      data-benchmark-md-url="../_static/performance/wan21/perf-0521.md"
        data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
        data-chart-aria-label="Wan2.1 benchmark chart"
      ></div>
      <figcaption>
-       <p>
+      <p class="model-footnote">
          This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
          For the official Wan2.1 implementation, see
@@ -105,4 +105,4 @@ matched settings.
        </p>
      </figcaption>
    </figure>
-   <script src="/_static/js/benchmark_chart.js"></script>
+  <script src="../_static/js/benchmark_chart.js"></script>

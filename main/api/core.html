@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=cb2a5514" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
     
     
 
@@ -201,7 +201,7 @@ SPDX-License-Identifier: Apache-2.0
     href="https://github.com/NVIDIA/flashdreams"
     data-color-scheme="no-preference: light; light: light; dark: light;"
     data-size="large"
-    data-show-count="true"
+    data-show-count="false"
     aria-label="Star NVIDIA/flashdreams on GitHub"
   >
     GitHub
@@ -341,6 +341,13 @@ the block-structured KV cache that backs streaming inference.</p>
 </dl>
 </dd></dl>
 
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.core.attention.ContextParallelAttention">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">ContextParallelAttention</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">qkv_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'bhsd'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'bshd'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'bhsd'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cudnn'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'flash'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cudnn'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'ring'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'ulysses'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'ring'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">convert_to_fp32</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/core/attention/cp.html#ContextParallelAttention"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.core.attention.ContextParallelAttention" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.core.attention.NativeAttention" title="flashdreams.core.attention.native.NativeAttention"><code class="xref py py-class docutils literal notranslate"><span class="pre">NativeAttention</span></code></a></p>
+<p>Context-parallel attention with selectable method and SDPA backend.</p>
 </dd></dl>
 
 <dl class="py class">
@@ -606,6 +613,7 @@ the boilerplate at the top of the example launchers.</p>
 <li><a class="reference internal" href="#flashdreams.core.attention.NativeAttention.forward"><code class="docutils literal notranslate"><span class="pre">NativeAttention.forward()</span></code></a></li>
 </ul>
 </li>
+<li><a class="reference internal" href="#flashdreams.core.attention.ContextParallelAttention"><code class="docutils literal notranslate"><span class="pre">ContextParallelAttention</span></code></a></li>
 <li><a class="reference internal" href="#flashdreams.core.attention.BlockKVCache"><code class="docutils literal notranslate"><span class="pre">BlockKVCache</span></code></a><ul>
 <li><a class="reference internal" href="#flashdreams.core.attention.BlockKVCache.k_shape"><code class="docutils literal notranslate"><span class="pre">BlockKVCache.k_shape</span></code></a></li>
 <li><a class="reference internal" href="#flashdreams.core.attention.BlockKVCache.v_shape"><code class="docutils literal notranslate"><span class="pre">BlockKVCache.v_shape</span></code></a></li>

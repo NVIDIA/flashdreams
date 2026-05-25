@@ -33,6 +33,13 @@ gap and enabling efficient streaming generation quality.
    :alt: Self-Forcing teaser figure.
    :width: 100%
 
+.. raw:: html
+
+   <p class="model-footnote">
+     Teaser image source:
+     <a href="https://self-forcing.github.io/">Self-Forcing project page</a>.
+   </p>
+
 Installation
 ------------
 
@@ -91,7 +98,7 @@ To inspect all supported CLI arguments and their default values, run:
        self-forcing-wan2.1-t2v-1.3b \
        --help
 
-Some generated samples:
+Some generated samples from the above commands:
 
 .. raw:: html
 
@@ -133,12 +140,12 @@ under matched settings.
      <div
        id="self-forcing-benchmark-chart"
        class="benchmark-figure"
-       data-benchmark-md-url="/_static/performance/self_forcing/perf-0521.md"
+      data-benchmark-md-url="../_static/performance/self_forcing/perf-0521.md"
        data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
        data-chart-aria-label="Self-Forcing benchmark chart"
      ></div>
      <figcaption>
-       <p>
+      <p class="model-footnote">
          This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
          For profiling the official implementation, see
@@ -148,4 +155,4 @@ under matched settings.
        </p>
      </figcaption>
    </figure>
-   <script src="/_static/js/benchmark_chart.js"></script>
+  <script src="../_static/js/benchmark_chart.js"></script>

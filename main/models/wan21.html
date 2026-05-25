@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=cb2a5514" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
     
     
 
@@ -201,7 +201,7 @@ SPDX-License-Identifier: Apache-2.0
     href="https://github.com/NVIDIA/flashdreams"
     data-color-scheme="no-preference: light; light: light; dark: light;"
     data-size="large"
-    data-show-count="true"
+    data-show-count="false"
     aria-label="Star NVIDIA/flashdreams on GitHub"
   >
     GitHub
@@ -310,7 +310,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span>
 </pre></div>
 </div>
-<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> instead of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
+<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
 (taking 4 GPUs as an example):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
@@ -352,26 +352,26 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <p>Here is the profiling benchmark on DiT per-step runtime for FlashDreams Wan2.1
 compared to the official Wan2.1 implementation and the FastVideo baseline under
 matched settings.</p>
-<figure class="benchmark-figure-wrap">
-  <div
-    id="wan21-benchmark-chart"
-    class="benchmark-figure"
-    data-benchmark-md-url="/_static/performance/wan21/perf-0521.md"
-    data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-    data-chart-aria-label="Wan2.1 benchmark chart"
-  ></div>
-  <figcaption>
-    <p>
-      This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
-      For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
-      For the official Wan2.1 implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/parity_check">this instruction</a>.
-      For the FastVideo baseline, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/baseline_fastvideo">this instruction</a>.
-    </p>
-  </figcaption>
-</figure>
-<script src="/_static/js/benchmark_chart.js"></script></section>
+ <figure class="benchmark-figure-wrap">
+   <div
+     id="wan21-benchmark-chart"
+     class="benchmark-figure"
+    data-benchmark-md-url="../_static/performance/wan21/perf-0521.md"
+     data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+     data-chart-aria-label="Wan2.1 benchmark chart"
+   ></div>
+   <figcaption>
+    <p class="model-footnote">
+       This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
+       For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
+       For the official Wan2.1 implementation, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/parity_check">this instruction</a>.
+       For the FastVideo baseline, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/baseline_fastvideo">this instruction</a>.
+     </p>
+   </figcaption>
+ </figure>
+<script src="../_static/js/benchmark_chart.js"></script></section>
 </section>
 
         </article>

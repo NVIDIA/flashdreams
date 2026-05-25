@@ -167,7 +167,7 @@ SPDX-License-Identifier: Apache-2.0
     margin-top: 0;
 }
 
-.benchmark-figure-wrap figcaption p {
+.model-footnote {
     margin: 0;
     font-size: 0.76rem;
     line-height: 1.2;

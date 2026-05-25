@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=cb2a5514" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
     
     
 
@@ -201,7 +201,7 @@ SPDX-License-Identifier: Apache-2.0
     href="https://github.com/NVIDIA/flashdreams"
     data-color-scheme="no-preference: light; light: light; dark: light;"
     data-size="large"
-    data-show-count="true"
+    data-show-count="false"
     aria-label="Star NVIDIA/flashdreams on GitHub"
   >
     GitHub
@@ -299,7 +299,11 @@ SPDX-License-Identifier: Apache-2.0
     <source src="https://gw.alipayobjects.com/v/huamei_u94ywh/afts/video/XQk7Rb44qJwAAAAAgfAAAAgAfoeUAQBr" type="video/mp4">
     Your browser does not support the video tag.
   </video>
-</div><section id="installation">
+</div>
+<p class="model-footnote">
+  Teaser video source:
+  <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
+</p><section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot
@@ -314,16 +318,21 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
-<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> instead of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
+<p>Sample data are downloaded from the
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">LingBot-World repository</a>.
+Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>.</p>
+<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
 (taking 4 GPUs as an example):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
@@ -357,37 +366,44 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <span class="w">    </span>--help
 </pre></div>
 </div>
-<p>Some generated samples:</p>
+<p>Some generated samples from the above commands:</p>
 <div class="model-video-grid">
   <div class="model-video-card">
-    <div class="model-video-placeholder">Video placeholder</div>
-    <!-- <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
     <div class="model-video-overlay">
-      example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
-    </div> -->
+      example_idx: 01
+    </div>
   </div>
   <div class="model-video-card">
-    <div class="model-video-placeholder">Video placeholder</div>
-    <!-- <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
+    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-02.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
     <div class="model-video-overlay">
-      example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
-    </div> -->
+      example_idx: 02
+    </div>
   </div>
 </div></section>
 <section id="launch-the-interactive-server">
 <h2>Launch the interactive server<a class="headerlink" href="#launch-the-interactive-server" title="Link to this heading">¶</a></h2>
 <p>Spin up the interactive LingBot-World server via WebRTC:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>lingbot.webrtc.server<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--config_name<span class="w"> </span>lingbot-world-fast-flash
+<span class="w">    </span>--config_name<span class="w"> </span>lingbot-world-fast-flash<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span>
 </pre></div>
 </div>
 <p>The server may take a few minutes to warm up. When it is ready, it prints
@@ -395,9 +411,11 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
 Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
 (can use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
 <p>When successfully connected, the browser-based UI looks like this:</p>
-<p>When successfully connected, the browser-based UI looks like this:</p>
-<div class="model-video-card">
-  <div class="model-video-placeholder">Recorded interactive serving demo (placeholder)</div>
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-demo-0520-trim-720P.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
 </div></section>
 <section id="profiling-benchmark">
 <h2>Profiling Benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">¶</a></h2>
@@ -405,27 +423,27 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
 compared to the <a class="reference external" href="https://github.com/robbyant/lingbot-world">official LingBot-World implementation</a>
 and <a class="reference external" href="https://github.com/ModelTC/lightx2v">LightX2V</a> under
 matched settings.</p>
-<figure class="benchmark-figure-wrap">
-  <div
-    id="lingbot-world-benchmark-chart"
-    class="benchmark-figure"
-    data-benchmark-md-url="/_static/performance/lingbot_world/perf-0521.md"
-   data-benchmark-series="official:Official Impl:#3b82f6;lightx2v:LightX2V:#f59e0b;flashdreams:FlashDreams:#76B900"
-    data-chart-aria-label="LingBot-World benchmark chart"
-  ></div>
-  <figcaption>
-    <p>
-      This chart shows total DiT runtime (4 diffusion steps) in milliseconds at the 6th autoregressive rollout on 4x GPUs.
-      For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
-      and all runs use Ulysses sequence parallelism for multi-GPU inference.
-      For the official LingBot-World implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
-      For the LightX2V baseline, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
-    </p>
-  </figcaption>
-</figure>
-<script src="/_static/js/benchmark_chart.js"></script></section>
+ <figure class="benchmark-figure-wrap">
+   <div
+     id="lingbot-world-benchmark-chart"
+     class="benchmark-figure"
+    data-benchmark-md-url="../_static/performance/lingbot_world/perf-0521.md"
+    data-benchmark-series="official:Official Impl:#3b82f6;lightx2v:LightX2V:#f59e0b;flashdreams:FlashDreams:#76B900"
+     data-chart-aria-label="LingBot-World benchmark chart"
+   ></div>
+   <figcaption>
+     <p class="model-footnote">
+       This chart shows total DiT runtime (4 diffusion steps) in milliseconds at the 6th autoregressive rollout on 4x GPUs.
+       For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
+       and all runs use Ulysses sequence parallelism for multi-GPU inference.
+       For the official LingBot-World implementation, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
+       For the LightX2V baseline, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
+     </p>
+   </figcaption>
+ </figure>
+<script src="../_static/js/benchmark_chart.js"></script></section>
 </section>
 
         </article>

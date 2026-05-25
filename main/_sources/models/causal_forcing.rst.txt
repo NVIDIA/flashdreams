@@ -49,7 +49,7 @@ To run Causal-Forcing, launch one of the registered runner slugs via
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
-For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 (taking 4 GPUs as an example):
 
 .. code-block:: bash

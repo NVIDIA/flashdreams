@@ -30,7 +30,7 @@ the block-structured KV cache that backs streaming inference.
 .. autoclass:: NativeAttention
    :members:
 
-.. autoclass:: RingAttention
+.. autoclass:: ContextParallelAttention
    :members:
 
 .. autoclass:: BlockKVCache

@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=cb2a5514" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
     
     
 
@@ -201,7 +201,7 @@ SPDX-License-Identifier: Apache-2.0
     href="https://github.com/NVIDIA/flashdreams"
     data-color-scheme="no-preference: light; light: light; dark: light;"
     data-size="large"
-    data-show-count="true"
+    data-show-count="false"
     aria-label="Star NVIDIA/flashdreams on GitHub"
   >
     GitHub
@@ -299,7 +299,10 @@ inference-time rollout during training with KV caching, reducing the train-test
 gap and enabling efficient streaming generation quality.</p>
 <a class="reference internal image-reference" href="https://self-forcing.github.io/static/teaser.jpg"><img alt="Self-Forcing teaser figure." src="https://self-forcing.github.io/static/teaser.jpg" style="width: 100%;" />
 </a>
-<section id="installation">
+<p class="model-footnote">
+  Teaser image source:
+  <a href="https://self-forcing.github.io/">Self-Forcing project page</a>.
+</p><section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing
@@ -359,7 +362,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <span class="w">    </span>--help
 </pre></div>
 </div>
-<p>Some generated samples:</p>
+<p>Some generated samples from the above commands:</p>
 <div class="model-video-grid">
   <div class="model-video-card">
     <!-- <div class="model-video-placeholder">Video placeholder</div> -->
@@ -388,26 +391,26 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 the <a class="reference external" href="https://github.com/guandeh17/Self-Forcing">official Self-Forcing implementation</a>
 and the <a class="reference external" href="https://github.com/hao-ai-lab/FastVideo">FastVideo implementation</a>
 under matched settings.</p>
-<figure class="benchmark-figure-wrap">
-  <div
-    id="self-forcing-benchmark-chart"
-    class="benchmark-figure"
-    data-benchmark-md-url="/_static/performance/self_forcing/perf-0521.md"
-    data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-    data-chart-aria-label="Self-Forcing benchmark chart"
-  ></div>
-  <figcaption>
-    <p>
-      This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
-      For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
-      For profiling the official implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check/README.md">this instruction</a>.
-      For profiling the FastVideo implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
-    </p>
-  </figcaption>
-</figure>
-<script src="/_static/js/benchmark_chart.js"></script></section>
+ <figure class="benchmark-figure-wrap">
+   <div
+     id="self-forcing-benchmark-chart"
+     class="benchmark-figure"
+    data-benchmark-md-url="../_static/performance/self_forcing/perf-0521.md"
+     data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+     data-chart-aria-label="Self-Forcing benchmark chart"
+   ></div>
+   <figcaption>
+    <p class="model-footnote">
+       This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
+       For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
+       For profiling the official implementation, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check/README.md">this instruction</a>.
+       For profiling the FastVideo implementation, see
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
+     </p>
+   </figcaption>
+ </figure>
+<script src="../_static/js/benchmark_chart.js"></script></section>
 </section>
 
         </article>

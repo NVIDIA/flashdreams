@@ -34,6 +34,10 @@ As introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World i
        Your browser does not support the video tag.
      </video>
    </div>
+   <p class="model-footnote">
+     Teaser video source:
+     <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
+   </p>
 
 Installation
 ------------
@@ -55,10 +59,15 @@ To run LingBot-World, launch one of the registered runner slugs via
        flashdreams-run \
        lingbot-world-fast \
        --example-data True \
+       --example-idx 0 \
        --pixel-height 464 --pixel-width 832 \
        --total-blocks 21
 
-For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+Sample data are downloaded from the
+`LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
+Valid ``--example-idx`` values are ``0, 1, 2, 5``.
+
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 (taking 4 GPUs as an example):
 
 .. code-block:: bash
@@ -67,6 +76,7 @@ For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        lingbot-world-fast \
        --example-data True \
+       --example-idx 0 \
        --pixel-height 464 --pixel-width 832 \
        --total-blocks 21
 
@@ -92,30 +102,36 @@ To inspect all supported CLI arguments and their default values, run:
        lingbot-world-fast \
        --help
 
-Some generated samples:
+Some generated samples from the above commands:
 
 .. raw:: html
 
    <div class="model-video-grid">
      <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-       <!-- <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
-         example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
-       </div> -->
+         example_idx: 01
+       </div>
      </div>
      <div class="model-video-card">
-       <div class="model-video-placeholder">Video placeholder</div>
-       <!-- <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-02.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
-         example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
-       </div> -->
+         example_idx: 02
+       </div>
      </div>
    </div>
 
@@ -128,10 +144,11 @@ Spin up the interactive LingBot-World server via WebRTC:
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flashdreams-lingbot torchrun --nproc_per_node 1 \
+   uv run --package flashdreams-lingbot torchrun --nproc_per_node 4 \
        -m lingbot.webrtc.server \
        --host 0.0.0.0 --port 8089 \
-       --config_name lingbot-world-fast-flash
+       --config_name lingbot-world-fast-flash \
+       --example-idx 0
 
 The server may take a few minutes to warm up. When it is ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.
@@ -140,14 +157,13 @@ Here, ``<server-ip>`` is the server IP address you are connecting to
 
 When successfully connected, the browser-based UI looks like this:
 
-
-When successfully connected, the browser-based UI looks like this:
-
-
 .. raw:: html
 
-  <div class="model-video-card">
-    <div class="model-video-placeholder">Recorded interactive serving demo (placeholder)</div>
+  <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-demo-0520-trim-720P.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
   </div>
 
 Profiling Benchmark
@@ -164,12 +180,12 @@ matched settings.
      <div
        id="lingbot-world-benchmark-chart"
        class="benchmark-figure"
-       data-benchmark-md-url="/_static/performance/lingbot_world/perf-0521.md"
+      data-benchmark-md-url="../_static/performance/lingbot_world/perf-0521.md"
       data-benchmark-series="official:Official Impl:#3b82f6;lightx2v:LightX2V:#f59e0b;flashdreams:FlashDreams:#76B900"
        data-chart-aria-label="LingBot-World benchmark chart"
      ></div>
      <figcaption>
-       <p>
+       <p class="model-footnote">
          This chart shows total DiT runtime (4 diffusion steps) in milliseconds at the 6th autoregressive rollout on 4x GPUs.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
          and all runs use Ulysses sequence parallelism for multi-GPU inference.
@@ -180,4 +196,4 @@ matched settings.
        </p>
      </figcaption>
    </figure>
-   <script src="/_static/js/benchmark_chart.js"></script>
+  <script src="../_static/js/benchmark_chart.js"></script>

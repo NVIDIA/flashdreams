@@ -36,6 +36,10 @@ generation, with presets that balance visual fidelity and runtime throughput.
        Your browser does not support the video tag.
      </video>
    </div>
+   <p class="model-footnote">
+     Teaser video source:
+     <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
+   </p>
 
 Installation
 ------------
@@ -94,7 +98,7 @@ To inspect all supported CLI arguments and their default values, run:
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
        --help
 
-Some generated samples:
+Some generated samples from the above commands:
 
 .. raw:: html
 
