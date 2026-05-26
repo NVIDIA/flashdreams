@@ -5,11 +5,122 @@
 #include <cutlass/util/device_memory.h>
 #include <cuda_runtime.h>
 #include <algorithm>
+#include <cstdint>
+#include <stdexcept>
 #include "common/workspace_alloc.h"
 
 // cuDNN SDPA workspace is backend/shape dependent. We allocate it dynamically in Workspace.
 
 namespace ts {
+
+struct SpargeAttentionWorkspace {
+    cutlass::half_t* pooled_q;          // [num_q_blocks, H, D]
+    cutlass::half_t* pooled_k;          // [num_k_blocks, H, D]
+    float* pooled_scores;               // [num_q_blocks, num_k_blocks, H]
+    int32_t* sparse_map;                // [H, num_q_blocks, num_k_blocks]
+    int32_t* lut;                       // [H, num_q_blocks, num_k_blocks]
+    int32_t* valid_block_num;           // [H, num_q_blocks]
+    int32_t* topk_indices;              // [H, num_q_blocks, topk]
+
+    int8_t* q_int8;                     // [padded_q_len, H, D]
+    int8_t* k_int8;                     // [padded_k_len, H, D]
+    float* q_scale;                     // [H, num_q_blocks]
+    float* k_scale;                     // [H, num_k_blocks]
+
+    cutlass::float_e4m3_t* v_fp8;       // [H, D, padded_kv_len]
+    float* v_scale;                     // [H, D]
+    cutlass::half_t* o_sparse;          // [padded_q_len, H, D]
+    uint8_t* reserved_tail;              // preserves the optimized sparse workspace footprint
+
+    int BLKQ;
+    int BLKK;
+    float topk_ratio;
+
+    static size_t calculate_size(
+            int Mq, int Mk, int K, int H, int D, int BLKQ, int BLKK,
+            float topk_ratio) {
+        (void)K;
+        if (BLKQ <= 0 || BLKK <= 0) {
+            throw std::invalid_argument("SpargeAttentionWorkspace block sizes must be positive");
+        }
+        int num_q_blocks = (Mq + BLKQ - 1) / BLKQ;
+        int num_k_blocks = (Mk + BLKK - 1) / BLKK;
+        int topk = std::max(1, std::min(num_k_blocks, int(topk_ratio * num_k_blocks)));
+        int padded_q_len = num_q_blocks * BLKQ;
+        int padded_k_len = num_k_blocks * BLKK;
+        int padded_kv_len = ((Mk + 127) / 128) * 128;
+
+        size_t total = 0;
+        total += size_t(H) * num_q_blocks * D * sizeof(cutlass::half_t);
+        total += size_t(H) * num_k_blocks * D * sizeof(cutlass::half_t);
+        total += size_t(H) * num_q_blocks * num_k_blocks * sizeof(float);
+        total += size_t(H) * num_q_blocks * num_k_blocks * sizeof(int32_t);
+        total += size_t(H) * num_q_blocks * num_k_blocks * sizeof(int32_t);
+        total += size_t(H) * num_q_blocks * sizeof(int32_t);
+        total += size_t(H) * num_q_blocks * topk * sizeof(int32_t);
+        total += size_t(H) * padded_q_len * D * sizeof(int8_t);
+        total += size_t(H) * padded_k_len * D * sizeof(int8_t);
+        total += size_t(H) * num_q_blocks * sizeof(float);
+        total += size_t(H) * num_k_blocks * sizeof(float);
+        total += size_t(H) * D * padded_kv_len * sizeof(cutlass::float_e4m3_t);
+        total += size_t(H) * D * sizeof(float);
+        total += size_t(H) * padded_q_len * D * sizeof(cutlass::half_t);
+        total += reserved_tail_size(Mq, Mk, H, D);
+        return total;
+    }
+
+    void initialize(
+            uint8_t* ptr, int Mq, int Mk, int K, int H, int D, int BLKQ_,
+            int BLKK_, float topk_ratio_) {
+        BLKQ = BLKQ_;
+        BLKK = BLKK_;
+        topk_ratio = topk_ratio_;
+        if (BLKQ <= 0 || BLKK <= 0) {
+            throw std::invalid_argument("SpargeAttentionWorkspace block sizes must be positive");
+        }
+
+        size_t budget = calculate_size(Mq, Mk, K, H, D, BLKQ, BLKK, topk_ratio);
+        WorkspaceAllocator ws(ptr, budget, "sparge");
+
+        int num_q_blocks = (Mq + BLKQ - 1) / BLKQ;
+        int num_k_blocks = (Mk + BLKK - 1) / BLKK;
+        int topk = std::max(1, std::min(num_k_blocks, int(topk_ratio * num_k_blocks)));
+        int padded_q_len = num_q_blocks * BLKQ;
+        int padded_k_len = num_k_blocks * BLKK;
+        int padded_kv_len = ((Mk + 127) / 128) * 128;
+
+        pooled_q = ws.alloc<cutlass::half_t>(size_t(H) * num_q_blocks * D);
+        pooled_k = ws.alloc<cutlass::half_t>(size_t(H) * num_k_blocks * D);
+        pooled_scores = ws.alloc<float>(size_t(H) * num_q_blocks * num_k_blocks);
+        sparse_map = ws.alloc<int32_t>(size_t(H) * num_q_blocks * num_k_blocks);
+        lut = ws.alloc<int32_t>(size_t(H) * num_q_blocks * num_k_blocks);
+        valid_block_num = ws.alloc<int32_t>(size_t(H) * num_q_blocks);
+        topk_indices = ws.alloc<int32_t>(size_t(H) * num_q_blocks * topk);
+
+        q_int8 = ws.alloc<int8_t>(size_t(H) * padded_q_len * D);
+        k_int8 = ws.alloc<int8_t>(size_t(H) * padded_k_len * D);
+        q_scale = ws.alloc<float>(size_t(H) * num_q_blocks);
+        k_scale = ws.alloc<float>(size_t(H) * num_k_blocks);
+
+        v_fp8 = ws.alloc<cutlass::float_e4m3_t>(size_t(H) * D * padded_kv_len);
+        v_scale = ws.alloc<float>(size_t(H) * D);
+        o_sparse = ws.alloc<cutlass::half_t>(size_t(H) * padded_q_len * D);
+        reserved_tail = ws.alloc<uint8_t>(reserved_tail_size(Mq, Mk, H, D));
+    }
+
+private:
+    static size_t reserved_tail_size(int Mq, int Mk, int H, int D) {
+        const size_t half_bytes = sizeof(cutlass::half_t);
+        size_t total = 0;
+        total += size_t(H) * Mq * D * half_bytes;
+        total += size_t(H) * Mk * D * half_bytes;
+        total += size_t(H) * D * D * half_bytes;
+        total += size_t(H) * D * half_bytes;
+        total += size_t(H) * Mq * D * half_bytes;
+        total += size_t(H) * Mq * D * half_bytes;
+        return total;
+    }
+};
 
 // CUTLASS Flash Attention workspace pointers
 // Contains buffers specific to the CUTLASS Flash Attention implementation
@@ -189,6 +300,10 @@ struct Workspace {
     // Both backends can coexist - they store pointers to the same underlying memory
     CutlassFlashAttentionWorkspace cutlass_flash;
     CudnnAttentionWorkspace cudnn;
+    // SpargeAttentionWorkspace is intentionally not part of this legacy shared
+    // attention workspace. The optimized DiT streaming bridge owns its lifetime
+    // via the caller-provided `sparge_workspace` byte tensor and initializes
+    // CosmosBlockBuffers::sparge directly.
 
     // === Model-Level Buffers (nullptr if block-only mode) ===
 

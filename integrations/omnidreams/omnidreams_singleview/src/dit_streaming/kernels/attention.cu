@@ -3,6 +3,9 @@
 #include "linear_utils.cuh"
 #include "helper.h"
 #include "kernel_forward.h"
+#ifdef OMNIDREAMS_SINGLEVIEW_HAS_SPARGE
+#include "sparge_attention_kernels.cuh"
+#endif
 
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm.h"
@@ -24,6 +27,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -2154,6 +2158,923 @@ template <typename WeightT>
 static cudaError_t run_self_attention_cudnn(const AttentionDeviceParamsT<WeightT>& p, cudaStream_t stream) {
   return run_self_attention_cudnn_impl<WeightT>(p, stream, nullptr, nullptr);
 }
+
+// Sparge Attention Implementation
+// ============================================================================
+
+// Smooth-K support has been removed; K is used as-is without mean subtraction.
+
+constexpr int kSpargeSm89CtaQ = 128;
+constexpr int kSpargeSm89CtaK = 64;
+
+// Helper: Convert cutlass::half_t to float
+__device__ __forceinline__ float half_to_float(cutlass::half_t val) {
+  return __half2float(*reinterpret_cast<const half*>(&val));
+}
+
+// Helper: Convert float to cutlass::half_t
+__device__ __forceinline__ cutlass::half_t float_to_half(float val) {
+  half h = __float2half(val);
+  return *reinterpret_cast<cutlass::half_t*>(&h);
+}
+
+// Kernel: Mean pool blocks for block map computation (optimized with vectorized loads)
+// Grid: (num_blocks, H), Block: (D/2) - each thread handles 2 elements via half2
+// NOTE: Input X is in [M, H, D] layout (output of rmsnorm_pack_bmhk_rope_from_row_kernel)
+//       Output X_pooled is in [num_blocks, H, D] layout (MHD-consistent, eliminates transpose)
+// When subtract_mean=true, subtracts X_mean from each element before pooling
+__global__ void sparge_mean_pool_kernel(
+    const cutlass::half_t* __restrict__ X,       // [M, H, D] - stride [H*D, D, 1]
+    const cutlass::half_t* __restrict__ X_mean,  // [H, D] - optional mean to subtract (nullptr if not used)
+    cutlass::half_t* __restrict__ X_pooled,      // [num_blocks, H, D] - MHD layout
+    int M, int H, int D, int BLOCK_SIZE,
+    bool subtract_mean) {
+  int block_idx = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+
+  int start = block_idx * BLOCK_SIZE;
+  int end = min(start + BLOCK_SIZE, M);
+  int count = end - start;
+  if (count <= 0) return;
+
+  // Use half2 for vectorized access (2 elements per thread)
+  const half2* X_h2 = reinterpret_cast<const half2*>(X);
+  half2* out_h2 = reinterpret_cast<half2*>(X_pooled);
+  int D2 = D / 2;
+  int K2 = H * D2;  // Stride in half2 units for [*, H, D] layout
+
+  // Load mean if needed (X_mean is [H, D], stored contiguously)
+  float2 mean_val = make_float2(0.f, 0.f);
+  if (subtract_mean && X_mean != nullptr && tid < D2) {
+    const half2* mean_h2 = reinterpret_cast<const half2*>(X_mean);
+    half2 m = mean_h2[h * D2 + tid];
+    mean_val.x = __half2float(m.x);
+    mean_val.y = __half2float(m.y);
+  }
+
+  if (tid < D2) {
+    float2 sum = make_float2(0.f, 0.f);
+
+    #pragma unroll 4
+    for (int i = start; i < end; i++) {
+      // [M, H, D] layout: X[m, h, d] at index m * H * D + h * D + d
+      // In half2: X_h2[m * H * D2 + h * D2 + tid]
+      half2 val = X_h2[i * K2 + h * D2 + tid];
+      float2 fval;
+      fval.x = __half2float(val.x) - mean_val.x;
+      fval.y = __half2float(val.y) - mean_val.y;
+      sum.x += fval.x;
+      sum.y += fval.y;
+    }
+
+    float inv_count = 1.f / float(count);
+    half2 result;
+    result.x = __float2half(sum.x * inv_count);
+    result.y = __float2half(sum.y * inv_count);
+
+    // Output [num_blocks, H, D] layout: X_pooled[block_idx, h, d] at index block_idx * H * D + h * D + d
+    // In half2: out_h2[block_idx * K2 + h * D2 + tid]
+    out_h2[block_idx * K2 + h * D2 + tid] = result;
+  }
+}
+
+__global__ void sparge_mean_pool_bf16_kernel(
+    const cutlass::bfloat16_t* __restrict__ X,
+    const cutlass::bfloat16_t* __restrict__ X_mean,
+    cutlass::half_t* __restrict__ X_pooled,
+    int M, int H, int D, int BLOCK_SIZE,
+    bool subtract_mean) {
+  int block_idx = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+
+  int start = block_idx * BLOCK_SIZE;
+  int end = min(start + BLOCK_SIZE, M);
+  int count = end - start;
+  if (count <= 0) return;
+
+  const int K = H * D;
+  const int pair_count = D / 2;
+  if (tid < pair_count) {
+    int d = tid * 2;
+
+    float2 mean_val = make_float2(0.f, 0.f);
+    if (subtract_mean && X_mean != nullptr) {
+      mean_val = omnidreams_singleview::load_vec2_as_float2(X_mean + h * D + d);
+    }
+
+    float2 sum = make_float2(0.f, 0.f);
+    for (int m = start; m < end; ++m) {
+      float2 val = omnidreams_singleview::load_vec2_as_float2(X + size_t(m) * K + h * D + d);
+      sum.x += val.x - mean_val.x;
+      sum.y += val.y - mean_val.y;
+    }
+
+    float inv_count = 1.f / float(count);
+    omnidreams_singleview::store_float2_as_vec2<cutlass::half_t>(
+        X_pooled + (block_idx * H + h) * D + d,
+        make_float2(sum.x * inv_count, sum.y * inv_count));
+    return;
+  }
+
+  if ((D & 1) == 0 || tid != pair_count) return;
+
+  int d = D - 1;
+  float mean_val = 0.f;
+  if (subtract_mean && X_mean != nullptr) {
+    mean_val = omnidreams_singleview::to_float(X_mean[h * D + d]);
+  }
+
+  float sum = 0.f;
+  for (int m = start; m < end; ++m) {
+    sum += omnidreams_singleview::to_float(X[size_t(m) * K + h * D + d]) - mean_val;
+  }
+
+  X_pooled[(block_idx * H + h) * D + d] =
+      omnidreams_singleview::from_float<cutlass::half_t>(sum / float(count));
+}
+
+// (Removed) K-mean kernel; smooth-K no longer used.
+
+// Kernel: Compute pooled scores (Q_pooled @ K_pooled^T) - tiled for high throughput
+// Grid: (num_q_blocks, H), Block: (128) - 4 warps independently process k_blocks
+// Each warp computes full D-dimensional dot products using vectorized float2 loads.
+// Q[q_blk, h, :] is loaded once into registers and reused across all k_blocks.
+// Requires D == 128 (32 lanes x 4 elements per lane via float2 loads).
+// NOTE: Inputs Q_pooled and K_pooled are in MHD layout [num_blocks, H, D]
+//       Output scores is in [num_q_blocks, num_k_blocks, H] layout (MHD-consistent)
+__global__ void sparge_pooled_score_kernel(
+    const cutlass::half_t* __restrict__ Q_pooled,  // [num_q_blocks, H, D] - MHD layout
+    const cutlass::half_t* __restrict__ K_pooled,  // [num_k_blocks, H, D] - MHD layout
+    float* __restrict__ scores,                     // [num_q_blocks, num_k_blocks, H] - MHD-consistent
+    int num_q_blocks, int num_k_blocks, int H, int D, float scale) {
+  const int q_blk = blockIdx.x;
+  const int h = blockIdx.y;
+  const int warp_id = threadIdx.x / 32;
+  const int lane_id = threadIdx.x % 32;
+  const int num_warps = blockDim.x / 32;
+
+  // D=128: each lane loads 4 halfs as one float2 (8 bytes), 32 lanes cover all 128 elements
+  const int D_f2 = D / 4;  // stride in float2 units (=32 for D=128)
+  const float2* Q_f2 = reinterpret_cast<const float2*>(Q_pooled);
+  const float2* K_f2 = reinterpret_cast<const float2*>(K_pooled);
+
+  // Load Q[q_blk, h, :] into registers once - reused across all k_blocks
+  const int q_off = (q_blk * H + h) * D_f2;
+  float2 q_vec = Q_f2[q_off + lane_id];
+  const half* qh = reinterpret_cast<const half*>(&q_vec);
+  const float q0 = __half2float(qh[0]);
+  const float q1 = __half2float(qh[1]);
+  const float q2 = __half2float(qh[2]);
+  const float q3 = __half2float(qh[3]);
+
+  // Output base offset for this (q_blk, h): scores[q_blk, k, h]
+  const int score_base = q_blk * num_k_blocks * H + h;
+
+  // Each warp independently processes k_blocks in round-robin
+  for (int k = warp_id; k < num_k_blocks; k += num_warps) {
+    const int k_off = (k * H + h) * D_f2;
+    float2 k_vec = K_f2[k_off + lane_id];
+    const half* kh = reinterpret_cast<const half*>(&k_vec);
+
+    float sum = q0 * __half2float(kh[0])
+              + q1 * __half2float(kh[1])
+              + q2 * __half2float(kh[2])
+              + q3 * __half2float(kh[3]);
+
+    // Warp-level reduction (5 steps for 32 lanes)
+    for (int offset = 16; offset > 0; offset >>= 1)
+      sum += __shfl_down_sync(0xffffffff, sum, offset);
+
+    if (lane_id == 0)
+      scores[score_base + k * H] = sum * scale;
+  }
+}
+
+// Kernel: TopK selection and sparse map creation - parallel version
+// Grid: (num_q_blocks, H), Block: (256)
+// Uses parallel reduction for finding max, then marks and repeats
+// Shared memory layout: float[256] s_max, int[256] s_idx, int8_t[num_k_blocks] s_used
+// NOTE: scores is in [num_q_blocks, num_k_blocks, H] layout (MHD-consistent)
+//       sparse_map and topk_indices outputs are in HMD layout for SpargeAttn
+__global__ void sparge_topk_sparse_map_kernel(
+    const float* __restrict__ scores,     // [num_q_blocks, num_k_blocks, H] - MHD-consistent
+    int32_t* __restrict__ sparse_map,     // [H, num_q_blocks, num_k_blocks] - HMD layout for SpargeAttn
+    int32_t* __restrict__ topk_indices,   // [H, num_q_blocks, topk] - HMD layout for SpargeAttn
+    int32_t* __restrict__ lut,             // [H, num_q_blocks, num_k_blocks] - HMD for SpargeAttn (merged from build_lut)
+    int32_t* __restrict__ valid_block_num, // [H, num_q_blocks] - HMD for SpargeAttn (merged from build_lut)
+    int num_q_blocks, int num_k_blocks, int H, int topk,
+    int q_to_k_token_offset,
+    bool attention_sink) {
+  int q_blk = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+
+  // Scores input: [num_q_blocks, num_k_blocks, H] -> stride = [num_k_blocks * H, H, 1]
+  int score_base = q_blk * num_k_blocks * H + h;
+  int score_stride = H;  // k_blk stride in scores
+
+  // Sparse map output: [H, num_q_blocks, num_k_blocks] -> offset = h * num_q_blocks * num_k_blocks + q_blk * num_k_blocks
+  // NOTE: HMD layout required for SpargeAttn compatibility
+  int sparse_offset = h * num_q_blocks * num_k_blocks + q_blk * num_k_blocks;
+
+  // TopK output: [H, num_q_blocks, topk] -> offset = h * num_q_blocks * topk + q_blk * topk
+  int topk_offset = h * num_q_blocks * topk + q_blk * topk;
+
+  // Dynamic shared memory layout
+  extern __shared__ char smem_raw[];
+  float* s_max = reinterpret_cast<float*>(smem_raw);
+  int* s_idx = reinterpret_cast<int*>(smem_raw + 256 * sizeof(float));
+  int8_t* s_used = reinterpret_cast<int8_t*>(smem_raw + 256 * sizeof(float) + 256 * sizeof(int));
+
+  // Initialize sparse map to 0 and copy to shared
+  for (int k = tid; k < num_k_blocks; k += blockDim.x) {
+    sparse_map[sparse_offset + k] = 0;
+    s_used[k] = 0;
+  }
+  __syncthreads();
+
+  // Iterate topk times to find top-k elements
+  for (int t = 0; t < topk && t < num_k_blocks; t++) {
+    // Each thread finds max in its assigned elements
+    float thread_max = -1e30f;
+    int thread_idx = -1;
+
+    for (int k = tid; k < num_k_blocks; k += blockDim.x) {
+      if (s_used[k] == 0) {
+        // Score at [q_blk, k, h] = score_base + k * score_stride
+        float val = scores[score_base + k * score_stride];
+        if (val > thread_max) {
+          thread_max = val;
+          thread_idx = k;
+        }
+      }
+    }
+
+    s_max[tid] = thread_max;
+    s_idx[tid] = thread_idx;
+    __syncthreads();
+
+    // Parallel reduction to find global max
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+      if (tid < s) {
+        if (s_max[tid + s] > s_max[tid]) {
+          s_max[tid] = s_max[tid + s];
+          s_idx[tid] = s_idx[tid + s];
+        }
+      }
+      __syncthreads();
+    }
+
+    // Thread 0 records the result
+    if (tid == 0) {
+      int best_idx = s_idx[0];
+      if (best_idx >= 0) {
+        sparse_map[sparse_offset + best_idx] = 1;
+        topk_indices[topk_offset + t] = best_idx;
+        s_used[best_idx] = 1;  // Mark as used for next iteration
+      }
+    }
+    __syncthreads();
+  }
+
+  // Build delta-encoded LUT (merged from sparge_build_lut_kernel)
+  // Thread 0 scans sparse_map and writes delta-encoded block indices
+  if (tid == 0) {
+    if (attention_sink && num_k_blocks > 0) {
+      sparse_map[sparse_offset] = 1;
+    }
+    if (q_to_k_token_offset >= 0 && num_k_blocks > 0) {
+      int q_token_start = q_blk * kSpargeSm89CtaQ;
+      int q_token_end = q_token_start + kSpargeSm89CtaQ;
+      int k_token_start = q_to_k_token_offset + q_token_start;
+      int k_token_end = q_to_k_token_offset + q_token_end - 1;
+      int local_k_start = max(0, min(num_k_blocks - 1, k_token_start / kSpargeSm89CtaK));
+      int local_k_end = max(0, min(num_k_blocks - 1, k_token_end / kSpargeSm89CtaK));
+      for (int k = local_k_start; k <= local_k_end; ++k) {
+        sparse_map[sparse_offset + k] = 1;
+      }
+    }
+    if (lut != nullptr && valid_block_num != nullptr) {
+      int lut_offset = sparse_offset;  // same HMD layout
+      int valid_offset = h * num_q_blocks + q_blk;
+      int count = 0;
+      int prev_block = 0;
+      for (int k = 0; k < num_k_blocks; k++) {
+        if (sparse_map[sparse_offset + k]) {
+          lut[lut_offset + count] = k - prev_block;
+          prev_block = k;
+          count++;
+        }
+      }
+      valid_block_num[valid_offset] = count;
+    }
+  }
+}
+
+// Dense Sparge map for topk=100% coverage.
+//
+// The SpargeAttn kernel consumes a delta-encoded LUT in HMD layout. For the
+// dense Sparge path every K block is valid, so the LUT is simply [0, 1, 1, ...]
+// for each (head, q_block). This avoids the Sparge pooled-score/top-k prep
+// launches when the caller requested dense coverage.
+__global__ void sparge_dense_lut_kernel(
+    int32_t* __restrict__ lut,
+    int32_t* __restrict__ valid_block_num,
+    int num_q_blocks,
+    int num_k_blocks,
+    int H) {
+  int q_blk = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+  if (q_blk >= num_q_blocks || h >= H) return;
+
+  int lut_offset = h * num_q_blocks * num_k_blocks + q_blk * num_k_blocks;
+  for (int k = tid; k < num_k_blocks; k += blockDim.x) {
+    lut[lut_offset + k] = (k == 0) ? 0 : 1;
+  }
+  if (tid == 0) {
+    valid_block_num[h * num_q_blocks + q_blk] = num_k_blocks;
+  }
+}
+
+// Kernel: Convert sparse map to delta-encoded LUT
+// Grid: (num_q_blocks, H), Block: (1)
+// NOTE: sparse_map is in [H, num_q_blocks, num_k_blocks] layout (HMD)
+//       lut output is in [H, num_q_blocks, num_k_blocks] layout (HMD)
+//       valid_block_num is in [H, num_q_blocks] layout (HMD)
+__global__ void sparge_build_lut_kernel(
+    const int32_t* __restrict__ sparse_map,  // [H, num_q_blocks, num_k_blocks] - HMD for SpargeAttn
+    int32_t* __restrict__ lut,               // [H, num_q_blocks, num_k_blocks] - HMD for SpargeAttn
+    int32_t* __restrict__ valid_block_num,   // [H, num_q_blocks] - HMD for SpargeAttn
+    int num_q_blocks, int H, int num_k_blocks, int topk) {
+  int q_blk = blockIdx.x;
+  int h = blockIdx.y;
+
+  // HMD layout: [H, num_q_blocks, num_k_blocks] -> offset = h * num_q_blocks * num_k_blocks + q_blk * num_k_blocks
+  // NOTE: HMD layout required for SpargeAttn compatibility
+  int offset = h * num_q_blocks * num_k_blocks + q_blk * num_k_blocks;
+  int lut_offset = offset;
+  // valid_block_num: [H, num_q_blocks] -> offset = h * num_q_blocks + q_blk
+  int valid_offset = h * num_q_blocks + q_blk;
+
+  int count = 0;
+  int prev_block = 0;
+
+  for (int k = 0; k < num_k_blocks && count < topk; k++) {
+    if (sparse_map[offset + k]) {
+      lut[lut_offset + count] = k - prev_block;
+      prev_block = k;
+      count++;
+    }
+  }
+  valid_block_num[valid_offset] = count;
+}
+
+// Kernel: Per-block quantization of Q/K to int8 with zero-padding
+// Grid: (num_blocks, H), Block: (BLOCK_SIZE)
+// NOTE: Input X is in [M, H, D] layout (output of rmsnorm_pack_bmhk_rope_from_row_kernel)
+//       Output X_int8 is also in [M, H, D] layout (for SpargeAttn compatibility)
+//       For the last block, positions beyond M are zero-padded to avoid out-of-bounds reads
+__global__ void sparge_quantize_kernel(
+    const cutlass::half_t* __restrict__ X,  // [M, H, D] - stride [H*D, D, 1]
+    const cutlass::half_t* __restrict__ X_mean,  // [H, D] or nullptr
+    int8_t* __restrict__ X_int8,             // [padded_M, H, D] - stride [H*D, D, 1]
+    float* __restrict__ X_scale,             // [H, num_blocks]
+    int M, int H, int D, int BLOCK_SIZE, bool subtract_mean) {
+  int block_idx = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+
+  int start = block_idx * BLOCK_SIZE;
+  int block_end = start + BLOCK_SIZE;  // End of this block (may exceed M)
+  int valid_end = min(block_end, M);   // End of valid data
+  if (start >= M) {
+    // Block is entirely in padding region - write zeros
+    for (int i = start + (tid / D); i < block_end; i += (blockDim.x / D)) {
+      int d = tid % D;
+      if (d < D) {
+        X_int8[i * H * D + h * D + d] = 0;
+      }
+    }
+    return;
+  }
+
+  extern __shared__ float smem[];
+  float* smax = smem;
+
+  // Compute stride for [M, H, D] layout
+  int K = H * D;  // Total hidden dimension
+
+  // Find max abs value in valid portion of block
+  float local_max = 0.f;
+  for (int i = start + (tid / D); i < valid_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D && i < valid_end) {
+      // [M, H, D] layout: X[m, h, d] = X[m * H * D + h * D + d]
+      float val = half_to_float(X[i * K + h * D + d]);
+      if (subtract_mean && X_mean != nullptr) {
+        val -= half_to_float(X_mean[h * D + d]);
+      }
+      local_max = fmaxf(local_max, fabsf(val));
+    }
+  }
+
+  // Block reduce to find max
+  smax[tid] = local_max;
+  __syncthreads();
+  for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      smax[tid] = fmaxf(smax[tid], smax[tid + s]);
+    }
+    __syncthreads();
+  }
+
+  float scale = smax[0] / 127.f + 1e-7f;
+  if (tid == 0) {
+    X_scale[h * ((M + BLOCK_SIZE - 1) / BLOCK_SIZE) + block_idx] = scale;
+  }
+  __syncthreads();
+
+  // Quantize valid data
+  for (int i = start + (tid / D); i < valid_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D && i < valid_end) {
+      // [M, H, D] layout: X[m, h, d] = X[m * H * D + h * D + d]
+      float val = half_to_float(X[i * K + h * D + d]);
+      if (subtract_mean && X_mean != nullptr) {
+        val -= half_to_float(X_mean[h * D + d]);
+      }
+      int q = __float2int_rn(val / scale);
+      q = max(-127, min(127, q));
+      X_int8[i * K + h * D + d] = static_cast<int8_t>(q);
+    }
+  }
+
+  // Zero-pad positions beyond M (last block only)
+  for (int i = valid_end + (tid / D); i < block_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D) {
+      X_int8[i * K + h * D + d] = 0;
+    }
+  }
+}
+
+__global__ void sparge_quantize_bf16_kernel(
+    const cutlass::bfloat16_t* __restrict__ X,
+    const cutlass::bfloat16_t* __restrict__ X_mean,
+    int8_t* __restrict__ X_int8,
+    float* __restrict__ X_scale,
+    int M, int H, int D, int BLOCK_SIZE, bool subtract_mean) {
+  int block_idx = blockIdx.x;
+  int h = blockIdx.y;
+  int tid = threadIdx.x;
+
+  int start = block_idx * BLOCK_SIZE;
+  int block_end = start + BLOCK_SIZE;
+  int valid_end = min(block_end, M);
+  if (start >= M) {
+    for (int i = start + (tid / D); i < block_end; i += (blockDim.x / D)) {
+      int d = tid % D;
+      if (d < D) {
+        X_int8[i * H * D + h * D + d] = 0;
+      }
+    }
+    return;
+  }
+
+  extern __shared__ float smem[];
+  float* smax = smem;
+  int K = H * D;
+
+  float local_max = 0.f;
+  for (int i = start + (tid / D); i < valid_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D && i < valid_end) {
+      float val = omnidreams_singleview::to_float(X[i * K + h * D + d]);
+      if (subtract_mean && X_mean != nullptr) {
+        val -= omnidreams_singleview::to_float(X_mean[h * D + d]);
+      }
+      local_max = fmaxf(local_max, fabsf(val));
+    }
+  }
+
+  smax[tid] = local_max;
+  __syncthreads();
+  for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      smax[tid] = fmaxf(smax[tid], smax[tid + s]);
+    }
+    __syncthreads();
+  }
+
+  float scale = smax[0] / 127.f + 1e-7f;
+  if (tid == 0) {
+    X_scale[h * ((M + BLOCK_SIZE - 1) / BLOCK_SIZE) + block_idx] = scale;
+  }
+  __syncthreads();
+
+  for (int i = start + (tid / D); i < valid_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D && i < valid_end) {
+      float val = omnidreams_singleview::to_float(X[i * K + h * D + d]);
+      if (subtract_mean && X_mean != nullptr) {
+        val -= omnidreams_singleview::to_float(X_mean[h * D + d]);
+      }
+      int q = __float2int_rn(val / scale);
+      q = max(-127, min(127, q));
+      X_int8[i * K + h * D + d] = static_cast<int8_t>(q);
+    }
+  }
+
+  for (int i = valid_end + (tid / D); i < block_end; i += (blockDim.x / D)) {
+    int d = tid % D;
+    if (d < D) {
+      X_int8[i * K + h * D + d] = 0;
+    }
+  }
+}
+
+// Helper: Compute SpargeAttn permutation for V tensor
+// This permutes elements within 16-element blocks for optimized fp8 matmul access
+// Pattern: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15] -> [0,1,4,5,8,9,12,13,2,3,6,7,10,11,14,15]
+__device__ __forceinline__ int sparge_v_permute(int m) {
+  int base = (m / 16) * 16;
+  int mod = m % 16;
+  // Formula from SpargeAttn's TransposePadPermuteKernel
+  return base + (mod / 8) * 2 + ((mod / 2) % 4) * 4 + (mod % 2);
+}
+
+// Kernel A: Compute per-(h,d) absmax of V for FP8 quantization
+// Grid: (H, num_tiles), Block: (D) where D=128
+// Each block handles one head, one tile of V_ABSMAX_TILE_M rows.
+// Threads map 1:1 to D values -> coalesced reads within each row.
+// Uses atomicMax on positive floats to accumulate across tiles.
+// V_scale must be zeroed before launch.
+constexpr int V_ABSMAX_TILE_M = 256;
+
+__global__ void sparge_v_absmax_kernel(
+    const cutlass::half_t* __restrict__ V,  // [M, H, D] - stride [H*D, D, 1]
+    float* __restrict__ V_scale,            // [H, D] - must be zeroed before launch
+    int M, int H, int D) {
+  int h = blockIdx.x;
+  int tile = blockIdx.y;
+  int d = threadIdx.x;  // 0..D-1, coalesced along D
+  if (d >= D) return;
+  int K = H * D;
+
+  int m_start = tile * V_ABSMAX_TILE_M;
+  int m_end = min(m_start + V_ABSMAX_TILE_M, M);
+
+  // Accumulate per-d absmax over this tile
+  float local_max = 0.f;
+  for (int m = m_start; m < m_end; m++) {
+    float val = fabsf(half_to_float(V[m * K + h * D + d]));
+    local_max = fmaxf(local_max, val);
+  }
+
+  // Atomic max into global V_scale (positive floats sort like unsigned ints)
+  atomicMax(reinterpret_cast<int*>(&V_scale[h * D + d]), __float_as_int(local_max));
+}
+
+__global__ void sparge_v_absmax_bf16_kernel(
+    const cutlass::bfloat16_t* __restrict__ V,
+    float* __restrict__ V_scale,
+    int M, int H, int D) {
+  int h = blockIdx.x;
+  int tile = blockIdx.y;
+  int d = threadIdx.x;
+  if (d >= D) return;
+  int K = H * D;
+
+  int m_start = tile * V_ABSMAX_TILE_M;
+  int m_end = min(m_start + V_ABSMAX_TILE_M, M);
+
+  float local_max = 0.f;
+  for (int m = m_start; m < m_end; m++) {
+    float val = fabsf(omnidreams_singleview::to_float(V[m * K + h * D + d]));
+    local_max = fmaxf(local_max, val);
+  }
+
+  atomicMax(reinterpret_cast<int*>(&V_scale[h * D + d]), __float_as_int(local_max));
+}
+
+// Kernel A': Finalize V_scale: apply headroom factor
+// Grid: ceil(total/256), Block: 256
+__global__ void sparge_v_scale_finalize_kernel(
+    float* __restrict__ V_scale, int total) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < total) {
+    V_scale[idx] = V_scale[idx] / 2.25f + 1e-7f;
+  }
+}
+
+// Kernel B: Quantize V to FP8 with transposition via shared memory
+// Grid: (H, ceil(padded_M / TILE_M)), Block: (256)
+// Uses smem to transpose V[M,H,D] -> V_fp8[H,D,padded_M] with SpargeAttn permutation.
+// TILE_M=128: each block processes a 128xD tile of V for one head.
+// Shared memory: half smem[TILE_M][D+2] = 128*130*2 = 33,280 bytes (pad to avoid bank conflicts).
+constexpr int V_QUANT_TILE_M = 128;
+constexpr int V_QUANT_SMEM_PAD = 2;  // padding to avoid bank conflicts
+
+__global__ void sparge_v_quantize_permute_kernel(
+    const cutlass::half_t* __restrict__ V,     // [M, H, D] - stride [H*D, D, 1]
+    const float* __restrict__ V_scale,         // [H, D]
+    cutlass::float_e4m3_t* __restrict__ V_fp8, // [H, D, padded_M]
+    int M, int H, int D, int padded_M) {
+  int h = blockIdx.x;
+  int tile_idx = blockIdx.y;
+  int tid = threadIdx.x;
+  int K = H * D;
+  int m_base = tile_idx * V_QUANT_TILE_M;
+
+  // Shared memory for the tile: [TILE_M][D + pad]
+  extern __shared__ cutlass::half_t v_smem[];
+  int smem_stride = D + V_QUANT_SMEM_PAD;
+
+  // Phase 1: Load V tile into smem (coalesced reads along D dimension)
+  // 256 threads, D=128: 2 rows per iteration, need TILE_M/2 = 64 iterations
+  int rows_per_iter = 256 / D;  // = 2 for D=128
+  for (int iter = 0; iter < (V_QUANT_TILE_M + rows_per_iter - 1) / rows_per_iter; iter++) {
+    int local_row = iter * rows_per_iter + tid / D;
+    int d = tid % D;
+    int m = m_base + local_row;
+    cutlass::half_t val;
+    if (local_row < V_QUANT_TILE_M && m < M) {
+      val = V[m * K + h * D + d];
+    } else {
+      val = cutlass::half_t(0);  // pad with zero
+    }
+    if (local_row < V_QUANT_TILE_M) {
+      v_smem[local_row * smem_stride + d] = val;
+    }
+  }
+  __syncthreads();
+
+  // Phase 2: Quantize + permute + write V_fp8 (coalesced writes along M dimension)
+  // Remap threads: tid % TILE_M gives m_local, tid / TILE_M gives d_offset (0 or 1)
+  // 256 threads / 128 TILE_M = 2 d-values per iteration
+  int m_local = tid % V_QUANT_TILE_M;
+  int d_off = tid / V_QUANT_TILE_M;  // 0 or 1
+  int m_global = m_base + m_local;
+  int permuted_m = sparge_v_permute(m_global);
+
+  // Iterate over D dimension: 2 d-values per iteration, D/2 = 64 iterations
+  for (int iter = 0; iter < (D + 1) / 2; iter++) {
+    int d = iter * 2 + d_off;
+    if (d < D) {
+      float scale = V_scale[h * D + d];
+      float val = half_to_float(v_smem[m_local * smem_stride + d]);
+      val = fmaxf(-448.f, fminf(448.f, val / scale));
+      V_fp8[h * D * padded_M + d * padded_M + permuted_m] =
+          cutlass::float_e4m3_t(val);
+    }
+  }
+}
+
+__global__ void sparge_v_quantize_permute_bf16_kernel(
+    const cutlass::bfloat16_t* __restrict__ V,
+    const float* __restrict__ V_scale,
+    cutlass::float_e4m3_t* __restrict__ V_fp8,
+    int M, int H, int D, int padded_M) {
+  int h = blockIdx.x;
+  int tile_idx = blockIdx.y;
+  int tid = threadIdx.x;
+  int lane = tid & 31;
+  int warp = tid >> 5;
+  int K = H * D;
+  int m_base = tile_idx * V_QUANT_TILE_M;
+
+  constexpr int kWarps = 8;
+  for (int m_off = 0; m_off < V_QUANT_TILE_M; m_off += 32) {
+    int m = m_base + m_off + lane;
+    int permuted_m = sparge_v_permute(m);
+    for (int d_base = 0; d_base < D; d_base += kWarps) {
+      int d = d_base + warp;
+      if (d < D) {
+        float val = 0.0f;
+        if (m < M) {
+          val = omnidreams_singleview::to_float(V[m * K + h * D + d]);
+        }
+        float scale = V_scale[h * D + d];
+        val = fmaxf(-448.f, fminf(448.f, val / scale));
+        V_fp8[h * D * padded_M + d * padded_M + permuted_m] =
+            cutlass::float_e4m3_t(val);
+      }
+    }
+  }
+}
+
+__global__ void cosmos_sparge_bf16_to_half_kernel(
+    const cutlass::bfloat16_t* __restrict__ src,
+    cutlass::half_t* __restrict__ dst,
+    int64_t n) {
+  int64_t idx = int64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= n) return;
+  dst[idx] = omnidreams_singleview::from_float<cutlass::half_t>(omnidreams_singleview::to_float(src[idx]));
+}
+
+__global__ void cosmos_sparge_half_to_bf16_kernel(
+    const cutlass::half_t* __restrict__ src,
+    cutlass::bfloat16_t* __restrict__ dst,
+    int64_t n) {
+  int64_t idx = int64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= n) return;
+  dst[idx] = omnidreams_singleview::from_float<cutlass::bfloat16_t>(half_to_float(src[idx]));
+}
+
+__global__ void cosmos_sparge_fill_one_float_kernel(float* dst, float value) {
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    dst[0] = value;
+  }
+}
+
+__global__ void cosmos_sparge_fill_float_kernel(float* dst, float value, int n) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) {
+    dst[idx] = value;
+  }
+}
+
+static cudaError_t cosmos_sparge_convert_bf16_to_half(
+    const cutlass::bfloat16_t* src,
+    cutlass::half_t* dst,
+    int64_t n,
+    cudaStream_t stream) {
+  if (!src || !dst || n <= 0) return cudaErrorInvalidValue;
+  constexpr int threads = 256;
+  int64_t blocks = (n + threads - 1) / threads;
+  cosmos_sparge_bf16_to_half_kernel<<<static_cast<unsigned int>(blocks), threads, 0, stream>>>(
+      src, dst, n);
+  return cudaGetLastError();
+}
+
+static cudaError_t cosmos_sparge_convert_half_to_bf16(
+    const cutlass::half_t* src,
+    cutlass::bfloat16_t* dst,
+    int64_t n,
+    cudaStream_t stream) {
+  if (!src || !dst || n <= 0) return cudaErrorInvalidValue;
+  constexpr int threads = 256;
+  int64_t blocks = (n + threads - 1) / threads;
+  cosmos_sparge_half_to_bf16_kernel<<<static_cast<unsigned int>(blocks), threads, 0, stream>>>(
+      src, dst, n);
+  return cudaGetLastError();
+}
+
+cudaError_t run_cosmos_sparge_attention_bf16(
+    const cutlass::bfloat16_t* Q,
+    const cutlass::bfloat16_t* K,
+    const cutlass::bfloat16_t* V,
+    cutlass::bfloat16_t* O,
+    ts::SpargeAttentionWorkspace* workspace,
+    cutlass::half_t* qkv_half_scratch,
+    int Mq,
+    int Mk,
+    int H,
+    int D,
+    float topk_ratio,
+    bool attention_sink,
+    cudaStream_t stream) {
+#ifndef OMNIDREAMS_SINGLEVIEW_HAS_SPARGE
+  (void)Q;
+  (void)K;
+  (void)V;
+  (void)O;
+  (void)workspace;
+  (void)qkv_half_scratch;
+  (void)Mq;
+  (void)Mk;
+  (void)H;
+  (void)D;
+  (void)topk_ratio;
+  (void)attention_sink;
+  (void)stream;
+  return cudaErrorNotSupported;
+#else
+  if (!Q || !K || !V || !O || !workspace || !qkv_half_scratch) {
+    return cudaErrorInvalidValue;
+  }
+  if (Mq <= 0 || Mk <= 0 || H <= 0 || D != 128) {
+    return cudaErrorNotSupported;
+  }
+  if (!(topk_ratio > 0.0f && topk_ratio <= 1.0f)) {
+    return cudaErrorInvalidValue;
+  }
+  const int K_total = H * D;
+  const int64_t q_elems = int64_t(Mq) * K_total;
+  cutlass::half_t* qh = qkv_half_scratch;
+  ts::SpargeAttentionWorkspace& ws = *workspace;
+
+  cudaError_t err = cosmos_sparge_convert_bf16_to_half(Q, qh, q_elems, stream);
+  if (err != cudaSuccess) return err;
+
+  const int BLKQ = ws.BLKQ;
+  const int BLKK = ws.BLKK;
+  if (BLKQ != kSpargeSm89CtaQ || BLKK != kSpargeSm89CtaK) {
+    return cudaErrorNotSupported;
+  }
+  const int num_q_blocks = (Mq + BLKQ - 1) / BLKQ;
+  const int num_k_blocks = (Mk + BLKK - 1) / BLKK;
+  const int num_q_scale_blocks = num_q_blocks;
+  const int num_k_scale_blocks = num_k_blocks;
+  const int topk_raw = static_cast<int>(topk_ratio * static_cast<float>(num_k_blocks));
+  const int topk = max(1, min(num_k_blocks, topk_raw));
+  const int allocated_topk_raw =
+      static_cast<int>(ws.topk_ratio * static_cast<float>(num_k_blocks));
+  const int allocated_topk = max(1, min(num_k_blocks, allocated_topk_raw));
+  if (topk > allocated_topk) {
+    return cudaErrorInvalidValue;
+  }
+  const bool dense_sparge_map = topk >= num_k_blocks;
+  const int padded_kv_len = ((Mk + 127) / 128) * 128;
+
+  const float scale = 1.0f / sqrtf(static_cast<float>(D));
+  if (dense_sparge_map) {
+    sparge_dense_lut_kernel<<<dim3(num_q_blocks, H), 128, 0, stream>>>(
+        ws.lut, ws.valid_block_num, num_q_blocks, num_k_blocks, H);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return err;
+  } else {
+    sparge_mean_pool_kernel<<<dim3(num_q_blocks, H), D / 2, 0, stream>>>(
+        qh, nullptr, ws.pooled_q, Mq, H, D, BLKQ, false);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return err;
+
+    int k_pool_threads = (D + 1) / 2;
+    sparge_mean_pool_bf16_kernel<<<dim3(num_k_blocks, H), k_pool_threads, 0, stream>>>(
+        K, nullptr, ws.pooled_k, Mk, H, D, BLKK, false);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return err;
+
+    sparge_pooled_score_kernel<<<dim3(num_q_blocks, H), 128, 0, stream>>>(
+        ws.pooled_q, ws.pooled_k, ws.pooled_scores,
+        num_q_blocks, num_k_blocks, H, D, scale);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return err;
+
+    size_t smem_topk = 256 * sizeof(float) + 256 * sizeof(int) +
+                       size_t(num_k_blocks) * sizeof(int8_t);
+    sparge_topk_sparse_map_kernel<<<dim3(num_q_blocks, H), 256, smem_topk, stream>>>(
+        ws.pooled_scores, ws.sparse_map, ws.topk_indices,
+        ws.lut, ws.valid_block_num,
+        num_q_blocks, num_k_blocks, H, topk, max(0, Mk - Mq), attention_sink);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return err;
+  }
+
+  int q_block_threads = min(256, BLKQ * D);
+  sparge_quantize_kernel<<<dim3(num_q_scale_blocks, H), q_block_threads,
+      q_block_threads * sizeof(float), stream>>>(
+      qh, nullptr, ws.q_int8, ws.q_scale, Mq, H, D, BLKQ, false);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+
+  int k_block_threads = min(256, BLKK * D);
+  sparge_quantize_bf16_kernel<<<dim3(num_k_scale_blocks, H), k_block_threads,
+      k_block_threads * sizeof(float), stream>>>(
+      K, nullptr, ws.k_int8, ws.k_scale, Mk, H, D, BLKK, false);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+
+  err = cudaMemsetAsync(ws.v_scale, 0, size_t(H) * D * sizeof(float), stream);
+  if (err != cudaSuccess) return err;
+  int absmax_tiles = (Mk + V_ABSMAX_TILE_M - 1) / V_ABSMAX_TILE_M;
+  sparge_v_absmax_bf16_kernel<<<dim3(H, absmax_tiles), D, 0, stream>>>(
+      V, ws.v_scale, Mk, H, D);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+  sparge_v_scale_finalize_kernel<<<(H * D + 255) / 256, 256, 0, stream>>>(
+      ws.v_scale, H * D);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+
+  int num_tiles = (padded_kv_len + V_QUANT_TILE_M - 1) / V_QUANT_TILE_M;
+  sparge_v_quantize_permute_bf16_kernel<<<dim3(H, num_tiles), 256, 0, stream>>>(
+      V, ws.v_scale, ws.v_fp8, Mk, H, D, padded_kv_len);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+
+  cosmos_sparge_fill_float_kernel<<<(H + 255) / 256, 256, 0, stream>>>(
+      ws.pooled_scores, 1.0e6f, H);
+  err = cudaGetLastError();
+  if (err != cudaSuccess) return err;
+  err = sparge_attention::run_sparge_attention_sm89_hd128(
+      ws.q_int8, ws.k_int8,
+      reinterpret_cast<__nv_fp8_e4m3*>(ws.v_fp8),
+      reinterpret_cast<half*>(ws.o_sparse),
+      ws.lut, ws.valid_block_num, ws.pooled_scores,
+      ws.q_scale, ws.k_scale, ws.v_scale,
+      1, Mq, Mk, H, H, padded_kv_len, scale, stream);
+  if (err != cudaSuccess) return err;
+
+  err = cosmos_sparge_convert_half_to_bf16(ws.o_sparse, O, q_elems, stream);
+  if (err != cudaSuccess) return err;
+  return cudaSuccess;
+#endif
+}
+
 
 // ============================================================================
 // Public API - Backend Dispatcher

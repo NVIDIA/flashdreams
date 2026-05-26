@@ -53,7 +53,9 @@ def _fake_extension_module(**attrs: object) -> ModuleType:
 
 def _fake_thirdparty_info(tmp_path: Path) -> dict[str, dict[str, object]]:
     cutlass = tmp_path / "cutlass"
+    cudnn_frontend = tmp_path / "cudnn-frontend"
     (cutlass / "include").mkdir(parents=True)
+    (cudnn_frontend / "include").mkdir(parents=True)
     return {
         "cutlass": {
             "name": "cutlass",
@@ -81,6 +83,15 @@ def _fake_thirdparty_info(tmp_path: Path) -> dict[str, dict[str, object]]:
             "source_sha256": "sparge-source-hash",
             "tree_sha256": "sparge-tree-hash",
             "stamp_path": str(tmp_path / "SpargeAttn" / ".flashdreams_source.json"),
+        },
+        "cudnn-frontend": {
+            "name": "cudnn-frontend",
+            "path": str(cudnn_frontend),
+            "repo": "https://github.com/NVIDIA/cudnn-frontend.git",
+            "commit": "cudnn-frontend-test-sha",
+            "source_sha256": "cudnn-frontend-source-hash",
+            "tree_sha256": "cudnn-frontend-tree-hash",
+            "stamp_path": str(cudnn_frontend / ".flashdreams_source.json"),
         },
     }
 
@@ -144,6 +155,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.delenv("MAX_JOBS", raising=False)
 
     extension = native.load_extension(build_root=build_root)
@@ -153,26 +165,72 @@ def test_load_extension_uses_build_root_for_torch_cache(
     assert captured["build_directory"] == str(
         build_root / "torch_extensions" / str(extension_name)
     )
+    cutlass_dir = Path(str(thirdparty_info["cutlass"]["path"]))
+    sage_attention_dir = Path(str(thirdparty_info["SageAttention"]["path"]))
+    sparge_attn_csrc = Path(str(thirdparty_info["SpargeAttn"]["path"])) / "csrc"
+    cudnn_frontend_include = (
+        Path(str(thirdparty_info["cudnn-frontend"]["path"])) / "include"
+    )
     assert captured["extra_include_paths"] == [
         str(native._SOURCE_DIR),
-        str(Path(str(thirdparty_info["cutlass"]["path"])) / "include"),
+        str(native._DIT_STREAMING_DIR),
+        str(native._DIT_STREAMING_KERNEL_DIR),
+        str(native._DIT_STREAMING_PYEXT_DIR),
+        str(native._DIT_STREAMING_COMMON_DIR),
+        str(cutlass_dir / "include"),
+        str(cutlass_dir / "tools" / "util" / "include"),
+        str(cutlass_dir / "examples" / "common"),
+        str(cutlass_dir / "examples" / "41_fused_multi_head_attention"),
+        str(sage_attention_dir),
+        str(sage_attention_dir / "sageattention3_blackwell" / "sageattn3"),
+        str(
+            sage_attention_dir / "sageattention3_blackwell" / "sageattn3" / "blackwell"
+        ),
+        str(
+            sage_attention_dir
+            / "sageattention3_blackwell"
+            / "sageattn3"
+            / "quantization"
+        ),
+        str(sparge_attn_csrc),
+        str(sparge_attn_csrc / "qattn"),
+        str(sparge_attn_csrc / "fused"),
+        str(cudnn_frontend_include),
     ]
     sources = [Path(str(source)).name for source in captured["sources"]]
     assert sources == [
         "omnidreams_singleview_ext.cpp",
         "native_primitives.cpp",
         "native_primitives_cuda.cu",
+        "streaming_dit_bindings.cpp",
+        "streaming_dit_bridge.cu",
+        "sage3_blackwell_api_shim.cu",
+        "sage3_fp4_quant_shim.cu",
+        "attention.cu",
+        "block_quant.cu",
+        "cosmos_adaln_lora.cu",
+        "cosmos_block.cu",
+        "cosmos_fp8_flash.cu",
+        "cosmos_fp8_flash_tc.cu",
+        "cosmos_fp8_tc_probe.cu",
+        "cosmos_fp8_two_gemm.cu",
+        "cosmos_gemm_bf16.cu",
+        "cosmos_modulate.cu",
+        "ops.cu",
+        "sage3_attention.cu",
+        "sparge_attention_sm89_inst.cu",
+        "transformer_block.cu",
     ]
     fingerprint_sources = {
-        source.relative_to(native._SOURCE_DIR).as_posix()
+        source.relative_to(native._ROOT).as_posix()
         for source in native._extension_fingerprint_sources()
     }
     assert {
-        "native_common/macros.h",
-        "native_common/scalar_types.h",
-        "native_common/tensor_ref.h",
-        "native_common/tensor_ref_torch.h",
-        "native_common/workspace_allocator.h",
+        "src/native_common/macros.h",
+        "src/native_common/scalar_types.h",
+        "src/native_common/tensor_ref.h",
+        "src/native_common/tensor_ref_torch.h",
+        "src/native_common/workspace_allocator.h",
     }.issubset(fingerprint_sources)
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cflags"]
     assert (
@@ -203,13 +261,13 @@ def test_load_extension_uses_build_root_for_torch_cache(
         '-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA=\\"sparge-test-sha\\"'
         in captured["extra_cflags"]
     )
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cflags"]
     assert (
         '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"12.0a\\"' in captured["extra_cflags"]
     )
-    assert captured["extra_cuda_cflags"] == [
-        "-O3",
-        "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
-    ]
+    assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cuda_cflags"]
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1" in captured["extra_cuda_cflags"]
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cuda_cflags"]
     assert captured["with_cuda"] is True
     assert captured["max_jobs_env"] == "8"
     assert captured["cuda_arch_list_env"] == "12.0a"
@@ -546,6 +604,69 @@ def test_optimized_dit_shape_ops_preserves_configured_dtype() -> None:
 
 
 @pytest.mark.ci_cpu
+def test_optimized_dit_sparge_period_one_is_pure_sparge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage3_status",
+        lambda self, device=None: (False, "Sage3 unavailable in test"),
+    )
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sparge_status",
+        lambda self, device=None: (True, ""),
+    )
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=28,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+    )
+
+    executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        dit_backend="fp8_kvcache_cudnn",
+        attention_backend="auto",
+        sparge_hybrid_period=1,
+    )
+    executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+    assert executor._attention_backend == "sparge"
+    assert executor._sparge_hybrid_period == 0
+    assert executor._sparge_hybrid_phase == 0
+    assert executor._sparge_topk == optimized_dit._DEFAULT_SPARGE_TOPK
+
+    auto_executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        dit_backend="fp8_kvcache_cudnn",
+        attention_backend="auto",
+    )
+    auto_executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+    assert auto_executor._attention_backend == "sparge"
+    assert auto_executor._sparge_hybrid_period == 0
+    assert auto_executor._sparge_topk == optimized_dit._DEFAULT_SPARGE_TOPK
+
+
+@pytest.mark.ci_cpu
 @pytest.mark.skipif(
     os.environ.get("OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY") != "1",
     reason="Set OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY=1 to verify downloaded sources.",
@@ -553,7 +674,7 @@ def test_optimized_dit_shape_ops_preserves_configured_dtype() -> None:
 def test_real_thirdparty_sources_verify() -> None:
     info = native.validate_thirdparty()
 
-    assert set(info) == {"cutlass", "SageAttention", "SpargeAttn"}
+    assert set(info) == {"cutlass", "SageAttention", "SpargeAttn", "cudnn-frontend"}
 
 
 @pytest.mark.ci_gpu

@@ -8,6 +8,7 @@
 namespace ts {
 // Forward declaration
 struct Workspace;
+struct SpargeAttentionWorkspace;
 }
 
 namespace omnidreams_singleview {
@@ -238,6 +239,21 @@ cudaError_t sage3_quantize_q_bf16(
     int input_head_offset,
     bool apply_rope,
     int padded_mq,
+    cudaStream_t stream);
+
+cudaError_t run_cosmos_sparge_attention_bf16(
+    const cutlass::bfloat16_t* Q,
+    const cutlass::bfloat16_t* K,
+    const cutlass::bfloat16_t* V,
+    cutlass::bfloat16_t* O,
+    ts::SpargeAttentionWorkspace* workspace,
+    cutlass::half_t* qkv_half_scratch,
+    int Mq,
+    int Mk,
+    int H,
+    int D,
+    float topk_ratio,
+    bool attention_sink,
     cudaStream_t stream);
 
 // ============================================================================

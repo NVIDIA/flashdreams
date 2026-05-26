@@ -68,6 +68,11 @@ from torch import Tensor
 
 _LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_SPARGE_TOPK = 0.25
+_DEFAULT_SPARGE_HYBRID_TOPK = 0.10
+_DEFAULT_SPARGE_HYBRID_PERIOD = 2
+_DEFAULT_SPARGE_HYBRID_PHASE = 0
+
 _COSMOS_PREPARED_SUFFIXES = (
     "self_attn.qkv_proj.weight",
     "self_attn.output_proj.weight",
@@ -272,6 +277,8 @@ def _make_cosmos_streaming_workspace(
     device: torch.device | str,
     dtype: torch.dtype = torch.bfloat16,
     use_sage3_fp8_attention: bool = False,
+    use_sparge_attention: bool = False,
+    sparge_topk_ratio: float = 0.25,
 ) -> dict[str, Tensor]:
     """Allocate the caller-owned scratch tensors expected by native_extension.
 
@@ -282,6 +289,10 @@ def _make_cosmos_streaming_workspace(
         raise ValueError("model_channels must be divisible by heads")
     if batch <= 0 or tokens <= 0 or max_attn_tokens <= 0 or num_blocks <= 0:
         raise ValueError("batch, tokens, max_attn_tokens, and num_blocks must be positive")
+    if not 0.0 < sparge_topk_ratio <= 1.0:
+        raise ValueError(
+            f"sparge_topk_ratio must be in (0, 1], got {sparge_topk_ratio}"
+        )
 
     head_dim = model_channels // heads
     linear_scratch_features = max(model_channels, ff, 3 * model_channels)
@@ -321,6 +332,39 @@ def _make_cosmos_streaming_workspace(
         "attn_v_bhdm_fp8": (batch, heads, head_dim, max_attn_tokens),
         "attn_probs_fp8": singleton,
     }
+    if use_sparge_attention:
+        if head_dim != 128:
+            raise ValueError(f"Sparge requires head_dim=128, got {head_dim}")
+        blkq, blkk = 128, 64
+        num_q_blocks = (tokens + blkq - 1) // blkq
+        num_k_blocks = (max_attn_tokens + blkk - 1) // blkk
+        topk = max(1, min(num_k_blocks, int(sparge_topk_ratio * num_k_blocks)))
+        padded_q_len = num_q_blocks * blkq
+        padded_k_len = num_k_blocks * blkk
+        padded_kv_len = ((max_attn_tokens + 127) // 128) * 128
+        sparge_workspace_bytes = 0
+        sparge_workspace_bytes += heads * num_q_blocks * head_dim * 2
+        sparge_workspace_bytes += heads * num_k_blocks * head_dim * 2
+        sparge_workspace_bytes += heads * num_q_blocks * num_k_blocks * 4
+        sparge_workspace_bytes += heads * num_q_blocks * num_k_blocks * 4
+        sparge_workspace_bytes += heads * num_q_blocks * num_k_blocks * 4
+        sparge_workspace_bytes += heads * num_q_blocks * 4
+        sparge_workspace_bytes += heads * num_q_blocks * topk * 4
+        sparge_workspace_bytes += heads * padded_q_len * head_dim
+        sparge_workspace_bytes += heads * padded_k_len * head_dim
+        sparge_workspace_bytes += heads * num_q_blocks * 4
+        sparge_workspace_bytes += heads * num_k_blocks * 4
+        sparge_workspace_bytes += heads * head_dim * padded_kv_len
+        sparge_workspace_bytes += heads * head_dim * 4
+        sparge_workspace_bytes += heads * padded_q_len * head_dim * 2
+        sparge_workspace_bytes += heads * tokens * head_dim * 2
+        sparge_workspace_bytes += heads * max_attn_tokens * head_dim * 2
+        sparge_workspace_bytes += heads * head_dim * head_dim * 2
+        sparge_workspace_bytes += heads * head_dim * 2
+        sparge_workspace_bytes += heads * tokens * head_dim * 2
+        sparge_workspace_bytes += heads * tokens * head_dim * 2
+        u8_specs = dict(u8_specs)
+        u8_specs["sparge_workspace"] = (sparge_workspace_bytes,)
     fp8_specs: Mapping[str, tuple[int, ...]] = {}
     if use_sage3_fp8_attention:
         sage3_q_tokens = ((tokens + 127) // 128) * 128
@@ -569,6 +613,9 @@ class OptimizedDiTExecutor:
         *,
         dit_backend: str = "fp8_kvcache_cudnn",
         attention_backend: str = "auto",
+        sparge_topk: float | None = None,
+        sparge_hybrid_period: int | None = None,
+        sparge_hybrid_phase: int | None = None,
     ) -> None:
         self.transformer = transformer
         self.config = transformer.config
@@ -619,14 +666,40 @@ class OptimizedDiTExecutor:
             "adaln_lora_dim": net_cfg.adaln_lora_dim,
             "timestep_scale": float(net_cfg.timestep_scale),
         }
-        requested_attention_backend = (attention_backend or "auto").strip().lower()
-        self._attention_backend = self._resolve_attention_backend(
-            requested_attention_backend
-        )
+        self._requested_attention_backend = (attention_backend or "auto").strip().lower()
+        if self._requested_attention_backend not in {"auto", "cudnn", "sparge", "sage3", "sage3_fp8"}:
+            raise ValueError(
+                "--native-attention-backend must be 'auto', 'cudnn', "
+                f"'sparge', 'sage3', or 'sage3_fp8' (got {self._requested_attention_backend!r})"
+            )
+        self._requested_sparge_topk = sparge_topk
+        self._requested_sparge_hybrid_period = sparge_hybrid_period
+        self._requested_sparge_hybrid_phase = sparge_hybrid_phase
+        if sparge_topk is not None and not 0.0 < float(sparge_topk) <= 1.0:
+            raise ValueError(
+                f"native_dit_sparge_topk must be in (0, 1], got {float(sparge_topk)}"
+            )
+        if sparge_hybrid_period is not None and int(sparge_hybrid_period) < 0:
+            raise ValueError(
+                "native_dit_sparge_hybrid_period must be non-negative, "
+                f"got {int(sparge_hybrid_period)}"
+            )
+        if sparge_hybrid_phase is not None and int(sparge_hybrid_phase) < 0:
+            raise ValueError(
+                "native_dit_sparge_hybrid_phase must be non-negative, "
+                f"got {int(sparge_hybrid_phase)}"
+            )
+        self._attention_backend = "cudnn"
+        self._attention_backend_device: torch.device | None = None
+        self._sparge_topk = _DEFAULT_SPARGE_TOPK
+        self._sparge_hybrid_period = 0
+        self._sparge_hybrid_phase = 0
 
         self._optimized_weights: dict[str, Tensor] | None = None
         self._bf16_runtime: dict[str, Any] | None = None
         self._fp8_runtime: dict[str, Any] | None = None
+        self._bf16_runtime_device: torch.device | None = None
+        self._fp8_runtime_device: torch.device | None = None
         self._optimized_invariant_cache: dict[tuple[Any, ...], _CosmosInvariantTensors] = {}
         self._optimized_rope_cache: dict[tuple[Any, ...], tuple[Tensor, Tensor]] = {}
         self._optimized_rope_freqs_cache: dict[tuple[Any, ...], Tensor] = {}
@@ -666,7 +739,27 @@ class OptimizedDiTExecutor:
     def _select_mask(self, cache: CosmosTransformerCache) -> Tensor:
         return self.transformer._select_mask(cache)
 
-    def _sage3_status(self) -> tuple[bool, str]:
+    def _cuda_device_index(self, device: torch.device | int | None) -> tuple[int | None, str]:
+        if not torch.cuda.is_available():
+            return None, "CUDA is unavailable"
+        if isinstance(device, int):
+            return device, ""
+        if device is None:
+            try:
+                return int(torch.cuda.current_device()), ""
+            except Exception as e:
+                return None, f"torch.cuda.current_device() failed: {e}"
+        device = torch.device(device)
+        if device.type != "cuda":
+            return None, f"device {device} is not a CUDA device"
+        if device.index is None:
+            try:
+                return int(torch.cuda.current_device()), ""
+            except Exception as e:
+                return None, f"torch.cuda.current_device() failed: {e}"
+        return int(device.index), ""
+
+    def _sage3_status(self, device: torch.device | int | None = None) -> tuple[bool, str]:
         if sys.platform == "win32":
             return False, "Sage3 is not supported on Windows"
         built_fn = getattr(self._native_extension, "sage3_is_built", None)
@@ -678,35 +771,93 @@ class OptimizedDiTExecutor:
                 return False, "native_extension was built with Sage3 stubs"
         except Exception as e:
             return False, f"native_extension.sage3_is_built() failed: {e}"
-        if not torch.cuda.is_available():
-            return False, "CUDA is unavailable"
+        device_index, reason = self._cuda_device_index(device)
+        if device_index is None:
+            return False, reason
         try:
-            device = torch.cuda.current_device()
-        except Exception as e:
-            return False, f"torch.cuda.current_device() failed: {e}"
-        try:
-            if not bool(supported_fn(device)):
-                return False, "the active CUDA device is not enabled for Sage3"
+            if not bool(supported_fn(device_index)):
+                return False, f"CUDA device {device_index} is not enabled for Sage3"
         except Exception as e:
             return False, f"native_extension.sage3_is_runtime_supported() failed: {e}"
         return True, ""
 
+    def _sparge_status(self, device: torch.device | int | None = None) -> tuple[bool, str]:
+        if sys.platform == "win32":
+            return False, "Sparge is not supported on Windows"
+        built_fn = getattr(self._native_extension, "sparge_is_built", None)
+        supported_fn = getattr(self._native_extension, "sparge_is_runtime_supported", None)
+        if built_fn is None or supported_fn is None:
+            return False, "native_extension does not expose Sparge availability probes"
+        try:
+            if not bool(built_fn()):
+                return False, "native_extension was built without Sparge"
+        except Exception as e:
+            return False, f"native_extension.sparge_is_built() failed: {e}"
+        device_index, reason = self._cuda_device_index(device)
+        if device_index is None:
+            return False, reason
+        try:
+            if not bool(supported_fn(device_index)):
+                return False, f"CUDA device {device_index} is not enabled for Sparge"
+        except Exception as e:
+            return False, f"native_extension.sparge_is_runtime_supported() failed: {e}"
+        return True, ""
+
+    def _resolve_sparge_options(self) -> tuple[float, int, int]:
+        hybrid_default = (
+            self._uses_fp8_dit and self._requested_attention_backend == "auto"
+        )
+        period = (
+            _DEFAULT_SPARGE_HYBRID_PERIOD
+            if self._requested_sparge_hybrid_period is None and hybrid_default
+            else int(self._requested_sparge_hybrid_period or 0)
+        )
+        if 0 < period <= 1:
+            period = 0
+        topk = (
+            (_DEFAULT_SPARGE_HYBRID_TOPK if period > 0 else _DEFAULT_SPARGE_TOPK)
+            if self._requested_sparge_topk is None
+            else float(self._requested_sparge_topk)
+        )
+        phase = (
+            _DEFAULT_SPARGE_HYBRID_PHASE
+            if self._requested_sparge_hybrid_phase is None
+            else int(self._requested_sparge_hybrid_phase)
+        )
+        return topk, period, phase
+
     def _resolve_attention_backend(
         self,
         requested: str,
-    ) -> str:
+        *,
+        sparge_hybrid_period: int = 0,
+        device: torch.device | int | None = None,
+    ) -> tuple[str, bool]:
         requested = (requested or "auto").strip().lower()
-        if requested not in {"auto", "cudnn", "sage3", "sage3_fp8"}:
+        if requested not in {"auto", "cudnn", "sparge", "sage3", "sage3_fp8"}:
             raise ValueError(
                 "--native-attention-backend must be 'auto', 'cudnn', "
-                f"'sage3', or 'sage3_fp8' (got {requested!r})"
+                f"'sparge', 'sage3', or 'sage3_fp8' (got {requested!r})"
             )
 
-        sage3_available, sage3_reason = self._sage3_status()
+        sage3_available, sage3_reason = self._sage3_status(device)
+        sparge_available, sparge_reason = self._sparge_status(device)
+        head_dim = self.config.network.model_channels // self.config.network.num_heads
+        sparge_supported = head_dim == 128
         if requested == "auto":
+            if self._uses_fp8_dit and sparge_hybrid_period > 0:
+                if sage3_available and sparge_available and sparge_supported:
+                    return "sparge", True
+                if sage3_available:
+                    return "sage3_fp8", False
+                if sparge_available and sparge_supported:
+                    return "sparge", False
+                return "cudnn", False
+            if sparge_available and sparge_supported:
+                return "sparge", False
             if sage3_available:
-                return "sage3_fp8" if self._uses_fp8_dit else "sage3"
-            return "cudnn"
+                return ("sage3_fp8" if self._uses_fp8_dit else "sage3"), False
+            return "cudnn", False
 
         if requested == "sage3_fp8" and not self._uses_fp8_dit:
             raise ValueError(
@@ -724,7 +875,57 @@ class OptimizedDiTExecutor:
                 f"but {sage3_reason}. Use --native-attention-backend=cudnn "
                 "for the portable cuDNN attention path."
             )
-        return requested
+        if requested == "sparge" and not sparge_available:
+            raise ValueError(
+                f"--native-attention-backend=sparge requested Sparge, "
+                f"but {sparge_reason}. Use --native-attention-backend=cudnn "
+                "for the portable cuDNN attention path."
+            )
+        if requested == "sparge" and not sparge_supported:
+            raise ValueError(
+                "--native-attention-backend=sparge requires head_dim=128, "
+                f"got {head_dim}"
+            )
+        if requested == "sparge" and sparge_hybrid_period > 1 and not sage3_available:
+            raise ValueError(
+                "Sparge hybrid scheduling requires SageAttention-3 for the "
+                f"non-Sparge blocks, but {sage3_reason}. Set "
+                "native_dit_sparge_hybrid_period=0 for pure Sparge or use "
+                "--native-attention-backend=cudnn for the portable cuDNN "
+                "attention path."
+            )
+        return requested, requested == "sparge" and sparge_hybrid_period > 1
+
+    def _resolve_runtime_attention_backend(self, device: torch.device | int) -> None:
+        device_key = torch.device(device)
+        if self._attention_backend_device == device_key:
+            return
+        sparge_topk, sparge_hybrid_period, sparge_hybrid_phase = self._resolve_sparge_options()
+        attention_backend, sparge_hybrid_enabled = self._resolve_attention_backend(
+            self._requested_attention_backend,
+            sparge_hybrid_period=sparge_hybrid_period,
+            device=device_key,
+        )
+        if self._requested_attention_backend == "auto" and not sparge_hybrid_enabled:
+            sparge_hybrid_period = 0
+            if self._requested_sparge_topk is None and attention_backend == "sparge":
+                sparge_topk = _DEFAULT_SPARGE_TOPK
+        if sparge_hybrid_period and (
+            attention_backend != "sparge" or not self._uses_fp8_dit
+        ):
+            raise ValueError(
+                "Sparge hybrid scheduling requires attention_backend='sparge' "
+                "with the fp8_kvcache_cudnn optimized native DiT backend"
+            )
+        self._attention_backend = attention_backend
+        self._attention_backend_device = device_key
+        self._sparge_topk = sparge_topk
+        self._sparge_hybrid_period = sparge_hybrid_period
+        self._sparge_hybrid_phase = (
+            sparge_hybrid_phase % sparge_hybrid_period
+            if sparge_hybrid_period
+            else 0
+        )
 
     def after_initialize_autoregressive_cache(
         self,
@@ -736,6 +937,9 @@ class OptimizedDiTExecutor:
         self._capture_network_cache_templates(cache)
         self._bf16_runtime = None
         self._fp8_runtime = None
+        self._bf16_runtime_device = None
+        self._fp8_runtime_device = None
+        self._attention_backend_device = None
         self._optimized_invariant_cache.clear()
         self._optimized_rope_cache.clear()
         self._optimized_rope_freqs_cache.clear()
@@ -846,8 +1050,12 @@ class OptimizedDiTExecutor:
     ) -> dict[str, Any]:
         if not self._uses_fp8_dit:
             return {}
-        if self._fp8_runtime is not None:
+        device = k_self[0].device
+        self._resolve_runtime_attention_backend(device)
+        if self._fp8_runtime is not None and self._fp8_runtime_device == device:
             return self._fp8_runtime
+        self._fp8_runtime = None
+        self._fp8_runtime_device = None
         if not hasattr(torch, "float8_e4m3fn"):
             raise RuntimeError("torch.float8_e4m3fn is required for fp8_kvcache_cudnn")
 
@@ -860,8 +1068,14 @@ class OptimizedDiTExecutor:
             *(int(t.size(1)) for t in k_cross),
             *(int(t.size(1)) for t in k_self),
         )
-        device = k_self[0].device
-        use_sage3_fp8_attention = self._attention_backend == "sage3_fp8"
+        use_sparge_hybrid = (
+            self._attention_backend == "sparge"
+            and self._sparge_hybrid_period > 0
+        )
+        use_sage3_fp8_attention = (
+            self._attention_backend == "sage3_fp8" or use_sparge_hybrid
+        )
+        use_sparge_attention = self._attention_backend == "sparge"
         workspace = _make_cosmos_streaming_workspace(
             batch=int(k_self[0].size(0)),
             tokens=tokens,
@@ -874,16 +1088,22 @@ class OptimizedDiTExecutor:
             device=device,
             dtype=torch.bfloat16,
             use_sage3_fp8_attention=use_sage3_fp8_attention,
+            use_sparge_attention=use_sparge_attention,
+            sparge_topk_ratio=self._sparge_topk,
         )
 
         cfg: dict[str, Any] = {
             "cosmos_linear_backend": "fp8",
             "cosmos_attention_backend": (
-                self._attention_backend if use_sage3_fp8_attention
+                self._attention_backend if (use_sage3_fp8_attention or use_sparge_attention)
                 else "fp8_cudnn"
             ),
             "cosmos_kv_cache_backend": "fp8",
-            "cosmos_write_bf16_kv_cache": False,
+            "cosmos_write_bf16_kv_cache": use_sparge_attention,
+            "cosmos_sparge_topk_ratio": self._sparge_topk,
+            "cosmos_sparge_hybrid_period": self._sparge_hybrid_period,
+            "cosmos_sparge_hybrid_phase": self._sparge_hybrid_phase,
+            "cosmos_sparge_attention_sink": True,
             "cosmos_quantized_prepared": True,
             "cosmos_quantized_prepared_strict": True,
             "cosmos_workspace": workspace,
@@ -964,6 +1184,7 @@ class OptimizedDiTExecutor:
                 ],
             })
         self._fp8_runtime = cfg
+        self._fp8_runtime_device = device
         self._release_network_after_fp8_snapshot()
         return cfg
 
@@ -976,8 +1197,12 @@ class OptimizedDiTExecutor:
     ) -> dict[str, Any]:
         if self._uses_fp8_dit:
             return {}
-        if self._bf16_runtime is not None:
+        device = k_self[0].device
+        self._resolve_runtime_attention_backend(device)
+        if self._bf16_runtime is not None and self._bf16_runtime_device == device:
             return self._bf16_runtime
+        self._bf16_runtime = None
+        self._bf16_runtime_device = None
 
         heads = self.config.network.num_heads
         model_channels = self.config.network.model_channels
@@ -988,7 +1213,6 @@ class OptimizedDiTExecutor:
             *(int(t.size(1)) for t in k_cross),
             *(int(t.size(1)) for t in k_self),
         )
-        device = k_self[0].device
         workspace = _make_cosmos_streaming_workspace(
             batch=int(k_self[0].size(0)),
             tokens=tokens,
@@ -1000,13 +1224,19 @@ class OptimizedDiTExecutor:
             lora_dim=lora_dim,
             device=device,
             dtype=torch.bfloat16,
+            use_sparge_attention=self._attention_backend == "sparge",
+            sparge_topk_ratio=self._sparge_topk,
         )
         self._bf16_runtime = {
             "cosmos_workspace": workspace,
             "cosmos_attn_tc_scale_is_ones": True,
         }
-        if self._attention_backend == "sage3":
+        if self._attention_backend in {"sage3", "sparge"}:
             self._bf16_runtime["cosmos_attention_backend"] = self._attention_backend
+        if self._attention_backend == "sparge":
+            self._bf16_runtime["cosmos_sparge_topk_ratio"] = self._sparge_topk
+            self._bf16_runtime["cosmos_sparge_attention_sink"] = True
+        self._bf16_runtime_device = device
         return self._bf16_runtime
 
     def _roll_fp8_self_caches_if_needed(

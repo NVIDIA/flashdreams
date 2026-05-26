@@ -33,6 +33,7 @@ enum class CosmosLinearBackend : int {
 enum class CosmosAttentionBackend : int {
   CUDNN_BF16 = 0,
   FP8_DENSE_REF = 4,
+  SPARGE = 6,
   SAGE3 = 7,
   FP8_CUDNN = 8,
   SAGE3_FP8 = 9,
@@ -439,6 +440,7 @@ struct CosmosBlockBuffers {
   float* attn_tc_scale;                       // [scale_elems] all-ones block-scale scratch
   int64_t attn_tc_scale_elems;
   bool attn_tc_scale_is_ones;                 // true when caller initialized attn_tc_scale to 1.0f
+  ts::SpargeAttentionWorkspace sparge;
 
 };
 
@@ -458,6 +460,8 @@ struct CosmosBlockParams {
   CosmosAttentionBackend attention_backend;   // cuDNN bf16 or FP8 fused candidate
   bool fp8_kv_cache_enabled;                  // use externally managed FP8 shadow K/V caches for FP8 attention
   bool write_bf16_self_kv_cache;              // keep BF16 self-cache in sync when using FP8 KV caches
+  float sparge_topk_ratio;                    // self-attn block-selection ratio for Sparge
+  bool sparge_attention_sink;                 // force K block 0 into the sparse map after selection
 
   // Optional trace outputs. Each pointer, when non-null, receives a device copy
   // of x after the corresponding residual update.
@@ -501,6 +505,8 @@ struct CosmosBlockParams {
   const cutlass::float_e4m3_t* k_cross_fp8_bhmd; // [B, H, Mk_cross, D] optional TC-layout cross cache
   const cutlass::float_e4m3_t* v_cross_fp8_bhmd; // [B, H, Mk_cross, D] optional cuDNN input-layout cross cache
   const cutlass::float_e4m3_t* v_cross_fp8_bhdm; // [B, H, D, Mk_cross] optional custom TC-layout cross cache
+  int k_cross_fp8_bhmd_tokens;                   // physical token dimension for k_cross_fp8_bhmd
+  int v_cross_fp8_bhmd_tokens;                   // physical token dimension for v_cross_fp8_bhmd
   const uint8_t* k_cross_sage3_fp4;            // [B, H, round_up(Mk_cross, 128), D / 2]
   const uint8_t* v_cross_sage3_fp4;            // [B, H, D, round_up(Mk_cross, 128) / 2]
   const cutlass::float_e4m3_t* k_cross_sage3_sf; // [B, H, round_up(Mk_cross, 128), D / 16]

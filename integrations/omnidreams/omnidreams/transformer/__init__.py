@@ -219,7 +219,27 @@ class CosmosTransformerConfig(TransformerConfig):
     """Optimized native DiT compute backend."""
 
     native_dit_attention_backend: str = "auto"
-    """Optimized native attention backend. ``auto`` selects the best built backend."""
+    """Optimized native attention backend.
+
+    ``auto`` uses the FP8 Sparge/SageAttention-3 hybrid when both native
+    backends are available; otherwise it selects the best built backend.
+    """
+
+    native_dit_sparge_topk: float | None = None
+    """Optional Sparge self-attention top-k ratio.
+
+    ``None`` uses ``0.10`` for the FP8 ``auto`` hybrid schedule and ``0.25``
+    for pure Sparge.
+    """
+
+    native_dit_sparge_hybrid_period: int | None = None
+    """Optional Sparge/SageAttention-3 hybrid period.
+
+    ``None`` uses period ``2`` for FP8 ``auto`` and ``0`` otherwise.
+    """
+
+    native_dit_sparge_hybrid_phase: int | None = None
+    """Optional Sparge hybrid phase. ``None`` uses backend defaults."""
 
     guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
@@ -355,6 +375,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             selection.require_extension(),
             dit_backend=self.config.native_dit_backend,
             attention_backend=self.config.native_dit_attention_backend,
+            sparge_topk=self.config.native_dit_sparge_topk,
+            sparge_hybrid_period=self.config.native_dit_sparge_hybrid_period,
+            sparge_hybrid_phase=self.config.native_dit_sparge_hybrid_phase,
         )
 
     ## Patchify / CP plumbing

@@ -103,7 +103,9 @@ def load_python_module(name: str) -> ModuleType:
     """Load a helper module shipped with the single-view native sources."""
 
     if not name.isidentifier():
-        raise ValueError(f"Native helper module name must be an identifier, got {name!r}")
+        raise ValueError(
+            f"Native helper module name must be an identifier, got {name!r}"
+        )
     path = _PYTHON_DIR / f"{name}.py"
     if not path.is_file():
         raise ImportError(f"Unknown OmniDreams single-view native helper {name!r}")
@@ -112,7 +114,9 @@ def load_python_module(name: str) -> ModuleType:
         return sys.modules[module_name]
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot import OmniDreams single-view native helper from {path}")
+        raise ImportError(
+            f"Cannot import OmniDreams single-view native helper from {path}"
+        )
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     python_dir = str(_PYTHON_DIR)
@@ -166,6 +170,7 @@ def _extension_sources() -> list[Path]:
         _DIT_STREAMING_KERNEL_DIR / "cosmos_modulate.cu",
         _DIT_STREAMING_KERNEL_DIR / "ops.cu",
         _DIT_STREAMING_KERNEL_DIR / "sage3_attention.cu",
+        _DIT_STREAMING_KERNEL_DIR / "sparge_attention_sm89_inst.cu",
         _DIT_STREAMING_KERNEL_DIR / "transformer_block.cu",
     ]
 
@@ -308,6 +313,8 @@ def load_extension(
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
             cutlass_include = cutlass_dir / "include"
             sage_attention_dir = Path(thirdparty_info["SageAttention"]["path"])
+            sparge_attn_dir = Path(thirdparty_info["SpargeAttn"]["path"])
+            sparge_attn_csrc = sparge_attn_dir / "csrc"
             cudnn_frontend_include = (
                 Path(thirdparty_info["cudnn-frontend"]["path"]) / "include"
             )
@@ -371,6 +378,9 @@ def load_extension(
                             / "sageattn3"
                             / "quantization"
                         ),
+                        str(sparge_attn_csrc),
+                        str(sparge_attn_csrc / "qattn"),
+                        str(sparge_attn_csrc / "fused"),
                         str(cudnn_frontend_include),
                         *([] if cudnn_include is None else [str(cudnn_include)]),
                     ],
@@ -380,6 +390,7 @@ def load_extension(
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA="
                         f'\\"{thirdparty_info["cutlass"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SOURCE_SHA="
@@ -404,18 +415,25 @@ def load_extension(
                         "-std=c++20",
                         "--expt-relaxed-constexpr",
                         "--expt-extended-lambda",
+                        "-lineinfo",
+                        "--use_fast_math",
                         "-U__CUDA_NO_HALF_OPERATORS__",
                         "-U__CUDA_NO_HALF_CONVERSIONS__",
+                        "-U__CUDA_NO_BFLOAT16_OPERATORS__",
                         "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+                        "-U__CUDA_NO_BFLOAT162_OPERATORS__",
+                        "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
                         "-DQBLKSIZE=128",
                         "-DKBLKSIZE=128",
                         "-DCTA256",
                         "-DDQINRMEM",
                         "-DEXECMODE=0",
                         "-DNDEBUG",
+                        "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                     ],
                     extra_ldflags=[
                         "-lcublas",

@@ -1596,8 +1596,20 @@ torch::Tensor optimized_dit_forward(
     std::string linear_backend_name = lower_ascii(cs("cosmos_linear_backend", "auto"));
     std::string attention_backend_name = lower_ascii(cs("cosmos_attention_backend", "cudnn_bf16"));
     std::string kv_cache_backend_name = lower_ascii(cs("cosmos_kv_cache_backend", "bf16"));
+    float sparge_topk_ratio = cf("cosmos_sparge_topk_ratio", 0.25f);
+    int sparge_hybrid_period = ci("cosmos_sparge_hybrid_period", 0);
+    int sparge_hybrid_phase = ci("cosmos_sparge_hybrid_phase", 0);
+    bool sparge_attention_sink = cb("cosmos_sparge_attention_sink", true);
     bool quantized_prepared = cb("cosmos_quantized_prepared", false);
     bool quantized_prepared_strict = cb("cosmos_quantized_prepared_strict", quantized_prepared);
+    TORCH_CHECK(sparge_topk_ratio > 0.0f && sparge_topk_ratio <= 1.0f,
+                "cosmos_sparge_topk_ratio must be in (0, 1], got ", sparge_topk_ratio);
+    TORCH_CHECK(sparge_hybrid_period >= 0,
+                "cosmos_sparge_hybrid_period must be non-negative, got ",
+                sparge_hybrid_period);
+    TORCH_CHECK(sparge_hybrid_phase >= 0,
+                "cosmos_sparge_hybrid_phase must be non-negative, got ",
+                sparge_hybrid_phase);
     // Shape: x_new is [B, V, T, HW, D_in]. For FlashDreams' single-view DiT V=1;
     // we flatten (V, T, HW) into a single L dimension for the transformer math.
     int B = (int)x_new.size(0);
@@ -1922,6 +1934,8 @@ torch::Tensor optimized_dit_forward(
         attention_backend = omnidreams_singleview::CosmosAttentionBackend::FP8_DENSE_REF;
     } else if (attention_backend_name == "fp8_cudnn") {
         attention_backend = omnidreams_singleview::CosmosAttentionBackend::FP8_CUDNN;
+    } else if (attention_backend_name == "sparge") {
+        attention_backend = omnidreams_singleview::CosmosAttentionBackend::SPARGE;
     } else if (attention_backend_name == "sage3") {
         attention_backend = omnidreams_singleview::CosmosAttentionBackend::SAGE3;
     } else if (attention_backend_name == "sage3_fp8") {
@@ -1929,8 +1943,36 @@ torch::Tensor optimized_dit_forward(
     } else {
         TORCH_CHECK(false,
                     "unsupported cosmos_attention_backend '", attention_backend_name,
-                    "'. Expected one of: cudnn_bf16, bf16, fp8_dense_ref, fp8_cudnn, sage3, sage3_fp8");
+                    "'. Expected one of: cudnn_bf16, bf16, fp8_dense_ref, fp8_cudnn, sparge, sage3, sage3_fp8");
     }
+    const bool sparge_hybrid_enabled =
+        attention_backend == omnidreams_singleview::CosmosAttentionBackend::SPARGE &&
+        sparge_hybrid_period > 0;
+    const int sparge_hybrid_phase_mod =
+        sparge_hybrid_enabled ? (sparge_hybrid_phase % sparge_hybrid_period) : 0;
+    bool schedule_uses_sparge =
+        attention_backend == omnidreams_singleview::CosmosAttentionBackend::SPARGE &&
+        !sparge_hybrid_enabled;
+    bool schedule_uses_sage3_fp8 =
+        attention_backend == omnidreams_singleview::CosmosAttentionBackend::SAGE3_FP8;
+    if (sparge_hybrid_enabled) {
+        int sparge_block_count = 0;
+        for (int bi = 0; bi < num_blocks; ++bi) {
+            if ((bi % sparge_hybrid_period) == sparge_hybrid_phase_mod) {
+                schedule_uses_sparge = true;
+                ++sparge_block_count;
+            } else {
+                schedule_uses_sage3_fp8 = true;
+            }
+        }
+        TORCH_CHECK(sparge_block_count > 0,
+                    "cosmos_sparge_hybrid_period/phase do not select any SPARGE blocks for num_blocks=",
+                    num_blocks);
+    }
+    TORCH_CHECK(!schedule_uses_sage3_fp8 || fp8_kv_cache_enabled,
+                "Sage3 FP8 attention requires cosmos_kv_cache_backend='fp8'");
+    TORCH_CHECK(!schedule_uses_sage3_fp8 || sage3_cross_fp4_enabled,
+                "Sage3 FP8 attention requires Sage3 FP4 cross-attention caches");
     // ── 5a. One-shot setup outside the per-block loop ─────────────────────────
     //
     // (i) RoPE cos/sin: callers may precompute these for fixed-shape replay.
@@ -1992,8 +2034,9 @@ torch::Tensor optimized_dit_forward(
         config.contains("cosmos_write_bf16_kv_cache")
             ? py::cast<bool>(config["cosmos_write_bf16_kv_cache"])
             : true;
-    TORCH_CHECK(write_bf16_self_kv_cache || fp8_kv_cache_enabled,
-                "cosmos_write_bf16_kv_cache=false requires cosmos_kv_cache_backend='fp8'");
+    TORCH_CHECK(write_bf16_self_kv_cache || fp8_kv_cache_enabled || schedule_uses_sparge,
+                "cosmos_write_bf16_kv_cache=false requires cosmos_kv_cache_backend='fp8' "
+                "unless the selected attention schedule forces BF16 self-KV writes");
     auto workspace_tensor = [&](const char* name,
                                 std::vector<int64_t> shape,
                                 at::ScalarType dtype) -> torch::Tensor {
@@ -2141,8 +2184,7 @@ torch::Tensor optimized_dit_forward(
     auto attn_k_bhmd_fp8 = workspace_tensor("attn_k_bhmd_fp8", {B, H, max_attn_tokens, D}, at::kByte);
     auto attn_v_bhmd_fp8 = workspace_tensor("attn_v_bhmd_fp8", {B, H, max_attn_tokens, D}, at::kByte);
     auto attn_v_bhdm_fp8 = workspace_tensor("attn_v_bhdm_fp8", {B, H, D, max_attn_tokens}, at::kByte);
-    const bool needs_sage3_fp8_attention_scratch =
-        attention_backend == omnidreams_singleview::CosmosAttentionBackend::SAGE3_FP8;
+    const bool needs_sage3_fp8_attention_scratch = schedule_uses_sage3_fp8;
     torch::Tensor attn_q_sage3_fp4;
     torch::Tensor attn_q_sage3_sf;
     if (needs_sage3_fp8_attention_scratch) {
@@ -2166,6 +2208,19 @@ torch::Tensor optimized_dit_forward(
     auto attn_o_half = workspace_tensor("attn_o_half", {B, M, H, D}, at::kHalf);
     const int64_t attn_tc_scale_elems = 12;
     auto attn_tc_scale = workspace_tensor("attn_tc_scale", {attn_tc_scale_elems}, at::kFloat);
+
+    torch::Tensor sparge_workspace;
+    const bool needs_sparge_workspace = schedule_uses_sparge;
+    if (needs_sparge_workspace) {
+        TORCH_CHECK(D == 128,
+                    "cosmos_attention_backend='sparge' requires head_dim=128, got ", D);
+        size_t sparge_workspace_bytes = ts::SpargeAttentionWorkspace::calculate_size(
+            M, max_attn_tokens, K, H, D, 128, 64, sparge_topk_ratio);
+        sparge_workspace = workspace_tensor(
+            "sparge_workspace",
+            {static_cast<int64_t>(sparge_workspace_bytes)},
+            at::kByte);
+    }
 
     omnidreams_singleview::CosmosBlockBuffers buf{};
     buf.qkv_row           = reinterpret_cast<cutlass::bfloat16_t*>(qkv_row.data_ptr<at::BFloat16>());
@@ -2211,6 +2266,12 @@ torch::Tensor optimized_dit_forward(
     buf.attn_tc_scale = attn_tc_scale.data_ptr<float>();
     buf.attn_tc_scale_elems = attn_tc_scale_elems;
     buf.attn_tc_scale_is_ones = attn_tc_scale_is_ones;
+    if (needs_sparge_workspace) {
+        buf.sparge.initialize(
+            sparge_workspace.data_ptr<uint8_t>(),
+            M, max_attn_tokens, K, H, D,
+            128, 64, sparge_topk_ratio);
+    }
     rec(EV_AFTER_ROPE_SCRATCH);
 
     // ── 5a. AdaLN-LoRA pre-stack + global down + batched up GEMMs ──────────
@@ -2780,6 +2841,16 @@ torch::Tensor optimized_dit_forward(
         }
 
         omnidreams_singleview::CosmosAttentionBackend block_attention_backend = attention_backend;
+        if (sparge_hybrid_enabled) {
+            const bool use_sparge_block =
+                (i % sparge_hybrid_period) == sparge_hybrid_phase_mod;
+            block_attention_backend = use_sparge_block
+                ? omnidreams_singleview::CosmosAttentionBackend::SPARGE
+                : omnidreams_singleview::CosmosAttentionBackend::SAGE3_FP8;
+        }
+        const bool block_write_bf16_self_kv_cache =
+            write_bf16_self_kv_cache ||
+            block_attention_backend == omnidreams_singleview::CosmosAttentionBackend::SPARGE;
 
         omnidreams_singleview::CosmosBlockParams bp{};
         bp.B  = B;
@@ -2795,7 +2866,9 @@ torch::Tensor optimized_dit_forward(
         bp.linear_backend = linear_backend;
         bp.attention_backend = block_attention_backend;
         bp.fp8_kv_cache_enabled = fp8_kv_cache_enabled;
-        bp.write_bf16_self_kv_cache = write_bf16_self_kv_cache;
+        bp.write_bf16_self_kv_cache = block_write_bf16_self_kv_cache;
+        bp.sparge_topk_ratio = sparge_topk_ratio;
+        bp.sparge_attention_sink = sparge_attention_sink;
         if (trace_enabled) {
             auto* trace_base = reinterpret_cast<cutlass::bfloat16_t*>(
                 trace_tensor.data_ptr<at::BFloat16>());
@@ -2854,6 +2927,12 @@ torch::Tensor optimized_dit_forward(
         bp.v_cross_fp8_bhdm = fp8_cross_tc_layout_cache_enabled && !v_cross_fp8_bhdm_caches.empty()
             ? reinterpret_cast<const cutlass::float_e4m3_t*>(v_cross_fp8_bhdm_caches[i].data_ptr<uint8_t>())
             : nullptr;
+        bp.k_cross_fp8_bhmd_tokens = bp.k_cross_fp8_bhmd
+            ? (int)k_cross_fp8_bhmd_caches[i].size(2)
+            : 0;
+        bp.v_cross_fp8_bhmd_tokens = bp.v_cross_fp8_bhmd
+            ? (int)v_cross_fp8_bhmd_caches[i].size(2)
+            : 0;
         bp.k_cross_sage3_fp4 = sage3_cross_fp4_enabled
             ? k_cross_sage3_fp4_caches[i].data_ptr<uint8_t>()
             : nullptr;
