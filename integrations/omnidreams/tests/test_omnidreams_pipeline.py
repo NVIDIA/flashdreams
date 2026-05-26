@@ -215,6 +215,7 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     transformer.network = cast(Any, fake_network)
     transformer._output_height = None
     transformer._output_width = None
+    transformer._optimized_dit_executor = None
     # ``Transformer.device`` is a property reading from ``self.parameters()``;
     # register a placeholder so it resolves to CPU instead of asserting.
     transformer.register_parameter(
@@ -250,6 +251,49 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
 
     assert cache.network_cache_uncond is not None
     assert fake_network.cache_kwargs[-1]["context"] is negative_text_embeddings
+
+
+@pytest.mark.ci_cpu
+def test_cosmos_transformer_checkpoint_path_none_keeps_random_init(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeNetwork(torch.nn.Module):
+        def __init__(self, config: object) -> None:
+            super().__init__()
+            self.config = config
+            self.updated_after_load = False
+
+        def set_context_parallel_group(self, **kwargs: object) -> None:
+            del kwargs
+
+        def load_state_dict(
+            self,
+            state_dict: object,
+            *args: object,
+            **kwargs: object,
+        ) -> object:
+            del state_dict, args, kwargs
+            raise AssertionError("load_state_dict should not run without a checkpoint")
+
+        def update_parameters_after_loading_checkpoint(self) -> None:
+            self.updated_after_load = True
+
+    monkeypatch.setattr(
+        omnidreams_transformer_module,
+        "CosmosDiTNetwork",
+        FakeNetwork,
+    )
+
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            checkpoint_path=None,
+            compile_network=False,
+            use_cuda_graph=False,
+        )
+    )
+
+    assert isinstance(transformer.network, FakeNetwork)
+    assert transformer.network.updated_after_load is True
 
 
 @pytest.mark.ci_cpu

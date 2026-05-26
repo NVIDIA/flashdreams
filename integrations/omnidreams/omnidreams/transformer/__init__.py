@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import torch
 import torch.nn.functional as F
@@ -36,6 +36,12 @@ from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
     TransformerConfig,
+)
+from omnidreams.native.acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationMode,
+    NativeBackendSelection,
+    require_extension_symbols,
 )
 
 from .impl.context_parallel import (
@@ -197,6 +203,24 @@ class CosmosTransformerConfig(TransformerConfig):
     skip_finalize_kv_cache: bool = False
     """Skip the KV cache finalize step."""
 
+    native_dit_acceleration: NativeAccelerationMode = "disabled"
+    """Native optimized DiT policy: ``disabled``, ``auto``, or ``required``."""
+
+    native_dit_build_root: str | None = None
+    """Optional native extension build/cache root."""
+
+    native_dit_max_jobs: int | str | None = None
+    """Optional PyTorch/Ninja job cap for the native DiT build."""
+
+    native_dit_verbose_build: bool = False
+    """Forward verbose build output from the native extension loader."""
+
+    native_dit_backend: Literal["fp8_kvcache_cudnn", "bf16"] = "fp8_kvcache_cudnn"
+    """Optimized native DiT compute backend."""
+
+    native_dit_attention_backend: str = "auto"
+    """Optimized native attention backend. ``auto`` selects the best built backend."""
+
     guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
 
@@ -267,7 +291,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
-        if config.compile_network:
+        self._optimized_dit_executor: Any | None = None
+        self._optimized_dit_selection: NativeBackendSelection | None = None
+        if config.native_dit_acceleration != "disabled":
+            self._configure_optimized_dit_from_config()
+
+        if config.compile_network and self._optimized_dit_executor is None:
             self.network = compile_module(self.network)
 
         # Per-rollout dispatch when use_cuda_graph=True:
@@ -302,6 +331,31 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # For multi-view, we keep the original 5D [B, V, T, HW, D] shape so we can apply
         # dedicated hierarchical CP groups.
         self.flatten_thw = config.num_views == 1
+
+    def _configure_optimized_dit_from_config(self) -> None:
+        from omnidreams.native import omnidreams_singleview
+
+        helper = omnidreams_singleview.load_python_module("optimized_dit")
+        native_config = NativeAccelerationConfig(
+            mode=self.config.native_dit_acceleration,
+            build_root=self.config.native_dit_build_root,
+            max_jobs=self.config.native_dit_max_jobs,
+            verbose_build=self.config.native_dit_verbose_build,
+        )
+        selection = omnidreams_singleview.select_backend(
+            "optimized_dit",
+            native_config,
+            availability_check=require_extension_symbols("optimized_dit_forward"),
+        )
+        self._optimized_dit_selection = selection
+        if not selection.enabled:
+            return
+        self._optimized_dit_executor = helper.OptimizedDiTExecutor(
+            self,
+            selection.require_extension(),
+            dit_backend=self.config.native_dit_backend,
+            attention_backend=self.config.native_dit_attention_backend,
+        )
 
     ## Patchify / CP plumbing
 
@@ -530,7 +584,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
             self._network_call_uncond.reset()
 
-        return CosmosTransformerCache(
+        cache = CosmosTransformerCache(
             network_cache=network_cache,
             network_cache_uncond=network_cache_uncond,
             rope_adapter=rope_adapter,
@@ -539,6 +593,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             mask_other_blocks=mask_other_patched,
             view_indices=view_indices,
         )
+        if self._optimized_dit_executor is not None:
+            self._optimized_dit_executor.after_initialize_autoregressive_cache(cache)
+        return cache
 
     ## Mask-injection helpers
 
@@ -611,6 +668,13 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         cache: CosmosTransformerCache,
         input: Tensor | None = None,
     ) -> Tensor:
+        if self._optimized_dit_executor is not None:
+            return self._optimized_dit_executor.predict_flow(
+                noisy_latent=noisy_latent,
+                timestep=timestep,
+                cache=cache,
+                input=input,
+            )
         flow_cond = self._predict_branch(
             noisy_latent=noisy_latent,
             timestep=timestep,
@@ -644,6 +708,9 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        if self.config.skip_finalize_kv_cache:
-            return
-        super().finalize_kv_cache(*args, **kwargs)
+        try:
+            if not self.config.skip_finalize_kv_cache:
+                super().finalize_kv_cache(*args, **kwargs)
+        finally:
+            if self._optimized_dit_executor is not None:
+                self._optimized_dit_executor.after_finalize_kv_cache()
