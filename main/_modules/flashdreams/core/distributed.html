@@ -290,6 +290,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">&quot;&quot;&quot;Distributed-training initialization helpers.&quot;&quot;&quot;</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">atexit</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">ctypes</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
@@ -302,6 +303,22 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
 <span class="n">DEFAULT_LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_safe_destroy_pg</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tear down the default process group on interpreter exit.</span>
+
+<span class="sd">    Registered via :func:`atexit.register` from :func:`init` so NCCL stops</span>
+<span class="sd">    printing the ``destroy_process_group() was not called before program</span>
+<span class="sd">    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``</span>
+<span class="sd">    invocation. Best-effort: never raises, so a teardown failure cannot</span>
+<span class="sd">    mask the original exit code or exception.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">():</span>
+            <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 -- best-effort cleanup at exit</span>
+        <span class="k">pass</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">is_distributed_initialized</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -430,6 +447,11 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">timeout</span><span class="o">=</span><span class="n">timeout_timedelta</span><span class="p">,</span>
             <span class="n">device_id</span><span class="o">=</span><span class="n">local_rank</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="c1"># Always destroy the process group on interpreter shutdown so NCCL</span>
+        <span class="c1"># does not warn about a leaked group at the end of every run; the</span>
+        <span class="c1"># handler is idempotent if a caller (e.g. a long-lived gRPC server)</span>
+        <span class="c1"># already destroyed the group explicitly before exiting.</span>
+        <span class="n">atexit</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">_safe_destroy_pg</span><span class="p">)</span>
         <span class="n">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">get_global_rank</span><span class="p">())</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Initialized distributed training with local rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2"> with timeout </span><span class="si">{</span><span class="n">timeout_seconds</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
