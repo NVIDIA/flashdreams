@@ -133,7 +133,7 @@ Spin up the interactive single-view OmniDreams server via WebRTC:
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flash-omnidreams torchrun --nproc_per_node 1 \
+   uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
        -m omnidreams.webrtc.server \
        --host 0.0.0.0 --port 8089 \
        --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
