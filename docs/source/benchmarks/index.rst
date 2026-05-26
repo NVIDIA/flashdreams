@@ -32,9 +32,9 @@ this page is the **measurement** counterpart, not a duplicate.
    :class: fd-callout
 
    Start with :doc:`../index` for an overview, then walk a recipe in the
-   :doc:`/getting_started/index` before
+   :doc:`/quickstart/index` before
    reading these numbers in context. The architectural rationale lives
-   in the :doc:`/apis/index`.
+   in the :doc:`/api/index`.
 
 Headline metrics
 ----------------
@@ -522,7 +522,7 @@ How we got here
 
 The point of this page is *what* — *why* lives elsewhere:
 
-- The :doc:`/apis/index` orients you to the four
+- The :doc:`/api/index` orients you to the four
   library surfaces and links to the design notes for ring attention,
   KV-cache management, and CUDA-graph capture of the steady-state
   forward.

@@ -9,11 +9,11 @@ FlashVSR-v1.1 streaming video super-resolution (LR projector + distilled
 Wan 2.1 DiT + TC decoder + AdaIN color corrector), packaged as a
 [`flashdreams`](../..) plugin, in a standalone repo. Wraps everything in
 a `StreamInferencePipeline` so the same `generate` / `finalize`
-lifecycle as the other recipes (`omnidreams`, `lingbot_world`, `wan2_1`)
+lifecycle as the other integrations (`omnidreams`, `lingbot_world`, `wan2_1`)
 applies.
 
 This is a worked example of the
-[Adding a new recipe](../../docs/source/developer_guides/new_recipes.rst)
+[Adding a new method](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/new_integration.html)
 developer-guide flow.
 
 ## Shipped slugs
@@ -112,6 +112,64 @@ compile + CUDA graph enabled by default, so peak memory is much higher than the
 sparse presets. Use smaller inputs, `--chunk-size 8`, fewer GPUs, or override
 `--pipeline.diffusion-model.transformer.use-cuda-graph False` if the dense run
 OOMs.
+
+## gRPC server and browser viewer
+
+The FlashVSR integration also ships a gRPC upsampler service that keeps the
+pipeline warm, accepts incoming frame chunks, and can publish an MJPEG browser
+viewer. The service supports unary chunks (`start_session` / `upscale_chunk` /
+`end_session`) and bidirectional streaming (`upscale_video`). Streaming clients
+may send 8-frame chunks at live-ingest cadence; the server coalesces those into
+FlashVSR-compatible 13-frame cold-start and 16-frame steady-state model calls.
+
+Start a server with an HTTP viewer on port 8080:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_server \
+    --port 50051 \
+    --viewer_port 8080 \
+    --cuda_graph \
+    --attention_mode auto \
+    --sparse_ratio 1.5
+```
+
+Then open `http://<server-host>:8080/` in a browser. The page shows received
+input frames and upsampled frames side by side. By default, viewer mode omits
+raw output frame bytes from gRPC responses to keep server-to-client bandwidth
+low; pass `--viewer_return_grpc_frames` if a client also needs the RGB payloads.
+`--attention_mode auto` uses the sparse backend when `block_sparse_attn` is
+installed and falls back to the dense full-attention backend otherwise. To force
+the dense path in an environment without `block_sparse_attn`, pass
+`--attention_mode full`.
+
+Use the live-ingest client to loop a video into the server at 30 fps:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4
+
+# finite smoke test:
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --continuous \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4 \
+    --max_chunks 4
+```
+
+For a save-to-disk test client, use:
+
+```bash
+PYTHONPATH=integrations/flashvsr:flashdreams \
+uv run --no-sync python -m flashvsr.grpc.uplift_client \
+    --server localhost:50051 \
+    --input /path/to/clip.mp4 \
+    --output /tmp/clip_2x.mp4
+```
 
 
 ## Streaming chunk contract

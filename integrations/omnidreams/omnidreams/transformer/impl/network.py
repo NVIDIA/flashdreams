@@ -16,6 +16,7 @@
 """Cosmos DiT network for streaming omnidreams inference."""
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -115,6 +116,9 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     enable_cross_view_attn: bool = False
     """If ``True``, enable multi-view cross-view attention and AdaLN view modulation."""
 
+    cp_method: Literal["ring", "ulysses"] = "ring"
+    """Context-parallel attention method for transformer attention ops."""
+
     view_condition_dim: int = 16
     """Embedding dim for the per-view conditioning vector."""
 
@@ -176,6 +180,7 @@ class CosmosDiTNetwork(nn.Module):
                     use_adaln_lora=self.config.use_adaln_lora,
                     adaln_lora_dim=self.config.adaln_lora_dim,
                     enable_cross_view_attn=self.config.enable_cross_view_attn,
+                    cp_method=self.config.cp_method,
                 )
                 for _ in range(self.config.num_blocks)
             ]

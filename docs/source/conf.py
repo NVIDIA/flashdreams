@@ -3,8 +3,16 @@
 #
 # Sphinx configuration for the FlashDreams documentation site.
 
+import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path
+
+# Ensure autodoc imports the in-repo package (flashdreams/flashdreams/*)
+# instead of any older site-packages install missing newer modules.
+_DOCS_SOURCE_DIR = Path(__file__).resolve().parent
+_REPO_SRC_ROOT = _DOCS_SOURCE_DIR.parent.parent / "flashdreams"
+sys.path.insert(0, str(_REPO_SRC_ROOT))
 
 # -- Project information -----------------------------------------------------
 
@@ -66,10 +74,16 @@ exclude_patterns: list[str] = []
 html_theme = "pydata_sphinx_theme"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
-html_static_path = ["_static"]
-html_logo = "../../assets/logo/flashdreams_logo_horizontal.png"
+html_static_path = ["_static", "../../assets/logo"]
 
+# Light/dark logo split. pydata-sphinx-theme reads the `logo` option from
+# `html_theme_options` (image_light / image_dark) rather than the
+# top-level `html_logo`. Files are picked up from `html_static_path`.
 html_theme_options = {
+    "logo": {
+        "image_light": "_static/flashdreams-logo-horizontal.png",
+        "image_dark": "_static/flashdreams-logo-horizontal-light.png",
+    },
     "secondary_sidebar_items": ["page-toc"],
     "pygments_light_style": "tango",
     "pygments_dark_style": "monokai",
@@ -95,26 +109,25 @@ html_theme_options = {
     # toctree entries appear there. Sub-pages live in each section's
     # own toctree, which drives the left sidebar instead.
     "show_nav_level": 1,
-    # Seven top-level sections in the master toctree (Benchmarks, four
-    # docs captioned trees, two ref captioned trees, Community); promote
+    # Seven top-level sections in the master toctree (Benchmarks,
+    # Quickstart, Developer Guides, Models, API, Community); promote
     # them all into the primary navbar instead of bucketing into "More".
     "header_links_before_dropdown": 7,
 }
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
-# Sidebar" toggle) but no nav contents. The homepage, benchmarks page,
-# and community pages are front-of-site / marketing surfaces — give
-# them no sidebar; every reference-docs page gets the section nav tree.
+# Sidebar" toggle) but no nav contents. The homepage, benchmarks, and
+# community pages are front-of-site surfaces — give them no sidebar;
+# every reference-docs page gets the section nav tree.
 html_sidebars = {
     "index": [],
     "benchmarks/*": [],
     "community/*": [],
-    "getting_started/*": ["sidebar-nav-bs"],
+    "quickstart/*": ["sidebar-nav-bs"],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": ["sidebar-nav-bs"],
-    "apis/*": ["sidebar-nav-bs"],
-    "reference/*": ["sidebar-nav-bs"],
+    "api/*": ["sidebar-nav-bs"],
 }
 
 html_context = {

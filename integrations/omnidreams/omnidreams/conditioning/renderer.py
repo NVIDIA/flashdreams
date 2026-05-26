@@ -21,11 +21,13 @@ library to render HD map scenes for conditioning video generation.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Literal
 
 import ludus_renderer
 import torch
+from loguru import logger
 from ludus_renderer import (
     load_clipgt_scene,
     mirror_augment_scene,
@@ -251,6 +253,8 @@ def load_and_attach_ludus_scene(
     lookahead_m: float = 50.0,
 ) -> SceneData:
     """Load HDMap scene from path and attach it to scene data."""
+    started_at = time.perf_counter()
+    logger.info("Loading Ludus scene from {} on {}.", scene_data_path, device)
     ludus_scene = load_clipgt_scene(
         scene_data_path,
         device=torch.device(device),
@@ -258,11 +262,27 @@ def load_and_attach_ludus_scene(
         include_ego_obstacle=include_ego_obstacle,
         simplify_dual_lane_lines=simplify_dual_lane_lines,
     )
+    logger.info(
+        "Loaded Ludus ClipGT scene in {:.1f}s; mirror_augment={}.",
+        time.perf_counter() - started_at,
+        perform_mirror_augment,
+    )
     if perform_mirror_augment:
+        augment_started_at = time.perf_counter()
         augmented_scene = mirror_augment_scene(
             ludus_scene, n_mirrors=n_mirrors, lookahead_m=lookahead_m
         )
+        logger.info(
+            "Mirror-augmented Ludus scene in {:.1f}s.",
+            time.perf_counter() - augment_started_at,
+        )
     else:
         augmented_scene = ludus_scene
+    adapter_started_at = time.perf_counter()
     scene_data.metadata["ludus_scene"] = SceneAdapter(augmented_scene)
+    logger.info(
+        "Attached Ludus scene adapter in {:.1f}s; total attach time {:.1f}s.",
+        time.perf_counter() - adapter_started_at,
+        time.perf_counter() - started_at,
+    )
     return scene_data

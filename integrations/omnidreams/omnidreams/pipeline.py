@@ -173,7 +173,7 @@ class OmnidreamsPipeline(
             image: First-frame pixels ``[B, V, 1, 3, H, W]`` in ``[-1, 1]``.
                 ``H``/``W`` must equal latent ``height``/``width`` times the
                 decoder's spatial compression ratio.
-                CFG-enabled configs use the recipe's training negative prompt
+                CFG-enabled configs use the integration's training negative prompt
                 automatically.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.
@@ -232,7 +232,7 @@ class OmnidreamsPipeline(
                 per-rollout latent ``(height, width)`` forwarded to the
                 transformer.
             negative_text_embeddings: Optional ``[B, V, L, D]`` embeddings for
-                the recipe's training negative prompt. Required when the
+                the integration's training negative prompt. Required when the
                 transformer config requires negative text embeddings.
             view_names: View names (length ``V``); required when
                 ``num_views > 1``.

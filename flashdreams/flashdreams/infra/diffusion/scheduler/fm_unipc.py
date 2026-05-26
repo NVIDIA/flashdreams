@@ -176,7 +176,7 @@ def _build_per_step_coefs(sigmas: np.ndarray) -> dict[str, np.ndarray]:
 class FlowMatchUniPCSchedulerConfig(SchedulerConfig):
     """Config for the flow-matching UniPC scheduler.
 
-    Defaults match the official Wan 2.1 inference recipe (UniPC, BH2,
+    Defaults match the official Wan 2.1 inference integration (UniPC, BH2,
     order 2, shift 5.0). Override ``shift`` per checkpoint as recommended
     upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).
     """

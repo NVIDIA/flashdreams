@@ -15,8 +15,8 @@
 
 """Process-global runner registry storage and the single registration primitive.
 
-This module is a leaf: it has no recipe / plugin imports, so any code
-path (in-tree recipe ``runner.py``, the plugin layer, tests) can import
+This module is a leaf: it has no integration / plugin imports, so any code
+path (in-tree integration ``runner.py``, the plugin layer, tests) can import
 :func:`register_runner` and the underlying :data:`_SUPPORTED_RUNNERS`
 dict without circular-import risk.
 """
@@ -36,10 +36,10 @@ RunnerSource = Literal["builtin", "plugin"]
 
 
 _SUPPORTED_RUNNERS: dict[str, RunnerConfig] = {}
-"""In-tree runner registry. Populated at recipe-runner import time via
+"""In-tree runner registry. Populated at integration-runner import time via
 :func:`register_runner` calls (``source="builtin"``).
 
-Treat as immutable after all in-tree recipe modules have been imported.
+Treat as immutable after all in-tree integration modules have been imported.
 :func:`flashdreams.configs.runner_configs.all_runners` layers plugin
 discoveries on top in a per-call local dict rather than mutating this
 global, so test isolation is automatic and multiple ``all_runners()``
@@ -59,13 +59,13 @@ def register_runner(
     Args:
         name: Registry slug (typically ``runner.runner_name``).
         runner: Runner config to register.
-        source: ``"builtin"`` → in-tree recipe; collisions raise
+        source: ``"builtin"`` → in-tree integration; collisions raise
             (programmer bug, fail at import time). ``"plugin"`` →
             third-party (entry point or env-var); collisions are
             logged and skipped, so a plugin can never silently shadow
             an existing slug.
         target: Destination dict. Defaults to the process-global
-            :data:`_SUPPORTED_RUNNERS` (used by in-tree recipe
+            :data:`_SUPPORTED_RUNNERS` (used by in-tree integration
             ``runner.py`` modules at import time). Pass an explicit
             dict to register against a per-call snapshot
             (used by :func:`flashdreams.configs.runner_configs.all_runners`

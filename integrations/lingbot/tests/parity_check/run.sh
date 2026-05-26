@@ -98,7 +98,8 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 PROMPT="The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls."
 
 echo "[run] starting benchmark [1 GPU]"
-FORCE_CUDNN_ATTN=1 uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
+FORCE_CUDNN_ATTN=1 \
+uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
     generate_fast.py \
     --task i2v-A14B \
     --size 480*832 \
@@ -112,7 +113,8 @@ FORCE_CUDNN_ATTN=1 uv run python -m torch.distributed.run --standalone --nnodes=
     --prompt "${PROMPT}"
 
 echo "[run] starting benchmark [4 GPUs]"
-FORCE_CUDNN_ATTN=1 uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
+FORCE_CUDNN_ATTN=1 \
+uv run python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
     generate_fast.py \
     --task i2v-A14B \
     --size 480*832 \

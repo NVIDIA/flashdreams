@@ -37,13 +37,13 @@ FlashDreams
 
    .. container:: fd-cta-row
 
-      .. button-ref:: getting_started/index
+      .. button-ref:: quickstart/index
          :ref-type: doc
          :color: primary
 
          Get started
 
-      .. button-ref:: apis/index
+      .. button-ref:: api/index
          :ref-type: doc
          :color: secondary
          :outline:
@@ -156,7 +156,7 @@ Why FlashDreams
 Diffusion video generators are getting fast enough to be interactive, but
 only if the inference stack is built for it. FlashDreams is organised
 around a few sharp abstractions — documented in the
-:doc:`apis/index` — that every recipe
+:doc:`api/index` — that every recipe
 plugs into: **KV-cached transformers** so each autoregressive chunk
 re-uses prior context instead of recomputing it, **ring attention**
 across context-parallel ranks for long sequences without OOM, and
@@ -172,7 +172,7 @@ plugin, with every overridable field exposed as a flag. The same command
 that does a single-GPU debug run scales to multi-GPU context-parallelism
 under ``torchrun``; recipes auto-detect their CP size from the world
 group, so there is no separate distributed-launcher config to maintain.
-The :doc:`getting_started/index` has the
+The :doc:`quickstart/index` has the
 annotated walkthrough.
 
 ----
@@ -186,7 +186,7 @@ What's inside
 
    .. grid-item-card:: KV-cached transformers
       :class-card: fd-feature
-      :link: apis/infra
+      :link: api/infra
       :link-type: doc
 
       First-class support for autoregressive flow-matching models with
@@ -195,7 +195,7 @@ What's inside
 
    .. grid-item-card:: Ring attention
       :class-card: fd-feature
-      :link: apis/core
+      :link: api/core
       :link-type: doc
 
       Context-parallel attention across ranks, so long-horizon
@@ -203,7 +203,7 @@ What's inside
 
    .. grid-item-card:: CUDA-graph capture
       :class-card: fd-feature
-      :link: apis/recipes
+      :link: api/integrations
       :link-type: doc
 
       The steady-state forward is captured into a CUDA graph after warmup,
@@ -211,7 +211,7 @@ What's inside
 
    .. grid-item-card:: Unified ``flashdreams-run`` CLI
       :class-card: fd-feature
-      :link: reference/cli
+      :link: api/cli
       :link-type: doc
 
       One console script dispatches over every in-tree and plugin-provided
@@ -220,7 +220,7 @@ What's inside
 
    .. grid-item-card:: Multi-GPU by default
       :class-card: fd-feature
-      :link: apis/infra
+      :link: api/infra
       :link-type: doc
 
       Recipes auto-detect CP size from ``torch.distributed``'s world
@@ -229,7 +229,7 @@ What's inside
 
    .. grid-item-card:: Plugin-friendly recipes
       :class-card: fd-feature
-      :link: developer_guides/new_recipes
+      :link: developer_guides/new_integration
       :link-type: doc
 
       Recipes can ship in-tree or as out-of-tree plugins discovered
@@ -267,7 +267,7 @@ into **streaming / autoregressive** (KV-cached, per-AR-step output) and
 
    .. grid-item-card:: Causal Wan 2.2
       :class-card: fd-feature
-      :link: models/fastvideo_wan22
+      :link: models/causal_wan22
       :link-type: doc
 
       FastVideo Wan 2.2 14B causal T2V recipe.
@@ -317,7 +317,7 @@ extra whenever you want to actually generate videos:
 .. admonition:: New to streaming diffusion?
    :class: fd-callout
 
-   The :doc:`getting_started/index` has the
+   The :doc:`quickstart/index` has the
    annotated quickstart, an end-to-end first-generation walkthrough, and
    pointers into the developer guides for CUDA-graph capture, distributed
    launching, and authoring a custom recipe.
@@ -367,9 +367,9 @@ FlashDreams is developed in the open at
    :maxdepth: 1
 
    benchmarks/index
-   getting_started/index
+   Getting Started <quickstart/index>
    developer_guides/index
    models/index
-   CLI Reference <reference/index>
-   API Reference <apis/index>
+   CLI Reference <api/cli>
+   API Reference <api/index>
    community/index

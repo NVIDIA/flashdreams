@@ -70,7 +70,7 @@ def state_dict_transform(state_dict: dict[str, Any]) -> dict[str, Tensor]:
 
 # Causal-Forcing chunkwise Wan 2.1 1.3B T2V pipeline.
 PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
-    recipe_name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
+    name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
     # Warning: This will slow down the e2e latency.
     enable_sync_and_profile=True,
     encoder=None,
@@ -80,6 +80,7 @@ PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
         transformer=Wan21TransformerConfig(
             network=WanDiTNetwork1pt3BConfig(
                 patch_embedding_type="conv3d",
+                cp_method="ring",
             ),
             checkpoint_path=CHECKPOINT_PATH_CHUNKWISE,
             state_dict_transform=state_dict_transform,
@@ -103,7 +104,7 @@ PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
     ),
 )
 RUNNER_WAN21_T2V_1PT3B_CHUNKWISE = CausalForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE.name,
     description="Causal-Forcing chunkwise Wan 2.1 1.3B T2V (Wan VAE decoder, 4-step).",
     pipeline=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
 )
@@ -113,7 +114,7 @@ PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
-        recipe_name="causal-forcing-wan2.1-t2v-1.3b-framewise",
+        name="causal-forcing-wan2.1-t2v-1.3b-framewise",
         diffusion_model=dict(
             transformer=dict(
                 checkpoint_path=CHECKPOINT_PATH_FRAMEWISE,
@@ -123,7 +124,7 @@ PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
     ),
 )  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_FRAMEWISE = CausalForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE.name,
     description="Causal-Forcing framewise Wan 2.1 1.3B T2V (len_t=1, Wan VAE).",
     pipeline=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
 )
@@ -135,7 +136,7 @@ PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
-        recipe_name="causal-forcing-wan2.1-i2v-1.3b-framewise",
+        name="causal-forcing-wan2.1-i2v-1.3b-framewise",
         encoder=WanI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(),
         ),
@@ -145,7 +146,7 @@ PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
     ),
 )  # ty:ignore[redundant-cast]
 RUNNER_WAN21_I2V_1PT3B_FRAMEWISE = CausalForcingI2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE.recipe_name,
+    runner_name=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE.name,
     description="Causal-Forcing framewise Wan 2.1 1.3B I2V (len_t=1, Wan VAE).",
     pipeline=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE,
 )

@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reference template recipe runner for ``flashdreams-run``.
+"""Reference template integration runner for ``flashdreams-run``.
 
-The template recipe ships toy ``Conv3d`` networks and a synthetic
+The template integration ships toy ``Conv3d`` networks and a synthetic
 control input -- no prompt, no first frame; outputs are diagnostic
 tensors. New runners should mirror this control flow:
 
@@ -76,7 +76,7 @@ class TemplateRunnerConfig(RunnerConfig):
 
 
 class TemplateRunner(Runner[TemplateRunnerConfig, StreamInferencePipeline]):
-    """End-to-end driver for any template-recipe variant."""
+    """End-to-end driver for any template-integration variant."""
 
     def run(self) -> None:
         """Roll one rollout and dump the output tensor."""

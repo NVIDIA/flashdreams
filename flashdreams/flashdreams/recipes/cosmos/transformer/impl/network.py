@@ -17,6 +17,7 @@
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -140,6 +141,8 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
 
     timestep_scale: float = 0.001
     """Multiplier applied to raw timestep values before sinusoidal embedding."""
+    cp_method: Literal["ring", "ulysses"] = "ring"
+    """Context-parallel attention method for transformer attention ops."""
 
 
 class CosmosDiTNetwork(nn.Module):
@@ -193,6 +196,7 @@ class CosmosDiTNetwork(nn.Module):
                     mlp_ratio=self.config.mlp_ratio,
                     use_adaln_lora=self.config.use_adaln_lora,
                     adaln_lora_dim=self.config.adaln_lora_dim,
+                    cp_method=self.config.cp_method,
                 )
                 for _ in range(self.config.num_blocks)
             ]

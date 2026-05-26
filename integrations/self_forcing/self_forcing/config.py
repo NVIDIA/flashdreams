@@ -60,7 +60,7 @@ def state_dict_transform(state_dict: dict[str, Any]) -> dict[str, Tensor]:
 
 # Official Self-Forcing Wan 2.1 1.3B T2V pipeline config.
 PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
-    recipe_name="self-forcing-wan2.1-t2v-1.3b",
+    name="self-forcing-wan2.1-t2v-1.3b",
     # Warning: This will slow down the e2e latency.
     enable_sync_and_profile=True,
     encoder=None,
@@ -70,6 +70,7 @@ PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
         transformer=Wan21TransformerConfig(
             network=WanDiTNetwork1pt3BConfig(
                 patch_embedding_type="conv3d",
+                cp_method="ring",
             ),
             checkpoint_path=CHECKPOINT_PATH,
             state_dict_transform=state_dict_transform,
@@ -93,7 +94,7 @@ PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
     ),
 )
 RUNNER_WAN21_T2V_1PT3B = SelfForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B.name,
     description="Self-Forcing distilled Wan 2.1 1.3B T2V (Wan VAE decoder, 4-step).",
     pipeline=PIPELINE_WAN21_T2V_1PT3B,
 )
@@ -104,12 +105,12 @@ PIPELINE_WAN21_T2V_1PT3B_FLASH = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
-        recipe_name="self-forcing-wan2.1-t2v-1.3b-flash",
+        name="self-forcing-wan2.1-t2v-1.3b-flash",
         decoder=TeahvVAEDecoderConfig(),
     ),
 )  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_FLASH = SelfForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_FLASH.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_FLASH.name,
     description="Self-Forcing distilled Wan 2.1 1.3B T2V (TAEHV decoder, 4-step).",
     pipeline=PIPELINE_WAN21_T2V_1PT3B_FLASH,
 )
@@ -120,7 +121,7 @@ PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
-        recipe_name="self-forcing-wan2.1-t2v-1.3b-anti-drift",
+        name="self-forcing-wan2.1-t2v-1.3b-anti-drift",
         diffusion_model=dict(
             seed=0,
             transformer=dict(
@@ -136,7 +137,7 @@ PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
     ),
 )  # ty:ignore[redundant-cast]
 RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT = SelfForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT.name,
     description=(
         "Self-Forcing distilled Wan 2.1 1.3B T2V "
         "(KVCache-relative RoPE, static sink/window, 4-step)."

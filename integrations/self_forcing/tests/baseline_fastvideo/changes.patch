@@ -1,0 +1,222 @@
+diff --git a/examples/inference/basic/benchmark_self_forcing_causal.py b/examples/inference/basic/benchmark_self_forcing_causal.py
+new file mode 100644
+index 00000000..729164c5
+--- /dev/null
++++ b/examples/inference/basic/benchmark_self_forcing_causal.py
+@@ -0,0 +1,83 @@
++#!/usr/bin/env python
++# SPDX-License-Identifier: Apache-2.0
++"""Self-Forcing causal benchmark with parity-style timing output."""
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++from fastvideo import SamplingParam, VideoGenerator
++
++DEFAULT_PROMPT = (
++    "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and "
++    "animated city signs casting vibrant reflections. She wears a sleek black leather jacket "
++    "paired with a flowing red dress and black boots, her black purse slung over her shoulder. "
++    "Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. "
++    "The street is damp and reflective, creating a mirror-like effect that enhances the colorful "
++    "lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is "
++    "captured in a dynamic medium shot with the woman walking slightly to one side, highlighting "
++    "her graceful strides."
++)
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--model_name", type=str, default="wlsaidhi/SFWan2.1-T2V-1.3B-Diffusers")
++    parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
++    parser.add_argument("--seed", type=int, default=42)
++    parser.add_argument("--output", type=str, default="./videos/offline.mp4")
++    parser.add_argument("--stats_output", type=str, default="./videos/stats_offline.json")
++    parser.add_argument("--num_gpus", type=int, default=1)
++    parser.add_argument("--enable_torch_compile", action="store_true")
++    return parser.parse_args()
++
++
++def configure_runtime(stats_output: str) -> None:
++    os.environ["FASTVIDEO_ATTENTION_BACKEND"] = "TORCH_SDPA"
++    os.environ["FASTVIDEO_FORCE_CUDNN_SDPA"] = "1"
++    os.environ["FASTVIDEO_PARITY_STATS_PATH"] = stats_output
++
++
++def main() -> None:
++    args = parse_args()
++    configure_runtime(stats_output=args.stats_output)
++
++    output_path = Path(args.output)
++    output_path.parent.mkdir(parents=True, exist_ok=True)
++    stats_path = Path(args.stats_output)
++    stats_path.parent.mkdir(parents=True, exist_ok=True)
++
++    generator = VideoGenerator.from_pretrained(
++        args.model_name,
++        num_gpus=args.num_gpus,
++        use_fsdp_inference=False,
++        text_encoder_cpu_offload=False,
++        dit_cpu_offload=False,
++        vae_cpu_offload=False,
++        pin_cpu_memory=False,
++        enable_torch_compile=args.enable_torch_compile,
++        torch_compile_kwargs={"mode": "max-autotune-no-cudagraphs"},
++    )
++
++    sampling_param = SamplingParam.from_pretrained(args.model_name)
++    sampling_param.update(
++        {
++            "seed": args.seed,
++            "output_path": str(output_path),
++            "save_video": True,
++            "return_frames": False,
++        }
++    )
++    result = generator.generate_video(args.prompt, sampling_param=sampling_param)
++    print(f"Video saved to: {result.get('video_path')}")
++
++    if not stats_path.exists():
++        raise RuntimeError(f"Expected timing stats at {stats_path}, but file was not generated")
++    with stats_path.open("r", encoding="utf-8") as f:
++        stats = json.load(f)
++    print(f"Per-block stats saved to: {stats_path} ({len(stats)} blocks)")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/fastvideo/attention/backends/sdpa.py b/fastvideo/attention/backends/sdpa.py
+index 5d9b2159..55c14263 100644
+--- a/fastvideo/attention/backends/sdpa.py
++++ b/fastvideo/attention/backends/sdpa.py
+@@ -1,5 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import os
++from contextlib import nullcontext
++
+ import torch
+ from dataclasses import dataclass
+ from fastvideo.attention.backends.abstract import (  # FlashAttentionMetadata,
+@@ -90,6 +93,12 @@ class SDPAImpl(AttentionImpl):
+         }
+         if query.shape[1] != key.shape[1]:
+             attn_kwargs["enable_gqa"] = True
+-        output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
++        force_cudnn = os.getenv("FASTVIDEO_FORCE_CUDNN_SDPA", "0") == "1"
++        if force_cudnn:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++        with context_manager:
++            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
+         output = output.transpose(1, 2)
+         return output
+diff --git a/fastvideo/pipelines/stages/causal_denoising.py b/fastvideo/pipelines/stages/causal_denoising.py
+index f6951f1d..e6fd1136 100644
+--- a/fastvideo/pipelines/stages/causal_denoising.py
++++ b/fastvideo/pipelines/stages/causal_denoising.py
+@@ -1,3 +1,6 @@
++import json
++import os
++
+ import torch  # type: ignore
+ 
+ from fastvideo.distributed import get_local_torch_device
+@@ -19,6 +22,11 @@ except ImportError:
+ 
+ logger = init_logger(__name__)
+ 
++try:
++    from flashdreams.infra.profiler import EventProfiler
++except ImportError:
++    EventProfiler = None  # type: ignore[assignment]
++
+ 
+ def _get_transformer_attr(transformer, name: str, default):
+     # Currently used only for causal KV-cache runtime settings:
+@@ -203,8 +211,15 @@ class CausalDMDDenosingStage(DenoisingStage):
+             latents[:, :, :1, :, :] = first_frame_latent
+ 
+         # DMD loop in causal blocks
++        stats_path = os.getenv("FASTVIDEO_PARITY_STATS_PATH", "").strip()
++        collect_block_stats = bool(stats_path)
++        if collect_block_stats and EventProfiler is None:
++            raise ImportError("FASTVIDEO_PARITY_STATS_PATH is set but flashdreams EventProfiler is unavailable")
++        stats_history: list[dict[str, float | int]] = []
++
+         with self.progress_bar(total=len(block_sizes) * len(timesteps)) as progress_bar:
+-            for current_num_frames in block_sizes:
++            for autoregressive_index, current_num_frames in enumerate(block_sizes):
++                block_profiler = EventProfiler() if collect_block_stats else None
+                 current_latents = latents[:, :, start_index:start_index + current_num_frames, :, :]
+                 # use BTCHW for DMD conversion routines
+                 noise_latents_btchw = current_latents.permute(0, 2, 1, 3, 4)
+@@ -306,6 +321,9 @@ class CausalDMDDenosingStage(DenoisingStage):
+                     if progress_bar is not None:
+                         progress_bar.update()
+ 
++                if block_profiler is not None:
++                    block_profiler.record("denoise")
++
+                 # Write back and advance
+                 latents[:, :, start_index:start_index + current_num_frames, :, :] = current_latents
+ 
+@@ -346,12 +364,37 @@ class CausalDMDDenosingStage(DenoisingStage):
+                         **pos_cond_kwargs,
+                     )
+ 
++                if block_profiler is not None:
++                    block_profiler.record("kv_update")
++                    stages_ms = block_profiler.sync_and_summarize()
++                    total_ms = float(sum(stages_ms.values()))
++                    total_ms_wo_finalize = total_ms - float(stages_ms.get("kv_update", 0.0))
++                    stats: dict[str, float | int] = {f"{stage}_ms": float(ms) for stage, ms in stages_ms.items()}
++                    # Keep schema aligned with parity_check output.
++                    if "decode_ms" not in stats:
++                        stats["decode_ms"] = 0.0
++                    stats["total_ms"] = total_ms
++                    stats["total_ms_wo_finalize"] = total_ms_wo_finalize
++                    if torch.cuda.is_available():
++                        device = torch.cuda.current_device()
++                        gib = 1024**3
++                        stats["mem_alloc_gib"] = torch.cuda.memory_allocated(device) / gib
++                        stats["mem_reserved_gib"] = torch.cuda.memory_reserved(device) / gib
++                        stats["mem_peak_gib"] = torch.cuda.max_memory_allocated(device) / gib
++                    stats_history.append({"autoregressive_index": autoregressive_index, **stats})
++
+                 start_index += current_num_frames
+ 
+         if boundary_timestep is not None:
+             num_frames_to_remove = self.num_frames_per_block - 1
+             latents = latents[:, :, :-num_frames_to_remove, :, :]
+ 
++        if collect_block_stats:
++            stats_dir = os.path.dirname(stats_path) or "."
++            os.makedirs(stats_dir, exist_ok=True)
++            with open(stats_path, "w", encoding="utf-8") as f:
++                json.dump(stats_history, f, indent=2)
++
+         batch.latents = latents
+         return batch
+ 
+diff --git a/fastvideo/platforms/cuda.py b/fastvideo/platforms/cuda.py
+index 775199a8..366f98d7 100644
+--- a/fastvideo/platforms/cuda.py
++++ b/fastvideo/platforms/cuda.py
+@@ -24,9 +24,10 @@ _R = TypeVar("_R")
+ 
+ pynvml = import_pynvml()  # type: ignore[no-untyped-call]
+ 
+-# pytorch 2.5 uses cudnn sdpa by default, which will cause crash on some models
+-# see https://github.com/huggingface/diffusers/issues/9704 for details
+-torch.backends.cuda.enable_cudnn_sdp(False)
++# PyTorch 2.5 may pick cuDNN SDPA by default, which can crash for some models.
++# Keep the conservative default off, but allow explicit opt-in for parity
++# benchmarking where we want to force the cuDNN backend.
++torch.backends.cuda.enable_cudnn_sdp(os.getenv("FASTVIDEO_FORCE_CUDNN_SDPA", "0") == "1")
+ 
+ 
+ def device_id_to_physical_device_id(device_id: int) -> int:

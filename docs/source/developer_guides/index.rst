@@ -16,22 +16,25 @@
 Developer Guides
 ===================================
 
-Use these guides to understand architecture, configure integrations, add new
-models, and build interactive serving workflows.
+Use these guides after the quick start to understand the runtime, choose a
+developer workflow, configure runs, build serving applications, or add a new
+model integration.
 
 Guides
 ------
 
-- :doc:`Adding a new model integration </developer_guides/new_recipes>`
-- :doc:`System overview </developer_guides/system_overview>`
-- :doc:`Configs </developer_guides/configs>`
-- :doc:`Interactive serving </developer_guides/interactive_serving>`
+- :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
+- :doc:`Config system </developer_guides/config_system>`
+- :doc:`Add a new method </developer_guides/new_integration>`
+
+.. Temporarily commented out for internal development:
+.. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
+.. - :doc:`Interactive serving </developer_guides/interactive_serving>`
 
 .. toctree::
    :hidden:
    :maxdepth: 1
 
-   new_recipes
-   system_overview
-   configs
-   interactive_serving
+   inference_pipeline_overview
+   config_system
+   new_integration

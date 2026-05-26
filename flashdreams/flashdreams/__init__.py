@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Streaming inference recipes for video diffusion models."""
+"""Streaming inference integrations for video diffusion models."""
 
 from flashdreams._version import __version__
 

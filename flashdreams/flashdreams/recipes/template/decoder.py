@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tiny latent-to-pixel decoder for the template recipe."""
+"""Tiny latent-to-pixel decoder for the template integration."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class TemplateDecoderConfig(DecoderConfig):
     """Config for the template decoder.
 
     Point-wise ``Conv3d`` mapping latent channels to output channels.
-    Real recipes replace with a VAE / TAEHV / etc.
+    Real integrations replace with a VAE / TAEHV / etc.
     """
 
     _target: type = field(default_factory=lambda: TemplateDecoder)

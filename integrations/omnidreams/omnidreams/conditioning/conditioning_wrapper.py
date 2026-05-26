@@ -110,7 +110,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
 
         Raises:
             KeyError: ``pipeline_config_name`` is not a registered Omnidreams
-                recipe.
+                integration.
             TypeError: The selected pipeline does not use
                 :class:`CosmosTransformerConfig` (the wrapper relies on its
                 ``num_views`` / ``len_t`` fields to size session state).

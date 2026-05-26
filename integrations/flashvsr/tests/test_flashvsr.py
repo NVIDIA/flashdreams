@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Smoke tests for the FlashVSR recipe.
+"""Smoke tests for the FlashVSR integration.
 
 The config-wiring tests run on every CPU CI invocation. The pipeline
 ``.setup()`` smoke (``test_flashvsr_pipeline_setup``) resolves the
@@ -309,7 +309,7 @@ def test_runner_overrides_topk_ratio_via_derive_config() -> None:
 
     Reproduces the exact ``derive_config`` shape that
     :meth:`FlashVSRRunner.run` uses for a 416x768 input on the
-    ``sparse-ratio-1.5`` recipe and verifies both the encoder dims and
+    ``sparse-ratio-1.5`` integration and verifies both the encoder dims and
     the transformer ``topk_ratio`` end up overridden.
     """
     runner_cfg = RUNNER_FLASHVSR_V1_1_SPARSE_1_5

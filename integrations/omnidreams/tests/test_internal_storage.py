@@ -18,7 +18,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from omnidreams import hf
 
 from flashdreams.core.io import internal
 
@@ -58,32 +57,6 @@ def test_use_internal_storage_falsy(
 def _reload(module_path: str):
     """Re-import a module so its ``AVAILABLE_*`` re-reads the env var."""
     return importlib.reload(importlib.import_module(module_path))
-
-
-def test_omni_dreams_hf_org_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv(hf.OMNI_DREAMS_HF_ORG_ENV_VAR, raising=False)
-
-    assert hf.omni_dreams_hf_repo("omni-dreams-models") == ("nvidia/omni-dreams-models")
-
-
-def test_omni_dreams_hf_org_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(hf.OMNI_DREAMS_HF_ORG_ENV_VAR, "nvidia-omni-dreams-lha")
-
-    assert hf.omni_dreams_hf_repo("omni-dreams-models") == (
-        "nvidia-omni-dreams-lha/omni-dreams-models"
-    )
-    assert hf.omni_dreams_hf_url(
-        "omni-dreams-samples",
-        "tree/main/data/single_view",
-        repo_type="dataset",
-    ) == (
-        "https://huggingface.co/datasets/nvidia-omni-dreams-lha/"
-        "omni-dreams-samples/tree/main/data/single_view"
-    )
 
 
 def test_wan_vae_paths_respect_env_var(

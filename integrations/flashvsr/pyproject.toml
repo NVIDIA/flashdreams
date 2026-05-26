@@ -25,8 +25,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "flashdreams",
+    "grpcio>=1.80",
     "mediapy>=1.1",
     "opencv-python>=4.8",
+    "Pillow>=10",
+    "protobuf>=6.31.1",
     "block-sparse-attn==0.0.2",
 ]
 
@@ -42,8 +45,14 @@ block-sparse-attn = { git = "https://github.com/mit-han-lab/Block-Sparse-Attenti
 
 [project.optional-dependencies]
 dev = [
+    "grpcio-tools>=1.80",
     "pytest>=8.0",
 ]
+
+[project.scripts]
+flashvsr-grpc-server = "flashvsr.grpc.uplift_server:main"
+flashvsr-grpc-client = "flashvsr.grpc.uplift_client:main"
+flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

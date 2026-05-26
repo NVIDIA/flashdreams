@@ -41,7 +41,7 @@ dependencies = [
     # Security floor for botocore/requests transitive use.
     "urllib3>=2.7.0",
     # tyro powers the ``flashdreams-run`` console script (subcommand
-    # union over the recipe registry, per-field CLI overrides), so it
+    # union over the integration registry, per-field CLI overrides), so it
     # has to ship as a runtime dependency, not a dev-only one.
     "tyro>=0.8",
 
@@ -61,7 +61,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# Unified CLI over every registered recipe (in-tree + plugin-discovered).
+# Unified CLI over every registered integration (in-tree + plugin-discovered).
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"

@@ -160,16 +160,28 @@ uv sync --extra=cu130
 
 # ----------------------------------------------------------- inference T2V
 echo "[run] T2V: assets/base/robot_welding.json -> outputs/base_text2world"
+export COSMOS_PARITY_STATS_PATH="outputs/base_text2world/step_stats.json"
+export FORCE_CUDNN_ATTN=1
+export COSMOS_FORCE_TORCH_ATTN=1
+export COSMOS_FORCE_TORCH_COMPILE=1
+export COSMOS_TORCH_COMPILE_MODE=default
 uv run --extra=cu130 python examples/inference.py \
     -i assets/base/robot_welding.json \
     -o outputs/base_text2world \
     --inference-type=text2world \
-    --model=2B/post-trained
+    --model=2B/post-trained \
+    --disable-guardrails \
+    --num-output-frames=93 \
+    --resolution=720,1280
 
-# ----------------------------------------------------------- inference I2V
-echo "[run] I2V: assets/base/robot_welding.json -> outputs/base_image2world"
-uv run --extra=cu130 python examples/inference.py \
-    -i assets/base/robot_welding.json \
-    -o outputs/base_image2world \
-    --inference-type=image2world \
-    --model=2B/post-trained
+# ----------------------------------------------------------- inference I2V (disabled for apples-to-apples T2V perf)
+# echo "[run] I2V: assets/base/robot_welding.json -> outputs/base_image2world"
+# export COSMOS_PARITY_STATS_PATH="outputs/base_image2world/step_stats.json"
+# uv run --extra=cu130 python examples/inference.py \
+#     -i assets/base/robot_welding.json \
+#     -o outputs/base_image2world \
+#     --inference-type=image2world \
+#     --model=2B/post-trained \
+#     --disable-guardrails \
+#     --num-output-frames=93 \
+#     --resolution=720,1280

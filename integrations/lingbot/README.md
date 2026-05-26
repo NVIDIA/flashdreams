@@ -17,12 +17,12 @@ limitations under the License.
 
 # flashdreams-lingbot
 
-Lingbot-World streaming camera-control I2V integration + a minimal WebRTC
+LingBot-World streaming camera-control I2V integration + a minimal WebRTC
 demo server, packaged as a [`flashdreams`](../..) plugin, in a
 standalone repo.
 
 This is a worked example of the
-[Adding a new model integration](../../docs/source/developer_guides/new_recipes.rst)
+[Add a new method](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/new_integration.html)
 developer-guide flow, extended with a per-plugin runtime server.
 
 ## Shipped slugs

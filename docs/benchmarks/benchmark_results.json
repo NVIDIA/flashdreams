@@ -173,7 +173,7 @@
     {
       "benchmark_id": "lingbot-block6-h100-flashdreams-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "H100",
       "parallelism": "4xGPU",
       "method": "flashdreams",
@@ -194,7 +194,7 @@
     {
       "benchmark_id": "lingbot-block6-h100-official-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "H100",
       "parallelism": "4xGPU",
       "method": "official",
@@ -215,7 +215,7 @@
     {
       "benchmark_id": "lingbot-block6-gb200-flashdreams-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB200",
       "parallelism": "4xGPU",
       "method": "flashdreams",
@@ -236,7 +236,7 @@
     {
       "benchmark_id": "lingbot-block6-gb200-official-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB200",
       "parallelism": "4xGPU",
       "method": "official",
@@ -257,7 +257,7 @@
     {
       "benchmark_id": "lingbot-block6-gb300-flashdreams-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB300",
       "parallelism": "4xGPU",
       "method": "flashdreams",
@@ -278,7 +278,7 @@
     {
       "benchmark_id": "lingbot-block6-gb300-official-4gpu",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB300",
       "parallelism": "4xGPU",
       "method": "official",
@@ -299,7 +299,7 @@
     {
       "benchmark_id": "lingbot-block6-gb300-fastvideo",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB300",
       "parallelism": "4xGPU",
       "method": "fastvideo",
@@ -320,7 +320,7 @@
     {
       "benchmark_id": "lingbot-block6-gb300-lightx2v",
       "workload": "lingbot_world_block6",
-      "model": "Lingbot-World Wan 14B",
+      "model": "LingBot-World Wan 14B",
       "hardware": "GB300",
       "parallelism": "4xGPU",
       "method": "lightx2v",

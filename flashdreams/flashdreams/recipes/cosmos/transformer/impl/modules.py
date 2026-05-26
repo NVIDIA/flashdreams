@@ -17,13 +17,14 @@
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention
+from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 
 
@@ -236,6 +237,7 @@ class MultiHeadAttention(nn.Module):
         context_dim: int | None = None,
         n_heads: int = 8,
         head_dim: int = 64,
+        cp_method: Literal["ring", "ulysses"] = "ring",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -262,7 +264,9 @@ class MultiHeadAttention(nn.Module):
         self.q_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
         self.k_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
 
-        self.attn_op = RingAttention(qkv_format="bshd", backend="cudnn")
+        self.attn_op = ContextParallelAttention(
+            qkv_format="bshd", backend="cudnn", method=cp_method
+        )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Configure context-parallel process group for the underlying attention op."""
@@ -475,6 +479,7 @@ class Block(nn.Module):
         mlp_ratio: float = 4.0,
         use_adaln_lora: bool = False,
         adaln_lora_dim: int = 256,
+        cp_method: Literal["ring", "ulysses"] = "ring",
     ) -> None:
         super().__init__()
         self.x_dim = x_dim
@@ -488,6 +493,7 @@ class Block(nn.Module):
             context_dim=None,
             n_heads=num_heads,
             head_dim=x_dim // num_heads,
+            cp_method=cp_method,
         )
 
         # Cross-attention
@@ -499,6 +505,7 @@ class Block(nn.Module):
             context_dim=context_dim,
             n_heads=num_heads,
             head_dim=x_dim // num_heads,
+            cp_method=cp_method,
         )
 
         # MLP

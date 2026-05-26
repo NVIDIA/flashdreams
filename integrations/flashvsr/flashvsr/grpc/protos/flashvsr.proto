@@ -1,0 +1,148 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package flashvsr;
+
+// ---------------------------------------------------------------------------
+// FlashVSR gRPC Service
+//
+// Streaming video super-resolution (2× or 4×) using a diffusion-based model.
+// Two usage patterns:
+//
+//   Unary chunk-by-chunk flow (best for integration into existing pipelines):
+//     1. start_session  — allocates a fresh KV-cache for one video
+//     2. upscale_chunk  — send one chunk at a time (T=13 first, T=16 subsequent)
+//     3. end_session    — frees server-side state
+//
+//   Bidirectional streaming (lowest latency, single RPC for the full video):
+//     upscale_video     — first message carries session config; server replies
+//                        to each chunk immediately so the client can pipeline
+//
+//   Health probe:
+//     get_status        — liveness/readiness check
+// ---------------------------------------------------------------------------
+
+service FlashVSR {
+  rpc get_status    (StatusRequest)         returns (StatusResponse);
+  rpc start_session (StartSessionRequest)   returns (StartSessionResponse);
+  rpc end_session   (EndSessionRequest)     returns (EndSessionResponse);
+  rpc upscale_chunk (UpscaleChunkRequest)   returns (UpscaleChunkResponse);
+  rpc upscale_video (stream UpscaleChunkRequest) returns (stream UpscaleChunkResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Status RPC
+// ---------------------------------------------------------------------------
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool            ready           = 1;  // true once the model is loaded
+  string          device          = 2;  // e.g. "cuda:0"
+  string          model_name      = 3;  // e.g. "FlashVSR-v1.1"
+  repeated string active_sessions = 4;  // currently open session IDs
+}
+
+// ---------------------------------------------------------------------------
+// Session management (used with the unary upscale_chunk flow)
+// ---------------------------------------------------------------------------
+
+message StartSessionRequest {
+  // Desired session ID. Leave empty to let the server generate a UUID.
+  string session_id   = 1;
+
+  // Input video resolution (required).
+  int32  input_height = 2;
+  int32  input_width  = 3;
+
+  // Upscale factor: 2 or 4.  Default (0) → 2.
+  int32  scale        = 4;
+
+  // Block-sparse attention ratio: 1.5 = faster, 2.0 = more stable.
+  // Default (0.0) uses the server's configured sparse ratio.
+  float  sparse_ratio = 5;
+}
+
+message StartSessionResponse {
+  string session_id = 1;  // the session ID to use in subsequent upscale_chunk calls
+  bool   success    = 2;
+  string error      = 3;  // non-empty on failure
+}
+
+message EndSessionRequest {
+  string session_id = 1;
+}
+
+message EndSessionResponse {
+  bool success = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Chunk messages (shared by upscale_chunk and upscale_video)
+// ---------------------------------------------------------------------------
+
+enum FrameEncoding {
+  FRAME_ENCODING_RAW_RGB = 0;
+  FRAME_ENCODING_JPEG    = 1;
+}
+
+// One model chunk sent by the client.
+// Raw frame data is uint8 RGB, row-major:
+//   num_frames × height × width × 3 bytes.
+// JPEG frame data is one encoded RGB image per input frame.
+message UpscaleChunkRequest {
+  // For upscale_chunk (unary): the session ID from start_session.
+  // For upscale_video (streaming): ignored after the first message.
+  string session_id = 1;
+
+  // Session config — required in the first upscale_video message (or via
+  // start_session for the unary flow).  Ignored on subsequent streaming msgs.
+  int32  input_height = 2;  // 0 → infer from frame height
+  int32  input_width  = 3;  // 0 → infer from frame width
+  int32  scale        = 4;  // 0 → 2
+  float  sparse_ratio = 5;  // 0 → server default
+
+  // Input frame payload. ``frame_encoding`` defaults to RAW_RGB for backward
+  // compatibility with older clients.
+  bytes         frames_rgb     = 6;  // used when frame_encoding=RAW_RGB
+  int32         num_frames     = 7;  // T — must be 13 (first chunk) or 16 (subsequent)
+  int32         height         = 8;  // input frame height in pixels
+  int32         width          = 9;  // input frame width in pixels
+  int32         chunk_index    = 10; // 0-based chunk index within this video
+  FrameEncoding frame_encoding = 11;
+  repeated bytes frames_jpeg   = 12; // used when frame_encoding=JPEG
+
+  // If true, the server should process the chunk but omit output frame bytes
+  // from the response. This is intended for browser-viewer mode.
+  bool          display_only   = 13;
+}
+
+// One model chunk returned by the server.
+// Frame data is raw uint8 RGB, row-major: num_frames × height × width × 3 bytes.
+// If frames_omitted is true, frames_rgb is intentionally empty and only metadata
+// is returned.
+message UpscaleChunkResponse {
+  string session_id  = 1;
+  bytes  frames_rgb  = 2;  // num_frames * height * width * 3 bytes, uint8
+  int32  num_frames  = 3;
+  int32  height      = 4;  // output frame height (input_height × scale)
+  int32  width       = 5;  // output frame width  (input_width  × scale)
+  int32  chunk_index = 6;
+  float  elapsed_ms  = 7;  // server-side inference time for this chunk
+  string error       = 8;  // non-empty on failure
+  bool   frames_omitted = 9; // true when output bytes were intentionally omitted
+}

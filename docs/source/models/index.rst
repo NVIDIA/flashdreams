@@ -16,7 +16,8 @@
 Models
 ===================================
 
-FlashDreams supports multiple world/video model families behind one unified CLI.
+FlashDreams supports multiple world/video model families behind one unified CLI
+and programmatic pipeline interface.
 
 Running a model
 ---------------
@@ -38,14 +39,16 @@ Implemented models
 - :doc:`OmniDreams </models/omnidreams>`
 - :doc:`Self-Forcing </models/self_forcing>`
 - :doc:`Causal-Forcing </models/causal_forcing>`
-- :doc:`Causal Wan2.2 </models/fastvideo_wan22>`
-- :doc:`Lingbot-World </models/lingbot_world>`
+- :doc:`Causal Wan2.2 </models/causal_wan22>`
+- :doc:`LingBot-World </models/lingbot_world>`
+- :doc:`FlashVSR </models/flashvsr>`
+- :doc:`Cosmos-Predict2.5 </models/cosmos_predict2>`
 - :doc:`Wan2.1 </models/wan21>`
 
 Adding your own model
 ---------------------
 
-See :doc:`/developer_guides/new_recipes` for model integration and registration
+See :doc:`/developer_guides/new_integration` for model integration and registration
 guidance.
 
 .. toctree::
@@ -55,6 +58,8 @@ guidance.
    omnidreams
    self_forcing
    causal_forcing
-   fastvideo_wan22
+   causal_wan22
    lingbot_world
+   flashvsr
+   cosmos_predict2
    wan21

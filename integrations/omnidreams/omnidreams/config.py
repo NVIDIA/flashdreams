@@ -30,7 +30,6 @@ from typing import cast
 from omnidreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
 )
-from omnidreams.hf import omni_dreams_hf_url
 from omnidreams.pipeline import (
     OmnidreamsPipelineConfig,
 )
@@ -74,12 +73,12 @@ _INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
 }
 
 # HF mirrors override the s3 URLs above for slugs that have been mirrored.
-# Unmirrored slugs fall through to s3 so recipe configs still import; mirror
+# Unmirrored slugs fall through to s3 so integration configs still import; mirror
 # new slugs here as they land on HF.
 _PUBLIC_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
-    "1view-vae-chunk2": omni_dreams_hf_url(
-        "omni-dreams-models",
-        "resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt",
+    "1view-vae-chunk2": (
+        "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/"
+        "single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt"
     ),
 }
 
@@ -94,7 +93,7 @@ AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = (
 """Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
 
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsPipelineConfig(
-    recipe_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+    name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
     text_encoder=CosmosReason1TextEncoderConfig(),
     image_encoder=WanVAEEncoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
@@ -114,6 +113,7 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsPipelineConfig(
                 # 16 channels: Wan-VAE HDMap branch.
                 additional_concat_ch=16,
                 enable_cross_view_attn=False,
+                cp_method="ring",
             ),
             checkpoint_path=AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS["1view-vae-chunk2"],
             batch_shape=(1,),
@@ -151,7 +151,7 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-        recipe_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
         image_encoder=dict(use_compile=True, use_cuda_graph=True),
         encoder=dict(use_compile=True, use_cuda_graph=True),
         decoder=dict(use_compile=True, use_cuda_graph=True),
@@ -164,7 +164,7 @@ SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-        recipe_name="omnidreams-sv-2steps-chunk2-loc6-vae-vae",
+        name="omnidreams-sv-2steps-chunk2-loc6-vae-vae",
         image_encoder=dict(checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]),
         encoder=dict(checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]),
         decoder=WanVAEDecoderConfig(
@@ -180,7 +180,7 @@ SV_2STEPS_CHUNK3_LOC6_VAE_VAE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
-        recipe_name="omnidreams-sv-2steps-chunk3-loc6-vae-vae",
+        name="omnidreams-sv-2steps-chunk3-loc6-vae-vae",
         diffusion_model=dict(
             transformer=dict(
                 checkpoint_path=AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS[
@@ -201,7 +201,7 @@ SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-        recipe_name="omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae",
+        name="omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae",
         image_encoder=dict(checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]),
         encoder=PixelShuffleVAEEncoderConfig(),
         diffusion_model=dict(
@@ -229,7 +229,7 @@ MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
-        recipe_name="omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae",
+        name="omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae",
         diffusion_model=dict(
             transformer=dict(
                 network=dict(enable_cross_view_attn=True),
@@ -245,7 +245,7 @@ MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
 
 
 SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = OmnidreamsPipelineConfig(
-    recipe_name="omnidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
+    name="omnidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
     text_encoder=CosmosReason1TextEncoderConfig(),
     image_encoder=WanVAEEncoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
@@ -264,6 +264,7 @@ SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = OmnidreamsPi
             network=CosmosDiTNetworkConfig(
                 additional_concat_ch=16,
                 enable_cross_view_attn=False,
+                cp_method="ring",
             ),
             checkpoint_path=AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS[
                 "1view-diffusion-forcing-chunk2"
@@ -297,7 +298,7 @@ SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
-        recipe_name="omnidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
+        name="omnidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m",
         diffusion_model=dict(
             seed=1,
             context_noise=0,
@@ -333,7 +334,7 @@ EXPERIMENT1_BASELINE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
-        recipe_name="omnidreams-experiment1-baseline",
+        name="omnidreams-experiment1-baseline",
     ),
 )  # ty:ignore[redundant-cast]
 
@@ -341,7 +342,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
-        recipe_name="omnidreams-experiment1-skip-finalize-kv-cache",
+        name="omnidreams-experiment1-skip-finalize-kv-cache",
         diffusion_model=dict(
             transformer=dict(skip_finalize_kv_cache=True),
         ),
@@ -352,7 +353,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350 = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
-        recipe_name="omnidreams-experiment1-skip-finalize-kv-cache-noise350",
+        name="omnidreams-experiment1-skip-finalize-kv-cache-noise350",
         diffusion_model=dict(
             scheduler=dict(denoising_timesteps=[1000, 350]),
         ),
@@ -363,7 +364,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250 = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
-        recipe_name="omnidreams-experiment1-skip-finalize-kv-cache-noise250",
+        name="omnidreams-experiment1-skip-finalize-kv-cache-noise250",
         diffusion_model=dict(
             scheduler=dict(denoising_timesteps=[1000, 250]),
         ),
@@ -374,7 +375,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150 = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
-        recipe_name="omnidreams-experiment1-skip-finalize-kv-cache-noise150",
+        name="omnidreams-experiment1-skip-finalize-kv-cache-noise150",
         diffusion_model=dict(
             scheduler=dict(denoising_timesteps=[1000, 150]),
         ),
@@ -385,7 +386,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = cast(
     OmnidreamsPipelineConfig,
     derive_config(
         EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
-        recipe_name="omnidreams-experiment1-skip-finalize-kv-cache-noise100",
+        name="omnidreams-experiment1-skip-finalize-kv-cache-noise100",
         diffusion_model=dict(
             scheduler=dict(denoising_timesteps=[1000, 100]),
         ),
@@ -394,7 +395,7 @@ EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = cast(
 
 
 OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
-    cfg.recipe_name: cfg
+    cfg.name: cfg
     for cfg in (
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
@@ -412,10 +413,10 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
         EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100,
     )
 }
-"""All shipped Omnidreams variants, keyed by ``recipe_name``."""
+"""All shipped Omnidreams variants, keyed by ``name``."""
 
 
-## Per-variant runner-config literals (slug == ``recipe_name``).
+## Per-variant runner-config literals (slug == ``name``).
 
 _DEFAULT_PROMPT_1V = (
     "Driving scene from a front-facing car camera. Urban environment with roads, "
@@ -435,14 +436,14 @@ _DEFAULT_PROMPT_4V = (
 )
 
 RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.recipe_name,
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.name,
     description="Single-view 2-step distilled chunk2 (LightVAE + LightTAE).",
     pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.recipe_name,
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.name,
     description=(
         "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
     ),
@@ -451,35 +452,35 @@ RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = OmnidreamsRunnerConfig(
 )
 
 RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK2_LOC6_VAE_VAE.recipe_name,
+    runner_name=SV_2STEPS_CHUNK2_LOC6_VAE_VAE.name,
     description="Single-view chunk2 with the full Wan VAE on encoder + decoder.",
     pipeline=SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK3_LOC6_VAE_VAE.recipe_name,
+    runner_name=SV_2STEPS_CHUNK3_LOC6_VAE_VAE.name,
     description="Single-view chunk3 (len_t=3) with the full Wan VAE.",
     pipeline=SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.recipe_name,
+    runner_name=SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.name,
     description="Single-view chunk4 with the PixelShuffle HDMap encoder + LightTAE.",
     pipeline=SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = OmnidreamsRunnerConfig(
-    runner_name=MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.recipe_name,
+    runner_name=MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE.name,
     description="4-camera multi-view chunk4 (PixelShuffle HDMap + LightTAE).",
     pipeline=MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
     prompt=_DEFAULT_PROMPT_4V,
 )
 
 RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = OmnidreamsRunnerConfig(
-    runner_name=SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.recipe_name,
+    runner_name=SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.name,
     description=(
         "Teacher: single-view 35-step UniPC chunk2 (Cosmos2 2B, 720p, CFG=3.0)."
     ),
@@ -488,7 +489,7 @@ RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = Omnid
 )
 
 RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = OmnidreamsRunnerConfig(
-    runner_name=SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.recipe_name,
+    runner_name=SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M.name,
     description=(
         "Teacher: single-view 35-step bidirectional chunk48 (one rollout, 720p)."
     ),
@@ -497,42 +498,42 @@ RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = Omni
 )
 
 RUNNER_EXPERIMENT1_BASELINE = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_BASELINE.recipe_name,
+    runner_name=EXPERIMENT1_BASELINE.name,
     description="Experiment-1 baseline (re-publishes the chunk2 perf chassis).",
     pipeline=EXPERIMENT1_BASELINE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE.recipe_name,
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE.name,
     description="Experiment-1: skip-finalize-kv-cache ablation.",
     pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350 = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350.recipe_name,
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350.name,
     description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 350].",
     pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250 = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250.recipe_name,
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250.name,
     description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 250].",
     pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150 = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150.recipe_name,
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150.name,
     description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 150].",
     pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100 = OmnidreamsRunnerConfig(
-    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100.recipe_name,
+    runner_name=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100.name,
     description="Experiment-1: skip-finalize + denoising_timesteps=[1000, 100].",
     pipeline=EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100,
     prompt=_DEFAULT_PROMPT_1V,

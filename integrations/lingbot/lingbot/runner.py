@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lingbot-World camera-control I2V runner classes."""
+"""LingBot-World camera-control I2V runner classes."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ import torch
 from einops import rearrange
 from loguru import logger
 
-from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
@@ -55,38 +55,53 @@ _INTRINSICS_REFERENCE_WIDTH = 832
 # ``integrations/`` -> repo root. Keep this in sync with the file's nesting
 # depth (``parents[3]``).
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/lingbot_world"
-"""S3 prefix the bundled prompt + first-frame + camera arrays are pulled from."""
+EXAMPLE_DATA_BASE_URL = (
+    "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples"
+)
+"""HTTP base URL where bundled example folders are downloaded from."""
 
 EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/lingbot_world"
-"""Local cache the S3 sync writes into and the runner reads from."""
+"""Local cache root where downloaded example folders are stored."""
 
-S3_CREDENTIAL_PATH = _REPO_ROOT / "credentials/s3_checkpoint.secret"
-"""Default S3 credentials file for the bundled example data sync."""
+EXAMPLE_DATA_FILENAMES = (
+    "image.jpg",
+    "poses.npy",
+    "intrinsics.npy",
+    "prompt.txt",
+)
+"""Example files required by :class:`LingbotWorldRunner`'s demo mode."""
+
+EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 5)
+"""Supported upstream example indices currently hosted under ``examples/``."""
 
 
-def _ensure_example_data_synced(*, is_rank_zero: bool) -> None:
-    """Mirror the bundled S3 prefix locally on rank 0; barrier other ranks."""
-    if is_rank_zero:
-        assert S3_CREDENTIAL_PATH.exists(), (
-            f"S3 credential file not found at {S3_CREDENTIAL_PATH}. "
-            "Either populate it (see README) or unset --example-data and "
-            "pass --image-path / --pose-path / --intrinsic-path explicitly."
-        )
-    sync_s3_dir_to_local(
-        s3_dir=EXAMPLE_DATA_DIR_S3,
-        s3_credential_path=str(S3_CREDENTIAL_PATH),
-        cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
-        max_workers=10,
-        show_progress=True,
-        verify_checksum=True,
-        desc="Syncing lingbot_world example data from S3",
+def _example_data_dirname(example_idx: int) -> str:
+    """Format ``example_idx`` into the upstream folder naming convention."""
+    assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
+        f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
     )
+    return f"{example_idx:02d}"
+
+
+def _ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> Path:
+    """Download bundled GitHub example files on rank 0; barrier other ranks."""
+    example_dirname = _example_data_dirname(example_idx)
+    cache_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
+    if is_rank_zero:
+        for filename in EXAMPLE_DATA_FILENAMES:
+            download_to_cache(
+                f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/{filename}",
+                cache_dir=cache_dir,
+                filename=filename,
+            )
+    if torch.distributed.is_initialized():
+        torch.distributed.barrier()
+    return cache_dir
 
 
 @dataclass(kw_only=True)
 class LingbotWorldRunnerConfig(RunnerConfig):
-    """Runner config for every shipped Lingbot-World variant."""
+    """Runner config for every shipped LingBot-World variant."""
 
     _target: type = field(default_factory=lambda: LingbotWorldRunner)
 
@@ -123,11 +138,14 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     """Output video frame rate. Lingbot was trained at 16fps."""
 
     example_data: bool = False
-    """When ``True``, lazy-sync the bundled S3 example assets into
+    """When ``True``, lazy-download bundled GitHub example assets into
     ``assets/example_data/lingbot_world/`` and fill ``image_path`` /
     ``pose_path`` / ``intrinsic_path`` / ``prompt_path`` from the
     bundled defaults. Use for the README demo; pass explicit paths
     for production runs."""
+
+    example_idx: int = 0
+    """Example folder index under ``.../examples/``; allowed: ``0, 1, 2, 5``."""
 
 
 class LingbotWorldRunner(
@@ -151,17 +169,20 @@ class LingbotWorldRunner(
         return text[0].strip()
 
     def _fill_example_data_defaults(self) -> None:
-        """Lazy-sync bundled assets and fill empty path defaults in-place."""
+        """Lazy-download bundled assets and fill empty path defaults in-place."""
         cfg = self.config
-        _ensure_example_data_synced(is_rank_zero=self.is_rank_zero)
+        example_dir = _ensure_example_data_downloaded(
+            is_rank_zero=self.is_rank_zero,
+            example_idx=cfg.example_idx,
+        )
         if cfg.image_path is None:
-            cfg.image_path = EXAMPLE_DATA_DIR_LOCAL / "image.jpg"
+            cfg.image_path = example_dir / "image.jpg"
         if cfg.pose_path is None:
-            cfg.pose_path = EXAMPLE_DATA_DIR_LOCAL / "poses.npy"
+            cfg.pose_path = example_dir / "poses.npy"
         if cfg.intrinsic_path is None:
-            cfg.intrinsic_path = EXAMPLE_DATA_DIR_LOCAL / "intrinsics.npy"
+            cfg.intrinsic_path = example_dir / "intrinsics.npy"
         if not cfg.prompt and cfg.prompt_path is None:
-            cfg.prompt_path = EXAMPLE_DATA_DIR_LOCAL / "prompt.txt"
+            cfg.prompt_path = example_dir / "prompt.txt"
 
     def run(self) -> None:
         """Drive an AR rollout until the camera stream is exhausted."""

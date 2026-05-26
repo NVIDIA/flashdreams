@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public Wan recipe surface for integration plugins."""
+"""Public Wan integration surface for integration plugins."""
 
 from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (

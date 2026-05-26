@@ -18,7 +18,7 @@
 The full numerics / GPU tests live in the host ``flashdreams`` repo
 (they need GPU + checkpoints). These smoke tests just confirm the
 plugin is wired correctly: importable, every ``runner_name`` mirrors
-its ``pipeline.recipe_name``, descriptions are non-empty, and the
+its ``pipeline.name``, descriptions are non-empty, and the
 entry-point declarations in ``pyproject.toml`` match the
 ``causal_forcing.config`` ``RUNNER_*`` literals exactly.
 """
@@ -46,14 +46,14 @@ def test_runners_dict_is_non_empty() -> None:
     assert RUNNER_CONFIGS, "RUNNER_CONFIGS is empty"
 
 
-def test_runner_name_mirrors_pipeline_recipe_name() -> None:
-    """``runner_name`` must equal ``pipeline.recipe_name`` per the CLI contract."""
+def test_runner_name_mirrors_pipeline_name() -> None:
+    """``runner_name`` must equal ``pipeline.name`` per the CLI contract."""
     drifted = {
-        slug: (cfg.runner_name, cfg.pipeline.recipe_name)
+        slug: (cfg.runner_name, cfg.pipeline.name)
         for slug, cfg in RUNNER_CONFIGS.items()
-        if cfg.runner_name != cfg.pipeline.recipe_name
+        if cfg.runner_name != cfg.pipeline.name
     }
-    assert not drifted, f"runner_name != pipeline.recipe_name: {drifted}"
+    assert not drifted, f"runner_name != pipeline.name: {drifted}"
 
 
 def test_runners_have_descriptions() -> None:

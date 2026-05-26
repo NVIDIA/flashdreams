@@ -137,6 +137,7 @@ def test_initialize_distributed_rejects_cpu_default_device(
 def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_manager = _FakeSessionManager()
     runtime_configs = []
+    request_session_urls = []
 
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("WORLD_SIZE", raising=False)
@@ -152,7 +153,14 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
         return fake_manager
 
     monkeypatch.setattr(server, "LingbotWebRTCSessionManager", _make_manager)
-    monkeypatch.setattr(server, "create_app", lambda session_manager: object())
+    monkeypatch.setattr(server, "get_external_ip", lambda: "203.0.113.10")
+
+    def _create_app(*, session_manager, request_session_url=None):
+        assert session_manager is fake_manager
+        request_session_urls.append(request_session_url)
+        return object()
+
+    monkeypatch.setattr(server, "create_app", _create_app)
     monkeypatch.setattr(server.web, "run_app", lambda app, host, port: None)
     monkeypatch.setattr(server.torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(server.dist, "is_initialized", lambda: False)
@@ -163,6 +171,7 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fake_manager.wait_called is False
     assert runtime_configs[0].device == "cuda:2"
     assert runtime_configs[0].context_parallel_size == 1
+    assert request_session_urls == ["http://203.0.113.10:8080/request_session"]
 
 
 def test_main_worker_rank_waits_for_termination(

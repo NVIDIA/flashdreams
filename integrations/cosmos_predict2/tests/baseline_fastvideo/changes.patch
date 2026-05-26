@@ -1,0 +1,53 @@
+diff --git a/examples/inference/basic/basic_cosmos2_5_t2w.py b/examples/inference/basic/basic_cosmos2_5_t2w.py
+index 2296ca7b..0c053c68 100644
+--- a/examples/inference/basic/basic_cosmos2_5_t2w.py
++++ b/examples/inference/basic/basic_cosmos2_5_t2w.py
+@@ -12,12 +12,19 @@ def main():
+         use_fsdp_inference=False,  # set True if GPU is out of memory
+         dit_cpu_offload=False,
+         vae_cpu_offload=False,
+-        text_encoder_cpu_offload=True,
+-        pin_cpu_memory=True,
++        text_encoder_cpu_offload=False,
++        pin_cpu_memory=False,
++        enable_torch_compile=True,
++        torch_compile_kwargs={"mode": "max-autotune-no-cudagraphs"},
+     )
+ 
+     # Load default sampling parameters (negative_prompt, resolution, steps, etc.)
+     sampling_param = SamplingParam.from_pretrained(model_path)
++    sampling_param.num_frames = 93
++    sampling_param.height = 720
++    sampling_param.width = 1280
++    sampling_param.fps = 16
++    sampling_param.guidance_scale = 7.0
+ 
+     prompt = (
+         "A high-definition video captures the precision of robotic welding in an industrial setting. "
+diff --git a/fastvideo/attention/backends/sdpa.py b/fastvideo/attention/backends/sdpa.py
+index 5d9b2159..55c14263 100644
+--- a/fastvideo/attention/backends/sdpa.py
++++ b/fastvideo/attention/backends/sdpa.py
+@@ -1,5 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import os
++from contextlib import nullcontext
++
+ import torch
+ from dataclasses import dataclass
+ from fastvideo.attention.backends.abstract import (  # FlashAttentionMetadata,
+@@ -90,6 +93,12 @@ class SDPAImpl(AttentionImpl):
+         }
+         if query.shape[1] != key.shape[1]:
+             attn_kwargs["enable_gqa"] = True
+-        output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
++        force_cudnn = os.getenv("FASTVIDEO_FORCE_CUDNN_SDPA", "0") == "1"
++        if force_cudnn:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++        with context_manager:
++            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
+         output = output.transpose(1, 2)
+         return output

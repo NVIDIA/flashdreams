@@ -71,11 +71,19 @@ def find_pyproject_files() -> list[Path]:
 
 def should_skip(path: Path, text: str) -> bool:
     """Return True if this pyproject.toml should not be version-synced."""
+    rel_path = path.relative_to(REPO_ROOT)
     # Skip the root workspace config (has no [project] section).
     if path == REPO_ROOT / "pyproject.toml":
         return True
     # Skip the canonical source itself.
     if path == REPO_ROOT / "flashdreams" / "pyproject.toml":
+        return True
+    # Skip integration test harnesses (e.g. integrations/*/tests/**).
+    if (
+        len(rel_path.parts) >= 3
+        and rel_path.parts[0] == "integrations"
+        and rel_path.parts[2] == "tests"
+    ):
         return True
     # Skip packages with independent versioning.
     name_match = _TOML_NAME_RE.search(text)

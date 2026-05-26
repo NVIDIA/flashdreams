@@ -1,0 +1,207 @@
+diff --git a/generate.py b/generate.py
+index c841c19..df1830f 100644
+--- a/generate.py
++++ b/generate.py
+@@ -263,6 +263,24 @@ def _init_logging(rank):
+         logging.basicConfig(level=logging.ERROR)
+ 
+ 
++def _maybe_force_torch_compile(pipeline, pipeline_name):
++    force_torch_compile = os.getenv("WAN_FORCE_TORCH_COMPILE", "0") == "1"
++    if not force_torch_compile:
++        return
++
++    if not hasattr(torch, "compile"):
++        raise RuntimeError("WAN_FORCE_TORCH_COMPILE=1 but torch.compile is unavailable.")
++
++    if not hasattr(pipeline, "model"):
++        raise RuntimeError(
++            f"WAN_FORCE_TORCH_COMPILE=1 but {pipeline_name} has no 'model' attribute."
++        )
++
++    compile_mode = os.getenv("WAN_TORCH_COMPILE_MODE", "default")
++    logging.info("Compiling %s DiT with torch.compile(mode=%s).", pipeline_name, compile_mode)
++    pipeline.model = torch.compile(pipeline.model, mode=compile_mode)
++
++
+ def generate(args):
+     rank = int(os.getenv("RANK", 0))
+     world_size = int(os.getenv("WORLD_SIZE", 1))
+@@ -367,6 +385,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_t2v, "WanT2V")
+ 
+         logging.info(
+             f"Generating {'image' if 't2i' in args.task else 'video'} ...")
+@@ -424,6 +443,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_i2v, "WanI2V")
+ 
+         logging.info("Generating video ...")
+         video = wan_i2v.generate(
+@@ -482,6 +502,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_flf2v, "WanFLF2V")
+ 
+         logging.info("Generating video ...")
+         video = wan_flf2v.generate(
+@@ -530,6 +551,7 @@ def generate(args):
+             use_usp=(args.ulysses_size > 1 or args.ring_size > 1),
+             t5_cpu=args.t5_cpu,
+         )
++        _maybe_force_torch_compile(wan_vace, "WanVace")
+ 
+         src_video, src_mask, src_ref_images = wan_vace.prepare_source(
+             [args.src_video], [args.src_mask], [
+diff --git a/wan/modules/__init__.py b/wan/modules/__init__.py
+index a8172ca..c9a474c 100644
+--- a/wan/modules/__init__.py
++++ b/wan/modules/__init__.py
+@@ -1,4 +1,4 @@
+-from .attention import flash_attention
++from .attention import attention, flash_attention
+ from .model import WanModel
+ from .t5 import T5Decoder, T5Encoder, T5EncoderModel, T5Model
+ from .tokenizers import HuggingfaceTokenizer
+@@ -14,5 +14,6 @@ __all__ = [
+     'T5Decoder',
+     'T5EncoderModel',
+     'HuggingfaceTokenizer',
++    'attention',
+     'flash_attention',
+ ]
+diff --git a/wan/modules/attention.py b/wan/modules/attention.py
+index 4dbbe03..8a8de49 100644
+--- a/wan/modules/attention.py
++++ b/wan/modules/attention.py
+@@ -1,4 +1,7 @@
+ # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
++import os
++from contextlib import nullcontext
++
+ import torch
+ 
+ try:
+@@ -15,6 +18,12 @@ except ModuleNotFoundError:
+ 
+ import warnings
+ 
++try:
++    from torch.nn.attention import SDPBackend, sdpa_kernel
++except ImportError:
++    SDPBackend = None
++    sdpa_kernel = None
++
+ __all__ = [
+     'flash_attention',
+     'attention',
+@@ -145,7 +154,11 @@ def attention(
+     dtype=torch.bfloat16,
+     fa_version=None,
+ ):
+-    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
++    force_cudnn_sdpa = (
++        os.getenv("FORCE_CUDNN_ATTN", "0") == "1"
++        or os.getenv("WAN_FORCE_CUDNN_SDPA", "0") == "1"
++    )
++    if (FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE) and not force_cudnn_sdpa:
+         return flash_attention(
+             q=q,
+             k=k,
+@@ -172,8 +185,14 @@ def attention(
+         k = k.transpose(1, 2).to(dtype)
+         v = v.transpose(1, 2).to(dtype)
+ 
+-        out = torch.nn.functional.scaled_dot_product_attention(
+-            q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
++        if sdpa_kernel is not None and SDPBackend is not None and force_cudnn_sdpa:
++            cudnn_attn_context = sdpa_kernel(SDPBackend.CUDNN_ATTENTION)
++        else:
++            cudnn_attn_context = nullcontext()
++
++        with cudnn_attn_context:
++            out = torch.nn.functional.scaled_dot_product_attention(
++                q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p)
+ 
+         out = out.transpose(1, 2).contiguous()
+         return out
+diff --git a/wan/modules/clip.py b/wan/modules/clip.py
+index 42dda04..633deb6 100644
+--- a/wan/modules/clip.py
++++ b/wan/modules/clip.py
+@@ -8,7 +8,7 @@ import torch.nn as nn
+ import torch.nn.functional as F
+ import torchvision.transforms as T
+ 
+-from .attention import flash_attention
++from .attention import attention
+ from .tokenizers import HuggingfaceTokenizer
+ from .xlm_roberta import XLMRoberta
+ 
+@@ -82,7 +82,7 @@ class SelfAttention(nn.Module):
+ 
+         # compute attention
+         p = self.attn_dropout if self.training else 0.0
+-        x = flash_attention(q, k, v, dropout_p=p, causal=self.causal, version=2)
++        x = attention(q, k, v, dropout_p=p, causal=self.causal, fa_version=2)
+         x = x.reshape(b, s, c)
+ 
+         # output
+@@ -194,7 +194,7 @@ class AttentionPool(nn.Module):
+         k, v = self.to_kv(x).view(b, s, 2, n, d).unbind(2)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, version=2)
++        x = attention(q, k, v, fa_version=2)
+         x = x.reshape(b, 1, c)
+ 
+         # output
+diff --git a/wan/modules/model.py b/wan/modules/model.py
+index a5425da..d11cf2f 100644
+--- a/wan/modules/model.py
++++ b/wan/modules/model.py
+@@ -7,7 +7,7 @@ import torch.nn as nn
+ from diffusers.configuration_utils import ConfigMixin, register_to_config
+ from diffusers.models.modeling_utils import ModelMixin
+ 
+-from .attention import flash_attention
++from .attention import attention
+ 
+ __all__ = ['WanModel']
+ 
+@@ -146,7 +146,7 @@ class WanSelfAttention(nn.Module):
+ 
+         q, k, v = qkv_fn(x)
+ 
+-        x = flash_attention(
++        x = attention(
+             q=rope_apply(q, grid_sizes, freqs),
+             k=rope_apply(k, grid_sizes, freqs),
+             v=v,
+@@ -176,7 +176,7 @@ class WanT2VCrossAttention(WanSelfAttention):
+         v = self.v(context).view(b, -1, n, d)
+ 
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)
+@@ -217,9 +217,9 @@ class WanI2VCrossAttention(WanSelfAttention):
+         v = self.v(context).view(b, -1, n, d)
+         k_img = self.norm_k_img(self.k_img(context_img)).view(b, -1, n, d)
+         v_img = self.v_img(context_img).view(b, -1, n, d)
+-        img_x = flash_attention(q, k_img, v_img, k_lens=None)
++        img_x = attention(q, k_img, v_img, k_lens=None)
+         # compute attention
+-        x = flash_attention(q, k, v, k_lens=context_lens)
++        x = attention(q, k, v, k_lens=context_lens)
+ 
+         # output
+         x = x.flatten(2)

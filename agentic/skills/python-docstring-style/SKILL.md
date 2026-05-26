@@ -63,7 +63,7 @@ Examples that should stay:
 Still avoid:
 
 - **Inventories of every kwarg / every option / every internal class.** Those belong in `Args:` / attribute docstrings / autodoc — the `Literal[...]` in the signature *is* the source of truth, so don't echo it in prose.
-- **Loose, sprawling inventories** that try to enumerate everything the module / class touches: `"""Core building blocks shared by all recipes (attention, checkpointing, distributed, I/O, configs, …)."""` — at this point the inventory is no longer load-bearing, just decoration.
+- **Loose, sprawling inventories** that try to enumerate everything the module / class touches: `"""Core building blocks shared by all integrations (attention, checkpointing, distributed, I/O, configs, …)."""` — at this point the inventory is no longer load-bearing, just decoration.
 
 Class / function summary anti-examples:
 

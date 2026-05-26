@@ -15,7 +15,7 @@
 
 """Aggregator for in-tree + plugin-discovered runner configs.
 
-Each in-tree recipe's ``config.py`` (or ``config/<variant>.py``)
+Each in-tree integration's ``config.py`` (or ``config/<variant>.py``)
 self-registers its slugs via
 :func:`flashdreams.configs.registry.register_runner` at module-import
 time, alongside the matching pipeline configs. This module just
@@ -24,8 +24,8 @@ imports those config modules for their side effects and exposes
 populated :data:`flashdreams.configs.registry._SUPPORTED_RUNNERS`
 registry.
 
-Recipes that haven't been wrapped into a runner stay reachable via
-direct per-recipe imports
+Integrations that haven't been wrapped into a runner stay reachable via
+direct per-integration imports
 (``from flashdreams.recipes.<name>.config import <NAME>_CONFIGS``) for
 serving / tests / programmatic use, but they do not appear here and
 are not ``flashdreams-run`` subcommands. Runners are opt-in.
@@ -53,7 +53,7 @@ from typing import Any
 
 import tyro
 
-# Each import below triggers the recipe's `register_runner(..., source="builtin")`
+# Each import below triggers the integration's `register_runner(..., source="builtin")`
 # calls against ``_SUPPORTED_RUNNERS``. Listed explicitly (no auto-walk
 # of ``flashdreams.recipes``) so the in-tree inventory is one grep away.
 import flashdreams.recipes.template.config  # noqa: F401, E402

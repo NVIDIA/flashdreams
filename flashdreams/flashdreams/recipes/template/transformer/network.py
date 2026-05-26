@@ -13,19 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dummy single-block DiT network used by the template recipe."""
+"""Dummy single-block DiT network used by the template integration."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.core.attention import ContextParallelAttention
 from flashdreams.core.attention.kvcache import BlockKVCache
-from flashdreams.core.attention.ring import RingAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.infra.config import InstantiateConfig
 
@@ -57,7 +58,7 @@ class TemplateDiTCache:
 
 @dataclass(kw_only=True)
 class TemplateDiTConfig(InstantiateConfig):
-    """Config for the template recipe's dummy DiT."""
+    """Config for the template integration's dummy DiT."""
 
     _target: type = field(default_factory=lambda: TemplateDiT)
 
@@ -77,6 +78,8 @@ class TemplateDiTConfig(InstantiateConfig):
 
     ffn_mult: float = 2.0
     """Expansion factor applied to ``model_channels`` inside the FFN."""
+    cp_method: Literal["ring", "ulysses"] = "ring"
+    """Context-parallel attention method used by this network."""
 
     def __post_init__(self) -> None:
         assert self.model_channels % self.num_heads == 0, (
@@ -86,7 +89,7 @@ class TemplateDiTConfig(InstantiateConfig):
 
 
 class TemplateDiT(nn.Module):
-    """Minimal single-block DiT used as a reference recipe.
+    """Minimal single-block DiT used as a reference integration.
 
     Shape: per-token projection → time / context bias → self-attention
     through a :class:`~flashdreams.core.attention.kvcache.BlockKVCache`
@@ -110,7 +113,7 @@ class TemplateDiT(nn.Module):
 
         self.input_proj = nn.Linear(config.in_channels, D)
         self.context_proj = nn.Linear(config.context_channels, D)
-        # Scalar timestep lifted to ``[1, D]``. Real recipes use a
+        # Scalar timestep lifted to ``[1, D]``. Real integrations use a
         # sinusoidal embedding + MLP.
         self.timestep_encoder = nn.Sequential(
             nn.Linear(1, D),
@@ -122,9 +125,12 @@ class TemplateDiT(nn.Module):
         self.q_proj = nn.Linear(D, D)
         self.k_proj = nn.Linear(D, D)
         self.v_proj = nn.Linear(D, D)
-        # ``bshd`` matches the native ``[B, S, H, d_h]`` layout;
-        # RingAttention handles the CP gather + LSE merge.
-        self.attn = RingAttention(qkv_format="bshd", backend="cudnn")
+        # ``bshd`` matches native ``[B, S, H, d_h]`` layout.
+        self.attn = ContextParallelAttention(
+            qkv_format="bshd",
+            backend="cudnn",
+            method=config.cp_method,
+        )
         self.attn_out = nn.Linear(D, D)
 
         self.norm2 = nn.LayerNorm(D)
@@ -138,7 +144,7 @@ class TemplateDiT(nn.Module):
         self.output_proj = nn.Linear(D, config.in_channels)
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
-        """Forward the CP group to :class:`RingAttention`.
+        """Forward the CP group to :class:`ContextParallelAttention`.
 
         Args:
             cp_group: Context-parallel group; ``None`` disables CP.
@@ -228,7 +234,7 @@ class TemplateDiT(nn.Module):
         """Run one pre-norm self-attention + FFN residual block.
 
         Q is this rank's current chunk; K/V come from ``kv_cache``
-        (filling or steady view). :class:`RingAttention` fuses the
+        (filling or steady view). :class:`ContextParallelAttention` fuses the
         cross-rank KV gather with the SDPA call.
         """
         B, L_local, D = x.shape

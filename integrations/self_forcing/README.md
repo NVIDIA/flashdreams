@@ -4,7 +4,7 @@ Self-Forcing distilled streaming T2V inference for Wan 2.1 1.3B,
 packaged as a [`flashdreams`](../..) plugin, in a standalone repo.
 
 This is a worked example of the
-[Adding a new model integration](../../docs/source/developer_guides/new_recipes.rst)
+[Add a new method](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/new_integration.html)
 developer-guide flow.
 
 ## Shipped slugs

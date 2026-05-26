@@ -1,0 +1,50 @@
+[project]
+name = "lingbot-lightx2v-baseline"
+version = "0.1.0a2"
+description = "Isolated venv for the LightX2V LingBot baseline benchmark."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flashdreams",
+    "torch>=2.12.0",
+    "torchvision>=0.27.0",
+    "diffusers",
+    "transformers",
+    "tokenizers",
+    "tqdm",
+    "accelerate",
+    "safetensors",
+    "opencv-python",
+    "scipy",
+    "imageio",
+    "imageio-ffmpeg",
+    "einops",
+    "loguru",
+    "qtorch",
+    "ftfy",
+    "gradio",
+    "aiohttp",
+    "pydantic",
+    "prometheus-client",
+    "pyzmq",
+    "gguf",
+    "fastapi",
+    "uvicorn",
+    "pyjwt",
+    "requests",
+    "aio-pika",
+    "asyncpg>=0.27.0",
+    "aioboto3>=12.0.0",
+    "alibabacloud_dypnsapi20170525==1.2.2",
+    "redis==6.4.0",
+    "tos",
+    "av",
+    "torchada>=0.1.10",
+    "huggingface-hub[cli]",
+]
+
+[tool.uv.sources]
+flashdreams = { path = "../../../../flashdreams", editable = true }
+
+[tool.uv]
+managed = true
+environments = ["sys_platform == 'linux'"]

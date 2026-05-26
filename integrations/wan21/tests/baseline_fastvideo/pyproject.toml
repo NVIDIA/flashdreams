@@ -1,0 +1,52 @@
+[project]
+name = "wan21-fastvideo-parity-check"
+version = "0.0.0"
+description = "Isolated venv for FastVideo Wan 2.1 parity benchmark."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "imageio[ffmpeg]",
+    "accelerate",
+    "aiofiles",
+    "aiohttp",
+    "av",
+    "boto3",
+    "botocore",
+    "cloudpickle",
+    "datasets",
+    "diffusers",
+    "docstring-parser",
+    "einops",
+    "fastapi",
+    "flask",
+    "flask_restful",
+    "ftfy",
+    "gpustat",
+    "gradio",
+    "h5py",
+    "jmespath",
+    "moviepy",
+    "omegaconf",
+    "opencv-python",
+    "peft",
+    "pyarrow",
+    "protobuf>=7.35.0,<8",
+    "ray",
+    "remote-pdb",
+    "requests",
+    "s3transfer",
+    "scipy",
+    "sentencepiece",
+    "test-tube",
+    "timm",
+    "torchcodec",
+    "torchdata",
+    "transformers==4.57.3",
+    "typeguard",
+    "tyro",
+    "uvicorn",
+    "wandb",
+    "watch",
+]
+
+[tool.uv]
+managed = true

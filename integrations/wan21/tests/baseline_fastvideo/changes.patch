@@ -1,0 +1,44 @@
+diff --git a/examples/inference/basic/basic.py b/examples/inference/basic/basic.py
+index 766b9bd7..eb2fcd29 100644
+--- a/examples/inference/basic/basic.py
++++ b/examples/inference/basic/basic.py
+@@ -15,8 +15,10 @@ def main():
+         use_fsdp_inference=False, # set to True if GPU is out of memory
+         dit_cpu_offload=False,
+         vae_cpu_offload=False,
+-        text_encoder_cpu_offload=True,
+-        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "CUDA error: Invalid argument"
++        text_encoder_cpu_offload=False,
++        pin_cpu_memory=False, # keep settings aligned for parity benchmarking
++        enable_torch_compile=True,
++        torch_compile_kwargs={"mode": "max-autotune-no-cudagraphs"},
+         # image_encoder_cpu_offload=False,
+     )
+ 
+diff --git a/fastvideo/attention/backends/sdpa.py b/fastvideo/attention/backends/sdpa.py
+index 5d9b2159..55c14263 100644
+--- a/fastvideo/attention/backends/sdpa.py
++++ b/fastvideo/attention/backends/sdpa.py
+@@ -1,5 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import os
++from contextlib import nullcontext
++
+ import torch
+ from dataclasses import dataclass
+ from fastvideo.attention.backends.abstract import (  # FlashAttentionMetadata,
+@@ -90,6 +93,12 @@ class SDPAImpl(AttentionImpl):
+         }
+         if query.shape[1] != key.shape[1]:
+             attn_kwargs["enable_gqa"] = True
+-        output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
++        force_cudnn = os.getenv("FASTVIDEO_FORCE_CUDNN_SDPA", "0") == "1"
++        if force_cudnn:
++            context_manager = torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++        else:
++            context_manager = nullcontext()
++        with context_manager:
++            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
+         output = output.transpose(1, 2)
+         return output

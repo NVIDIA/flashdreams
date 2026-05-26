@@ -47,6 +47,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import torch
+from loguru import logger
 from scipy.spatial.transform import Rotation as R
 from torch import Tensor
 
@@ -1429,12 +1430,43 @@ def _get_camera_cpp_ext():
     global _camera_cpp_ext
     if _camera_cpp_ext is not None:
         return _camera_cpp_ext
-    from torch.utils.cpp_extension import load
+
+    import torch.utils.cpp_extension
+
+    extension_name = "camera_convert_cpp"
+    build_directory = None
+    try:
+        build_directory = torch.utils.cpp_extension._get_build_directory(
+            extension_name,
+            False,
+        )
+        lock_fn = os.path.join(build_directory, "lock")
+        logger.info(
+            "Loading camera converter extension {}; build_directory={}.",
+            extension_name,
+            build_directory,
+        )
+        if os.path.exists(lock_fn):
+            logger.warning(
+                "Camera converter extension lock file exists: {}. "
+                "If no compiler process is active, this may be a stale PyTorch JIT lock.",
+                lock_fn,
+            )
+    except Exception as exc:
+        logger.debug("Could not inspect camera converter extension build directory: {}", exc)
+
     csrc = os.path.join(os.path.dirname(__file__), "_cpp", "loader")
-    _camera_cpp_ext = load(
-        name="camera_convert_cpp",
+    load_started_at = time.perf_counter()
+    _camera_cpp_ext = torch.utils.cpp_extension.load(
+        name=extension_name,
         sources=[os.path.join(csrc, "camera_convert.cpp")],
         verbose=False,
+    )
+    logger.info(
+        "Loaded camera converter extension {} in {:.1f}s{}.",
+        extension_name,
+        time.perf_counter() - load_started_at,
+        f"; build_directory={build_directory}" if build_directory else "",
     )
     return _camera_cpp_ext
 
@@ -1583,7 +1615,14 @@ def _cameras_to_ftheta(
         - camera_name -> id mapping
         - camera_name -> sensor_to_rig mapping
     """
+    started_at = time.perf_counter()
     n = len(cameras)
+    logger.debug(
+        "Converting {} ClipGT cameras to FTheta on {}; target_resolution={}.",
+        n,
+        device,
+        target_resolution,
+    )
 
     max_poly_len = max(len(cam.poly) for cam in cameras)
     poly_coeffs = np.zeros((n, max_poly_len), dtype=np.float64)
@@ -1641,6 +1680,8 @@ def _cameras_to_ftheta(
         cam_names.append(cam.name)
 
     ext = _get_camera_cpp_ext()
+    compute_started_at = time.perf_counter()
+    logger.debug("Computing ClipGT camera parameters with camera converter extension.")
     fw_t_cpu, mra_t_cpu = ext.compute_camera_params(
         torch.from_numpy(poly_coeffs),
         torch.from_numpy(poly_lengths),
@@ -1651,13 +1692,23 @@ def _cameras_to_ftheta(
         torch.from_numpy(w_sc), torch.from_numpy(h_sc),
         torch.from_numpy(pscale),
     )
+    logger.debug(
+        "Computed ClipGT camera parameters in {:.1f}s.",
+        time.perf_counter() - compute_started_at,
+    )
 
+    transfer_started_at = time.perf_counter()
     pp_t = torch.from_numpy(pp_np).to(device)
     sz_t = torch.from_numpy(sz_np).to(device)
     fw_t = fw_t_cpu.to(device)
     ld_t = torch.from_numpy(ld_np).to(device)
     s2r_t = torch.from_numpy(s2r_np).to(device)
     mra_np = mra_t_cpu.numpy()
+    logger.debug(
+        "Moved ClipGT camera tensors to {} in {:.1f}s.",
+        device,
+        time.perf_counter() - transfer_started_at,
+    )
 
     camera_list = []
     sensor_to_rig_map = {}
@@ -1673,6 +1724,12 @@ def _cameras_to_ftheta(
         camera_list.append(ftheta)
         sensor_to_rig_map[cam_names[i]] = s2r_t[i]
 
+    logger.debug(
+        "Converted {} ClipGT cameras to FTheta in {:.1f}s: {}.",
+        len(camera_list),
+        time.perf_counter() - started_at,
+        cam_names,
+    )
     return camera_list, camera_name_to_id, sensor_to_rig_map
 
 
@@ -1820,10 +1877,22 @@ def load_clipgt_scene(
     Returns:
         ClipgtGpuScene ready for GPU rendering
     """
+    started_at = time.perf_counter()
     if isinstance(device, str):
         device = torch.device(device)
 
     scene_dir = Path(scene_dir)
+    logger.debug(
+        "Loading ClipGT scene from {} on {}; target_resolution={}, "
+        "include_ego_trajectory={}, include_ego_obstacle={}, "
+        "simplify_dual_lane_lines={}.",
+        scene_dir,
+        device,
+        target_resolution,
+        include_ego_trajectory,
+        include_ego_obstacle,
+        simplify_dual_lane_lines,
+    )
     
     # Use default exclusions if not specified
     if exclude_elements is None:
@@ -1839,31 +1908,104 @@ def load_clipgt_scene(
             return matches[0]
         return simple_path
 
+    def read_input(label: str, path: Path, read_fn):
+        input_started_at = time.perf_counter()
+        logger.debug("Reading ClipGT {} parquet: {}.", label, path)
+        value = read_fn(path)
+        try:
+            item_count = len(value)
+        except TypeError:
+            item_count = "unknown"
+        logger.debug(
+            "Read ClipGT {} parquet in {:.1f}s; items={}.",
+            label,
+            time.perf_counter() - input_started_at,
+            item_count,
+        )
+        return value
+
     # Read all parquet files
     if verbose:
         print(f"Loading clipgt scene from: {scene_dir}")
         if exclude_elements:
             print(f"  Excluding: {exclude_elements}")
-    
-    road_boundary = read_road_boundary(get_parquet_path("road_boundary"))
-    lane_boundary = read_lane(get_parquet_path("lane")) if 'lane_boundary' not in exclude_elements else []
-    lane_line_data = read_lane_line(
-        get_parquet_path("lane_line"),
-        simplify_dual_lines=simplify_dual_lane_lines,
+    if exclude_elements:
+        logger.debug("Excluding ClipGT scene elements: {}.", sorted(exclude_elements))
+
+    inputs_started_at = time.perf_counter()
+    road_boundary = read_input(
+        "road_boundary",
+        get_parquet_path("road_boundary"),
+        read_road_boundary,
     )
-    crosswalk = read_crosswalk(get_parquet_path("crosswalk"))
-    road_marking = read_road_marking(get_parquet_path("road_marking"))
-    wait_line = read_wait_line(get_parquet_path("wait_line"))
-    pole = read_pole(get_parquet_path("pole"))
-    intersection_area = read_intersection_area(get_parquet_path("intersection_area")) if 'intersection_area' not in exclude_elements else []
-    road_island = read_road_island(get_parquet_path("road_island")) if 'road_island' not in exclude_elements else []
-    traffic_light = read_traffic_light(get_parquet_path("traffic_light"))
-    traffic_sign = read_traffic_sign(get_parquet_path("traffic_sign"))
-    obstacles = read_obstacles(get_parquet_path("obstacle"))
-    ego_track = read_egomotion_estimate(get_parquet_path("egomotion_estimate"))
-    cameras = read_calibration_estimate(get_parquet_path("calibration_estimate"))
+    if 'lane_boundary' not in exclude_elements:
+        lane_boundary = read_input("lane", get_parquet_path("lane"), read_lane)
+    else:
+        logger.debug("Skipping ClipGT lane_boundary due to exclusion.")
+        lane_boundary = []
+    lane_line_data = read_input(
+        "lane_line",
+        get_parquet_path("lane_line"),
+        lambda path: read_lane_line(
+            path,
+            simplify_dual_lines=simplify_dual_lane_lines,
+        ),
+    )
+    crosswalk = read_input("crosswalk", get_parquet_path("crosswalk"), read_crosswalk)
+    road_marking = read_input(
+        "road_marking",
+        get_parquet_path("road_marking"),
+        read_road_marking,
+    )
+    wait_line = read_input("wait_line", get_parquet_path("wait_line"), read_wait_line)
+    pole = read_input("pole", get_parquet_path("pole"), read_pole)
+    if 'intersection_area' not in exclude_elements:
+        intersection_area = read_input(
+            "intersection_area",
+            get_parquet_path("intersection_area"),
+            read_intersection_area,
+        )
+    else:
+        logger.debug("Skipping ClipGT intersection_area due to exclusion.")
+        intersection_area = []
+    if 'road_island' not in exclude_elements:
+        road_island = read_input(
+            "road_island",
+            get_parquet_path("road_island"),
+            read_road_island,
+        )
+    else:
+        logger.debug("Skipping ClipGT road_island due to exclusion.")
+        road_island = []
+    traffic_light = read_input(
+        "traffic_light",
+        get_parquet_path("traffic_light"),
+        read_traffic_light,
+    )
+    traffic_sign = read_input(
+        "traffic_sign",
+        get_parquet_path("traffic_sign"),
+        read_traffic_sign,
+    )
+    obstacles = read_input("obstacle", get_parquet_path("obstacle"), read_obstacles)
+    ego_track = read_input(
+        "egomotion_estimate",
+        get_parquet_path("egomotion_estimate"),
+        read_egomotion_estimate,
+    )
+    cameras = read_input(
+        "calibration_estimate",
+        get_parquet_path("calibration_estimate"),
+        read_calibration_estimate,
+    )
+    logger.debug(
+        "Read all ClipGT parquet inputs in {:.1f}s.",
+        time.perf_counter() - inputs_started_at,
+    )
 
     # Convert to GPU pools
+    pools_started_at = time.perf_counter()
+    logger.debug("Converting ClipGT scene primitives to GPU pools on {}.", device)
     polyline_pools = []
 
     # Road boundary
@@ -1961,14 +2103,34 @@ def load_clipgt_scene(
         cube_pools.append(pool)
 
     # Convert cameras
+    logger.debug(
+        "Converted ClipGT scene primitives to GPU pools in {:.1f}s; "
+        "polyline_pools={}, polygon_pools={}, cube_pools={}.",
+        time.perf_counter() - pools_started_at,
+        len(polyline_pools),
+        len(polygon_pools),
+        len(cube_pools),
+    )
+    cameras_started_at = time.perf_counter()
     camera_list, camera_name_to_id, sensor_to_rig = _cameras_to_ftheta(
         cameras, device, target_resolution
     )
+    logger.debug(
+        "Converted ClipGT cameras in {:.1f}s.",
+        time.perf_counter() - cameras_started_at,
+    )
 
     # Move ego track to device
+    ego_started_at = time.perf_counter()
     ego_track = EgoTrackData(
         timestamps=ego_track.timestamps.to(device),
         poses_tquat=ego_track.poses_tquat.to(device),
+    )
+    logger.debug(
+        "Moved ClipGT ego track to {} in {:.1f}s; frames={}.",
+        device,
+        time.perf_counter() - ego_started_at,
+        len(ego_track.timestamps),
     )
 
     # Build scene
@@ -1983,6 +2145,16 @@ def load_clipgt_scene(
         print(f"  Cameras: {list(camera_name_to_id.keys())}")
         print(f"  Ego timestamps: {len(ego_track.timestamps)} frames")
 
+    logger.info(
+        "Built ClipGT GPU scene in {:.1f}s; polyline_pools={}, "
+        "polygon_pools={}, cube_pools={}, cameras={}, ego_frames={}.",
+        time.perf_counter() - started_at,
+        len(polyline_pools),
+        len(polygon_pools),
+        len(cube_pools),
+        len(camera_list),
+        len(ego_track.timestamps),
+    )
     return ClipgtGpuScene(
         timestamped_scene=timestamped_scene,
         cameras=camera_list,
@@ -3219,5 +3391,3 @@ def _read_av2_calibration(loader) -> List[CameraData]:
     """Read calibration from AV2 format via file loader."""
     fh = loader.open("calibration_estimate.parquet")
     return _read_av2_calibration_from_fh(fh)
-
-

@@ -1,0 +1,7 @@
+/LightX2V/
+/lingbot-world-base-cam/
+/lingbot-world-examples/
+/logs/
+/.venv/
+__pycache__/
+*.pyc

@@ -72,7 +72,7 @@ def _tiny_full_attention_transformer() -> FlashVSRTransformerConfig:
     return FlashVSRTransformerConfig(
         network=FlashVSRDiTNetworkConfig(
             # Match the stable cuDNN SDPA test shape used by the template
-            # recipe. Smaller head_dims (16/8) can silently produce NaNs.
+            # integration. Smaller head_dims (16/8) can silently produce NaNs.
             dim=128,
             ffn_dim=256,
             num_heads=2,

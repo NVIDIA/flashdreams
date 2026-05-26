@@ -44,14 +44,14 @@ CHECKPOINT_PATH_I2V_14B_480P = (
 )
 
 PIPELINE_WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
-    recipe_name="wan21-t2v-1.3b-480p",
+    name="wan21-t2v-1.3b-480p",
     enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=Wan21TransformerConfig(
-            network=WanDiTNetwork1pt3BConfig(),
+            network=WanDiTNetwork1pt3BConfig(cp_method="ring"),
             checkpoint_path=CHECKPOINT_PATH_T2V_1PT3B,
             batch_shape=(),
             len_t=21,
@@ -61,17 +61,18 @@ PIPELINE_WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
         scheduler=FlowMatchUniPCSchedulerConfig(
             num_inference_steps=50,
             shift=8.0,
+            enable_tqdm=True,
         ),
     ),
 )
 RUNNER_WAN21_T2V_1PT3B_480P = Wan21T2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_480P.recipe_name,
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_480P.name,
     description="Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).",
     pipeline=PIPELINE_WAN21_T2V_1PT3B_480P,
 )
 
 PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
-    recipe_name="wan21-i2v-14b-480p",
+    name="wan21-i2v-14b-480p",
     enable_sync_and_profile=True,
     encoder=WanI2VCtrlEncoderConfig(
         encoder=WanVAEEncoderConfig(),
@@ -83,6 +84,7 @@ PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
             network=WanDiTNetwork14BConfig(
                 cross_attn_enable_img=True,
                 in_dim=16 + 4 + 16,
+                cp_method="ring",
             ),
             checkpoint_path=CHECKPOINT_PATH_I2V_14B_480P,
             batch_shape=(),
@@ -94,6 +96,7 @@ PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
         scheduler=FlowMatchUniPCSchedulerConfig(
             num_inference_steps=40,
             shift=3.0,
+            enable_tqdm=True,
         ),
     ),
     image_encoder=CLIPImageEncoderConfig(
@@ -101,7 +104,7 @@ PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
     ),
 )
 RUNNER_WAN21_I2V_14B_480P = Wan21I2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_I2V_14B_480P.recipe_name,
+    runner_name=PIPELINE_WAN21_I2V_14B_480P.name,
     description="Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).",
     pipeline=PIPELINE_WAN21_I2V_14B_480P,
 )

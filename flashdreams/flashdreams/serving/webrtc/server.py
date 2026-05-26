@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Protocol
 
 from aiohttp import web
-
-LOGGER = logging.getLogger(__name__)
+from loguru import logger
 
 
 class SessionBusyError(RuntimeError):
@@ -33,6 +31,7 @@ def create_webrtc_app(
     *,
     web_dir: Path,
     session_manager: WebRTCSessionManager,
+    request_session_url: str,
     index_filename: str = "request_session.html",
     preload_name: str = "WebRTC",
 ) -> web.Application:
@@ -71,7 +70,7 @@ def create_webrtc_app(
         except SessionBusyError as exc:
             raise web.HTTPConflict(reason=str(exc)) from exc
         except Exception as exc:
-            LOGGER.exception("Failed to process WebRTC offer.")
+            logger.exception("Failed to process WebRTC offer.")
             raise web.HTTPInternalServerError(reason=str(exc)) from exc
 
         return web.json_response(answer_payload)
@@ -88,13 +87,14 @@ def create_webrtc_app(
 
     async def on_startup(app: web.Application) -> None:
         manager = app[SESSION_MANAGER_KEY]
-        LOGGER.info("Preloading %s runtime on startup.", preload_name)
+        logger.info("Preloading {} runtime on startup.", preload_name)
         await manager.preload_runtime()
-        LOGGER.info("%s runtime preload complete.", preload_name)
+        logger.info("{} runtime preload complete.", preload_name)
+        print(f"Connect via {request_session_url}")
 
     async def on_shutdown(app: web.Application) -> None:
         manager = app[SESSION_MANAGER_KEY]
-        LOGGER.info("Shutting down %s runtime.", preload_name)
+        logger.info("Shutting down {} runtime.", preload_name)
         await manager.shutdown()
 
     app.router.add_get("/request_session", request_session_page)

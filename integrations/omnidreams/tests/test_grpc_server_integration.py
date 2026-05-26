@@ -172,7 +172,7 @@ def test_grpc_server_start_render_close_roundtrip(
         # Single-view chunk2 (len_t=2 -> num_frames_per_block=8), local
         # attention window 6, denoising_timesteps=[1000, 450].
         "--pipeline_config_name",
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
     ]
 
     server_env = os.environ.copy()

@@ -2,7 +2,7 @@
 members = [
     "flashdreams",
     # Each populated subdir under ``integrations/`` is a standalone
-    # external recipe repo (e.g. ``causal_forcing`` / ``self_forcing``
+    # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
     # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
@@ -121,7 +121,7 @@ exclude = [
 ]
 
 [tool.ty.rules]
-# Intentional pattern: recipe subclasses override base methods with more specific
+# Intentional pattern: integration subclasses override base methods with more specific
 # signatures (violates Liskov but is the established design in this codebase).
 invalid-method-override = "ignore"
 
@@ -133,6 +133,11 @@ replace-imports-with-any = ["transformer_engine.**", "triton.**"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+norecursedirs = [
+    "parity_check",
+    "baseline_fastvideo",
+    "baseline_lightx2v",
+]
 markers = [
     "ci_cpu: CPU-safe test, runs on the CPU CI runner",
     "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
