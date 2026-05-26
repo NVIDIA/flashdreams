@@ -13,27 +13,17 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
-Reference
+CLI Reference
 ===================================
 
-Reference pages for CLI usage, API surfaces, and serving interfaces.
-
-CLI
----
+The FlashDreams command line entry point.
 
 - :doc:`CLI </reference/cli>`
 
-API
----
+API surfaces are documented separately under :doc:`/apis/index`.
 
-- :doc:`API overview </apis/index>`
-- :doc:`Core </apis/core>`
-- :doc:`Infra </apis/infra>`
-- :doc:`Pipelines and runners </apis/recipes>`
-- :doc:`Serving </apis/serving>`
+.. toctree::
+   :hidden:
+   :maxdepth: 1
 
-Benchmark charts are published in model-specific pages (for example
-``/models/self_forcing`` and ``/models/lingbot_world``), with data sources
-under ``docs/benchmarks/``.
+   cli

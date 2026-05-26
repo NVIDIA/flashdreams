@@ -13,8 +13,6 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Developer Guides
 ===================================
 
@@ -28,3 +26,12 @@ Guides
 - :doc:`System overview </developer_guides/system_overview>`
 - :doc:`Configs </developer_guides/configs>`
 - :doc:`Interactive serving </developer_guides/interactive_serving>`
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   new_recipes
+   system_overview
+   configs
+   interactive_serving

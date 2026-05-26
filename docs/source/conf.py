@@ -78,7 +78,12 @@ html_theme_options = {
     "footer_start": ["copyright"],
     "footer_end": [],
     "navigation_depth": 4,
-    "collapse_navigation": True,
+    # `False` so each section's sub-pages stay visible in the left
+    # sidebar when you're on a page within that section. `True`
+    # collapses all sub-trees regardless of current page, which on
+    # this site leaves the sidebar showing only the same seven
+    # top-level entries the navbar already carries.
+    "collapse_navigation": False,
     # -- Top navbar arrangement -----------------------------------------
     # Logo | centered nav | theme switcher + GitHub icon (auto-rendered
     # from `github_url`) | persistent search button.
@@ -86,11 +91,30 @@ html_theme_options = {
     "navbar_center": ["navbar-nav"],
     "navbar_end": ["theme-switcher", "navbar-icon-links"],
     "navbar_persistent": ["search-button"],
-    "show_nav_level": 2,
+    # Keep the navbar at depth 1 — only the master_doc's top-level
+    # toctree entries appear there. Sub-pages live in each section's
+    # own toctree, which drives the left sidebar instead.
+    "show_nav_level": 1,
     # Seven top-level sections in the master toctree (Benchmarks, four
     # docs captioned trees, two ref captioned trees, Community); promote
     # them all into the primary navbar instead of bucketing into "More".
     "header_links_before_dropdown": 7,
+}
+
+# Wire the left-sidebar nav-tree component explicitly. Without this,
+# pydata renders the primary sidebar container (with the "Collapse
+# Sidebar" toggle) but no nav contents. The homepage, benchmarks page,
+# and community pages are front-of-site / marketing surfaces — give
+# them no sidebar; every reference-docs page gets the section nav tree.
+html_sidebars = {
+    "index": [],
+    "benchmarks/*": [],
+    "community/*": [],
+    "getting_started/*": ["sidebar-nav-bs"],
+    "developer_guides/*": ["sidebar-nav-bs"],
+    "models/*": ["sidebar-nav-bs"],
+    "apis/*": ["sidebar-nav-bs"],
+    "reference/*": ["sidebar-nav-bs"],
 }
 
 html_context = {

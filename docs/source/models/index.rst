@@ -13,8 +13,6 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Models
 ===================================
 
@@ -49,3 +47,14 @@ Adding your own model
 
 See :doc:`/developer_guides/new_recipes` for model integration and registration
 guidance.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   omnidreams
+   self_forcing
+   causal_forcing
+   fastvideo_wan22
+   lingbot_world
+   wan21

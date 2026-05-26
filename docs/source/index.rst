@@ -358,66 +358,18 @@ FlashDreams is developed in the open at
 
       Benchmarks
 
-.. Master toctree: each captioned block surfaces as a navbar dropdown
-   in pydata-sphinx-theme. Order here = order in the navbar. Section
-   index pages don't have their own toctrees, so the sub-pages are
-   listed directly under each caption.
+.. Master toctree: one flat entry per top-level navbar item. Order
+   here = order in the navbar. Each section's own index page owns the
+   toctree to its sub-pages (which drives the per-section sidebar).
 
 .. toctree::
-   :caption: Benchmarks
    :hidden:
    :maxdepth: 1
 
    benchmarks/index
-
-.. toctree::
-   :caption: Getting Started
-   :hidden:
-   :maxdepth: 1
-
-   getting_started/installation
-   getting_started/first_world_model
-   getting_started/supported_models
-
-.. toctree::
-   :caption: Developer Guides
-   :hidden:
-   :maxdepth: 1
-
-   developer_guides/new_recipes
-   developer_guides/system_overview
-   developer_guides/configs
-   developer_guides/interactive_serving
-
-.. toctree::
-   :caption: Models
-   :hidden:
-   :maxdepth: 1
-
-   models/omnidreams
-   models/self_forcing
-   models/causal_forcing
-   models/fastvideo_wan22
-   models/lingbot_world
-   models/wan21
-
-.. toctree::
-   :caption: CLI Reference
-   :hidden:
-   :maxdepth: 1
-
-   reference/cli
-
-.. toctree::
-   :caption: API Reference
-   :hidden:
-   :maxdepth: 2
-
-   apis/index
-
-.. toctree::
-   :caption: Community
-   :hidden:
-   :maxdepth: 1
-
+   getting_started/index
+   developer_guides/index
+   models/index
+   CLI Reference <reference/index>
+   API Reference <apis/index>
    community/index

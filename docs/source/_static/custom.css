@@ -598,19 +598,6 @@ p.fd-hero-title.rubric,
 
 /* ----- 6. Misc upstream tweaks ------------------------------------------- */
 
-/* Hide sibling top-level sections from the left sidebar. The pydata
-   sidebar template renders the whole master toctree; we want it to read
-   as the *current section's* TOC only (e.g., Tutorials on tutorials
-   pages, API on api pages). The top-level section list lives in the
-   navbar; it should not duplicate into the sidebar.
-
-   Each top-level entry is a `<li class="toctree-l1">`; the current
-   one carries `current` (and `active`). Hiding non-current siblings
-   leaves the current section + its expanded children intact. */
-.bd-sidenav > li.toctree-l1:not(.current) {
-    display: none;
-}
-
 /* Drop the "FlashDreams" caption row above the sidebar nav — it just
    echoes the toctree caption from the root index.rst and adds noise on
    per-section pages. */

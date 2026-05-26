@@ -13,8 +13,6 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Getting Started
 ===================================
 
@@ -24,3 +22,11 @@ supported model families.
 - :doc:`Installation </getting_started/installation>`
 - :doc:`Launch your first world model </getting_started/first_world_model>`
 - :doc:`Supported models </getting_started/supported_models>`
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   installation
+   first_world_model
+   supported_models
