@@ -38,7 +38,8 @@ Install the latest main branch:
 Run models directly in this codebase
 ------------------------------------
 
-Clone the repository and use the workspace ``uv`` environment:
+We recommend to use the ``uv`` python package manager (installation instructions `here <https://docs.astral.sh/uv/getting-started/installation/>`_).
+With ``uv`` installed, clone the repository and use the workspace environment:
 
 .. code-block:: bash
 
