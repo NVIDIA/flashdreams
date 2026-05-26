@@ -534,6 +534,18 @@ def test_native_workspace_requests_allocate_named_workspaces() -> None:
 
 
 @pytest.mark.ci_cpu
+def test_optimized_dit_shape_ops_preserves_configured_dtype() -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    shape_ops = optimized_dit._CosmosNetworkShapeOps(
+        SimpleNamespace(patch_temporal=1, patch_spatial=2),
+        device=torch.device("cpu"),
+        dtype=torch.bfloat16,
+    )
+
+    assert next(shape_ops.parameters()).dtype == torch.bfloat16
+
+
+@pytest.mark.ci_cpu
 @pytest.mark.skipif(
     os.environ.get("OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY") != "1",
     reason="Set OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY=1 to verify downloaded sources.",

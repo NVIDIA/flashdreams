@@ -353,6 +353,7 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
         config: Any,
         *,
         device: torch.device,
+        dtype: torch.dtype,
         cache_templates: tuple[CosmosDiTNetworkCache, ...] = (),
     ) -> None:
         super().__init__()
@@ -360,7 +361,7 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
         self._cache_templates = cache_templates
         self._cache_template_index = 0
         self._device_anchor = torch.nn.Parameter(
-            torch.empty(0, device=device),
+            torch.empty(0, device=device, dtype=dtype),
             requires_grad=False,
         )
 
@@ -818,6 +819,7 @@ class OptimizedDiTExecutor:
         shape_ops = _CosmosNetworkShapeOps(
             self.network.config,
             device=next(self.network.parameters()).device,
+            dtype=self.config.dtype,
             cache_templates=self._optimized_network_cache_templates,
         )
         # After release, optimized native's own _optimized_call owns CUDA graph capture.
