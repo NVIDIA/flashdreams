@@ -667,6 +667,79 @@ def test_optimized_dit_sparge_period_one_is_pure_sparge(
 
 
 @pytest.mark.ci_cpu
+def test_optimized_dit_hybrid_sends_fp8_only_default_cache_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    if not hasattr(torch, "float8_e4m3fn"):
+        pytest.skip("torch.float8_e4m3fn is required for fp8 runtime setup")
+
+    monkeypatch.setattr(
+        optimized_dit,
+        "_make_cosmos_streaming_workspace",
+        lambda **_: {"workspace": torch.empty(1, dtype=torch.uint8)},
+    )
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage3_status",
+        lambda self, device=None: (True, ""),
+    )
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sparge_status",
+        lambda self, device=None: (True, ""),
+    )
+
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=2,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+        sage3_quantize_cross_kv_bf16=lambda k, v: (
+            torch.empty(1, dtype=torch.uint8),
+            torch.empty(1, dtype=torch.uint8),
+            torch.empty(1, dtype=torch.uint8),
+            torch.empty(1, dtype=torch.uint8),
+        ),
+    )
+    executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        dit_backend="fp8_kvcache_cudnn",
+        attention_backend="auto",
+    )
+    monkeypatch.setattr(executor, "_release_network_after_fp8_snapshot", lambda: None)
+
+    k_cache = torch.zeros((1, 4, 16, 128), dtype=torch.bfloat16)
+    runtime = executor._ensure_fp8_runtime(
+        k_cross=[k_cache],
+        v_cross=[k_cache],
+        k_self=[k_cache],
+        v_self=[k_cache],
+        tokens=4,
+        cache=SimpleNamespace(),
+    )
+
+    assert executor._attention_backend == "sparge"
+    assert executor._sparge_hybrid_period == optimized_dit._DEFAULT_SPARGE_HYBRID_PERIOD
+    assert runtime["cosmos_write_bf16_kv_cache"] is False
+
+
+@pytest.mark.ci_cpu
 @pytest.mark.skipif(
     os.environ.get("OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY") != "1",
     reason="Set OMNIDREAMS_SINGLEVIEW_RUN_THIRDPARTY_VERIFY=1 to verify downloaded sources.",

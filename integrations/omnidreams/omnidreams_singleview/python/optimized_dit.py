@@ -1099,7 +1099,9 @@ class OptimizedDiTExecutor:
                 else "fp8_cudnn"
             ),
             "cosmos_kv_cache_backend": "fp8",
-            "cosmos_write_bf16_kv_cache": use_sparge_attention,
+            # Hybrid schedules need BF16 self-KV only on Sparge blocks; the
+            # bridge forces those per block while leaving Sage3 blocks FP8-only.
+            "cosmos_write_bf16_kv_cache": use_sparge_attention and not use_sparge_hybrid,
             "cosmos_sparge_topk_ratio": self._sparge_topk,
             "cosmos_sparge_hybrid_period": self._sparge_hybrid_period,
             "cosmos_sparge_hybrid_phase": self._sparge_hybrid_phase,
