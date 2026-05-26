@@ -228,13 +228,13 @@ body.index .content h1 {
 .homepage-logo-wrap {
     margin: 0 0 0.8rem;
     text-align: center;
+    display: flex;
+    justify-content: center;
 }
 
 .homepage-logo-wrap img {
     width: min(560px, 90%);
     height: auto;
-    display: block;
-    margin: 0 auto;
 }
 
 .model-link-row {
