@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Developer Guides" href="index.html"><link rel="prev" title="Interactive serving" href="interactive_serving.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal.png" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7780ee59" />
     
     
 
@@ -229,21 +229,17 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="offline_vs_online.html">Offline vs online world-model flow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="system_overview.html">Runtime system overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="interactive_serving.html">Interactive serving architecture</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Developer workflow patterns</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html">Developer guides overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="new_recipes.html">Add a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configs.html">Configure runs and overrides</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config_system.html">Config system</a></li>
+<li class="toctree-l1"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 
@@ -290,7 +286,7 @@ SPDX-License-Identifier: Apache-2.0
           <section id="how-to-use-flashdreams-as-a-developer">
 <h1>How to use FlashDreams as a developer<a class="headerlink" href="#how-to-use-flashdreams-as-a-developer" title="Link to this heading">¶</a></h1>
 <p>Pick the path that matches your goal. For the full runtime map, see
-<a class="reference internal" href="system_overview.html"><span class="doc">System overview</span></a>.</p>
+<a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a>.</p>
 <div class="fd-highlight-grid">
   <div class="fd-highlight-card">
     <div class="fd-highlight-title">Run existing models</div>
@@ -369,13 +365,13 @@ uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class=
 flashdreams-run<span class="w"> </span>my-model-fast<span class="w"> </span>--help
 </pre></div>
 </div>
-<p>Use <a class="reference internal" href="new_recipes.html"><span class="doc">Adding a new model integration</span></a> for the complete authoring guide.</p>
+<p>Use <a class="reference internal" href="new_integration.html"><span class="doc">Add a New Method</span></a> for the complete authoring guide.</p>
 </section>
 <section id="next-links">
 <h2>Next links<a class="headerlink" href="#next-links" title="Link to this heading">¶</a></h2>
 <ul class="simple">
 <li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a> for model commands.</p></li>
-<li><p><a class="reference internal" href="new_recipes.html"><span class="doc">Adding a new model integration</span></a> for integration authoring.</p></li>
+<li><p><a class="reference internal" href="new_integration.html"><span class="doc">Add a New Method</span></a> for integration authoring.</p></li>
 <li><p><a class="reference internal" href="interactive_serving.html"><span class="doc">Interactive serving</span></a> for serving concepts.</p></li>
 </ul>
 </section>
@@ -386,26 +382,8 @@ flashdreams-run<span class="w"> </span>my-model-fast<span class="w"> </span>--he
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="index.html">
-              <div class="page-info">
-                <div class="context">
-                  <span>Next</span>
-                </div>
-                <div class="title">Developer Guides</div>
-              </div>
-              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
-            </a>
-          <a class="prev-page" href="interactive_serving.html">
-              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
-              <div class="page-info">
-                <div class="context">
-                  <span>Previous</span>
-                </div>
-                
-                <div class="title">Interactive serving</div>
-                
-              </div>
-            </a>
+          
+          
         </div>
         <div class="bottom-of-page">
           <div class="left-details">

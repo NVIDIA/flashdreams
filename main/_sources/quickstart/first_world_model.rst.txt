@@ -18,73 +18,47 @@ Launch your first model
 
 This page provides a minimal path for:
 
-1. offline / batch-like long-rollout model inference with Self-Forcing,
+1. offline / batch-like long-rollout model inference with Self-Forcing.
 2. online interactive world-model serving with LingBot-World.
-
-If you are new to the distinction, read
-:doc:`/developer_guides/offline_vs_online` first.
 
 Prerequisites
 -------------
 
-Complete the setup in :doc:`/quickstart/installation` first:
+Complete the setup in :doc:`/quickstart/installation` first.
 
-- :ref:`run-models-directly-in-this-codebase`
-- :ref:`environment-variables`
+Run Self-Forcing T2V offline inference
+--------------------------------------
 
-Run model inference (Self-Forcing)
-----------------------------------
-
-Single GPU:
+Launch an offline inference run using the :doc:`Self-Forcing </models/self_forcing>` model:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
+   uv run --project integrations/self_forcing \
+       flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash \
+       --total-blocks 7
 
-Multi GPU (context parallel):
+Run LingBot-World interactive server
+------------------------------------
 
-.. code-block:: bash
-
-   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Inference walkthrough</strong><br>
-     Run the commands above, then use the model catalog for variants,
-     upstream links, and performance notes.
-   </div>
-
-Run model serving (LingBot-World)
----------------------------------
-
-Single GPU:
+Launch an interactive serving session using the :doc:`LingBot-World </models/lingbot_world>` model:
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
-
-Multi GPU:
-
-.. code-block:: bash
-
-   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
-
-.. raw:: html
-
-   <div class="video-slot">
-     <strong>Serving walkthrough</strong><br>
-     Use this quick path to validate serving. The developer guide explains
-     the serving session model and implementation references.
-   </div>
+   uv run --project integrations/lingbot \
+       flashdreams-run lingbot-world-fast \
+       --example-data True \
+       --total-blocks 21
 
 Next steps
 ----------
 
-- For complete per-model launch options, see :doc:`/models/index`.
-- For model-specific details, see :doc:`/models/index`.
-- For the conceptual difference between one-shot inference and persistent
-  serving, see :doc:`/developer_guides/offline_vs_online`.
+Explore models:
+
+- :doc:`/models/index` - Browse all supported models, their specific launch commands, and configurations.
+
+For developers:
+
+- :doc:`/developer_guides/inference_pipeline_overview` - Learn about the system architecture and generation loop.
+- :doc:`/developer_guides/config_system` - Understand how to modify pipeline and runner configurations.
+- :doc:`/developer_guides/new_integration` - Guide to adding your own custom models and methods.
+- :doc:`/api/index` - Check the Python API and CLI references.

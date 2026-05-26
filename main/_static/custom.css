@@ -129,6 +129,28 @@ SPDX-License-Identifier: Apache-2.0
     line-height: 1.45;
 }
 
+.fd-collapsible {
+    margin: 10px 0;
+    border: 1px solid #dce5ea;
+    border-radius: 10px;
+    background: var(--color-background-primary);
+    overflow: hidden;
+}
+
+.fd-collapsible summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    font-weight: 700;
+    list-style-position: inside;
+}
+
+.fd-collapsible p {
+    margin: 0;
+    padding: 0 12px 12px;
+    color: var(--color-foreground-secondary);
+    line-height: 1.45;
+}
+
 .fd-pill-row {
     display: flex;
     flex-wrap: wrap;

@@ -13,6 +13,8 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+:orphan:
+
 Developer Guides
 ===================================
 
@@ -23,9 +25,10 @@ model integration.
 Guides
 ------
 
-- :doc:`Offline vs online world-model flow </developer_guides/offline_vs_online>`
-- :doc:`System overview </developer_guides/system_overview>`
-- :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
-- :doc:`Configs </developer_guides/configs>`
-- :doc:`Interactive serving </developer_guides/interactive_serving>`
-- :doc:`Adding a new model integration </developer_guides/new_recipes>`
+- :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
+- :doc:`Config system </developer_guides/config_system>`
+- :doc:`Add a new method </developer_guides/new_integration>`
+
+.. Temporarily commented out for internal development:
+.. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
+.. - :doc:`Interactive serving </developer_guides/interactive_serving>`

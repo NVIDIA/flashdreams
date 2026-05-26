@@ -50,5 +50,5 @@ Implemented models
 Adding your own model
 ---------------------
 
-See :doc:`/developer_guides/new_recipes` for model integration and registration
+See :doc:`/developer_guides/new_integration` for model integration and registration
 guidance.

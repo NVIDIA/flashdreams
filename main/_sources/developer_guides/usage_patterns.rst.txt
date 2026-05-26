@@ -13,11 +13,13 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+:orphan:
+
 How to use FlashDreams as a developer
 =====================================
 
 Pick the path that matches your goal. For the full runtime map, see
-:doc:`/developer_guides/system_overview`.
+:doc:`/developer_guides/inference_pipeline_overview`.
 
 .. raw:: html
 
@@ -112,11 +114,11 @@ Then:
    pip install -e .
    flashdreams-run my-model-fast --help
 
-Use :doc:`/developer_guides/new_recipes` for the complete authoring guide.
+Use :doc:`/developer_guides/new_integration` for the complete authoring guide.
 
 Next links
 ----------
 
 - :doc:`/models/index` for model commands.
-- :doc:`/developer_guides/new_recipes` for integration authoring.
+- :doc:`/developer_guides/new_integration` for integration authoring.
 - :doc:`/developer_guides/interactive_serving` for serving concepts.

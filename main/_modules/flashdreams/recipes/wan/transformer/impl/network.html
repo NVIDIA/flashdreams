@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../../../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../../../../_static/custom.css?v=8e421ef0" />
+    <link rel="stylesheet" type="text/css" href="../../../../../../_static/custom.css?v=7780ee59" />
     
     
 
@@ -229,20 +229,16 @@ SPDX-License-Identifier: Apache-2.0
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/offline_vs_online.html">Offline vs online world-model flow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/system_overview.html">Runtime system overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/interactive_serving.html">Interactive serving architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/usage_patterns.html">Developer workflow patterns</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/index.html">Developer guides overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/new_recipes.html">Add a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/configs.html">Configure runs and overrides</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../../api/core.html">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../../api/infra.html">Infra</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../../api/integrations.html">Pipelines and runners</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../../api/serving.html">Serving</a></li>
 </ul>
 
@@ -342,7 +338,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetworkConfig">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetworkConfig">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetworkConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetworkConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for the Wan DiT network.&quot;&quot;&quot;</span>
@@ -388,7 +384,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork1pt3BConfig">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork1pt3BConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetwork1pt3BConfig</span><span class="p">(</span><span class="n">WanDiTNetworkConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for the 1.3B Wan DiT network.&quot;&quot;&quot;</span>
@@ -401,7 +397,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork14BConfig">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork14BConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetwork14BConfig</span><span class="p">(</span><span class="n">WanDiTNetworkConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for the 14B Wan DiT network.&quot;&quot;&quot;</span>
@@ -414,7 +410,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetwork</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;WAN diffusion backbone for text-to-video and image-to-video.&quot;&quot;&quot;</span>
 
@@ -495,7 +491,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
 <div class="viewcode-block" id="WanDiTNetwork.set_context_parallel_group">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.set_context_parallel_group">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.set_context_parallel_group">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_context_parallel_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cp_group</span><span class="p">:</span> <span class="n">ProcessGroup</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Set context-parallel process group for all blocks.</span>
 
@@ -507,7 +503,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork.patchify_and_maybe_split_cp">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.patchify_and_maybe_split_cp">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.patchify_and_maybe_split_cp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">patchify_and_maybe_split_cp</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">x</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>  <span class="c1"># [..., T, C, H, W]</span>
@@ -551,7 +547,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork.unpatchify_and_maybe_gather_cp">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.unpatchify_and_maybe_gather_cp">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.unpatchify_and_maybe_gather_cp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">unpatchify_and_maybe_gather_cp</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">pH</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -595,7 +591,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork.initialize_cache">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.initialize_cache">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.initialize_cache">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -638,7 +634,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="WanDiTNetwork.update_parameters_after_loading_checkpoint">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.update_parameters_after_loading_checkpoint">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.update_parameters_after_loading_checkpoint">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">update_parameters_after_loading_checkpoint</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Fuse load-time-known ops into weights; call once after loading the checkpoint.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parameters_updated_after_loading_checkpoint</span><span class="p">:</span>
@@ -700,7 +696,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">_is_shuffle_op_fused</span> <span class="o">=</span> <span class="kc">True</span>
 
 <div class="viewcode-block" id="WanDiTNetwork.forward">
-<a class="viewcode-back" href="../../../../../../api/recipes.html#flashdreams.recipes.wan.WanDiTNetwork.forward">[docs]</a>
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.forward">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">x</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>

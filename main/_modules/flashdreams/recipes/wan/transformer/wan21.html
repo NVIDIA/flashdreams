@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=8e421ef0" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=7780ee59" />
     
     
 
@@ -229,20 +229,16 @@ SPDX-License-Identifier: Apache-2.0
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/offline_vs_online.html">Offline vs online world-model flow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/system_overview.html">Runtime system overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/interactive_serving.html">Interactive serving architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/usage_patterns.html">Developer workflow patterns</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/index.html">Developer guides overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/new_recipes.html">Add a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/configs.html">Configure runs and overrides</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/core.html">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/infra.html">Infra</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../api/integrations.html">Pipelines and runners</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/serving.html">Serving</a></li>
 </ul>
 
@@ -379,7 +375,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="Wan21TransformerConfig">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21TransformerConfig">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Wan21TransformerConfig</span><span class="p">(</span><span class="n">TransformerConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Wan 2.1 transformer.</span>
@@ -399,7 +395,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    - ``stamp_image_latent``: overwrite the noisy latent with the clean</span>
 <span class="sd">      image latent at masked positions every denoising step, and re-stamp</span>
 <span class="sd">      the predicted ``x0`` the same way. ``network.in_dim`` unchanged.</span>
-<span class="sd">      (flashdreams mask-inject recipe; used by the out-of-tree</span>
+<span class="sd">      (flashdreams mask-inject integration; used by the out-of-tree</span>
 <span class="sd">      ``causal_forcing`` plugin.)</span>
 <span class="sd">    - ``concat_image_mask_to_latent``: append the 4-channel mask and</span>
 <span class="sd">      16-channel image latent along the channel dim. Builders that set</span>
@@ -453,7 +449,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Eager calls before capture (&gt;= 2 to drain Inductor autotune).&quot;&quot;&quot;</span>
 
     <span class="n">stamp_image_latent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (mask-inject I2V recipe).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (mask-inject I2V integration).&quot;&quot;&quot;</span>
 
     <span class="n">concat_image_mask_to_latent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (channel-concat I2V layout).&quot;&quot;&quot;</span></div>
@@ -461,7 +457,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="Wan21Transformer">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Wan21Transformer</span><span class="p">(</span><span class="n">Transformer</span><span class="p">[</span><span class="n">Wan21TransformerCache</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Wan 2.1 DiT adapted to the infra Transformer interface.&quot;&quot;&quot;</span>
 
@@ -612,7 +608,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
 <div class="viewcode-block" id="Wan21Transformer.initialize_autoregressive_cache">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.initialize_autoregressive_cache">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer.initialize_autoregressive_cache">[docs]</a>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -799,7 +795,7 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
 
 <div class="viewcode-block" id="Wan21Transformer.predict_flow">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.predict_flow">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer.predict_flow">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">predict_flow</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -838,7 +834,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="Wan21Transformer.postprocess_clean_latent">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.postprocess_clean_latent">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer.postprocess_clean_latent">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">postprocess_clean_latent</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">clean_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -859,7 +855,7 @@ SPDX-License-Identifier: Apache-2.0
     <span class="nd">@overload</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">I2VCtrl</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">I2VCtrl</span><span class="p">:</span> <span class="o">...</span>
 <div class="viewcode-block" id="Wan21Transformer.patchify_and_maybe_split_cp">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.patchify_and_maybe_split_cp">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer.patchify_and_maybe_split_cp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">patchify_and_maybe_split_cp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="n">I2VCtrl</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="n">I2VCtrl</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Patchify and CP-split a noisy latent or an I2V control payload.</span>
 
@@ -883,7 +879,7 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <div class="viewcode-block" id="Wan21Transformer.unpatchify_and_maybe_gather_cp">
-<a class="viewcode-back" href="../../../../../api/recipes.html#flashdreams.recipes.wan.Wan21Transformer.unpatchify_and_maybe_gather_cp">[docs]</a>
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.Wan21Transformer.unpatchify_and_maybe_gather_cp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_height</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_width</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;unpatchify_and_maybe_gather_cp requires an initialized rollout; &quot;</span>

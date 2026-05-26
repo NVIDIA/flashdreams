@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7780ee59" />
     
     
 
@@ -230,20 +230,16 @@ SPDX-License-Identifier: Apache-2.0
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/offline_vs_online.html">Offline vs online world-model flow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/system_overview.html">Runtime system overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/interactive_serving.html">Interactive serving architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/usage_patterns.html">Developer workflow patterns</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/index.html">Developer guides overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_recipes.html">Add a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../developer_guides/configs.html">Configure runs and overrides</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 
@@ -291,59 +287,44 @@ SPDX-License-Identifier: Apache-2.0
 <h1>Launch your first model<a class="headerlink" href="#launch-your-first-model" title="Link to this heading">¶</a></h1>
 <p>This page provides a minimal path for:</p>
 <ol class="arabic simple">
-<li><p>offline / batch-like long-rollout model inference with Self-Forcing,</p></li>
+<li><p>offline / batch-like long-rollout model inference with Self-Forcing.</p></li>
 <li><p>online interactive world-model serving with LingBot-World.</p></li>
 </ol>
-<p>If you are new to the distinction, read
-<a class="reference internal" href="../developer_guides/offline_vs_online.html"><span class="doc">What is world model serving?</span></a> first.</p>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
-<p>Complete the setup in <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> first:</p>
-<ul class="simple">
-<li><p><a class="reference internal" href="installation.html#run-models-directly-in-this-codebase"><span class="std std-ref">Run models directly in this codebase</span></a></p></li>
-<li><p><a class="reference internal" href="installation.html#environment-variables"><span class="std std-ref">Environment variables</span></a></p></li>
-</ul>
+<p>Complete the setup in <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> first.</p>
 </section>
-<section id="run-model-inference-self-forcing">
-<h2>Run model inference (Self-Forcing)<a class="headerlink" href="#run-model-inference-self-forcing" title="Link to this heading">¶</a></h2>
-<p>Single GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+<section id="run-self-forcing-t2v-offline-inference">
+<h2>Run Self-Forcing T2V offline inference<a class="headerlink" href="#run-self-forcing-t2v-offline-inference" title="Link to this heading">¶</a></h2>
+<p>Launch an offline inference run using the <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
-<p>Multi GPU (context parallel):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+</section>
+<section id="run-lingbot-world-interactive-server">
+<h2>Run LingBot-World interactive server<a class="headerlink" href="#run-lingbot-world-interactive-server" title="Link to this heading">¶</a></h2>
+<p>Launch an interactive serving session using the <a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
-<div class="video-slot">
-  <strong>Inference walkthrough</strong><br>
-  Run the commands above, then use the model catalog for variants,
-  upstream links, and performance notes.
-</div></section>
-<section id="run-model-serving-lingbot-world">
-<h2>Run model serving (LingBot-World)<a class="headerlink" href="#run-model-serving-lingbot-world" title="Link to this heading">¶</a></h2>
-<p>Single GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
-<p>Multi GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
-<div class="video-slot">
-  <strong>Serving walkthrough</strong><br>
-  Use this quick path to validate serving. The developer guide explains
-  the serving session model and implementation references.
-</div></section>
+</section>
 <section id="next-steps">
 <h2>Next steps<a class="headerlink" href="#next-steps" title="Link to this heading">¶</a></h2>
+<p>Explore models:</p>
 <ul class="simple">
-<li><p>For complete per-model launch options, see <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>.</p></li>
-<li><p>For model-specific details, see <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>.</p></li>
-<li><p>For the conceptual difference between one-shot inference and persistent
-serving, see <a class="reference internal" href="../developer_guides/offline_vs_online.html"><span class="doc">What is world model serving?</span></a>.</p></li>
+<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a> - Browse all supported models, their specific launch commands, and configurations.</p></li>
+</ul>
+<p>For developers:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a> - Learn about the system architecture and generation loop.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a> - Understand how to modify pipeline and runner configurations.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a New Method</span></a> - Guide to adding your own custom models and methods.</p></li>
+<li><p><a class="reference internal" href="../api/index.html"><span class="doc">API reference</span></a> - Check the Python API and CLI references.</p></li>
 </ul>
 </section>
 </section>
@@ -404,8 +385,8 @@ serving, see <a class="reference internal" href="../developer_guides/offline_vs_
             <ul>
 <li><a class="reference internal" href="#">Launch your first model</a><ul>
 <li><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
-<li><a class="reference internal" href="#run-model-inference-self-forcing">Run model inference (Self-Forcing)</a></li>
-<li><a class="reference internal" href="#run-model-serving-lingbot-world">Run model serving (LingBot-World)</a></li>
+<li><a class="reference internal" href="#run-self-forcing-t2v-offline-inference">Run Self-Forcing T2V offline inference</a></li>
+<li><a class="reference internal" href="#run-lingbot-world-interactive-server">Run LingBot-World interactive server</a></li>
 <li><a class="reference internal" href="#next-steps">Next steps</a></li>
 </ul>
 </li>

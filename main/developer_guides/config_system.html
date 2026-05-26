@@ -3,17 +3,17 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="System overview" href="system_overview.html"><link rel="prev" title="Cosmos-Predict2.5" href="../models/cosmos_predict2.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Add a New Method" href="new_integration.html"><link rel="prev" title="Inference Pipeline Overview" href="inference_pipeline_overview.html">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal.png" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>What is world model serving? - FlashDreams v0.1.0a2</title>
+        <title>Config system - FlashDreams v0.1.0a2</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=8e421ef0" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7780ee59" />
     
     
 
@@ -176,7 +176,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -230,20 +230,16 @@ SPDX-License-Identifier: Apache-2.0
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
 <ul class="current">
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Offline vs online world-model flow</a></li>
-<li class="toctree-l1"><a class="reference internal" href="system_overview.html">Runtime system overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="interactive_serving.html">Interactive serving architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="usage_patterns.html">Developer workflow patterns</a></li>
-<li class="toctree-l1"><a class="reference internal" href="index.html">Developer guides overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="new_recipes.html">Add a new model integration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configs.html">Configure runs and overrides</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Config system</a></li>
+<li class="toctree-l1"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api/recipes.html">Pipelines and runners</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 
@@ -265,12 +261,12 @@ SPDX-License-Identifier: Apache-2.0
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/developer_guides/offline_vs_online.rst?plain=true" title="View this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/developer_guides/config_system.rst?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
 </div><div class="edit-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/developer_guides/offline_vs_online.rst" rel="edit" title="Edit this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/developer_guides/config_system.rst" rel="edit" title="Edit this page">
     <svg><use href="#svg-pencil"></use></svg>
     <span class="visually-hidden">Edit this page</span>
   </a>
@@ -282,60 +278,110 @@ SPDX-License-Identifier: Apache-2.0
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="what-is-world-model-serving">
-<h1>What is world model serving?<a class="headerlink" href="#what-is-world-model-serving" title="Link to this heading">¶</a></h1>
-<p>A world model learns to generate and evolve an environment over time. Today
-that often means video, but the same idea can include actions, state, audio,
-sensor input, and control signals.</p>
-<p>World model serving is the runtime pattern for putting that model inside a live
-application. Instead of producing one static clip, the system keeps a session
-alive while input, model state, GPU inference, and output evolve together. This
-is useful for interactive simulation, robotics, autonomy, healthcare workflows,
-creative tools, virtual worlds, and gaming-like experiences.</p>
-<img alt="Offline one-shot video inference compared with online autoregressive world-model serving." src="../_images/compare-offline-online-video-model-v2.jpg" />
-<p>In a served world-model application, the important requirement is not just
-generating a good clip. The runtime must keep an interactive session responsive
-while the model continues to advance the world.</p>
-<div class="fd-highlight-grid">
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">Low latency</div>
-    <div class="fd-highlight-body">Keep the interaction responsive when controls, sensors, or user input change.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">High throughput</div>
-    <div class="fd-highlight-body">Keep the GPU busy across autoregressive steps and multi-GPU execution.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">Streaming generation at steady pace</div>
-    <div class="fd-highlight-body">Stream frames or chunks at a steady pace while the session continues.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">World state evolvement</div>
-    <div class="fd-highlight-body">Carry rolling state forward so the generated world evolves across steps.</div>
-  </div>
-</div><p>Compared with offline video generation, the target is different.
-One-shot systems prepare a conditioning input, run the model, then return a
-finished video. Libraries such as
-<a class="reference external" href="https://github.com/hao-ai-lab/FastVideo">FastVideo</a> and
-<a class="reference external" href="https://github.com/ModelTC/lightx2v">LightX2V</a> are strong references for
-high-throughput offline video inference, but their core pattern is not a
-persistent interactive loop with low-latency control and streaming output.</p>
-<p>There is also a useful connection to LLM serving engines such as
-<a class="reference external" href="https://github.com/vllm-project/vllm">vLLM</a> and
-<a class="reference external" href="https://github.com/sgl-project/sglang">SGLang</a>: both LLMs and many world
-models are autoregressive. The difference is the interaction pattern. LLM chat
-usually runs <code class="docutils literal notranslate"><span class="pre">prefill</span> <span class="pre">-&gt;</span> <span class="pre">decode</span> <span class="pre">-&gt;</span> <span class="pre">prefill</span> <span class="pre">-&gt;</span> <span class="pre">decode</span></code> across user turns.
-Interactive video/world-model serving is closer to
-<code class="docutils literal notranslate"><span class="pre">initialize</span> <span class="pre">-&gt;</span> <span class="pre">decode</span> <span class="pre">-&gt;</span> <span class="pre">decode</span> <span class="pre">-&gt;</span> <span class="pre">decode</span> <span class="pre">-&gt;</span> <span class="pre">...</span></code>: initialize the session
-once, then advance the world continuously at a fixed pace.</p>
-<p>FlashDreams uses this online serving path for interactive integrations such as
-<a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> and <a class="reference internal" href="../models/omnidreams.html"><span class="doc">OmniDreams</span></a>. To try a model,
-start with <a class="reference internal" href="../quickstart/first_world_model.html"><span class="doc">Launch your first model</span></a>.</p>
+          <section id="config-system">
+<h1>Config system<a class="headerlink" href="#config-system" title="Link to this heading">¶</a></h1>
+<p>FlashDreams configuration is built around simple, strongly-typed Python <code class="docutils literal notranslate"><span class="pre">dataclass</span></code> objects.
+This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>. It allows you to easily plug in different permutations of model components and nest configurations to define the complete inference pipeline.</p>
+<section id="base-components">
+<h2>Base components<a class="headerlink" href="#base-components" title="Link to this heading">¶</a></h2>
+<p>All configurable components in FlashDreams—such as the encoder, transformer, scheduler, and decoder—have a corresponding configuration dataclass and can be found under <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>. As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a>, the main entry point for defining an integration is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
+<p>These config objects are modular and nestable. A typical pipeline config defines the architecture by composing other config dataclasses:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipelineConfig</span>
+
+<span class="c1"># Define your own configs for the encoder, transformer, and decoder.</span>
+<span class="n">MyStreamingEncoderConfig</span> <span class="o">=</span> <span class="o">...</span>
+<span class="n">MyTransformerConfig</span> <span class="o">=</span> <span class="o">...</span>
+<span class="n">MyStreamingDecoderConfig</span> <span class="o">=</span> <span class="o">...</span>
+
+<span class="c1"># Compose them into a pipeline config</span>
+<span class="n">pipeline_config</span> <span class="o">=</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;customized-method-name&quot;</span><span class="p">,</span>
+    <span class="n">encoder</span><span class="o">=</span><span class="n">MyStreamingEncoderConfig</span><span class="p">(),</span>
+    <span class="n">diffusion_model</span><span class="o">=</span><span class="n">DiffusionModelConfig</span><span class="p">(</span>
+        <span class="n">transformer</span><span class="o">=</span><span class="n">MyTransformerConfig</span><span class="p">(),</span>
+        <span class="n">scheduler</span><span class="o">=</span><span class="n">FlowMatchSchedulerConfig</span><span class="p">(),</span>
+    <span class="p">),</span>
+    <span class="n">decoder</span><span class="o">=</span><span class="n">MyStreamingDecoderConfig</span><span class="p">(),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="creating-new-configs">
+<h2>Creating new configs<a class="headerlink" href="#creating-new-configs" title="Link to this heading">¶</a></h2>
+<p>If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.</p>
+<p>Let’s say you want to create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>. You can create a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class. Before the model definition, you define the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code> which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Type</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">Encoder</span>
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyEncoderConfig</span><span class="p">(</span><span class="n">EncoderConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;My custom encoder config.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Point to the class that will be instantiated by this config</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="n">Type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">MyEncoder</span><span class="p">)</span>
+
+    <span class="c1"># Expose your configurable parameters</span>
+    <span class="n">embedding_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">512</span>
+    <span class="n">num_layers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">6</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyEncoder</span><span class="p">(</span><span class="n">Encoder</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;My custom encoder model.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Configuration to instantiate the encoder.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Enable type checking</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">MyEncoderConfig</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">MyEncoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="c1"># Build your layers using self.config.embedding_dim, etc.</span>
+        <span class="o">...</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">):</span>
+        <span class="o">...</span>
+</pre></div>
+</div>
+<p>Alternatively, you do not always have to write a complete configuration from scratch. You can use <a class="reference internal" href="../api/infra.html#flashdreams.infra.config.derive_config" title="flashdreams.infra.config.derive_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">flashdreams.infra.config.derive_config()</span></code></a> to create concise variants from existing configs. This allows you to inherit the base settings and only override the specific fields you want to change:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">derive_config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">my_project.configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyBasePipelineConfig</span>
+
+<span class="c1"># Create a variant that inherits everything from MyBasePipelineConfig</span>
+<span class="c1"># but overrides the encoder&#39;s embedding dimension.</span>
+<span class="n">my_variant_config</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
+    <span class="n">MyBasePipelineConfig</span><span class="p">,</span>
+    <span class="n">encoder</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">embedding_dim</span><span class="o">=</span><span class="mi">1024</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="modifying-from-cli">
+<h2>Modifying from CLI<a class="headerlink" href="#modifying-from-cli" title="Link to this heading">¶</a></h2>
+<p>Often times, you just want to play with the parameters of an existing model without having to specify a new one. You can easily do so via the CLI, which is powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>.</p>
+<p>Because our configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> automatically generates a comprehensive command-line interface. You can use the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> (The CLI carried in FlashDreams) command to dynamically override any nested dataclass field.</p>
+<p>For example, to list out all existing configurable parameters for a model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--help
+</pre></div>
+</div>
+<img alt="CLI helptext showing tyro dynamically parsing nested configuration arguments." src="../_images/cli-screen-shot.png" />
+<p>To run the model with a modified configuration:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pipeline.diffusion-model.transformer.use-cuda-graph<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+</pre></div>
+</div>
+<p>For full details on the available commands, see the <a class="reference internal" href="../api/cli.html"><span class="doc">CLI</span></a> reference.
+For end-to-end examples of defining custom pipeline configurations, see <a class="reference internal" href="new_integration.html"><span class="doc">Add a New Method</span></a>.</p>
+</section>
 </section>
 
         </article>
@@ -343,23 +389,23 @@ start with <a class="reference internal" href="../quickstart/first_world_model.h
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="system_overview.html">
+          <a class="next-page" href="new_integration.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">System overview</div>
+                <div class="title">Add a New Method</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../models/cosmos_predict2.html">
+          <a class="prev-page" href="inference_pipeline_overview.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Cosmos-Predict2.5</div>
+                <div class="title">Inference Pipeline Overview</div>
                 
               </div>
             </a>
@@ -380,8 +426,29 @@ start with <a class="reference internal" href="../quickstart/first_world_model.h
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Config system</a><ul>
+<li><a class="reference internal" href="#base-components">Base components</a></li>
+<li><a class="reference internal" href="#creating-new-configs">Creating new configs</a></li>
+<li><a class="reference internal" href="#modifying-from-cli">Modifying from CLI</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

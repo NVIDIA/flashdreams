@@ -57,5 +57,5 @@ See also
 --------
 
 - :doc:`/quickstart/first_world_model`
-- :doc:`/developer_guides/configs`
+- :doc:`/developer_guides/config_system`
 - :doc:`/api/infra`

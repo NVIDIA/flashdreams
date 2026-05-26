@@ -25,10 +25,6 @@ FlashDreams
      <img src="_static/flashdreams-logo-horizontal.png" alt="FlashDreams">
    </div>
 
-.. .. raw:: html
-
-..    <p style="text-align: center;"><strong>High-performance inference and serving for interactive autoregressive world models.</strong></p>
-
 Overview
 --------------------
 
@@ -37,11 +33,92 @@ interactive autoregressive video and world models*. It began as the optimized
 runtime behind
 the `OmniDreams closed-loop demo for GTC 2026
 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_, and has
-since grown into a general platform for realtime world-model applications across
+since grown into a general platform for real-time world-model applications across
 gaming, autonomous vehicles, robotics, simulated or virtual environments, and more.
 
-.. Best-in-class Inference Speed
-.. -----------------------------
+.. TODO: Add the FlashDreams teaser video here once the final asset is ready.
+.. .. raw:: html
+..
+..    <div class="video-slot">
+..      <strong>Teaser video placeholder</strong><br>
+..      Add the FlashDreams teaser video here.
+..    </div>
+
+.. raw:: html
+
+   <p class="fd-subtitle">Why interactive world-model serving matters.</p>
+
+A world model learns to generate and evolve an environment over time. In
+practice this often means video, but the same concept can include actions,
+state, audio, sensor input, and control signals.
+
+World-model serving is the runtime pattern for putting that model inside a live
+application. Instead of producing one static clip, the system keeps a session
+alive while input, model state, GPU inference, and output evolve together. This
+is useful for interactive simulation, robotics, autonomy, healthcare workflows,
+creative tools, virtual worlds, and game-like experiences.
+
+.. TODO: Vectorize this figure before final publication.
+.. Figure creation trace: https://chatgpt.com/share/6a124478-4730-83e8-ba21-33628c8f1f3b
+.. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
+   :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
+
+In a served world-model application, the key requirement is not only generating
+a high-quality clip. The runtime must keep an interactive session responsive
+while the model continues to advance the world.
+
+.. raw:: html
+
+   <div class="fd-highlight-grid">
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Low latency</div>
+       <div class="fd-highlight-body">Keep the interaction responsive when controls, sensors, or user input change.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">High throughput</div>
+       <div class="fd-highlight-body">Keep the GPU busy across autoregressive steps and multi-GPU execution.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">Steady streaming generation</div>
+       <div class="fd-highlight-body">Stream frames or chunks at a steady pace while the session continues.</div>
+     </div>
+     <div class="fd-highlight-card">
+       <div class="fd-highlight-title">World-state evolution</div>
+       <div class="fd-highlight-body">Carry rolling state forward so the generated world evolves across steps.</div>
+     </div>
+   </div>
+
+.. raw:: html
+
+   <details class="fd-collapsible">
+     <summary>Comparison with offline video generation</summary>
+     <p>
+       Compared with offline video generation, the target is different.
+       One-shot systems prepare a conditioning input, run the model, then return a finished video.
+       Libraries such as
+       <a href="https://github.com/hao-ai-lab/FastVideo">FastVideo</a> and
+       <a href="https://github.com/ModelTC/lightx2v">LightX2V</a>
+       are strong references for high-throughput offline inference, but their
+       core pattern is not a persistent interactive loop with low-latency control
+       and streaming output.
+     </p>
+   </details>
+
+.. raw:: html
+
+   <details class="fd-collapsible">
+     <summary>Connection to LLM serving</summary>
+     <p>
+       There is also a useful connection to LLM serving engines such as
+       <a href="https://github.com/vllm-project/vllm">vLLM</a> and
+       <a href="https://github.com/sgl-project/sglang">SGLang</a>: both LLMs and many world
+       models are autoregressive. The difference is the interaction pattern.
+       LLM chat usually runs <code>prefill -&gt; decode -&gt; prefill -&gt; decode</code>
+       across user turns. Interactive video/world-model serving is closer to
+       <code>initialize -&gt; decode -&gt; decode -&gt; decode -&gt; ...</code>:
+       initialize the session once, then advance the world continuously at a fixed pace.
+     </p>
+   </details>
 
 .. raw:: html
 
@@ -84,15 +161,12 @@ Although FlashDreams is designed for autoregressive inference, the same
 optimization stack applies naturally to bidirectional inference (e.g.,
 Wan2.1) by treating it as a single-rollout autoregressive pass.
 
-.. Interactive Serving Backend
-.. ---------------------------
-
 .. raw:: html
 
    <p class="fd-subtitle">Production-oriented interactive serving backend.</p>
 
 FlashDreams also includes a production-oriented serving backend for persistent,
-low-latency world-model sessions, with efficient inference execution, mult-GPU support, and
+low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
 streaming input/output. Explore the interactive demos powered by FlashDreams:
 
 .. raw:: html
@@ -124,7 +198,7 @@ Start Here
          <div class="fd-highlight-body">Install FlashDreams, launch your first world-model server, and start exploring quickly.</div>
        </div>
      </a>
-    <a class="fd-highlight-link" href="models/index.html">
+     <a class="fd-highlight-link" href="models/index.html">
        <div class="fd-highlight-card">
          <div class="fd-highlight-title">Model Cards</div>
          <div class="fd-highlight-body">See supported models, how to launch each one, and their performance analysis.</div>
@@ -136,7 +210,7 @@ Start Here
          <div class="fd-highlight-body">Find CLI and Python API references, with links to lower-level modules.</div>
        </div>
      </a>
-    <a class="fd-highlight-link" href="developer_guides/index.html">
+     <a class="fd-highlight-link" href="developer_guides/index.html">
        <div class="fd-highlight-card">
          <div class="fd-highlight-title">Developer Guides</div>
          <div class="fd-highlight-body">Learn the system design, how to integrate new models, and how to use it in your own projects.</div>
@@ -171,13 +245,13 @@ Start Here
    :caption: Developer Guides
    :hidden:
 
-   Offline vs online world-model flow <developer_guides/offline_vs_online>
-   Runtime system overview <developer_guides/system_overview>
-   Interactive serving architecture <developer_guides/interactive_serving>
-   Developer workflow patterns <developer_guides/usage_patterns>
-   Developer guides overview <developer_guides/index>
-   Add a new model integration <developer_guides/new_recipes>
-   Configure runs and overrides <developer_guides/configs>
+   Inference pipeline overview <developer_guides/inference_pipeline_overview>
+   Config system <developer_guides/config_system>
+   Add a new method <developer_guides/new_integration>
+
+.. Temporarily commented out for internal development:
+..   Interactive serving architecture <developer_guides/interactive_serving>
+..   Developer workflow patterns <developer_guides/usage_patterns>
 
 .. toctree::
    :maxdepth: 2
@@ -187,5 +261,5 @@ Start Here
    CLI reference <api/cli>
    Core <api/core>
    Infra <api/infra>
-   Pipelines and runners <api/recipes>
+   Pipelines and runners <api/integrations>
    Serving <api/serving>
