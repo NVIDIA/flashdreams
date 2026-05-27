@@ -367,8 +367,29 @@ class SlangPyHudPresenter:
 
         self._latest_camera_pil: Image.Image | None = None
         self._latest_bev_pil: Image.Image | None = None
+        # Numpy view of the latest world-model frame (RGBA8 with alpha
+        # padded to 255) used by the GPU camera path. Lazily filled on
+        # demand from ``_latest_camera_pil`` so we don't pay for the
+        # RGB->RGBA expansion on warmup ticks that take the CPU
+        # fallback path anyway.
+        self._latest_camera_rgba: np.ndarray | None = None
+        self._latest_camera_src_size: tuple[int, int] | None = None  # (w, h)
         self._camera_resize_cache_key: tuple[int, int, int] | None = None
         self._camera_resize_cache: Image.Image | None = None
+
+        # GPU camera path: world-model frames upload into a source-sized
+        # texture, get GPU-scaled into a fit-sized texture via
+        # ``encoder.blit`` (full-extent linear filter == hardware
+        # bilinear resize, ~0.1 ms vs the ~5 ms PIL ``Image.resize``
+        # we used to pay on the CPU), and finally copy into a centred
+        # rectangle inside the display texture via
+        # ``encoder.copy_texture``. Skipped (CPU fallback) only when
+        # ``status_message`` is set so the warmup "Loading world
+        # model..." overlay still composites over the loading frame.
+        self._camera_texture: Any | None = None
+        self._camera_texture_size: tuple[int, int] | None = None
+        self._camera_fit_texture: Any | None = None
+        self._camera_fit_size: tuple[int, int] | None = None
 
         # Numpy-backed RGBA canvas: PIL writes into the same buffer
         # slangpy uploads to per frame. See :func:`_allocate_canvas`.
@@ -442,14 +463,18 @@ class SlangPyHudPresenter:
         if frame.bev_host_uint8 is not None:
             self._update_bev_pil(frame.bev_host_uint8)
         self._render_canvas(frame.status_message)
-        self._present_canvas()
+        self._present_canvas(use_gpu_camera=frame.status_message is None)
 
     def present_loading(self, rgb_host_uint8: np.ndarray) -> None:
         # Used during world-model warmup. Goes through the same render
         # path so the HUD chrome stays drawn around the loading frame.
+        # CPU camera path here so the "Loading world model..." status
+        # overlay still composites over the loading frame; the GPU path
+        # would paint the camera *after* the canvas upload and bury the
+        # overlay underneath.
         self._update_camera_pil(rgb_host_uint8)
         self._render_canvas("Loading world model...")
-        self._present_canvas()
+        self._present_canvas(use_gpu_camera=False)
 
     def close(self) -> None:
         self._should_close_flag = True
@@ -478,11 +503,20 @@ class SlangPyHudPresenter:
         if not rgb.flags["C_CONTIGUOUS"]:
             rgb = np.ascontiguousarray(rgb)
         self._latest_camera_pil = Image.fromarray(rgb, mode="RGB")
-        # Invalidate the resize cache: the frame buffer might have the
-        # same id as before but different bytes (the chunk pipeline
-        # reuses scratch buffers), so we always rebuild the resized
-        # image. Cache key based on (id, target_w, target_h) means we
-        # only re-resize when target size changes during a long warmup.
+        # Source dimensions for the GPU camera path. ``slangpy.Texture``
+        # uploads need RGBA; the chunk pipeline produces RGB, so we
+        # expand to RGBA lazily in :meth:`_ensure_camera_texture_uploaded`
+        # only on ticks that actually take the GPU path.
+        src_h, src_w = rgb.shape[:2]
+        self._latest_camera_src_size = (src_w, src_h)
+        # Force re-upload of the GPU camera texture (the chunk pipeline
+        # reuses its scratch buffer, so ``id(rgb)`` is stable across
+        # frames with different contents). Clearing the cached RGBA
+        # expansion forces a fresh ``np.dstack`` / ``copy_from_numpy``
+        # on the next ``_ensure_camera_texture_uploaded`` call.
+        self._latest_camera_rgba = None
+        # Invalidate the CPU resize cache: same buffer reuse story
+        # applies to the PIL fallback path.
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
         self._has_camera_frame = True
@@ -569,6 +603,12 @@ class SlangPyHudPresenter:
         self._bev_panel_cache = None
         self._wheel_rotation_cache.clear()
         self._pedal_cache.clear()
+        # Camera fit-texture's size is derived from the camera area in
+        # the resized display, so it needs to be re-built next frame.
+        # The source-sized camera_texture only depends on world-model
+        # output dims, so it stays valid across window resizes.
+        self._camera_fit_texture = None
+        self._camera_fit_size = None
         self._canvas_buffer, self._canvas = _allocate_canvas(*self._configured_size)
 
     def _on_resize(self, width: int, height: int) -> None:
@@ -577,7 +617,7 @@ class SlangPyHudPresenter:
         # race with whatever frame is in flight.
         self._pending_resize = (int(width), int(height))
 
-    def _present_canvas(self) -> None:
+    def _present_canvas(self, use_gpu_camera: bool = False) -> None:
         # Sync to the window's CURRENT size before every present.
         # SDL3 doesn't always fire on_resize for compositor-side rezies
         # (window manager fitting the window to the screen on first
@@ -614,10 +654,138 @@ class SlangPyHudPresenter:
         # slangpy's writable + C-contiguous + uint8 constraints.
         self._display_texture.copy_from_numpy(self._canvas_buffer)
         encoder = self._device.create_command_encoder()
+        if use_gpu_camera:
+            self._composite_camera_gpu(encoder)
         encoder.blit(surface_texture, self._display_texture)
         self._device.submit_command_buffer(encoder.finish())
         del surface_texture
         self._surface.present()
+
+    # -- GPU camera composite --------------------------------------
+
+    def _composite_camera_gpu(self, encoder: Any) -> None:
+        """Stamp the camera frame into the display texture on the GPU.
+
+        Replaces the CPU ``Image.resize`` + ``Image.paste`` pair that
+        used to cost ~5.9 ms / frame at 1080p with a hardware bilinear
+        blit + sub-region copy that runs in <1 ms on the GPU. The
+        chrome canvas (with bg color filling the camera-area letterbox
+        bars) was already uploaded to the display texture by the
+        caller, so we just stamp the camera over the centred fit rect.
+        """
+        fit = self._compute_camera_fit()
+        if fit is None:
+            return
+        fit_w, fit_h, offset_x, offset_y = fit
+        if fit_w <= 0 or fit_h <= 0:
+            return
+        if not self._ensure_camera_texture_uploaded():
+            return
+        self._ensure_camera_fit_texture(fit_w, fit_h)
+        # Hardware bilinear resize: source-sized texture to fit-sized
+        # texture (whole-extent blit with linear filter).
+        encoder.blit(self._camera_fit_texture, self._camera_texture)
+        # Sub-region copy: fit-sized texture into the centred rect in
+        # the display texture. ``dst_offset`` is in texels; ``extent``
+        # defaults to "as much as possible" which here means the
+        # source texture's full extent (fit_w x fit_h). Uses the
+        # int-layer / int-mip ``copy_texture`` overload because the
+        # ``SubresourceRange`` ctor in this slangpy build only accepts
+        # a dict, not kwargs.
+        spy = self._spy
+        encoder.copy_texture(
+            self._display_texture,
+            0,  # dst_layer
+            0,  # dst_mip
+            spy.math.uint3(offset_x, offset_y, 0),
+            self._camera_fit_texture,
+            0,  # src_layer
+            0,  # src_mip
+            spy.math.uint3(0, 0, 0),
+        )
+
+    def _compute_camera_fit(self) -> tuple[int, int, int, int] | None:
+        """Centered cover-fit for the current camera frame.
+
+        Returns ``(fit_w, fit_h, offset_x, offset_y)`` in display-texture
+        coordinates, or ``None`` if no camera frame is available. The
+        offsets put the camera centred inside the camera area (left of
+        the panel column).
+        """
+        if self._latest_camera_src_size is None:
+            return None
+        src_w, src_h = self._latest_camera_src_size
+        screen_w, screen_h = self._configured_size
+        panel_w = (
+            HUD_PANEL_WIDTH if screen_w > HUD_PANEL_WIDTH + MIN_WINDOW_W // 2 else 0
+        )
+        cam_w = max(1, screen_w - panel_w)
+        cam_h = screen_h
+        if src_w <= 0 or src_h <= 0:
+            return None
+        scale = min(cam_w / src_w, cam_h / src_h)
+        fit_w = max(1, int(src_w * scale))
+        fit_h = max(1, int(src_h * scale))
+        offset_x = (cam_w - fit_w) // 2
+        offset_y = (cam_h - fit_h) // 2
+        return (fit_w, fit_h, offset_x, offset_y)
+
+    def _ensure_camera_texture_uploaded(self) -> bool:
+        """Upload the latest world-model frame to the GPU camera texture.
+
+        Lazily allocates the source-sized texture on first use / when
+        the world-model output size changes. Pads the source RGB into
+        an RGBA8 numpy view (slangpy textures are RGBA8 to match the
+        swapchain format) and uploads via ``copy_from_numpy``. The
+        RGBA expansion is cached on ``_latest_camera_rgba`` so back-to-
+        back ticks with the same frame (e.g., a stalled chunk pipeline)
+        skip the copy.
+        """
+        if self._latest_camera_pil is None or self._latest_camera_src_size is None:
+            return False
+        src_w, src_h = self._latest_camera_src_size
+        if self._camera_texture is None or self._camera_texture_size != (src_w, src_h):
+            spy = self._spy
+            self._camera_texture = self._device.create_texture(
+                format=spy.Format.rgba8_unorm,
+                width=src_w,
+                height=src_h,
+                usage=spy.TextureUsage.shader_resource
+                | spy.TextureUsage.unordered_access,
+                label="hud_camera_src",
+            )
+            self._camera_texture_size = (src_w, src_h)
+            self._latest_camera_rgba = None
+        if self._latest_camera_rgba is None:
+            # PIL Image.convert("RGBA") allocates a fresh RGBA buffer
+            # (no zero-copy path from RGB to RGBA in PIL); the
+            # alternative ``np.dstack`` + alpha=255 is the same cost
+            # but stays in numpy land so we can hand the buffer
+            # straight to ``copy_from_numpy``.
+            rgb_view = np.asarray(self._latest_camera_pil)
+            alpha = np.full((src_h, src_w, 1), 255, dtype=np.uint8)
+            self._latest_camera_rgba = np.ascontiguousarray(
+                np.concatenate([rgb_view, alpha], axis=2)
+            )
+        self._camera_texture.copy_from_numpy(self._latest_camera_rgba)
+        return True
+
+    def _ensure_camera_fit_texture(self, fit_w: int, fit_h: int) -> None:
+        """Lazily (re)allocate the fit-sized GPU camera texture."""
+        if self._camera_fit_texture is not None and self._camera_fit_size == (
+            fit_w,
+            fit_h,
+        ):
+            return
+        spy = self._spy
+        self._camera_fit_texture = self._device.create_texture(
+            format=spy.Format.rgba8_unorm,
+            width=fit_w,
+            height=fit_h,
+            usage=spy.TextureUsage.shader_resource | spy.TextureUsage.unordered_access,
+            label="hud_camera_fit",
+        )
+        self._camera_fit_size = (fit_w, fit_h)
 
     def _sync_window_size(self) -> None:
         """If the window's current size differs from our last
@@ -650,6 +818,10 @@ class SlangPyHudPresenter:
         # Drop chrome panel cache because its size depends on screen size.
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
+        # Camera fit-texture follows the camera area, which follows the
+        # display size; force a rebuild on next present.
+        self._camera_fit_texture = None
+        self._camera_fit_size = None
         # Re-allocate the canvas so the next ``_render_canvas`` paints
         # at the right resolution.
         self._canvas_buffer, self._canvas = _allocate_canvas(*new_size)
@@ -701,7 +873,20 @@ class SlangPyHudPresenter:
 
         camera_drawn = False
         if self._latest_camera_pil is not None:
-            self._draw_camera(canvas, self._latest_camera_pil, camera_area)
+            if status_message is None:
+                # GPU camera path will fill the centred fit rect after
+                # the canvas upload; we only need to paint the
+                # letterbox bars with BG_COLOR here so they don't show
+                # last frame's content when the fit rect resizes.
+                # Cheaper than the full ``Image.resize`` + ``paste``
+                # that the CPU path runs (~5.9 ms at 1080p) -- this is
+                # just a 1420x1080 fill, ~0.3 ms.
+                draw.rectangle(camera_area, fill=BG_COLOR + (255,))
+            else:
+                # CPU camera path: composite onto canvas so the status
+                # overlay (drawn after this) sits on top of the
+                # loading-frame contents. Only used during warmup.
+                self._draw_camera(canvas, self._latest_camera_pil, camera_area)
             camera_drawn = True
         if not camera_drawn:
             # Three states:
