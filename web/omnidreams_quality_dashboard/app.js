@@ -1,5 +1,23 @@
 const DEFAULT_SUMMARY_PATH = "/outputs/omnidreams-quality-sweep/metrics_summary.json";
 const DEFAULT_VLM_SUMMARY_NAME = "vlm_artifacts_summary.json";
+const RUN_PRESETS = [
+  {
+    id: "omnidreams-quality-sweep",
+    label: "OmniDreams quality sweep",
+    summary: "/outputs/omnidreams-quality-sweep/metrics_summary.json",
+  },
+  {
+    id: "nurec-front-wide",
+    label: "NuRec 26.02 front wide (Qwen 7B)",
+    summary: "/outputs/nurec-26.02-quality-sweep/tot-main/v1/metrics_summary.json",
+  },
+  {
+    id: "nurec-front-wide-qwen72b",
+    label: "NuRec 26.02 front wide (Qwen 72B)",
+    summary: "/outputs/nurec-26.02-quality-sweep/tot-main/v1/metrics_summary.json",
+    vlm: "/outputs/nurec-26.02-quality-sweep/tot-main/v1/vlm_artifacts_qwen72b_summary.json",
+  },
+];
 const METRIC_DEFS = {
   niqe: { label: "NIQE", better: "lower", colorClass: "niqe" },
   musiq: { label: "MUSIQ", better: "higher", colorClass: "musiq" },
@@ -31,6 +49,7 @@ const state = {
 };
 
 const els = {
+  runPreset: document.getElementById("runPreset"),
   summaryLine: document.getElementById("summaryLine"),
   summaryMetrics: document.getElementById("summaryMetrics"),
   sortMetric: document.getElementById("sortMetric"),
@@ -54,18 +73,31 @@ const els = {
 
 function getSummaryPath() {
   const params = new URLSearchParams(window.location.search);
+  const run = params.get("run");
+  const preset = RUN_PRESETS.find((item) => item.id === run);
+  if (preset && !params.has("summary")) return preset.summary;
   return params.get("summary") || DEFAULT_SUMMARY_PATH;
 }
 
 function getVlmSummaryPath() {
   const params = new URLSearchParams(window.location.search);
   if (params.has("vlm")) return params.get("vlm");
+  const preset = presetForRun(params.get("run"));
+  if (preset?.vlm) return preset.vlm;
   const summaryPath = getSummaryPath();
   return `${dirname(summaryPath)}/${DEFAULT_VLM_SUMMARY_NAME}`;
 }
 
 function dirname(path) {
   return path.slice(0, path.lastIndexOf("/"));
+}
+
+function presetForRun(run) {
+  return RUN_PRESETS.find((preset) => preset.id === run);
+}
+
+function presetForSummary(summaryPath) {
+  return RUN_PRESETS.find((preset) => preset.summary === summaryPath);
 }
 
 function toUrl(path, summary) {
@@ -192,8 +224,6 @@ function compareItems(a, b, metric = state.sortMetric, order = state.sortOrder) 
   const bValue = metricValue(b, metric);
   const higherIsBetter =
     metric === "composite" ||
-    metric === "artifact_severity" ||
-    Boolean(ARTIFACT_DEFS[metric]) ||
     METRIC_DEFS[metric]?.better === "higher";
   let delta = higherIsBetter ? bValue - aValue : aValue - bValue;
   if (order === "worst") delta = -delta;
@@ -505,6 +535,22 @@ function fallbackArtifacts() {
 
 function buildArtifacts(record, detail, summary) {
   if (!record && !detail) return fallbackArtifacts();
+  if (record?.status === "failed" || detail?.status === "failed") {
+    const message =
+      detail?.error?.message ||
+      record?.error?.message ||
+      "The VLM artifact evaluator failed for this output.";
+    return {
+      available: true,
+      overall: 0,
+      needsReview: true,
+      highestCategories: [],
+      scores: {},
+      contactSheetUrl: toUrl(detail?.contact_sheet || record?.contact_sheet || "", summary),
+      responseValid: false,
+      parseWarnings: [message],
+    };
+  }
   const artifacts = detail?.artifacts || {};
   const scores = artifacts.artifact_scores || record?.artifact_scores || {};
   const normalizedScores = {};
@@ -609,6 +655,21 @@ function refreshItems(records, detailResults = [], vlmMap = state.vlmMap) {
 }
 
 function bindEvents() {
+  els.runPreset.innerHTML = RUN_PRESETS.map(
+    (preset) => `<option value="${preset.id}">${preset.label}</option>`
+  ).join("");
+  const params = new URLSearchParams(window.location.search);
+  const activePreset = presetForRun(params.get("run")) || presetForSummary(getSummaryPath());
+  if (activePreset) els.runPreset.value = activePreset.id;
+  els.runPreset.addEventListener("change", () => {
+    const preset = RUN_PRESETS.find((item) => item.id === els.runPreset.value);
+    if (!preset) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("run", preset.id);
+    url.searchParams.delete("summary");
+    url.searchParams.delete("vlm");
+    window.location.href = url.toString();
+  });
   els.sortMetric.addEventListener("change", () => {
     state.sortMetric = els.sortMetric.value;
     render();

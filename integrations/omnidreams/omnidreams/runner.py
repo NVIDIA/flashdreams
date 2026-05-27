@@ -490,6 +490,12 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     """Number of AR chunks to attempt. The loop stops early once the
     HDMap video is consumed."""
 
+    pad_final_hdmap_chunk: bool = False
+    """When True, pad the final partial HDMap chunk by repeating the last
+    conditioning frame, run one final AR step, and crop the saved video back
+    to the original HDMap frame count. This is useful for batch clips whose
+    frame counts are not exactly representable by the model's AR chunk size."""
+
     pixel_height: int = DEFAULT_VIDEO_HEIGHT
     """Resize target height for HDMap videos and first-frame images."""
 
@@ -1090,26 +1096,44 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         stats_history: list[dict[str, float]] = []
         start = 0
         resolved_total_blocks = total_blocks or cfg.total_blocks
+        target_num_frames = hdmap_num_frames
         for i in range(resolved_total_blocks):
             num_frames = self.pipeline.get_num_frames(i)
             end = start + num_frames
+            is_padded_final_chunk = False
             if end > hdmap_num_frames:
-                break
+                if not cfg.pad_final_hdmap_chunk or start >= hdmap_num_frames:
+                    break
+                pad_frames = end - hdmap_num_frames
+                hdmap_chunk = hdmap_videos_t[:, :, start:hdmap_num_frames]
+                tail = hdmap_videos_t[:, :, hdmap_num_frames - 1 : hdmap_num_frames]
+                pad = tail.expand(*tail.shape[:2], pad_frames, *tail.shape[3:])
+                hdmap_chunk = torch.cat([hdmap_chunk, pad], dim=2)
+                is_padded_final_chunk = True
+            else:
+                hdmap_chunk = hdmap_videos_t[:, :, start:end]
             if self.is_rank_zero:
-                logger.info(
+                msg = (
                     f"[{cfg.runner_name}] AR step {i}/{resolved_total_blocks}, "
                     f"num_frames={num_frames}, frames=[{start}, {end})"
                 )
+                if is_padded_final_chunk:
+                    msg += (
+                        f" padded_final_chunk target_frames={target_num_frames}"
+                    )
+                logger.info(msg)
             video_chunk = self.pipeline.generate(
                 autoregressive_index=i,
                 cache=cache,
-                hdmap=hdmap_videos_t[:, :, start:end],
+                hdmap=hdmap_chunk,
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
             chunks.append(video_chunk.cpu())
             start = end
+            if is_padded_final_chunk:
+                break
 
         if not chunks:
             raise RuntimeError(
@@ -1117,6 +1141,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 "short for the first rollout chunk."
             )
         video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
+        if cfg.pad_final_hdmap_chunk:
+            video = video[:, :, :target_num_frames]
         generated_num_frames = video.shape[2]
         if not self.is_rank_zero:
             return None, None

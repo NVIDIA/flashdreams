@@ -7,6 +7,9 @@ OmniDreams sweep artifacts store ``video.mp4`` as a vertical stack where the
 HDMap/conditioning visualization is on top and the generated camera video is on
 the bottom. This script crops the bottom half once per output directory and
 evaluates only that cropped copy.
+
+For generated-only comparison videos, pass ``--input-is-generated`` to skip the
+crop step while keeping the same ``metrics.json`` schema for the VLM evaluator.
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ from flashdreams.eval.evaluate import (
 from flashdreams.eval.metrics import MetricRegistry
 
 CROP_FILTER = "crop=iw:floor(ih/2):0:ih-floor(ih/2)"
-DEFAULT_ROOT = Path("/home/gtong/github/flashdreams/outputs/omnidreams-quality-sweep")
+DEFAULT_ROOT = Path("outputs/omnidreams-quality-sweep")
 
 
 def _json_default(value: Any) -> Any:
@@ -237,6 +240,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dover-config", default=None)
     parser.add_argument("--ffmpeg-crf", type=int, default=18)
     parser.add_argument("--ffmpeg-preset", default="veryfast")
+    parser.add_argument(
+        "--input-is-generated",
+        action="store_true",
+        help=(
+            "Treat --video-name as the generated video itself and skip the "
+            "bottom-half crop step."
+        ),
+    )
     parser.add_argument("--overwrite-crops", action="store_true")
     parser.add_argument("--overwrite-metrics", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
@@ -301,13 +312,17 @@ def main() -> int:
 
         try:
             crop_t0 = time.time()
-            crop_created = crop_bottom_half_video(
-                src,
-                cropped,
-                crf=args.ffmpeg_crf,
-                preset=args.ffmpeg_preset,
-                overwrite=args.overwrite_crops,
-            )
+            if args.input_is_generated:
+                cropped = src
+                crop_created = False
+            else:
+                crop_created = crop_bottom_half_video(
+                    src,
+                    cropped,
+                    crf=args.ffmpeg_crf,
+                    preset=args.ffmpeg_preset,
+                    overwrite=args.overwrite_crops,
+                )
             crop_seconds = time.time() - crop_t0
 
             name = str(src.parent.relative_to(root))

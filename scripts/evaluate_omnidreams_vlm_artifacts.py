@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from flashdreams.eval._video_decode import get_video_frame_batch, get_video_frame_count
 
-DEFAULT_ROOT = Path("/home/gtong/github/flashdreams/outputs/omnidreams-quality-sweep")
+DEFAULT_ROOT = Path("outputs/omnidreams-quality-sweep")
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 SCHEMA_VERSION = 1
 
