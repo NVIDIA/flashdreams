@@ -84,7 +84,21 @@ html_theme_options = {
         "image_light": "_static/flashdreams-logo-horizontal.png",
         "image_dark": "_static/flashdreams-logo-horizontal-light.png",
     },
-    "secondary_sidebar_items": ["page-toc"],
+    # Per-page-pattern map (same shape as `html_sidebars`). Front-of-
+    # site pages (homepage, benchmarks, community) get no right
+    # sidebar; reference-docs pages get the in-page TOC. Patterns must
+    # be non-overlapping — pydata warns on any page that matches more
+    # than one — so each section is enumerated explicitly rather than
+    # using a `**` catch-all.
+    "secondary_sidebar_items": {
+        "index": [],
+        "benchmarks/*": [],
+        "community/*": [],
+        "quickstart/*": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
+        "models/*": ["page-toc"],
+        "api/*": ["page-toc"],
+    },
     "pygments_light_style": "tango",
     "pygments_dark_style": "monokai",
     "github_url": "https://github.com/NVIDIA/flashdreams",
@@ -109,10 +123,11 @@ html_theme_options = {
     # toctree entries appear there. Sub-pages live in each section's
     # own toctree, which drives the left sidebar instead.
     "show_nav_level": 1,
-    # Seven top-level sections in the master toctree (Benchmarks,
-    # Quickstart, Developer Guides, Models, API, Community); promote
-    # them all into the primary navbar instead of bucketing into "More".
-    "header_links_before_dropdown": 7,
+    # Six top-level sections in the master toctree (Benchmarks,
+    # Quickstart, Developer Guides, Models, CLI/API References,
+    # Community); promote them all into the primary navbar instead
+    # of bucketing into "More".
+    "header_links_before_dropdown": 6,
 }
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,

@@ -1,0 +1,61 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+{% extends "!layout.html" %}
+
+{#
+   Front-of-site marketing layout.
+
+   pydata-sphinx-theme's default `docs_main` block wraps every page's
+   body in a docs-style scaffold:
+
+       <main class="bd-main">
+         <div class="bd-content">
+           <div class="bd-article-container">
+             <div class="bd-header-article">[Source / Edit / breadcrumb]</div>
+             <article class="bd-article">{{ body }}</article>
+             [optional article-footer, prev/next]
+           </div>
+           <div class="bd-sidebar-secondary">[page TOC]</div>
+         </div>
+       </main>
+
+   That's the right shape for reference docs but reads as "docs page
+   with a hero on top" on the homepage / benchmarks / community pages.
+   For those pages we bypass the article scaffold entirely and emit
+   `{{ body }}` directly into a full-bleed wrapper. Our `fd-*`
+   components (hero, stat grid, feature card, etc.) bring their own
+   layout via `--fd-max-content`.
+
+   `pagename` is the Sphinx-source path without extension, so checking
+   `pagename == master_doc`, `pagename.startswith('benchmarks/')`, etc.
+   picks the right set.
+#}
+{% block docs_main %}
+  {% set _fd_is_landing = pagename == master_doc
+                          or pagename.startswith('benchmarks/')
+                          or pagename.startswith('community/') %}
+  {% if _fd_is_landing %}
+    <div class="fd-landing-main">
+      {{ body }}
+    </div>
+    <footer class="bd-footer-content fd-landing-footer">
+      {% include "sections/footer-content.html" %}
+    </footer>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock docs_main %}
+
+{#
+   Tag <body> so CSS can target front-of-site pages without `:has()`
+   tricks. Same set as the `docs_main` switch above.
+#}
+{% block body_tag %}
+  {% set _fd_is_landing = pagename == master_doc
+                          or pagename.startswith('benchmarks/')
+                          or pagename.startswith('community/') %}
+  <body data-default-mode="{{ default_mode }}"{% if _fd_is_landing %} class="fd-page-landing"{% endif %}>
+{% endblock body_tag %}

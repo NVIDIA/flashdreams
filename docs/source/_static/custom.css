@@ -599,68 +599,74 @@ p.fd-hero-title.rubric,
 
 /* ----- 6. Front-of-site marketing layout --------------------------------- */
 
-/* The homepage, benchmarks, and community pages are marketing surfaces.
-   Pydata's default article layout is reading-optimized — a centered
-   ~50-character column inside a constrained container — which crushes
-   the hero / feature grids and reads as "docs with a hero on top".
+/* Front-of-site pages (homepage, benchmarks, community) bypass pydata's
+   docs scaffold entirely via the `docs_main` block override in
+   `_templates/layout.html`. The body content is rendered into
+   `<div class="fd-landing-main">` directly inside `<main>`, with no
+   `bd-content` / `bd-article-container` / `bd-article` wrapping.
 
-   These rules detect a marketing page via the presence of `.fd-hero`,
-   `.fd-stat`, or `.fd-feature` and:
-     - widen the article column to the full content area
-     - drop pydata's article side padding so hero bands hit the edges
-     - give sections generous vertical breathing room
+   `body.fd-page-landing` is set by the same template so these rules
+   can be cleanly scoped to landing pages without `:has()` tricks.
 */
 
-.bd-main:has(.fd-hero),
-.bd-main:has(.fd-feature),
-.bd-main:has(.fd-stat) {
-    /* Reclaim the full pydata content rail; the marketing components
-       size themselves via `--fd-max-content` instead. */
-    --pst-sidebar-secondary: 0;
+/* Full-bleed wrapper for the body content. Page-internal width is
+   controlled by an inner `.fd-page` (auto-applied below to direct
+   children except hero bands), so each section can choose to span
+   edge-to-edge or stay constrained. */
+body.fd-page-landing .fd-landing-main {
+    width: 100%;
+    padding: 0;
+    margin: 0;
 }
 
-.bd-main:has(.fd-hero) .bd-content,
-.bd-main:has(.fd-feature) .bd-content,
-.bd-main:has(.fd-stat) .bd-content {
+/* Pydata's body container caps page width; reclaim the full viewport
+   on landing pages so the alternating section bands can stretch
+   edge-to-edge. Targets the body container only — the header navbar
+   ALSO uses `bd-page-width`, but it lives under `bd-header__inner`,
+   so scoping via `.bd-container` leaves the navbar's centered logo
+   placement intact. */
+body.fd-page-landing .bd-container,
+body.fd-page-landing .bd-container__inner {
     max-width: 100%;
+    padding-inline: 0;
 }
 
-.bd-main:has(.fd-hero) .bd-article-container,
-.bd-main:has(.fd-feature) .bd-article-container,
-.bd-main:has(.fd-stat) .bd-article-container {
+body.fd-page-landing .bd-main {
+    padding-inline: 0;
+}
+
+/* Default constrained inner container — wrap any direct child of
+   .fd-landing-main that isn't an explicit full-width band. Achieved
+   by giving everything a max-width and side-padding by default;
+   `.fd-bleed` opts a child out (used by `.fd-hero` below). */
+body.fd-page-landing .fd-landing-main > * {
     max-width: var(--fd-max-content);
+    margin-inline: auto;
     padding-inline: var(--fd-space-4);
 }
 
-.bd-main:has(.fd-hero) .bd-article,
-.bd-main:has(.fd-feature) .bd-article,
-.bd-main:has(.fd-stat) .bd-article {
-    padding-inline: 0;
-    padding-block: var(--fd-space-3);
-}
-
-/* Section spacing. Sphinx wraps each H2-marked top-level section in a
-   nested <section>, so we target the second-level <section> children
-   of the article's outermost section. Adds generous vertical rhythm
-   between Showcase / Why / What's inside / Supported models / etc. */
-.bd-main:has(.fd-hero) .bd-article > section > section {
+/* Section spacing — Sphinx wraps the H1 + the H2 sections of the page
+   in a single outer <section>; within that, each H2-marked top-level
+   section is another nested <section>. Targeting those gives us the
+   "Showcase / Why FlashDreams / What's inside / …" rhythm. */
+body.fd-page-landing .fd-landing-main > section > section {
     margin-block: var(--fd-space-7);
 }
 
-/* Hero typography: scale up the title further on wide screens than the
-   base .fd-hero-title rule does, so the homepage hero reads as a real
-   landing-page hero rather than a docs page H1. */
-.bd-main:has(.fd-hero) .fd-hero-title,
-.bd-main:has(.fd-hero) p.fd-hero-title.rubric {
+/* Hero typography: scale up the title further than the base
+   `.fd-hero-title` rule, so the homepage reads as a real landing
+   hero rather than a docs H1. */
+body.fd-page-landing .fd-hero-title,
+body.fd-page-landing p.fd-hero-title.rubric {
     font-size: clamp(2.5rem, 5vw + 1rem, 4.25rem);
     letter-spacing: -0.025em;
     line-height: 1.04;
 }
 
-/* Section heads — beefier than the default H2 on marketing pages, with
-   the section-rule pattern (h2 + bottom border) that ties the surface
-   to the section-rule component. */
-.bd-main:has(.fd-hero) .bd-article > section > section > h2 {
+/* Section H2s carry the section-rule pattern (heading + bottom rule)
+   so each section reads as a distinct marketing band, not a docs sub-
+   heading inside a long article. */
+body.fd-page-landing .fd-landing-main > section > section > h2 {
     font-size: var(--fd-text-xl);
     letter-spacing: -0.015em;
     padding-bottom: var(--fd-space-2);
@@ -668,15 +674,36 @@ p.fd-hero-title.rubric,
     margin-bottom: var(--fd-space-4);
 }
 
-/* Alternating section backgrounds add visual rhythm — a marketing-page
-   pattern. Apply via :nth-of-type on the section-rule-marked sections
-   so even-indexed ones get a tinted background band. */
-.bd-main:has(.fd-hero) .bd-article > section > section:nth-of-type(even) {
+/* Alternating section backgrounds. Even-indexed top-level sections
+   pick up the muted neutral background, giving the page visual
+   rhythm as the reader scrolls. The band breaks out of the
+   constrained inner-container by using negative inline margin equal
+   to the container's padding. */
+body.fd-page-landing .fd-landing-main > section > section:nth-of-type(even) {
     background: var(--fd-bg-muted);
-    margin-inline: calc(-1 * var(--fd-space-4));
-    padding-inline: var(--fd-space-4);
+    margin-inline: calc(50% - 50vw);
+    padding-inline: calc(50vw - 50%);
     padding-block: var(--fd-space-5) var(--fd-space-6);
-    border-radius: var(--fd-radius-lg);
+    max-width: none;
+}
+
+/* Hide the docs-y H1 that Sphinx emits at the top of every page —
+   the marketing hero IS the page title; the H1 is structural only,
+   present so the toctree caption and browser tab resolve. */
+body.fd-page-landing .fd-landing-main > section > h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+}
+
+/* Footer-content section spacing on landing pages should match the
+   marketing rhythm, not the docs `--fd-space-3`-tight default. */
+body.fd-page-landing .fd-landing-footer {
+    margin-top: var(--fd-space-6);
+    padding-block: var(--fd-space-5);
+    border-top: var(--fd-border-width) solid var(--fd-border);
 }
 
 
