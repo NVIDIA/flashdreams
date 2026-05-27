@@ -1855,6 +1855,7 @@ def load_clipgt_scene(
     exclude_elements: Optional[set] = None,
     include_ego_trajectory: bool = True,
     include_ego_obstacle: bool = False,
+    include_dynamic_obstacles: bool = True,
     simplify_dual_lane_lines: bool = True,
     verbose: bool = False,
 ) -> ClipgtGpuScene:
@@ -1869,6 +1870,8 @@ def load_clipgt_scene(
                          Pass empty set() to include all elements.
         include_ego_trajectory: If True (default), include ego trajectory polyline (green path)
         include_ego_obstacle: If True, include ego vehicle as a cube (for BEV rendering)
+        include_dynamic_obstacles: If True (default), include clipgt dynamic obstacle tracks.
+                         Set False when the caller supplies actors from another source.
         simplify_dual_lane_lines: If True (default), simplify SOLID_DASHED/DASHED_SOLID
                          lane patterns to a single solid line. If False, render both lines
                          (dual lane rendering).
@@ -1885,12 +1888,14 @@ def load_clipgt_scene(
     logger.debug(
         "Loading ClipGT scene from {} on {}; target_resolution={}, "
         "include_ego_trajectory={}, include_ego_obstacle={}, "
+        "include_dynamic_obstacles={}, "
         "simplify_dual_lane_lines={}.",
         scene_dir,
         device,
         target_resolution,
         include_ego_trajectory,
         include_ego_obstacle,
+        include_dynamic_obstacles,
         simplify_dual_lane_lines,
     )
     
@@ -1987,7 +1992,11 @@ def load_clipgt_scene(
         get_parquet_path("traffic_sign"),
         read_traffic_sign,
     )
-    obstacles = read_input("obstacle", get_parquet_path("obstacle"), read_obstacles)
+    if include_dynamic_obstacles:
+        obstacles = read_input("obstacle", get_parquet_path("obstacle"), read_obstacles)
+    else:
+        logger.debug("Skipping ClipGT dynamic obstacles due to include_dynamic_obstacles=False.")
+        obstacles = []
     ego_track = read_input(
         "egomotion_estimate",
         get_parquet_path("egomotion_estimate"),

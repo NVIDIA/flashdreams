@@ -29,6 +29,8 @@ import ludus_renderer
 import torch
 from loguru import logger
 from ludus_renderer import (
+    CubePool,
+    TimestampedScene,
     load_clipgt_scene,
     mirror_augment_scene,
 )
@@ -139,7 +141,23 @@ class LudusRenderer:
             "Ludus scene not found in scene data"
         )
         scene = self.scene_data.metadata["ludus_scene"]
+        self._base_timestamped_scene = scene.timestamped_scene
         self.scene_id = self.ctx.upload_scene(scene.timestamped_scene)
+
+    def _scene_id_for_dynamic_actor_pool(
+        self, dynamic_actor_pool: CubePool | None
+    ) -> int:
+        if dynamic_actor_pool is None:
+            return self.scene_id
+
+        cube_pools = list(self._base_timestamped_scene.cube_pools or [])
+        cube_pools.append(dynamic_actor_pool)
+        scene = TimestampedScene(
+            polyline_pools=self._base_timestamped_scene.polyline_pools,
+            polygon_pools=self._base_timestamped_scene.polygon_pools,
+            cube_pools=cube_pools,
+        )
+        return self.ctx.upload_scene(scene)
 
     def render_all_frames_and_cameras(
         self,
@@ -147,6 +165,7 @@ class LudusRenderer:
         camera_poses_per_camera: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
         object_infos: list[dict | None] | None = None,
+        dynamic_actor_pool: CubePool | None = None,
     ) -> torch.Tensor:
         """Render a batch of frames and cameras.
 
@@ -155,6 +174,7 @@ class LudusRenderer:
             camera_poses_per_camera: Dictionary of camera poses per camera.
             frame_timestamps_us: List of frame timestamps in microseconds.
             object_infos: List of object infos.
+            dynamic_actor_pool: Optional request-provided actor pool to overlay.
         """
 
         n_cameras = len(camera_names)
@@ -164,9 +184,10 @@ class LudusRenderer:
         assert n_frames > 0, "Number of frames must be greater than 0"
 
         # Create batch tensors
+        scene_id = self._scene_id_for_dynamic_actor_pool(dynamic_actor_pool)
         scene_id_batch = torch.full(
             (n_frames * n_cameras,),
-            self.scene_id,
+            scene_id,
             dtype=torch.int32,
             device=self.device,
         )
@@ -247,6 +268,7 @@ def load_and_attach_ludus_scene(
     device: torch.device = torch.device("cuda"),
     include_ego_trajectory: bool = False,
     include_ego_obstacle: bool = False,
+    include_dynamic_obstacles: bool = True,
     simplify_dual_lane_lines: bool = False,
     perform_mirror_augment: bool = False,
     n_mirrors: int = 2,
@@ -260,6 +282,7 @@ def load_and_attach_ludus_scene(
         device=torch.device(device),
         include_ego_trajectory=include_ego_trajectory,
         include_ego_obstacle=include_ego_obstacle,
+        include_dynamic_obstacles=include_dynamic_obstacles,
         simplify_dual_lane_lines=simplify_dual_lane_lines,
     )
     logger.info(

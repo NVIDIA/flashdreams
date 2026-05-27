@@ -158,7 +158,6 @@ class ReplayClient:
         disable_origin: bool = False,
         mock_burden_ms: float = 0.0,
         request_hdmap: bool = False,
-        request_bev: bool = False,
         text_prompt: str = "",
         defer_frame_processing: bool = False,
     ):
@@ -170,7 +169,6 @@ class ReplayClient:
             disable_font: If True, disable font in the comparison video.
             disable_origin: If True, disable origin in the comparison video.
             mock_burden_ms: Mock burden time in milliseconds to simulate client work.
-            request_bev: If True, request BEV rendering from the server.
             defer_frame_processing: If True, defer frame processing until after all
                 replay is done. If False (default), process frames immediately during
                 each replay call (original behavior).
@@ -181,7 +179,6 @@ class ReplayClient:
         self.disable_origin = disable_origin
         self.mock_burden_ms = mock_burden_ms
         self.request_hdmap = request_hdmap
-        self.request_bev = request_bev
         self.text_prompt = text_prompt
         self.defer_frame_processing = defer_frame_processing
         self.channel = grpc.insecure_channel(
@@ -202,13 +199,6 @@ class ReplayClient:
         # Collected frame pairs for comparison (if collect_frames=True)
         self.frame_pairs: list[FramePair] = []
         self.hdmap_frame_pairs: list[FramePair] = []
-
-        # BEV frames (no origin to compare, just collect replay frames)
-        self.bev_frames: list[np.ndarray] = []
-
-        # Session-level flags (set by start_session replay)
-        self.return_hdmap_frames_flag: bool = False
-        self.return_bev_map_flag: bool = False
 
         # Collected raw output pairs (processed after replay completes)
         self.output_pairs: list[OutputPair] = []
@@ -371,14 +361,10 @@ class ReplayClient:
         Args:
             call: StartSessionEntry containing the request/response pair.
         """
-        # Create a copy of the request to optionally modify BEV settings
+        # Create a copy of the request to optionally modify HDmap settings
         request = video_model_pb2.SessionRequest()
         request.CopyFrom(call.request)
 
-        # Optionally enable BEV rendering
-        if self.request_bev:
-            request.debug_options.return_bev_map = True
-            logger.info("BEV rendering requested (using server defaults)")
         if self.request_hdmap:
             request.debug_options.return_hdmap_frames = True
             logger.info("HDMap rendering requested (using server defaults)")
@@ -396,9 +382,8 @@ class ReplayClient:
             f"Session mapped: {origin_id[:8]}... -> {response.session_id[:8]}..."
         )
 
-        # Store whether return_hdmap_frames and return_bev_map are set
+        # Store whether return_hdmap_frames is set
         self.return_hdmap_frames_flag = request.debug_options.return_hdmap_frames
-        self.return_bev_map_flag = request.debug_options.return_bev_map
 
         return duration_ns
 
@@ -464,12 +449,6 @@ class ReplayClient:
             else:
                 # Immediate processing (original behavior)
                 self._process_single_output_pair(outputs_orig, outputs_replay)
-
-            # BEV map frames (no origin to compare, just collect from replay response)
-            if self.return_bev_map_flag:
-                bev_frames_replay = list(repl_response.bev_map_frames)
-                for bev_img in bev_frames_replay:
-                    self.bev_frames.append(decode_image_proto(bev_img))
 
         return duration_ns
 
@@ -628,26 +607,6 @@ class ReplayClient:
             self.hdmap_frame_pairs, output_path, fps, label="HDMap comparison"
         )
 
-    def write_bev_video(self, output_path: Path, fps: int = 16) -> None:
-        """Write BEV map frames to video (no comparison, just the generated frames)."""
-        if not self.bev_frames:
-            logger.warning(f"No BEV frames collected. Skipping {output_path}.")
-            return
-
-        logger.info(
-            f"Writing BEV video with {len(self.bev_frames)} frames to {output_path}"
-        )
-
-        logger.info("Encoding video with H.264...")
-        iio.imwrite(
-            output_path,
-            self.bev_frames,
-            fps=fps,
-            codec="libx264",
-            pixelformat="yuv420p",
-        )
-        logger.info(f"BEV video saved: {output_path}")
-
 
 def show_recording_info(recording_path: Path) -> None:
     """Display information about a recording file without replaying it.
@@ -703,8 +662,6 @@ Examples:
   # Also generate HDMap render comparison
   python replay_client.py session.binlog --server localhost:50051 --compare-video out.mp4 --compare-video-hdmap out_hdmap.mp4
 
-  # Request BEV rendering and save to video
-  python replay_client.py session.binlog --server localhost:50051 --compare-video-bev bev.mp4
 """,
     )
     parser.add_argument(
@@ -734,22 +691,6 @@ Examples:
         type=Path,
         metavar="PATH",
         help="Generate HDMap condition comparison video (origin vs replay)",
-    )
-    parser.add_argument(
-        "--compare-video-bev",
-        type=Path,
-        metavar="PATH",
-        help="Generate BEV (Bird's Eye View) map video from server-rendered frames",
-    )
-    parser.add_argument(
-        "--request-hdmap",
-        action="store_true",
-        help="Request HDMap rendering from the server (enables return_hdmap_frames in debug_options)",
-    )
-    parser.add_argument(
-        "--request-bev",
-        action="store_true",
-        help="Request BEV rendering from the server (enables return_bev_map in debug_options)",
     )
     parser.add_argument(
         "--fps",
@@ -803,13 +744,10 @@ Examples:
         return
 
     collect_frames = (
-        args.compare_video is not None
-        or args.compare_video_hdmap is not None
-        or args.compare_video_bev is not None
+        args.compare_video is not None or args.compare_video_hdmap is not None
     )
 
-    # Auto-enable request_bev if compare-video-bev is requested
-    request_bev = args.request_bev or args.compare_video_bev is not None
+    # Auto-enable request_hdmap if compare-video-hdmap is requested
     request_hdmap = args.request_hdmap or args.compare_video_hdmap is not None
 
     client = ReplayClient(
@@ -818,7 +756,6 @@ Examples:
         disable_font=args.disable_font,
         disable_origin=args.disable_origin,
         mock_burden_ms=args.mock_burden_ms,
-        request_bev=request_bev,
         request_hdmap=request_hdmap,
         text_prompt=args.text_prompt,
         defer_frame_processing=args.defer_frame_processing,
@@ -831,8 +768,6 @@ Examples:
         client.write_comparison_video(args.compare_video, fps=args.fps)
     if args.compare_video_hdmap:
         client.write_hdmap_comparison_video(args.compare_video_hdmap, fps=args.fps)
-    if args.compare_video_bev:
-        client.write_bev_video(args.compare_video_bev, fps=args.fps)
 
 
 if __name__ == "__main__":

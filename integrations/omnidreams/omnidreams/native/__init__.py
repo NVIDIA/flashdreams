@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Native acceleration helpers for OmniDreams integrations."""
+
+from .acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationMode,
+    NativeAccelerationUnavailable,
+    NativeBackendSelection,
+    require_extension_symbols,
+    select_native_extension,
+)
+from .omnidreams_singleview import (
+    build_info,
+    load_extension,
+    select_backend,
+    sync_thirdparty,
+    validate_thirdparty,
+)
+from .primitives import (
+    NativePreparedTensor,
+    NativePrepError,
+    NativeTensorDescriptor,
+    NativeTensorLayout,
+    NativeTensorSpec,
+    NativeWorkspace,
+    NativeWorkspaceRequest,
+    allocate_native_workspaces,
+    describe_tensor,
+    prepare_tensor_for_native,
+    validate_tensor,
+)
+
+__all__ = [
+    "NativeAccelerationConfig",
+    "NativeAccelerationMode",
+    "NativeAccelerationUnavailable",
+    "NativeBackendSelection",
+    "NativePrepError",
+    "NativePreparedTensor",
+    "NativeTensorDescriptor",
+    "NativeTensorLayout",
+    "NativeTensorSpec",
+    "NativeWorkspace",
+    "NativeWorkspaceRequest",
+    "allocate_native_workspaces",
+    "build_info",
+    "describe_tensor",
+    "load_extension",
+    "prepare_tensor_for_native",
+    "require_extension_symbols",
+    "select_backend",
+    "select_native_extension",
+    "sync_thirdparty",
+    "validate_tensor",
+    "validate_thirdparty",
+]

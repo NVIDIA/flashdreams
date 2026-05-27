@@ -32,7 +32,6 @@ message StaticWorldMap {
 
 message SessionId {
     string session_id = 1;
-    common.Pose initial_ego_pose = 2;  // Initial ego pose for client to sync car position
 }
 
 enum ActorClassId {
@@ -81,21 +80,17 @@ message TextPrompt {
 // Debug options for development and visualization
 message DebugOptions {
     bool return_hdmap_frames = 1;  // Return rendered HD map condition frames
-    bool return_bev_map = 2;       // Return bird's eye view map (if available)
-    bool skip_video_generation = 3;  // Skip video model inference, only render HDMap (fast exploration mode)
-    float bev_height_m = 4;  // Optional BEV camera height (meters). <=0 means server default.
-    float bev_fov_deg = 5;   // Optional BEV camera vertical FOV (degrees). <=0 means server default.
+    bool skip_video_generation = 2;  // Skip video model inference, only render HDMap (fast exploration mode)
 }
 
 message SessionRequest {
-    reserved 2, 4;  // Removed: Image initial_frame, camera.CameraSpec ego_camera_spec
-    StaticWorldMap static_world_map = 3;
-    TextPrompt text_prompt = 5;  // Optional text prompt for generation
-    int32 start_frame_offset = 6;  // Number of frames to skip from scene start (e.g., 30 = skip 1s at 30fps)
-    DebugOptions debug_options = 7;      // Optional debug output options
-    repeated camera.CameraSpec camera_specs = 8;  // One per view (includes rig_to_camera + intrinsics)
-    repeated Image initial_frames = 9;            // One conditioning frame per view
-    fixed64 random_seed = 10;  // Optional random seed for deterministic generation (0 = server chooses)
+    StaticWorldMap static_world_map = 1;
+    TextPrompt text_prompt = 2;  // Optional text prompt for generation
+    DebugOptions debug_options = 3;      // Optional debug output options
+    repeated camera.CameraSpec camera_specs = 4;  // One per view
+    repeated Image initial_frames = 5;            // One conditioning frame per view
+    repeated common.Pose rig_to_camera = 6; // Rig-to-camera extrinsics (one per view)
+    fixed64 random_seed = 7;  // Optional random seed for deterministic generation (0 = server chooses)
 }
 
 message SessionCloseRequest {
@@ -104,17 +99,8 @@ message SessionCloseRequest {
 
 message VideoChunkRequest {
     SessionId session_id = 1;
-	common.Trajectory rig_trajectory = 2;  // Ego rig trajectory (renamed from ego_camera_trajectory)
+	common.Trajectory rig_trajectory = 2;  // Ego rig trajectory
     DynamicWorldState dynamic_state = 3; // within requested time range
-}
-
-// Road surface state at a position (for realistic driving physics)
-// Enables client to adjust car elevation, pitch, and roll to match road surface
-message RoadState {
-    float ground_z = 1;        // Ground elevation in world coordinates (meters)
-    float pitch = 2;           // Road pitch angle (radians, positive = uphill)
-    float roll = 3;            // Road banking/camber (radians, positive = left side higher)
-    bool on_road = 4;          // Whether position is on a valid road surface
 }
 
 // Per-camera output frames
@@ -125,20 +111,8 @@ message CameraOutput {
 }
 
 message VideoChunkReturn {
-    reserved 1, 3;  // Removed: flat rgb_frames, flat hdmap_condition_frames
-    // this may match the requested trajectory or be interpolated,
-    // hence we return and suggest the client uses these for further processing
-	common.Trajectory poses_and_timestamps_of_frames = 2;
-
-    // Road state for each frame pose - enables client to adjust car z/pitch/roll
-    // to follow road surface (ramps, hills, banking). One entry per frame.
-    repeated RoadState road_states = 4;
-
-    // Per-camera output frames (replaces flat rgb_frames / hdmap_condition_frames)
-    repeated CameraOutput camera_outputs = 5;
-
-    // Optional bird's-eye-view map frames (one per generated timestamp).
-    repeated Image bev_map_frames = 6;
+    // Per-camera output frames
+    repeated CameraOutput camera_outputs = 1;
 }
 
 // =============================================================================

@@ -27,6 +27,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from ludus_renderer import CubePool
 from omnidreams.conditioning.renderer import LudusRenderer
 from omnidreams.conditioning.world_scenario.data_types import SceneData
 from omnidreams.conditioning.world_scenario.ftheta import FThetaCamera
@@ -285,7 +286,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         camera_names: list[str],
         camera_poses_per_view: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
-        object_info_per_frame: list[dict] | None = None,
+        dynamic_actor_pool: CubePool | None = None,
     ) -> Tensor:
         """Render conditioning frames for all cameras.
 
@@ -294,28 +295,17 @@ class OmnidreamsConditioningWrapper(nn.Module):
             camera_names: Ordered list of camera names (defines V ordering).
             camera_poses_per_view: ``{camera_name: [T, 4, 4]}`` poses.
             frame_timestamps_us: Timestamps in microseconds for each frame.
-            object_info_per_frame: Optional per-frame object info dicts.
+            dynamic_actor_pool: Optional request-provided actor pool to overlay.
 
         Returns:
             ``[B, V, T, 3, H, W]`` uint8 tensor on ``self.input_device`` (B=1).
         """
-        # We use the same object info for all cameras
-        obj_infos: list[dict | None] = []
-        for i in range(len(frame_timestamps_us)):
-            obj_info = None
-            if object_info_per_frame is not None and i < len(object_info_per_frame):
-                frame_obj_info = object_info_per_frame[i]
-                if frame_obj_info:
-                    obj_info = frame_obj_info
-            obj_infos.append(obj_info)
-
-        # NOTE: We do not support object info per frame for LudusRenderer yet
-        for o in obj_infos:
-            assert o is None, f"Object info not supported yet for LudusRenderer: {o}"
-
         # Render all frames and cameras in a single pass
         all_view_frames = renderer.render_all_frames_and_cameras(
-            camera_names, camera_poses_per_view, frame_timestamps_us
+            camera_names,
+            camera_poses_per_view,
+            frame_timestamps_us,
+            dynamic_actor_pool=dynamic_actor_pool,
         )
         assert all_view_frames.ndim == 5 and all_view_frames.dtype == torch.uint8
 
@@ -388,6 +378,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         camera_poses_per_view: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
         skip_video_generation: bool = False,
+        dynamic_actor_pool: CubePool | None = None,
     ) -> GenerationOutput:
         """Render initial condition frames and start video generation.
 
@@ -399,6 +390,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             camera_poses_per_view: ``{camera_name: [T, 4, 4]}`` poses.
             frame_timestamps_us: Timestamps in microseconds for each frame.
             skip_video_generation: If True, only render HDMap without running the video model.
+            dynamic_actor_pool: Optional request-provided actor pool to overlay.
 
         Returns:
             GenerationOutput with ``condition_frames`` ``[B, V, T, 3, H, W]``
@@ -418,7 +410,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
 
         # condition_frames: [B, V, T, 3, H, W]
         condition_frames = self._render_condition_frames(
-            renderer, camera_names, camera_poses_per_view, frame_timestamps_us
+            renderer,
+            camera_names,
+            camera_poses_per_view,
+            frame_timestamps_us,
+            dynamic_actor_pool,
         )
 
         if skip_video_generation:
@@ -465,7 +461,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         camera_names: list[str],
         camera_poses_per_view: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
-        object_info_per_frame: list[dict] | None = None,
+        dynamic_actor_pool: CubePool | None = None,
         skip_video_generation: bool = False,
         text_prompts: list[TextPrompt] | None = None,
     ) -> GenerationOutput:
@@ -476,7 +472,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             camera_names: Ordered list of camera names (defines V ordering).
             camera_poses_per_view: ``{camera_name: [T, 4, 4]}`` poses.
             frame_timestamps_us: Timestamps in microseconds for each frame.
-            object_info_per_frame: Optional per-frame object info for dynamic actors.
+            dynamic_actor_pool: Optional request-provided actor pool to overlay.
             skip_video_generation: If True, only render HDMap without running the video model.
             text_prompts: Optional new text prompts.
 
@@ -504,7 +500,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
                 camera_names,
                 camera_poses_per_view,
                 frame_timestamps_us,
-                object_info_per_frame,
+                dynamic_actor_pool,
             )
 
         if skip_video_generation:

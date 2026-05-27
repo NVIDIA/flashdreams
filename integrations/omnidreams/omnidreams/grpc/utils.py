@@ -38,6 +38,8 @@ import numpy as np
 import torch
 from google.protobuf.json_format import MessageToDict
 from loguru import logger
+from ludus_renderer import CUBE_FLAG_WIREFRAME, PRIM_OBSTACLE, CubePool
+from ludus_renderer.clipgt import OBSTACLE_COLORS_V3
 from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.data_types import SceneData
@@ -45,7 +47,7 @@ from omnidreams.conditioning.world_scenario.data_utils import convert_pose_flu_t
 from omnidreams.conditioning.world_scenario.ftheta import FThetaCamera
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from PIL import Image
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
 
 # =============================================================================
@@ -124,6 +126,7 @@ def load_static_world_from_zip_bytes(
     camera_names: list[str],
     target_resolution_hw: tuple[int, int],
     perform_mirror_augment: bool = False,
+    include_dynamic_obstacles: bool = True,
 ) -> SceneData:
     """
     Load static world (HD map) from zip-compressed parquet bytes.
@@ -134,6 +137,7 @@ def load_static_world_from_zip_bytes(
         hdmap_zip_bytes: Zip-compressed parquet files.
         camera_names: Camera names to load.
         target_resolution_hw: Target resolution (height, width).
+        include_dynamic_obstacles: Whether to include clipgt dynamic obstacle tracks.
 
     Returns:
         SceneData object with HD map loaded (dynamic objects may be empty).
@@ -160,6 +164,7 @@ def load_static_world_from_zip_bytes(
             scene_data,
             device=torch.device("cuda"),
             perform_mirror_augment=perform_mirror_augment,
+            include_dynamic_obstacles=include_dynamic_obstacles,
         )
 
     return scene_data
@@ -241,6 +246,21 @@ ACTOR_CLASS_MAP = {
     3: "Pedestrian",  # PEDESTRIAN
     4: "Cyclist",  # CYCLIST
     5: "Others",  # OTHER
+}
+
+ACTOR_CLASS_TO_OBSTACLE_CATEGORY = {
+    0: "Other",
+    1: "Car",
+    2: "Truck",
+    3: "Pedestrian",
+    4: "Cyclist",
+    5: "Other",
+    "INVALID": "Other",
+    "CAR": "Car",
+    "TRUCK": "Truck",
+    "PEDESTRIAN": "Pedestrian",
+    "CYCLIST": "Cyclist",
+    "OTHER": "Other",
 }
 
 
@@ -356,6 +376,222 @@ def dynamic_state_to_object_info(
             object_info[tracking_id] = info
 
     return object_info
+
+
+def _actor_class_to_obstacle_category(class_id: object) -> str:
+    if isinstance(class_id, str):
+        stripped = class_id.strip()
+        if stripped.isdigit():
+            return ACTOR_CLASS_TO_OBSTACLE_CATEGORY.get(int(stripped), "Other")
+        return ACTOR_CLASS_TO_OBSTACLE_CATEGORY.get(stripped.upper(), "Other")
+    if isinstance(class_id, (int, np.integer)):
+        return ACTOR_CLASS_TO_OBSTACLE_CATEGORY.get(int(class_id), "Other")
+    return "Other"
+
+
+def _pose_dict_to_translation_and_quat_xyzw(
+    pose_at_time: dict,
+    *,
+    actor_index: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    pose = pose_at_time.get("pose", {})
+    vec = pose.get("vec", {})
+    quat = pose.get("quat", {})
+
+    translation = np.array(
+        [
+            float(vec.get("x", 0.0)),
+            float(vec.get("y", 0.0)),
+            float(vec.get("z", 0.0)),
+        ],
+        dtype=np.float32,
+    )
+    quat_xyzw = np.array(
+        [
+            float(quat.get("x", 0.0)),
+            float(quat.get("y", 0.0)),
+            float(quat.get("z", 0.0)),
+            float(quat.get("w", 1.0)),
+        ],
+        dtype=np.float32,
+    )
+    quat_norm = float(np.linalg.norm(quat_xyzw))
+    if quat_norm <= 1e-6:
+        raise ValueError(f"DynamicActor[{actor_index}] has an invalid zero quaternion")
+    return translation, quat_xyzw / quat_norm
+
+
+def _sample_actor_pose_at_timestamp(
+    timestamps_us: np.ndarray,
+    translations: np.ndarray,
+    quats_xyzw: np.ndarray,
+    frame_timestamp_us: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if len(timestamps_us) == 0:
+        return None
+
+    ts = int(frame_timestamp_us)
+    first_ts = int(timestamps_us[0])
+    last_ts = int(timestamps_us[-1])
+    if ts < first_ts or ts > last_ts:
+        return None
+
+    exact_idx = np.where(timestamps_us == ts)[0]
+    if len(exact_idx) > 0:
+        idx = int(exact_idx[0])
+        return translations[idx], quats_xyzw[idx]
+
+    if len(timestamps_us) == 1:
+        return None
+
+    right_idx = int(np.searchsorted(timestamps_us, ts, side="left"))
+    left_idx = right_idx - 1
+    if left_idx < 0 or right_idx >= len(timestamps_us):
+        return None
+
+    t0 = int(timestamps_us[left_idx])
+    t1 = int(timestamps_us[right_idx])
+    if t1 <= t0:
+        return translations[left_idx], quats_xyzw[left_idx]
+
+    alpha = (ts - t0) / (t1 - t0)
+    translation = (
+        (1.0 - alpha) * translations[left_idx] + alpha * translations[right_idx]
+    ).astype(np.float32)
+    rotations = Rotation.from_quat([quats_xyzw[left_idx], quats_xyzw[right_idx]])
+    slerp = Slerp([float(t0), float(t1)], rotations)
+    quat_xyzw = slerp([float(ts)]).as_quat()[0].astype(np.float32)
+    quat_xyzw /= np.linalg.norm(quat_xyzw)
+    return translation, quat_xyzw
+
+
+def dynamic_state_to_ludus_cube_pool(
+    dynamic_state: dict,
+    frame_timestamps_us: list[int],
+    device: torch.device | str,
+) -> CubePool | None:
+    """Convert gRPC DynamicWorldState data into a Ludus dynamic obstacle pool.
+
+    The gRPC request is authoritative: no actors means no dynamic obstacle pool.
+    Actors are sampled only within their provided trajectory time range.
+    """
+    actors = dynamic_state.get("actors", [])
+    if not actors:
+        return None
+
+    device = torch.device(device)
+    included_track_timestamps: list[torch.Tensor] = []
+    included_translations: list[torch.Tensor] = []
+    included_quaternions: list[torch.Tensor] = []
+    included_scales: list[torch.Tensor] = []
+    included_colors: list[torch.Tensor] = []
+
+    for actor_index, actor in enumerate(actors):
+        trajectory = actor.get("trajectory", {}).get("poses", [])
+        if not trajectory:
+            raise ValueError(f"DynamicActor[{actor_index}] has no trajectory poses")
+
+        bbox = actor.get("bbox_dims", {})
+        scale = np.array(
+            [
+                float(bbox.get("size_x", 0.0)),
+                float(bbox.get("size_y", 0.0)),
+                float(bbox.get("size_z", 0.0)),
+            ],
+            dtype=np.float32,
+        )
+        if np.any(scale <= 0.0):
+            raise ValueError(
+                f"DynamicActor[{actor_index}] has nonpositive bbox dimensions: {scale.tolist()}"
+            )
+
+        pose_by_timestamp: dict[int, dict] = {}
+        for pose_at_time in trajectory:
+            ts = int(pose_at_time.get("timestamp_us", 0))
+            pose_by_timestamp[ts] = pose_at_time
+        sorted_items = sorted(pose_by_timestamp.items(), key=lambda item: item[0])
+
+        actor_timestamps = np.array([ts for ts, _ in sorted_items], dtype=np.int64)
+        actor_translations = []
+        actor_quats_xyzw = []
+        for _, pose_at_time in sorted_items:
+            translation, quat_xyzw = _pose_dict_to_translation_and_quat_xyzw(
+                pose_at_time, actor_index=actor_index
+            )
+            actor_translations.append(translation)
+            actor_quats_xyzw.append(quat_xyzw)
+        translations_np = np.stack(actor_translations).astype(np.float32)
+        quats_xyzw_np = np.stack(actor_quats_xyzw).astype(np.float32)
+
+        sampled_timestamps: list[int] = []
+        sampled_translations: list[np.ndarray] = []
+        sampled_quats: list[np.ndarray] = []
+        for frame_ts in frame_timestamps_us:
+            sampled = _sample_actor_pose_at_timestamp(
+                actor_timestamps,
+                translations_np,
+                quats_xyzw_np,
+                int(frame_ts),
+            )
+            if sampled is None:
+                continue
+            translation, quat_xyzw = sampled
+            sampled_timestamps.append(int(frame_ts))
+            sampled_translations.append(translation)
+            sampled_quats.append(quat_xyzw)
+
+        if not sampled_timestamps:
+            continue
+
+        sampled_items = sorted(
+            zip(sampled_timestamps, sampled_translations, sampled_quats),
+            key=lambda item: item[0],
+        )
+        sampled_timestamps = [item[0] for item in sampled_items]
+        sampled_translations = [item[1] for item in sampled_items]
+        sampled_quats = [item[2] for item in sampled_items]
+
+        category = _actor_class_to_obstacle_category(actor.get("class_id", 0))
+        front_color, back_color = OBSTACLE_COLORS_V3[category]
+        colors = np.array([*front_color, *back_color], dtype=np.float32)
+
+        included_track_timestamps.append(
+            torch.tensor(sampled_timestamps, dtype=torch.int64, device=device)
+        )
+        included_translations.append(
+            torch.tensor(
+                np.stack(sampled_translations), dtype=torch.float32, device=device
+            )
+        )
+        included_quaternions.append(
+            torch.tensor(np.stack(sampled_quats), dtype=torch.float32, device=device)
+        )
+        included_scales.append(torch.tensor(scale, dtype=torch.float32, device=device))
+        included_colors.append(torch.tensor(colors, dtype=torch.float32, device=device))
+
+    if not included_track_timestamps:
+        return None
+
+    track_lengths = torch.tensor(
+        [len(timestamps) for timestamps in included_track_timestamps],
+        dtype=torch.int32,
+        device=device,
+    )
+    cube_ts_prefix_sum = torch.cumsum(track_lengths, dim=0, dtype=torch.int32)
+    all_track_timestamps = torch.cat(included_track_timestamps)
+    timestamps_us = torch.unique(all_track_timestamps).sort()[0]
+
+    return CubePool(
+        timestamps_us=timestamps_us,
+        cube_ts_prefix_sum=cube_ts_prefix_sum,
+        track_timestamps_us=all_track_timestamps,
+        translations=torch.cat(included_translations),
+        quaternions=torch.cat(included_quaternions),
+        scales=torch.stack(included_scales),
+        colors=torch.stack(included_colors),
+        prim_type_id=PRIM_OBSTACLE,
+        render_flags=CUBE_FLAG_WIREFRAME,
+    )
 
 
 # =============================================================================

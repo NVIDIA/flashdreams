@@ -68,6 +68,30 @@ were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
 (https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
 modified under the same Apache-2.0 license.
 
+OmniDreams single-view native builds use script-managed, pinned source
+downloads under integrations/omnidreams/omnidreams_singleview/3rdparty/.
+Those downloaded trees are ignored by Git and are not source-level
+redistributions in this repository.
+
+CUTLASS                BSD-3-Clause https://github.com/NVIDIA/cutlass
+    Pinned by integrations/omnidreams/omnidreams_singleview/
+    thirdparty_sources.json at
+    f3fde58372d33e9a5650ba7b80fc48b3b49d40c8.
+    The sync script removes CUTLASS's python/CuTeDSL subtree because the
+    native build does not use it and upstream licenses it separately. The
+    script also applies the project-owned SM120 TMA descriptor patch under
+    integrations/omnidreams/omnidreams_singleview/patches/cutlass/.
+
+SageAttention          Apache-2.0   https://github.com/thu-ml/SageAttention
+    Pinned by integrations/omnidreams/omnidreams_singleview/
+    thirdparty_sources.json at
+    d1a57a546c3d395b1ffcbeecc66d81db76f3b4b5.
+
+SpargeAttn             Apache-2.0   https://github.com/thu-ml/SpargeAttn
+    Pinned by integrations/omnidreams/omnidreams_singleview/
+    thirdparty_sources.json at
+    bfd980b781784c04ad6a53e7ee657c0645d99171.
+
 ================================================================================
 Optional integration: integrations/lingbot
 ================================================================================

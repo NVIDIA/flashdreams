@@ -57,6 +57,31 @@ def clipgt_scene_dir() -> Path:
 
 
 @pytest.mark.manual
+def test_load_clipgt_scene_can_skip_dynamic_obstacles(
+    clipgt_scene_dir: Path,
+) -> None:
+    from ludus_renderer import PRIM_OBSTACLE, load_clipgt_scene
+
+    with_dynamic = load_clipgt_scene(
+        str(clipgt_scene_dir), device="cpu", include_dynamic_obstacles=True
+    )
+    without_dynamic = load_clipgt_scene(
+        str(clipgt_scene_dir), device="cpu", include_dynamic_obstacles=False
+    )
+
+    with_dynamic_count = sum(
+        pool.prim_type_id == PRIM_OBSTACLE
+        for pool in (with_dynamic.timestamped_scene.cube_pools or [])
+    )
+    without_dynamic_count = sum(
+        pool.prim_type_id == PRIM_OBSTACLE
+        for pool in (without_dynamic.timestamped_scene.cube_pools or [])
+    )
+    assert with_dynamic_count > 0
+    assert without_dynamic_count == 0
+
+
+@pytest.mark.manual
 def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
     """JIT-compile the CUDA plugin, load a clipgt scene, render one frame."""
     from ludus_renderer import load_clipgt_scene

@@ -275,10 +275,6 @@ def test_grpc_server_start_render_close_roundtrip(
             assert len(camera_output.hdmap_condition_frames) > 0, (
                 "No HDMap condition frames returned despite return_hdmap_frames=True"
             )
-            assert (
-                len(render_response.poses_and_timestamps_of_frames.poses)
-                == expected_initial_chunk_size
-            )
 
             close_response = stub.close_session(
                 video_model_pb2.SessionCloseRequest(

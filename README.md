@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
-  <a href="https://verbose-adventure-7plnn5m.pages.github.io/main/index.html"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-blue.svg"></a>
+  <a href="https://nvidia.github.io/flashdreams/main/index.html"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-blue.svg"></a>
 </p>
 
 **FlashDreams** is a high-performance inference and serving library for
@@ -34,7 +34,7 @@ environments, and more.
 ## Quickstart
 
 The complete setup is in
-[the installation guide](https://verbose-adventure-7plnn5m.pages.github.io/main/quickstart/installation.html).
+[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/installation.html).
 Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installation), the shortest viable path is:
 
 ```bash
@@ -46,7 +46,7 @@ uv run flashdreams-run --help
 ```
 
 Then launch your first model by following
-[the quickstart guide](https://verbose-adventure-7plnn5m.pages.github.io/main/quickstart/first_world_model.html).
+[the quickstart guide](https://nvidia.github.io/flashdreams/main/quickstart/first_world_model.html).
 For example, the offline Self-Forcing T2V quickstart command is:
 
 ```bash
@@ -69,24 +69,24 @@ runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 
 | Model | Family |
 | --- | --- |
-| [Self-Forcing](https://verbose-adventure-7plnn5m.pages.github.io/main/models/self_forcing.html) | Streaming Wan2.1 T2V |
-| [OmniDreams](https://verbose-adventure-7plnn5m.pages.github.io/main/models/omnidreams.html) | HDMap-conditioned driving world model |
-| [LingBot-World](https://verbose-adventure-7plnn5m.pages.github.io/main/models/lingbot_world.html) | Camera-controllable I2V world model |
-| [Wan2.1](https://verbose-adventure-7plnn5m.pages.github.io/main/models/wan21.html) | Bidirectional T2V / I2V |
-| [Causal-Forcing](https://verbose-adventure-7plnn5m.pages.github.io/main/models/causal_forcing.html) | Streaming Wan2.1 T2V / I2V |
-| [Causal Wan2.2](https://verbose-adventure-7plnn5m.pages.github.io/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
-| [FlashVSR](https://verbose-adventure-7plnn5m.pages.github.io/main/models/flashvsr.html) | Streaming video super-resolution |
-| [Cosmos-Predict2.5](https://verbose-adventure-7plnn5m.pages.github.io/main/models/cosmos_predict2.html) | Bidirectional T2V / I2V |
+| [Self-Forcing](https://nvidia.github.io/flashdreams/main/models/self_forcing.html) | Streaming Wan2.1 T2V |
+| [OmniDreams](https://nvidia.github.io/flashdreams/main/models/omnidreams.html) | HDMap-conditioned driving world model |
+| [LingBot-World](https://nvidia.github.io/flashdreams/main/models/lingbot_world.html) | Camera-controllable I2V world model |
+| [Wan2.1](https://nvidia.github.io/flashdreams/main/models/wan21.html) | Bidirectional T2V / I2V |
+| [Causal-Forcing](https://nvidia.github.io/flashdreams/main/models/causal_forcing.html) | Streaming Wan2.1 T2V / I2V |
+| [Causal Wan2.2](https://nvidia.github.io/flashdreams/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
+| [FlashVSR](https://nvidia.github.io/flashdreams/main/models/flashvsr.html) | Streaming video super-resolution |
+| [Cosmos-Predict2.5](https://nvidia.github.io/flashdreams/main/models/cosmos_predict2.html) | Bidirectional T2V / I2V |
 
-See [the model gallery](https://verbose-adventure-7plnn5m.pages.github.io/main/models/index.html) and
-[the new method guide](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/new_integration.html)
+See [the model gallery](https://nvidia.github.io/flashdreams/main/models/index.html) and
+[the new method guide](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
 to add your own.
 
 ## Developer guides
 
-- [Inference pipeline overview](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/inference_pipeline_overview.html)
-- [Config system](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/config_system.html)
-- [Add a new method](https://verbose-adventure-7plnn5m.pages.github.io/main/developer_guides/new_integration.html)
+- [Inference pipeline overview](https://nvidia.github.io/flashdreams/main/developer_guides/inference_pipeline_overview.html)
+- [Config system](https://nvidia.github.io/flashdreams/main/developer_guides/config_system.html)
+- [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
 
 For day-to-day development:
 

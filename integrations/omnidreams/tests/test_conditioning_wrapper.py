@@ -86,8 +86,10 @@ class _FakeRenderer:
         camera_names: list[str],
         camera_poses_per_view: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
+        *,
+        dynamic_actor_pool: object | None = None,
     ) -> torch.Tensor:
-        del camera_poses_per_view
+        del camera_poses_per_view, dynamic_actor_pool
         n_views = len(camera_names)
         n_frames = len(frame_timestamps_us)
         # [V, T, 3, H, W]

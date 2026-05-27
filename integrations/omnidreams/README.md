@@ -52,3 +52,20 @@ stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`). If
 `--scene-uuid` is omitted too, the server uses the default WebRTC scene. The
 runtime expects `clipgt/first_image.*` and `clipgt/prompt.txt` under the scene
 directory. Pass `--scene_dir <path>` to use a pre-staged local scene instead.
+
+## Run gRPC server
+
+From the workspace root, run:
+
+```bash
+uv run --package flash-omnidreams torchrun --nproc_per_node 1 -m omnidreams.grpc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --host 0.0.0.0 --port 50051
+```
+
+The server implements `omnidreams.grpc.protos.video_model.WorldModelService`
+and listens on `0.0.0.0:50051` by default. Clients provide the static map,
+camera specs, initial frames, prompt, rig trajectory, and dynamic actor state
+through the gRPC API. Use `--record_dir <dir>` to save replayable session logs,
+and add `--enable_profiling --profile_output <path>` when collecting timing
+data. For distributed/context-parallel launches, increase `--nproc_per_node`;
+the world size must be compatible with the selected pipeline config's camera
+count.
