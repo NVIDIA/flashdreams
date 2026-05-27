@@ -27,10 +27,9 @@ Getting Started
 
    .. container:: fd-hero-lede
 
-      FlashDreams is a ``uv`` workspace — one ``uv sync`` brings down
-      the toolchain, one ``flashdreams-run`` invocation streams video.
       The two walkthroughs below take a fresh checkout to a generated
-      clip on a single GPU.
+      clip on a single GPU. Install once, pick a streaming recipe, watch
+      the per-step timings drop below a second as the pipeline warms.
 
    .. container:: fd-cta-row
 
@@ -58,16 +57,16 @@ What you'll do
 
    .. container:: fd-split-text
 
-      The two pages below are the canonical walkthrough — they assume
+      The two pages below are the canonical walkthrough. They assume
       a fresh machine with a CUDA-capable GPU and walk through the
-      bare minimum to reach a generated clip. Once those are behind
-      you, the :doc:`developer guides </developer_guides/index>`
+      bare minimum to reach a generated clip on disk. Once those are
+      behind you, the :doc:`developer guides </developer_guides/index>`
       cover the system architecture: CUDA-graph capture, ring
       attention, distributed launching, custom recipes.
 
-      The CLI is deliberately the only entry point. Every recipe is a
-      named slug; ``flashdreams-run --help`` lists every registered
-      runner and every overridable field is a flag.
+      One command-line front door is the only entry point you need.
+      Every shipped recipe is a named slug; every overridable field
+      is a flag.
 
    .. container:: fd-split-visual
 
@@ -100,10 +99,9 @@ Walkthroughs
       :link: installation
       :link-type: doc
 
-      The minimum-friction install path. ``uv sync`` brings down a
-      pinned PyTorch + CUDA toolchain; the ``runners`` extra pulls
-      the I/O dependencies (``mediapy``, ``opencv``) needed to
-      actually emit video.
+      The minimum-friction install path: a pinned PyTorch + CUDA
+      toolchain, plus the optional I/O extras needed to write generated
+      video to disk.
 
    .. grid-item-card:: Launch your first model
       :class-card: fd-feature
@@ -111,9 +109,9 @@ Walkthroughs
       :link: first_world_model
       :link-type: doc
 
-      Pick a streaming recipe, drive it from ``flashdreams-run``,
-      read the per-step log to confirm the steady-state window is
-      reached.
+      Pick a streaming recipe, run it, read the per-step log to watch
+      the latency settle as the CUDA graph captures and the pipeline
+      reaches steady state.
 
 After the walkthroughs
 ----------------------

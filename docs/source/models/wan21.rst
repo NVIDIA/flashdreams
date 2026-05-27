@@ -37,8 +37,7 @@ Installation
 Running the method
 ------------------
 
-To run Wan2.1, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run Wan2.1, launch one of the registered runner slugs. For example:
 
 .. code-block:: bash
 
@@ -46,8 +45,8 @@ To run Wan2.1, launch one of the registered runner slugs via
        --prompt "A reindeer in cinematic sunset light." \
        --pixel-height 480 --pixel-width 832
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

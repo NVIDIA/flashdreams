@@ -34,15 +34,13 @@ FlashDreams
 
          .. container:: fd-hero-lede
 
-            FlashDreams is NVIDIA's streaming inference stack for diffusion-based
-            video and interactive world models — the runtime backbone of the
+            NVIDIA's streaming inference stack for diffusion-based video
+            and interactive world models. Sub-second autoregressive steps
+            after warmup, eight integrated model recipes, real-time
+            applications across gaming, autonomous vehicles, robotics, and
+            virtual environments — the runtime backbone of the
             `OmniDreams closed-loop demo at GTC 2026
             <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
-            KV-cached transformers, ring attention, and CUDA-graph capture,
-            behind one ``flashdreams-run`` CLI. Built for real-time applications
-            across gaming, autonomous vehicles, robotics, and virtual
-            environments — eight integrated model recipes, sub-second
-            autoregressive steps after warmup.
 
          .. container:: fd-cta-row
 
@@ -75,8 +73,8 @@ FlashDreams
             end-to-end, or a stylised architecture illustration of the
             KV cache + ring attention + CUDA-graph pipeline.
 
-            **Format:** ``_static/hero-loop.mp4`` (16:9, < 4 MB, autoplay
-            muted loop) or a static ``_static/hero-illustration.svg``.
+            **Format:** ``_static/hero-loop.avif`` (animated AVIF, 16:9,
+            autoplay loop) or a static ``_static/hero-illustration.svg``.
 
 Headline numbers
 ----------------
@@ -157,7 +155,7 @@ Headline numbers
 
          .. container:: fd-stat-note
 
-            One unified ``flashdreams-run`` CLI.
+            Streaming and bidirectional recipes, one command-line front door.
 
 Why FlashDreams
 ---------------
@@ -253,23 +251,22 @@ What's inside
 
 .. container:: fd-lede
 
-   FlashDreams ships as one ``uv``-managed workspace: a core library, an
-   infra layer, plugin-friendly recipe registry, and a single CLI front
-   door for every shipped model.
+   A core library, an infra layer, a plugin-friendly recipe registry,
+   and a single command-line front door for every shipped model.
 
 .. grid:: 1 1 2 2
    :gutter: 3
 
-   .. grid-item-card:: Unified ``flashdreams-run`` CLI
+   .. grid-item-card:: One CLI for every model
       :class-card: fd-feature fd-feature-hero
       :columns: 12 12 6 6
       :link: api/cli
       :link-type: doc
 
-      One console script dispatches over every in-tree and plugin
-      recipe. Every overridable field is a CLI flag; ``--help`` lists
-      every registered runner. New recipes auto-register through
-      entry points — no central manifest to keep in sync.
+      One console script dispatches every shipped recipe. Each model
+      is a named slug; every overridable field is a flag. New recipes
+      auto-register through entry points — no central manifest, no
+      per-model command to remember.
 
    .. grid-item-card:: Multi-GPU by default
       :class-card: fd-feature
@@ -308,11 +305,11 @@ Supported models
 
 .. container:: fd-lede
 
-   Each model below has a walkthrough with the exact
-   ``flashdreams-run`` slug, the checkpoint source, and any per-recipe
-   knobs. Streaming / autoregressive variants are KV-cached and emit
-   per-AR-step output; bidirectional variants are the single
-   full-block reference.
+   Streaming and autoregressive variants emit per-AR-step output with
+   sub-second latency once warm; bidirectional variants are the
+   single full-block reference used for parity. Each model page has
+   the canonical invocation, the checkpoint source, and the per-recipe
+   knobs.
 
 .. container:: fd-media-rail fd-media-rail-4
 
@@ -402,16 +399,21 @@ How it compares
 
    Same recipe, same hardware
 
+.. container:: fd-lede
+
+   FlashDreams runs the same model code as the library it integrates
+   with — measured in wall-clock at steady state, post-warmup,
+   post-graph-capture, post-JIT.
+
 .. container:: fd-split fd-split-reverse
 
    .. container:: fd-split-text
 
-      We rebuild the upstream library's own runner on identical
-      hardware, then run FlashDreams against the same checkpoint and
-      sampling configuration. The delta is wall-clock at steady
-      state — post warmup, post graph capture, post first-iteration
-      JIT compilation. Numbers update with the rolling ``main`` branch
-      whenever a recipe lands a perf change.
+      We rebuild the upstream runner on identical hardware, then run
+      FlashDreams against the same checkpoint and sampling
+      configuration. The delta is what the per-step latency table on
+      the benchmarks page shows; numbers update with the rolling
+      ``main`` branch whenever a recipe lands a perf change.
 
       Full methodology — hardware, software pin, sampling knobs,
       what gets timed — lives on the :doc:`benchmarks page
@@ -437,22 +439,22 @@ Quick start
 
    .. container:: fd-split-text
 
-      FlashDreams is a `uv <https://docs.astral.sh/uv/>`_ workspace. The
-      CLI lazy-imports ``mediapy`` + ``opencv`` for I/O, so install the
-      ``runners`` extra whenever you want to actually generate video.
+      Sync the workspace, list the shipped recipes, run one. The first
+      sync compiles CUDA extensions for your local GPU; once that's
+      done, every recipe is a single command away.
 
-      The :doc:`quickstart/index` has the annotated quickstart, an
-      end-to-end first-generation walkthrough, and pointers into the
-      developer guides for CUDA-graph capture, distributed launching,
-      and authoring a custom recipe.
+      The :doc:`quickstart/index` is the annotated walkthrough — fresh
+      checkout to a frame on disk on a single GPU. From there the
+      :doc:`developer guides </developer_guides/index>` cover the
+      pipeline internals, distributed launching, and how to ship a
+      custom recipe of your own.
 
       .. admonition:: New to streaming diffusion?
          :class: fd-callout
 
          Read the :doc:`inference pipeline overview
          </developer_guides/inference_pipeline_overview>` before
-         tweaking recipes — it walks the hot loop a recipe goes
-         through, end to end.
+         tweaking recipes — it walks the hot loop end to end.
 
    .. container:: fd-split-visual
 

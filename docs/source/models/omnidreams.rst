@@ -54,8 +54,8 @@ Installation
 Running the method
 ------------------
 
-To run OmniDreams, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run OmniDreams, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 

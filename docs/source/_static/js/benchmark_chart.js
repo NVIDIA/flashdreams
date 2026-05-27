@@ -174,7 +174,7 @@ function renderBenchmarkChart(container, benchmarkData, series) {
         "font-weight": 700,
         fill: "#111827",
         "text-anchor": "start",
-        "font-family": "DejaVu Sans, sans-serif",
+        "font-family": "inherit",
       },
       s.label,
     );
@@ -209,7 +209,7 @@ function renderBenchmarkChart(container, benchmarkData, series) {
           "font-weight": 700,
           fill: "#111827",
           "text-anchor": "middle",
-          "font-family": "DejaVu Sans, sans-serif",
+          "font-family": "inherit",
         },
         String(Math.round(value)),
       );
@@ -225,7 +225,7 @@ function renderBenchmarkChart(container, benchmarkData, series) {
         "font-weight": 700,
         fill: "#111827",
         "text-anchor": "middle",
-        "font-family": "DejaVu Sans, sans-serif",
+        "font-family": "inherit",
       },
       row.device,
     );

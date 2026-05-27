@@ -23,8 +23,11 @@ The site is a single Sphinx project at ``docs/source/`` on
 ``pydata-sphinx-theme``. A few notes specific to doc PRs:
 
 - ``warningiserror = True`` — a broken ``:doc:`` or ``:ref:`` link
-  fails CI. Reproduce locally with
-  ``uv run --no-project sphinx-build -W -b html docs/source _build``.
+  fails CI. Reproduce locally with:
+
+  .. code-block:: bash
+
+     sphinx-build -W -b html docs/source _build
 - The site uses a small set of shared ``fd-*`` components defined in
   ``docs/source/_static/custom.css`` plus ``sphinx_design`` directives.
   Prefer composing existing components over inline CSS or ad-hoc

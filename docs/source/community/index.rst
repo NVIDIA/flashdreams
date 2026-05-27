@@ -163,9 +163,10 @@ Contributing
 
          1. **Fork** ``NVIDIA/flashdreams`` and create a feature
             branch off ``main``.
-         2. **Set up** your environment with ``uv sync --extra dev``.
-         3. **Run** ``uv run pre-commit run -a`` and ``uv run pytest
-            -m ci_cpu`` before you push.
+         2. **Set up** your local environment — see
+            :doc:`/quickstart/installation`.
+         3. **Run** the linters and CPU-tier tests before you push;
+            the :doc:`contributing` page has the exact commands.
          4. **Sign off** every commit with ``git commit --signoff``
             (DCO is a hard gate).
          5. **Open a PR** against ``main`` and fill in the template.
@@ -234,15 +235,12 @@ Releases
    PyPI, tagged release notes will appear at `GitHub Releases
    <https://github.com/NVIDIA/flashdreams/releases>`__.
 
-The canonical version lives in
-``flashdreams/flashdreams/_version.py`` and is synced into every
-integration package by a pre-commit hook. The documentation site is
-structured to support version-pinned hosting once releases land: the
-``doc.yml`` workflow already deploys release builds to
+The documentation site is set up for version-pinned hosting once
+releases land: release builds will be archived under
 ``flashdreams.org/versions/<x.y.z>/`` alongside the rolling ``main``
-build, and ``versions/index.txt`` will enumerate them. There are no
-release tags in the repo today, so this layout is on the runway
-rather than in production.
+build, with a switcher in the navbar. There are no release tags in
+the repo today, so the per-version layout is on the runway rather
+than in production.
 
 .. admonition:: PLACEHOLDER — release cadence statement
    :class: placeholder

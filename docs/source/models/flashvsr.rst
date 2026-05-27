@@ -39,8 +39,8 @@ Installation
 Running the method
 ------------------
 
-To run FlashVSR, provide an input video path and launch one of the registered
-runner slugs via ``flashdreams-run``:
+To run FlashVSR, provide an input video path and launch one of the
+registered runner slugs:
 
 .. code-block:: bash
 

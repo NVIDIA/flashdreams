@@ -28,9 +28,9 @@ Developer Guides
    .. container:: fd-hero-lede
 
       The quickstart shows how to drive a recipe. These guides cover
-      what's happening underneath — the inference pipeline a recipe
-      runs through, the config system that wires every overridable
-      field, and the integration surface you'd plug a new model into.
+      what's happening underneath: the inference pipeline a recipe
+      runs through, the configuration layer every recipe shares, and
+      the integration surface you plug a new model into.
 
    .. container:: fd-cta-row
 

@@ -39,8 +39,7 @@ Installation
 Running the method
 ------------------
 
-To run Cosmos-Predict2.5, launch one of the registered runner slugs via
-``flashdreams-run``:
+To run Cosmos-Predict2.5, launch one of the registered runner slugs:
 
 .. code-block:: bash
 

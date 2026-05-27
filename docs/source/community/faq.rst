@@ -77,8 +77,8 @@ How do I plug in a new model recipe?
    **What goes here:** A one-paragraph orientation followed by a link
    to the developer guide at
    :doc:`/developer_guides/new_integration`. Mention the smallest
-   set of abstractions a recipe must implement to plug into
-   ``flashdreams-run``.
+   set of abstractions a recipe must implement to plug into the
+   shipped command-line interface.
 
 
 Project and licensing

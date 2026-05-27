@@ -58,9 +58,9 @@ Headline metrics
 
 .. container:: fd-lede
 
-   Four numbers FlashDreams targets per recipe. The grid below mirrors
-   the one on the :doc:`landing page </index>`; the two must stay in
-   lock-step (see the design system's multi-placement notes).
+   Four numbers per recipe. The same grid leads the
+   :doc:`landing page </index>`; figures here are the source of
+   truth and the landing page mirrors them.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -206,10 +206,10 @@ Methodology
       five repeat runs** of the AR-2-onward window. p95 is reported
       alongside p50 only when the spread is informative (> 5 % of p50).
 
-      **1. Single-GPU per-step latency.** Drive a recipe end-to-end
-      through ``flashdreams-run``, parse the per-step log lines, drop
-      the first two AR steps as warm-up, then take the median and 95th
-      percentile of the remaining ``total(w/o finalize)`` values.
+      **1. Single-GPU per-step latency.** Drive a streaming recipe
+      end-to-end, parse the per-step log lines, drop the first two AR
+      steps as warm-up, then take the median and 95th percentile of
+      the remaining ``total(w/o finalize)`` values.
 
       .. code-block:: bash
 
@@ -528,8 +528,8 @@ Results — bidirectional
    **What goes here:** wall-clock seconds for one full denoise pass at
    each ``(GPU, count, resolution)`` cell.
 
-   **Source data:** ``flashdreams-run <recipe> --output-dir …`` stdout
-   timer line.
+   **Source data:** runner stdout timer line for each bidirectional
+   recipe in the Results table.
 
    **Reproduce with:** *Methodology* CLI #1 (single GPU) or CLI #3
    (multi-GPU / ring attention).
@@ -666,7 +666,9 @@ How we got here
 
 .. container:: fd-lede
 
-   The point of this page is *what* — *why* lives elsewhere.
+   This page is the numbers. The architectural decisions behind them
+   — and the channels for reporting a regression — live elsewhere on
+   the site.
 
 - The :doc:`/api/index` orients you to the four library surfaces and
   links to the design notes for ring attention, KV-cache management,

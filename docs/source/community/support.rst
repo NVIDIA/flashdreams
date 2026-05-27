@@ -104,8 +104,8 @@ Please include:
   fence; don't paste a screenshot of text.
 - **Your environment.** Python version, CUDA version, GPU model,
   FlashDreams version (``python -c "import flashdreams;
-  print(flashdreams.__version__)"``), and how you installed it (uv
-  workspace, ``pip install``, container).
+  print(flashdreams.__version__)"``), and how you installed it
+  (workspace checkout, ``pip install``, container image).
 - **What you've already tried.** Workarounds, related issues, debug
   prints — any of these speed up triage.
 

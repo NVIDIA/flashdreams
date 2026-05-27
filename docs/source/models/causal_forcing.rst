@@ -38,8 +38,8 @@ Installation
 Running the method
 ------------------
 
-To run Causal-Forcing, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run Causal-Forcing, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 
@@ -49,8 +49,8 @@ To run Causal-Forcing, launch one of the registered runner slugs via
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

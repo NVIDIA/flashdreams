@@ -44,14 +44,23 @@ SPDX-License-Identifier: Apache-2.0
     --fd-accent-soft:   rgba(118, 185, 0, 0.12);
     --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
 
-    /* Type scale (modular, ~1.2 ratio). Keep the count small. */
-    --fd-text-xs:   0.8125rem;   /* 13px  meta, captions */
-    --fd-text-sm:   0.9375rem;   /* 15px  small body */
-    --fd-text-base: 1rem;        /* 16px  body */
-    --fd-text-lg:   1.25rem;     /* 20px  lead paragraphs */
-    --fd-text-xl:   1.75rem;     /* 28px  section heads */
-    --fd-text-2xl:  2.5rem;      /* 40px  page heads */
-    --fd-text-3xl:  3.25rem;     /* 52px  hero head */
+    /* Type scale — collapsed to exactly four sizes. Eyebrows, captions,
+       stat labels, stat notes, small body, table cells, etc. all share
+       --fd-text-base (16px) and differentiate via weight / color /
+       letter-spacing / case rather than size. Stat values and section
+       heads share --fd-text-xl. The legacy alias names (--fd-text-xs,
+       --fd-text-sm, --fd-text-2xl) are kept and mapped onto the
+       canonical four so existing references resolve. */
+    --fd-text-base: 1rem;        /* 16px  body, captions, eyebrows, small body, table cells */
+    --fd-text-lg:   1.25rem;     /* 20px  lede paragraphs, card titles */
+    --fd-text-xl:   1.75rem;     /* 28px  section heads, stat values */
+    --fd-text-3xl:  3.25rem;     /* 52px  hero head only */
+
+    /* Aliases — preserved so legacy callsites keep resolving. Do not
+       introduce new sizes here; map them onto the canonical four. */
+    --fd-text-xs:   var(--fd-text-base);
+    --fd-text-sm:   var(--fd-text-base);
+    --fd-text-2xl:  var(--fd-text-xl);
 
     /* Spacing scale (4px base, doubling-ish). */
     --fd-space-1:   0.25rem;     /* 4px  */
@@ -196,12 +205,16 @@ html {
 
 /* Hero title. Rendered from .. rubric:: with :class: fd-hero-title,
    which docutils outputs as a <p class="fd-hero-title rubric">. We
-   override the rubric default margins. */
+   override the rubric default margins.
+
+   Weight is intentionally medium (500): the size + tight tracking
+   already carry the emphasis. A heavier weight read as "ugly" per
+   project-lead feedback. */
 p.fd-hero-title.rubric,
 .fd-hero-title {
     font-size: var(--fd-text-3xl);
     line-height: 1.08;
-    font-weight: 700;
+    font-weight: 500;
     color: var(--fd-text);
     margin: 0 0 var(--fd-space-3) 0;
     letter-spacing: -0.02em;
@@ -286,7 +299,14 @@ p.fd-hero-title.rubric,
 }
 
 
-/* 4.3 Video embed (responsive 16:9) --------------------------------------- */
+/* 4.3 Video / animated-image embed (responsive 16:9) ---------------------
+
+   Dynamic-image embeds on this site default to **animated AVIF**.
+   AVIF is rendered through a stock `<img>` (or `<picture><source
+   type="image/avif">`) element, so the component must style image
+   children the same way it styles iframes and `<video>` elements.
+   MP4 / `<video>` is supported as a fallback only — see
+   site-design-system.md §2.3 for the recommended embed snippet. */
 
 .fd-video {
     width: 100%;
@@ -300,11 +320,15 @@ p.fd-hero-title.rubric,
 }
 
 .fd-video > iframe,
-.fd-video > video {
+.fd-video > video,
+.fd-video > img,
+.fd-video > picture,
+.fd-video > picture > img {
     width: 100%;
     height: 100%;
     border: 0;
     display: block;
+    object-fit: cover;
 }
 
 
@@ -679,10 +703,14 @@ body.fd-page-landing:not(.fd-prose-narrow) .fd-landing-main > section > h1 {
    H1 and the first H2 section) sit in the outer `<section>` and
    would otherwise be unstyled — give them prose-narrow treatment. */
 body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > h1 {
-    font-size: clamp(2rem, 3vw + 1rem, 3rem);
+    /* Prose-narrow pages have no hero band; the H1 is the page's
+       marketing title. Render at the same step as section heads
+       (--fd-text-xl, 28px) — the four-step ladder caps at the hero
+       size, and prose-narrow pages don't get a hero step. */
+    font-size: var(--fd-text-xl);
     letter-spacing: -0.025em;
     line-height: 1.08;
-    font-weight: 800;
+    font-weight: 500;
     color: var(--fd-text);
     max-width: 50rem;
     margin: 0 auto var(--fd-space-4);
@@ -762,15 +790,17 @@ body.fd-page-landing .fd-landing-main > section > section > .fd-eyebrow {
     order: -2;
 }
 
-/* H2 within a band — marketing-display sizing, no docs-style underline
-   rule. `order: -1` pulls it above the lede/grid/etc. but below the
-   eyebrow (`order: -2`); eyebrow → h2 → lede → body is the rhythm. */
+/* H2 within a band — fixed at --fd-text-xl (28px). Every band's
+   section head reads at the same size; the four-step ladder is
+   base → lg → xl → 3xl with no in-between. `order: -1` pulls it
+   above the lede/grid/etc. but below the eyebrow (`order: -2`);
+   eyebrow → h2 → lede → body is the rhythm. */
 body.fd-page-landing .fd-landing-main > section > section > h2 {
     order: -1;
-    font-size: clamp(1.875rem, 2.5vw + 1rem, 2.5rem);
+    font-size: var(--fd-text-xl);
     letter-spacing: -0.02em;
     line-height: 1.15;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--fd-text);
     margin: 0 auto var(--fd-space-4);
     padding: 0;
@@ -839,22 +869,24 @@ body.fd-page-landing .fd-hero-band > * {
 }
 
 /* Hero display title — scale much larger than docs H1, tightly tracked,
-   so the page leads with marketing-scale type. */
+   so the page leads with marketing-scale type. Weight is medium (500);
+   the display size and tracking carry the emphasis. */
 body.fd-page-landing .fd-hero-band .fd-hero-title,
 body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
     font-size: clamp(2.5rem, 5.5vw + 1rem, 4.5rem);
     letter-spacing: -0.03em;
     line-height: 1.02;
-    font-weight: 800;
+    font-weight: 500;
     margin: 0 auto var(--fd-space-3);
     max-width: var(--fd-max-content);
 }
 
 /* Hero lede — larger leading paragraph, muted color, capped width so
-   it stays scannable on wide viewports. */
+   it stays scannable on wide viewports. Fixed at --fd-text-lg to
+   match every other lede on the site (no per-band drift). */
 body.fd-page-landing .fd-hero-band .fd-hero-lede,
 body.fd-page-landing .fd-hero-band .fd-hero-lede > p {
-    font-size: clamp(1.125rem, 1.2vw + 0.85rem, 1.375rem);
+    font-size: var(--fd-text-lg);
     line-height: 1.5;
     color: var(--fd-text-muted);
     max-width: 52rem;
@@ -927,14 +959,40 @@ body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
 /* LEDE PARAGRAPH ---------------------------------------------------------
    A larger leading paragraph used directly under a section H2 — pairs
    with `.fd-eyebrow` to give marketing-flow sections a defined
-   eyebrow / head / lede stack. */
+   eyebrow / head / lede stack. Fixed at --fd-text-lg (20px) so every
+   section's lede renders at the same size; no clamp, no per-section
+   drift. */
 .fd-lede,
 .fd-lede > p {
-    font-size: clamp(1.0625rem, 0.6vw + 0.9rem, 1.25rem);
+    font-size: var(--fd-text-lg);
     line-height: 1.55;
     color: var(--fd-text-muted);
     max-width: 56rem;
     margin: 0 auto var(--fd-space-5);
+}
+
+/* Body paragraphs inside any band-section content block render at the
+   canonical body size. This includes paragraphs inside `.fd-split-text`,
+   directly inside band sections, and anywhere else the marketing flow
+   surfaces prose. Forcing the size here defeats the per-section drift
+   that emerged when some sections had an `.fd-lede` and others started
+   straight in with a body paragraph at a different inherited size. */
+body.fd-page-landing .fd-landing-main > section > section p,
+body.fd-page-landing .fd-landing-main > section > section li {
+    font-size: var(--fd-text-base);
+}
+
+/* Re-assert size for elements that are intentionally NOT body-size:
+   ledes, eyebrows, hero pieces, stat values/labels/notes, card titles,
+   admonition titles, code, and component-specific surfaces. These
+   selectors win because they're more specific OR come later. */
+body.fd-page-landing .fd-landing-main > section > section .fd-lede,
+body.fd-page-landing .fd-landing-main > section > section .fd-lede > p {
+    font-size: var(--fd-text-lg);
+}
+body.fd-page-landing .fd-landing-main > section > section .fd-eyebrow,
+body.fd-page-landing .fd-landing-main > section > section .fd-eyebrow > p {
+    font-size: var(--fd-text-base);
 }
 
 
@@ -1004,13 +1062,15 @@ body.fd-page-landing .sd-card.fd-feature .sd-card-title {
 
 
 /* STAT BLOCK POLISH (marketing context) ---------------------------------
-   Bigger stat values on landing-band placements so the at-a-glance
-   metrics carry the visual weight of a marketing hero stat strip. */
+   Stat values sit at --fd-text-xl on the marketing layout — the same
+   step as section heads. Numeric tiles do not need their own size step;
+   their weight comes from the accent color + tabular numerals already
+   on `.fd-stat-value > p`. */
 body.fd-page-landing .fd-stat {
     padding: var(--fd-space-4);
 }
 body.fd-page-landing .fd-stat-value > p {
-    font-size: clamp(2rem, 2.5vw + 1rem, 3rem);
+    font-size: var(--fd-text-xl);
     line-height: 1.05;
 }
 
@@ -1222,6 +1282,22 @@ body.fd-page-landing .fd-media-tile {
 }
 body.fd-page-landing .fd-media-tile > * {
     margin: 0;
+}
+
+/* Animated-image / video media in a tile. AVIF is the default
+   dynamic-image format on this site — render through `<img>` or
+   `<picture>` and the tile auto-sizes it to the column. `<video>` is
+   the fallback path. Each tile holds a 16:9 area so the rail reads
+   as a strip rather than as varying-height blocks. */
+body.fd-page-landing .fd-media-tile > img,
+body.fd-page-landing .fd-media-tile > picture,
+body.fd-page-landing .fd-media-tile > picture > img,
+body.fd-page-landing .fd-media-tile > video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    display: block;
+    background: var(--fd-bg-sunken);
 }
 body.fd-page-landing .fd-media-tile .fd-media-tile-body {
     padding: var(--fd-space-3) var(--fd-space-4);

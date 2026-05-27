@@ -22,16 +22,15 @@ Models
 
       Eight recipes, one CLI
 
-   .. rubric:: Every shipped model. Same ``flashdreams-run`` front door.
+   .. rubric:: Every shipped model. One command line away.
       :class: fd-hero-title
 
    .. container:: fd-hero-lede
 
-      FlashDreams ships streaming / autoregressive recipes (KV-cached,
-      per-AR-step output) and bidirectional reference recipes
-      (single full-block reference, used for parity). Each model
-      page has the exact CLI slug, the checkpoint source, and the
-      per-recipe knobs.
+      Streaming and autoregressive recipes (KV-cached, per-AR-step
+      output) and bidirectional reference recipes (single full-block
+      reference, used for parity). Each model page has the canonical
+      invocation, the checkpoint source, and the per-recipe knobs.
 
    .. container:: fd-cta-row
 
@@ -52,17 +51,16 @@ Running a model
 
 .. container:: fd-eyebrow
 
-   The CLI is the only entry point
+   One front door, every recipe
 
 .. container:: fd-split fd-split-asymmetric
 
    .. container:: fd-split-text
 
-      Every recipe is a named slug. ``flashdreams-run --help`` lists
-      every registered runner and every overridable field is a flag.
-      Streaming runners take ``--total-blocks`` to bound the AR-step
-      count; bidirectional runners produce a single end-to-end
-      output.
+      Every recipe is a named slug. Streaming runners take a
+      ``--total-blocks`` flag to bound the autoregressive step count;
+      bidirectional runners produce a single end-to-end output. Every
+      overridable field on every recipe is exposed as a CLI flag.
 
       Each model page below has the canonical invocation for that
       recipe — copy, paste, run.
