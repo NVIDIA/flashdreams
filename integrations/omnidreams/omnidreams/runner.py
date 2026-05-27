@@ -482,7 +482,6 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         directly after ``setup()`` returns ``1`` on a 4-GPU run with 4 cameras.
         Multiply by ``self.pipeline.V_size`` to get the unsplit count.
         """
-        assert self.config.pipeline is not None
         transformer_cfg = self.config.pipeline.diffusion_model.transformer
         assert isinstance(transformer_cfg, CosmosTransformerConfig)
         return transformer_cfg.num_views * self.pipeline.V_size

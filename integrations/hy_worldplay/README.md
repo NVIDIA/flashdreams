@@ -204,12 +204,10 @@ checkpoint is a strict identity.
 (~30/255) and within ~3-4× of the vendor-vs-vendor kernel noise floor
 (3.24/255). Acceptance bar `<= 20 / 255`. Residual drift is
 multi-causal bf16 FP-noise with no single dominant source; the
-per-bug breakdown and diagnostic env-var flags (`HY_DEBUG_*`,
-`HY_VENDOR_NOISE_MODE`, `HY_VENDOR_VAE_MEAN`) live in
-[`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
-under "Phase 2b.6.2 outcome". For bit-exact match against vendor's
-`use_kv_cache=False` default, see deferred **2b.6.1** in the staging
-plan, or fall back to the vendor wrapper.
+diagnostic env-var flags (`HY_DEBUG_*`, `HY_VENDOR_NOISE_MODE`,
+`HY_VENDOR_VAE_MEAN`) are wired up in the code for re-running the
+per-bug breakdown locally. For bit-exact match against vendor's
+`use_kv_cache=False` default, fall back to the vendor wrapper.
 
 **Reproduce the parity diff locally.** Run
 `USE_KV_CACHE_TRUE=1 ./tests/parity_check/run.sh`. The script
@@ -289,8 +287,7 @@ for what the parity script does and where it writes outputs.
 ## Staging plan
 
 Phases 1, 2a, and 2b are landed; the native pipeline is the production
-default. Phase 3 is future. Phase 2b design lives in
-[`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md).
+default. Phase 3 is future.
 
 1. **Phase 1 — vendor wrapper.** `hy_worldplay` packaged as a `uv`
    workspace member (heavy upstream deps scoped to the parity sub-venv);
@@ -317,7 +314,7 @@ default. Phase 3 is future. Phase 2b design lives in
      `HyWorldPlayWanDiTNetwork`). `--use-action-conditioning`.
    - **2b.4.** PRoPE dual-branch self-attention
      (`HyWorldPlayPRoPEBlock`; `prope_qkv` in
-     `flashdreams.core.attention.prope`). `--use-camera-conditioning`.
+     `hy_worldplay._prope`). `--use-camera-conditioning`.
    - **2b.5a.** Reconstituted-context memory selection
      (`select_mem_frames_wan` + FOV-overlap helper, ported to
      `hy_worldplay/_memory.py`). `--use-memory-selection`.
@@ -328,5 +325,4 @@ default. Phase 3 is future. Phase 2b design lives in
    - **2b.6.** Parity close at **`mean |Δ| = 15.65 / 255`**
      (704x1280 / `num_chunk=2`; below the visible threshold and within
      ~3-4× of the vendor-vs-vendor kernel noise floor of 3.24/255).
-     Acceptance bar `<= 20 / 255`. Per-bug breakdown in the phase 2b
-     design spec.
+     Acceptance bar `<= 20 / 255`.

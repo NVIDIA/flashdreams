@@ -14,20 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pull HY-WorldPlay, optionally apply the local patch, and run the
-# upstream WAN-5B benchmark. Idempotent: re-running skips clone /
-# checkout / downloads / patch when already in place, and just re-runs
-# the benchmark.
+# Pull HY-WorldPlay and run the upstream WAN-5B benchmark. Idempotent:
+# re-running skips clone / checkout / downloads when already in place,
+# and just re-runs the benchmark.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${SCRIPT_DIR}/HY-WorldPlay"
-PATCH_FILE="${SCRIPT_DIR}/changes.patch"
+# Override-friendly so the ~30 GiB clone + ~52 GiB HF checkpoints can be
+# parked outside /home (e.g. ``REPO_DIR=~/scratch/HY-WorldPlay bash run.sh``).
+REPO_DIR="${REPO_DIR:-${SCRIPT_DIR}/HY-WorldPlay}"
 REPO_URL="https://github.com/Tencent-Hunyuan/HY-WorldPlay.git"
 # Pinned to the head of ``main`` at the time this integration was
-# scaffolded. Bump when re-baselining; the patch may need to be
-# refreshed too.
+# scaffolded. Bump when re-baselining.
 PIN_COMMIT="HEAD"
 
 # Where the WAN-5B HuggingFace checkpoints live inside ${REPO_DIR}.
@@ -59,27 +58,6 @@ if [[ "${PIN_COMMIT}" != "HEAD" ]]; then
     else
         echo "[setup] already at pinned commit ${PIN_COMMIT}, skipping checkout"
     fi
-fi
-
-# ------------------------------------------------------------------- patching
-# ``changes.patch`` is optional in phase 1 (we don't need any upstream
-# edits to reproduce the baseline). Wire the same apply / skip /
-# fail-loudly machinery as ``self_forcing/parity_check`` so a future
-# patch (e.g. ``EventProfiler`` per-chunk timing, attention dispatcher
-# routing) can be dropped in without touching this script.
-if [[ -f "${PATCH_FILE}" ]]; then
-    if git apply --reverse --check "${PATCH_FILE}" >/dev/null 2>&1; then
-        echo "[setup] patch already applied, skipping"
-    elif git apply --check "${PATCH_FILE}" >/dev/null 2>&1; then
-        echo "[setup] applying ${PATCH_FILE}"
-        git apply "${PATCH_FILE}"
-    else
-        echo "[setup] ERROR: ${PATCH_FILE} neither cleanly applies nor is" \
-             "already applied; tree may be partially patched or out of sync." >&2
-        exit 1
-    fi
-else
-    echo "[setup] no patch file at ${PATCH_FILE}, skipping"
 fi
 
 # --------------------------------------------------------------- HF downloads

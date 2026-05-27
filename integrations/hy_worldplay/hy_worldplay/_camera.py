@@ -27,8 +27,9 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention, prope_qkv
+from flashdreams.core.attention import BlockKVCache, RingAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
+from hy_worldplay._prope import prope_qkv
 from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,

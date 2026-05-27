@@ -15,7 +15,7 @@
 
 """CPU-only unit tests for the PRoPE projective positional encoding port.
 
-Verifies :mod:`flashdreams.core.attention.prope` against a numpy reference
+Verifies :mod:`hy_worldplay._prope` against a numpy reference
 that re-implements the same per-camera 4x4 block-diagonal projection
 without the torch.einsum / partial-function plumbing. Three groups:
 
@@ -156,7 +156,7 @@ def _numpy_prope_reference(
 
 def test_prope_qkv_matches_numpy_reference_with_intrinsics() -> None:
     """``prope_qkv`` Q/K/V/output transforms match the numpy reference."""
-    from flashdreams.core.attention.prope import prope_qkv
+    from hy_worldplay._prope import prope_qkv
 
     batch, num_heads, cameras, patches_per_cam, head_dim = 2, 3, 4, 5, 8
     seqlen = cameras * patches_per_cam
@@ -194,7 +194,7 @@ def test_prope_qkv_matches_numpy_reference_with_intrinsics() -> None:
 
 def test_prope_qkv_matches_numpy_reference_no_intrinsics() -> None:
     """The ``Ks=None`` (GTA) branch matches the numpy reference."""
-    from flashdreams.core.attention.prope import prope_qkv
+    from hy_worldplay._prope import prope_qkv
 
     batch, num_heads, cameras, patches_per_cam, head_dim = 2, 2, 3, 4, 8
     seqlen = cameras * patches_per_cam
@@ -216,7 +216,7 @@ def test_prope_qkv_matches_numpy_reference_no_intrinsics() -> None:
 
 def test_prope_qkv_identity_viewmats_is_pass_through() -> None:
     """Identity extrinsics + no intrinsics is a strict no-op on Q/K/V/O."""
-    from flashdreams.core.attention.prope import prope_qkv
+    from hy_worldplay._prope import prope_qkv
 
     batch, num_heads, cameras, patches_per_cam, head_dim = 1, 2, 3, 2, 8
     seqlen = cameras * patches_per_cam
@@ -237,7 +237,7 @@ def test_prope_qkv_identity_viewmats_is_pass_through() -> None:
 
 def test_prope_qkv_rejects_head_dim_not_divisible_by_4() -> None:
     """The 4x4 block-diagonal tiling requires head_dim % 4 == 0."""
-    from flashdreams.core.attention.prope import prope_qkv
+    from hy_worldplay._prope import prope_qkv
 
     batch, num_heads, cameras, patches_per_cam = 1, 1, 2, 2
     seqlen = cameras * patches_per_cam
@@ -252,7 +252,7 @@ def test_prope_qkv_rejects_head_dim_not_divisible_by_4() -> None:
 
 def test_prope_qkv_rejects_seqlen_not_divisible_by_cameras() -> None:
     """Token layout requires seqlen divisible by the camera count."""
-    from flashdreams.core.attention.prope import prope_qkv
+    from hy_worldplay._prope import prope_qkv
 
     batch, num_heads, cameras, head_dim = 1, 1, 3, 8
     seqlen = cameras * 2 + 1  # off by one
@@ -266,7 +266,7 @@ def test_prope_qkv_rejects_seqlen_not_divisible_by_cameras() -> None:
 
 def test_build_prope_apply_fns_can_be_called_repeatedly() -> None:
     """The split entry point lets callers cache transforms across layers."""
-    from flashdreams.core.attention.prope import build_prope_apply_fns
+    from hy_worldplay._prope import build_prope_apply_fns
 
     batch, cameras, head_dim = 1, 2, 8
     viewmats = _make_random_viewmats(batch, cameras)

@@ -13,11 +13,6 @@ own `wan/generate.py` so we can verify that the bundled `flashdreams`
 plugin (which delegates to the same `WanRunner.predict()` call)
 produces bit-identical output.
 
-A `changes.patch` slot is wired up in `run.sh` so that a future patch
-(e.g. `EventProfiler`-based per-chunk timing mirroring the
-`self_forcing` parity check) can be dropped in without touching the
-script.
-
 ## Run
 
 From this directory — i.e.
@@ -76,11 +71,7 @@ confirm `mean |Δ| ≤ 5 / 255`.
 This mode is the **2b.6 acceptance baseline**. The default
 (no env var) mode keeps producing the phase-1
 `use_kv_cache=False` baseline so older parity numbers remain
-comparable. See
-[`docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md`](../../../../docs/superpowers/specs/2026-05-20-hy-worldplay-phase-2b-design.md)
-for why option C (re-baseline) was preferred over option A
-(refactor native to vendor's published single-forward-pass
-default).
+comparable.
 
 The script is idempotent: on first run it clones upstream, downloads
 `tencent/HY-WorldPlay`'s `wan_transformer/` and `wan_distilled_model/`
@@ -198,13 +189,9 @@ the run path moves back into the main flashdreams venv.
 ## Files tracked here
 
 - `README.md` — this file
-- `run.sh` — clone + setup + (patch) + benchmark, idempotent
+- `run.sh` — clone + setup + benchmark, idempotent
 - `pyproject.toml` — isolated venv definition (materialized via `uv sync`)
 - `.gitignore` — ignores the cloned `HY-WorldPlay/` tree, `./.venv/`, caches
-
-`changes.patch` is intentionally **not** present in phase 1 (no
-upstream edits required). Add it later when introducing
-`EventProfiler` timing or any other in-tree instrumentation.
 
 ## Runtime requirements
 

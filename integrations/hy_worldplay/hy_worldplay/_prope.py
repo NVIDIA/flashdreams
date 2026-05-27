@@ -18,9 +18,9 @@ r"""PRoPE-style projective positional encoding for multi-view attention.
 Ports the bit pattern of ``hyvideo/prope/camera_rope.py::prope_qkv`` from
 `PRoPE: Projective Positional Encoding for Multiview Transformers
 <https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/main/hyvideo/prope/camera_rope.py>`_
-(MIT-licensed) so flashdreams recipes can apply per-camera projective
-transforms to Q/K/V before attention without taking a dependency on the
-upstream HY-WorldPlay tree.
+(MIT-licensed) so the native HY-WorldPlay path can apply per-camera
+projective transforms to Q/K/V before attention without importing the
+upstream HY-WorldPlay tree at runtime.
 
 The transform is a block-diagonal matrix multiply on the per-head feature
 axis: each camera's tokens get multiplied by a 4×4 matrix derived from
@@ -39,8 +39,9 @@ basis change.
 Numeric semantics mirror upstream exactly: same einsum order, same
 single-precision cast points, same block-diagonal partitioning on the
 ``head_dim`` axis (which must be divisible by 4 because the projection
-matrices are 4×4). Tests under ``flashdreams/tests/test_prope.py``
-cross-check this port against a numpy reference.
+matrices are 4×4). Tests under
+``integrations/hy_worldplay/tests/test_prope.py`` cross-check this port
+against a numpy reference.
 """
 
 from __future__ import annotations

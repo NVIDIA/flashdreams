@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,6 +25,7 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor
 
+from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.runner import Runner
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -184,6 +186,11 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         )
 
         chunks: list[Tensor] = []
+        # Per-chunk CUDA-event timing mirrors the ``wan21`` / ``omnidreams``
+        # runners so PR-time perf comparisons against the vendor wrapper
+        # don't need bespoke instrumentation. Skipped on CPU (e.g. the
+        # smoke tests) since ``EventProfiler`` needs ``torch.cuda``.
+        profiler = EventProfiler() if torch.cuda.is_available() else None
         start_time = time.time()
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
@@ -191,7 +198,10 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
                 chunks.append(chunk)
                 if ar_idx < cfg.num_chunk - 1:
                     self.pipeline.finalize(ar_idx, cache)
+                if profiler is not None:
+                    profiler.record(f"chunk_{ar_idx}")
         elapsed = time.time() - start_time
+        per_chunk_ms = profiler.sync_and_summarize() if profiler is not None else {}
 
         if not self.is_rank_zero:
             return
@@ -204,6 +214,21 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
             f"[{cfg.runner_name}] (native) wrote video "
             f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"
         )
+
+        if per_chunk_ms:
+            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
+            stats_payload = {
+                "runner_name": cfg.runner_name,
+                "num_chunk": cfg.num_chunk,
+                "pose": cfg.pose,
+                "elapsed_s": round(elapsed, 3),
+                "per_chunk_ms": {k: round(v, 3) for k, v in per_chunk_ms.items()},
+            }
+            stats_path.write_text(json.dumps(stats_payload, indent=2))
+            logger.info(
+                f"[{cfg.runner_name}] (native) wrote per-chunk stats -> "
+                f"{stats_path.resolve()}"
+            )
 
     def _bind_action_labels(self) -> None:
         """Parse the pose string and bind per-rollout action labels on the encoder."""
@@ -235,7 +260,7 @@ class HyWorldPlayWanI2VNativeRunner(Runner["HyWorldPlayWanI2VRunnerConfig", WanI
         # Cast to the pipeline dtype so PRoPE math + cudnn attention
         # don't kick the network into fp64. ``parse_pose_data`` emits
         # ``[n_latents, 4, 4]`` / ``[n_latents, 3, 3]`` without a batch
-        # axis; :func:`flashdreams.core.attention.prope.prope_qkv`
+        # axis; :func:`hy_worldplay._prope.prope_qkv`
         # requires ``[batch=1, cameras, 4, 4]``, so an ``unsqueeze(0)``
         # here lifts both the per-step slice and the per-rollout buffer
         # to the rank PRoPE expects.
