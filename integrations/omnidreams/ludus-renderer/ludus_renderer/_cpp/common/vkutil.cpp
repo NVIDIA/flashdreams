@@ -183,8 +183,6 @@ VkContext createVkContext(int cudaDeviceIdx)
         VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_EXT_PCI_BUS_INFO_EXTENSION_NAME,
         VK_KHR_MULTIVIEW_EXTENSION_NAME,
     };
@@ -211,10 +209,8 @@ VkContext createVkContext(int cudaDeviceIdx)
     mvFeatures.pNext = ctx.hasFragmentShaderBarycentric ? (void*)&barycentricFeatures : nullptr;
 
     VkPhysicalDeviceFeatures2 features2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-    features2.features.shaderInt64 = VK_TRUE;
     features2.features.multiDrawIndirect = VK_TRUE;
     features2.features.fillModeNonSolid = VK_TRUE;
-    features2.features.depthClamp = VK_TRUE;
     features2.pNext = &meshFeatures;
 
     VkDeviceCreateInfo devCI = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
