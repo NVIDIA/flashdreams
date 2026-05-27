@@ -287,13 +287,19 @@ SPDX-License-Identifier: Apache-2.0
         <article role="main" id="furo-main-content">
           <section id="causal-forcing">
 <h1>Causal-Forcing<a class="headerlink" href="#causal-forcing" title="Link to this heading">¶</a></h1>
-<p>(TODO: To be updated)</p>
 <div class="model-link-row">
-  <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Project page</a>
-  <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>Causal-Forcing provides streaming <a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a> variants for
-both text-to-video (T2V) and image-to-video (I2V) generation.</p>
-<section id="installation">
+  <a class="model-link-button" href="https://thu-ml.github.io/CausalForcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
+  <a class="model-link-button" href="https://arxiv.org/abs/2602.02214" target="_blank" rel="noopener noreferrer">arXiv paper</a>
+  <a class="model-link-button" href="https://github.com/thu-ml/Causal-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
+</div><p>Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
+asymmetric DMD as a theoretically correct initialization for real-time
+interactive video generation.</p>
+<a class="reference internal image-reference" href="https://thu-ml.github.io/CausalForcing.github.io/images/overview.png"><img alt="Causal-Forcing overview figure." src="https://thu-ml.github.io/CausalForcing.github.io/images/overview.png" style="width: 100%;" />
+</a>
+<p class="model-footnote">
+  Teaser image source:
+  <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
+</p><section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing
@@ -304,18 +310,30 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">¶</a></h2>
 <p>To run Causal-Forcing, launch one of the registered runner slugs via
 <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. For example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>causal-forcing-wan2.1-t2v-1.3b-framewise<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A cat surfing on a neon wave.&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle.&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 <p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
 (taking 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>causal-forcing-wan2.1-t2v-1.3b-framewise<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A cat surfing on a neon wave.&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle.&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+</pre></div>
+</div>
+<p>For I2V, run with the following command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>causal-forcing-wan2.1-i2v-1.3b-framewise<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle.&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--image-path<span class="w"> </span>https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
@@ -346,12 +364,35 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/causal_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>causal-forcing-wan2.1-t2v-1.3b-framewise<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--help
 </pre></div>
 </div>
-</section>
+<p>Some generated samples from the above commands:</p>
+<div class="model-video-grid">
+  <div class="model-video-card">
+    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <div class="model-video-overlay">
+      prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
+    </div>
+  </div>
+  <div class="model-video-card">
+    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <div class="model-video-overlay">
+      prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
+      <br/>
+      image: https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png
+    </div>
+  </div>
+</div></section>
 </section>
 
         </article>

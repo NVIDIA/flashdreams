@@ -287,14 +287,20 @@ SPDX-License-Identifier: Apache-2.0
         <article role="main" id="furo-main-content">
           <section id="flashvsr">
 <h1>FlashVSR<a class="headerlink" href="#flashvsr" title="Link to this heading">¶</a></h1>
-<p>(TODO: To be updated)</p>
 <div class="model-link-row">
-  <a class="model-link-button" href="https://github.com/OpenImagingLab/FlashVSR" target="_blank" rel="noopener noreferrer">Project page</a>
+  <a class="model-link-button" href="https://zhuang2002.github.io/FlashVSR/" target="_blank" rel="noopener noreferrer">Project page</a>
+  <a class="model-link-button" href="https://arxiv.org/abs/2510.12747" target="_blank" rel="noopener noreferrer">arXiv paper</a>
   <a class="model-link-button" href="https://github.com/OpenImagingLab/FlashVSR" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>FlashVSR is a streaming video super-resolution integration. It is useful for
-workflows that ingest low-resolution video in chunks and need a higher
-resolution output stream while preserving temporal continuity.</p>
-<section id="installation">
+</div><p>FlashVSR is a one-diffusion-step streaming diffusion framework for real-time video
+super-resolution (VSR). It combines a train-friendly three-stage distillation pipeline,
+locality-constrained sparse attention that bridges the train-test resolution
+gap, and a tiny conditional decoder for fast reconstruction.</p>
+<a class="reference internal image-reference" href="https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png"><img alt="FlashVSR teaser figure." src="https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png" style="width: 100%;" />
+</a>
+<p class="model-footnote">
+  Teaser image source:
+  <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
+</p><section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr
@@ -304,19 +310,28 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">¶</a></h2>
 <p>To run FlashVSR, provide an input video path and launch one of the registered
-runner slugs via <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+runner slugs via <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. For example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>/path/to/low_res_input.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">16</span>
+<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
 </pre></div>
 </div>
-<p>For multi-GPU inference, use the full-attention preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<p>For multi-GPU inference, use the dense full-attention preset with <code class="docutils literal notranslate"><span class="pre">torchrun</span></code>
+on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code> (taking 4 GPUs as an example):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashvsr-v1.1-full-attn<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>/path/to/low_res_input.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">16</span>
+<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Multi-GPU is supported only by the dense <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code> preset.
+The <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-*</span></code> presets are single-GPU only because
+their <code class="docutils literal notranslate"><span class="pre">block_sparse_attn</span></code> backend is not context-parallel aware.</p>
 </div>
 <p>We provide the following variants:</p>
 <div class="table-wrapper colwidths-given docutils container">
@@ -344,20 +359,29 @@ runner slugs via <code class="docutils literal notranslate"><span class="pre">fl
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--help
 </pre></div>
 </div>
-</section>
-<section id="what-flashdreams-accelerates">
-<h2>What FlashDreams accelerates<a class="headerlink" href="#what-flashdreams-accelerates" title="Link to this heading">¶</a></h2>
-<p>FlashDreams keeps the video super-resolution pipeline chunk-oriented: the
-runner reads input video, derives per-video dimensions, initializes streaming
-state, and then runs autoregressive chunks through the pipeline. The
-full-attention preset can also use context-parallel execution for heavier
-multi-GPU runs.</p>
-</section>
+<p>A generated sample from the above commands:</p>
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
+    <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <div class="model-video-overlay">
+    FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
+    low-resolution input (672x384) inset at bottom-left.
+    Input from the
+    <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
+  </div>
+</div></section>
 </section>
 
         </article>
@@ -417,7 +441,6 @@ multi-GPU runs.</p>
 <li><a class="reference internal" href="#">FlashVSR</a><ul>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
-<li><a class="reference internal" href="#what-flashdreams-accelerates">What FlashDreams accelerates</a></li>
 </ul>
 </li>
 </ul>

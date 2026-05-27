@@ -23,7 +23,7 @@ LingBot-World
      <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-As introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a camera-controllable image-to-video
+Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support.
 
 .. raw:: html
@@ -65,7 +65,8 @@ To run LingBot-World, launch one of the registered runner slugs via
 
 Sample data are downloaded from the
 `LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
-Valid ``--example-idx`` values are ``0, 1, 2, 5``.
+Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
+out of memory for large ``--total-blocks`` values.
 
 For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 (taking 4 GPUs as an example):

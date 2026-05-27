@@ -290,7 +290,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="model-link-row">
   <a class="model-link-button" href="https://technology.robbyant.com/lingbot-world" target="_blank" rel="noopener noreferrer">Project page</a>
   <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>As introduced by <a class="reference external" href="https://technology.robbyant.com/">Robbyant</a>, LingBot-World is a camera-controllable image-to-video
+</div><p>Introduced by <a class="reference external" href="https://technology.robbyant.com/">Robbyant</a>, LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support.</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -323,7 +323,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </div>
 <p>Sample data are downloaded from the
 <a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">LingBot-World repository</a>.
-Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>.</p>
+Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>. Note the single GPU command might run
+out of memory for large <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p>
 <p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
 (taking 4 GPUs as an example):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>

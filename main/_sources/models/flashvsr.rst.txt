@@ -15,18 +15,30 @@
 
 FlashVSR
 ===================================
-(TODO: To be updated)
 
 .. raw:: html
 
    <div class="model-link-row">
-     <a class="model-link-button" href="https://github.com/OpenImagingLab/FlashVSR" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://zhuang2002.github.io/FlashVSR/" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://arxiv.org/abs/2510.12747" target="_blank" rel="noopener noreferrer">arXiv paper</a>
      <a class="model-link-button" href="https://github.com/OpenImagingLab/FlashVSR" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-FlashVSR is a streaming video super-resolution integration. It is useful for
-workflows that ingest low-resolution video in chunks and need a higher
-resolution output stream while preserving temporal continuity.
+FlashVSR is a one-diffusion-step streaming diffusion framework for real-time video
+super-resolution (VSR). It combines a train-friendly three-stage distillation pipeline,
+locality-constrained sparse attention that bridges the train-test resolution
+gap, and a tiny conditional decoder for fast reconstruction.
+
+.. image:: https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png
+   :alt: FlashVSR teaser figure.
+   :width: 100%
+
+.. raw:: html
+
+   <p class="model-footnote">
+     Teaser image source:
+     <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
+   </p>
 
 Installation
 ------------
@@ -40,23 +52,32 @@ Running the method
 ------------------
 
 To run FlashVSR, provide an input video path and launch one of the registered
-runner slugs via ``flashdreams-run``:
+runner slugs via ``flashdreams-run``. For example:
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
+   uv run --project integrations/flashvsr \
+       flashdreams-run \
        flashvsr-v1.1-sparse-ratio-2.0 \
-       --input-path /path/to/low_res_input.mp4 \
-       --chunk-size 16
+       --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
+       --chunk-size 8
 
-For multi-GPU inference, use the full-attention preset:
+For multi-GPU inference, use the dense full-attention preset with ``torchrun``
+on top of ``uv run flashdreams-run`` (taking 4 GPUs as an example):
 
 .. code-block:: bash
 
-   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+   uv run --project integrations/flashvsr \
+       torchrun --nproc_per_node=4 --no-python flashdreams-run \
        flashvsr-v1.1-full-attn \
-       --input-path /path/to/low_res_input.mp4 \
-       --chunk-size 16
+       --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
+       --chunk-size 8
+
+.. note::
+
+   Multi-GPU is supported only by the dense ``flashvsr-v1.1-full-attn`` preset.
+   The ``flashvsr-v1.1-sparse-ratio-*`` presets are single-GPU only because
+   their ``block_sparse_attn`` backend is not context-parallel aware.
 
 We provide the following variants:
 
@@ -77,15 +98,28 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr flashdreams-run \
+   uv run --project integrations/flashvsr \
+       flashdreams-run \
        flashvsr-v1.1-sparse-ratio-2.0 \
        --help
 
-What FlashDreams accelerates
-----------------------------
+A generated sample from the above commands:
 
-FlashDreams keeps the video super-resolution pipeline chunk-oriented: the
-runner reads input video, derives per-video dimensions, initializes streaming
-state, and then runs autoregressive chunks through the pipeline. The
-full-attention preset can also use context-parallel execution for heavier
-multi-GPU runs.
+.. raw:: html
+
+   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+       <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
+       Your browser does not support the video tag.
+     </video>
+     <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
+       <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
+       Your browser does not support the video tag.
+     </video>
+     <div class="model-video-overlay">
+       FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
+       low-resolution input (672x384) inset at bottom-left.
+       Input from the
+       <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
+     </div>
+   </div>
