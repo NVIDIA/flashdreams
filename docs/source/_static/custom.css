@@ -36,12 +36,12 @@ SPDX-License-Identifier: Apache-2.0
 /* ----- 1. Design tokens --------------------------------------------------- */
 
 :root {
-    /* Accent — single source of truth for branded color. Replace this one
-       value to re-brand the site. Currently a muted slate-teal placeholder;
-       intentionally NOT NVIDIA green. */
-    --fd-accent:        #3f7c87;
-    --fd-accent-hover:  #2f6770;
-    --fd-accent-soft:   rgba(63, 124, 135, 0.12);
+    /* Accent — single source of truth for branded color. Tuned to the
+       green that the FlashDreams logo uses (#76B900). Re-brand
+       by editing these four values. */
+    --fd-accent:        #76b900;
+    --fd-accent-hover:  #5e9300;
+    --fd-accent-soft:   rgba(118, 185, 0, 0.12);
     --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
 
     /* Type scale (modular, ~1.2 ratio). Keep the count small. */
@@ -106,10 +106,11 @@ html[data-theme="dark"] {
     --fd-text-muted:    #a8b0bf;
     --fd-text-subtle:   #6b7385;
 
-    /* Dark-mode accent gets a touch of luminance */
-    --fd-accent:        #6fb2bd;
-    --fd-accent-hover:  #8cc7d1;
-    --fd-accent-soft:   rgba(111, 178, 189, 0.16);
+    /* Dark-mode accent: a brighter green so it pops against #0f1218
+       without losing the NVIDIA-green identity. */
+    --fd-accent:        #8ddc1a;
+    --fd-accent-hover:  #a4ea3a;
+    --fd-accent-soft:   rgba(141, 220, 26, 0.18);
     --fd-accent-ink:    #0f1218;
 
     /* Heavier shadows are noise on a dark background; flatten them. */
@@ -593,6 +594,89 @@ p.fd-hero-title.rubric,
 .navbar-persistent--container,
 .navbar-persistent--mobile {
     display: none !important;
+}
+
+
+/* ----- 6. Front-of-site marketing layout --------------------------------- */
+
+/* The homepage, benchmarks, and community pages are marketing surfaces.
+   Pydata's default article layout is reading-optimized — a centered
+   ~50-character column inside a constrained container — which crushes
+   the hero / feature grids and reads as "docs with a hero on top".
+
+   These rules detect a marketing page via the presence of `.fd-hero`,
+   `.fd-stat`, or `.fd-feature` and:
+     - widen the article column to the full content area
+     - drop pydata's article side padding so hero bands hit the edges
+     - give sections generous vertical breathing room
+*/
+
+.bd-main:has(.fd-hero),
+.bd-main:has(.fd-feature),
+.bd-main:has(.fd-stat) {
+    /* Reclaim the full pydata content rail; the marketing components
+       size themselves via `--fd-max-content` instead. */
+    --pst-sidebar-secondary: 0;
+}
+
+.bd-main:has(.fd-hero) .bd-content,
+.bd-main:has(.fd-feature) .bd-content,
+.bd-main:has(.fd-stat) .bd-content {
+    max-width: 100%;
+}
+
+.bd-main:has(.fd-hero) .bd-article-container,
+.bd-main:has(.fd-feature) .bd-article-container,
+.bd-main:has(.fd-stat) .bd-article-container {
+    max-width: var(--fd-max-content);
+    padding-inline: var(--fd-space-4);
+}
+
+.bd-main:has(.fd-hero) .bd-article,
+.bd-main:has(.fd-feature) .bd-article,
+.bd-main:has(.fd-stat) .bd-article {
+    padding-inline: 0;
+    padding-block: var(--fd-space-3);
+}
+
+/* Section spacing. Sphinx wraps each H2-marked top-level section in a
+   nested <section>, so we target the second-level <section> children
+   of the article's outermost section. Adds generous vertical rhythm
+   between Showcase / Why / What's inside / Supported models / etc. */
+.bd-main:has(.fd-hero) .bd-article > section > section {
+    margin-block: var(--fd-space-7);
+}
+
+/* Hero typography: scale up the title further on wide screens than the
+   base .fd-hero-title rule does, so the homepage hero reads as a real
+   landing-page hero rather than a docs page H1. */
+.bd-main:has(.fd-hero) .fd-hero-title,
+.bd-main:has(.fd-hero) p.fd-hero-title.rubric {
+    font-size: clamp(2.5rem, 5vw + 1rem, 4.25rem);
+    letter-spacing: -0.025em;
+    line-height: 1.04;
+}
+
+/* Section heads — beefier than the default H2 on marketing pages, with
+   the section-rule pattern (h2 + bottom border) that ties the surface
+   to the section-rule component. */
+.bd-main:has(.fd-hero) .bd-article > section > section > h2 {
+    font-size: var(--fd-text-xl);
+    letter-spacing: -0.015em;
+    padding-bottom: var(--fd-space-2);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+    margin-bottom: var(--fd-space-4);
+}
+
+/* Alternating section backgrounds add visual rhythm — a marketing-page
+   pattern. Apply via :nth-of-type on the section-rule-marked sections
+   so even-indexed ones get a tinted background band. */
+.bd-main:has(.fd-hero) .bd-article > section > section:nth-of-type(even) {
+    background: var(--fd-bg-muted);
+    margin-inline: calc(-1 * var(--fd-space-4));
+    padding-inline: var(--fd-space-4);
+    padding-block: var(--fd-space-5) var(--fd-space-6);
+    border-radius: var(--fd-radius-lg);
 }
 
 
