@@ -100,6 +100,29 @@ EVENT_POLL_INTERVAL_S = 0.005
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
 
 
+def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
+    """Allocate the chrome composition buffer and a PIL Image view over it.
+
+    PIL's :func:`Image.frombuffer` shares the underlying buffer for the
+    RGBA "raw" decoder (Pillow >= 9), so subsequent PIL draw / paste /
+    ``alpha_composite`` operations on the returned image write into
+    ``buf`` directly. We then hand ``buf`` straight to slangpy's
+    ``copy_from_numpy`` in :meth:`SlangPyHudPresenter._present_canvas`,
+    skipping the ~4 ms ``np.array(canvas)`` PIL-to-numpy memcpy the
+    previous incarnation paid per frame at 1080p.
+
+    The image is marked ``readonly = 0`` so PIL accepts it as a target
+    for in-place drawing operations; with ``readonly = 1`` (the
+    ``frombuffer`` default) ``ImageDraw`` raises.
+    """
+    buf = np.empty((height, width, 4), dtype=np.uint8)
+    buf[..., :3] = BG_COLOR
+    buf[..., 3] = 255
+    img = Image.frombuffer("RGBA", (width, height), buf, "raw", "RGBA", 0, 1)
+    img.readonly = 0
+    return buf, img
+
+
 class _LRUCache(OrderedDict):
     """Tiny ordered-dict-backed LRU.
 
@@ -347,9 +370,9 @@ class SlangPyHudPresenter:
         self._camera_resize_cache_key: tuple[int, int, int] | None = None
         self._camera_resize_cache: Image.Image | None = None
 
-        self._canvas: Image.Image = Image.new(
-            "RGBA", self._configured_size, BG_COLOR + (255,)
-        )
+        # Numpy-backed RGBA canvas: PIL writes into the same buffer
+        # slangpy uploads to per frame. See :func:`_allocate_canvas`.
+        self._canvas_buffer, self._canvas = _allocate_canvas(*self._configured_size)
 
         self._scene_dropdown_open = False
         self._variant_dropdown_open = False
@@ -546,7 +569,7 @@ class SlangPyHudPresenter:
         self._bev_panel_cache = None
         self._wheel_rotation_cache.clear()
         self._pedal_cache.clear()
-        self._canvas = Image.new("RGBA", self._configured_size, BG_COLOR + (255,))
+        self._canvas_buffer, self._canvas = _allocate_canvas(*self._configured_size)
 
     def _on_resize(self, width: int, height: int) -> None:
         # Stash the new dimensions; ``present_frame`` recreates Vulkan
@@ -582,15 +605,14 @@ class SlangPyHudPresenter:
         if not surface_texture:
             time.sleep(0.001)
             return
-        # ``np.array(canvas, dtype=np.uint8)`` forces a fresh
-        # C-contiguous owned uint8 buffer. ``np.asarray`` would be
-        # zero-copy but slangpy's ``copy_from_numpy`` binds with
-        # nanobind's NDArray constraints (writable + contiguous + exact
-        # dtype), which a buffer-protocol view from PIL doesn't always
-        # satisfy. The cost is one ~8 MB memcpy at 1920x1080 RGBA, well
-        # under the 33 ms 30 fps budget.
-        upload = np.array(self._canvas, dtype=np.uint8)
-        self._display_texture.copy_from_numpy(upload)
+        # ``self._canvas_buffer`` is the same memory PIL drew into this
+        # tick (see :func:`_allocate_canvas`), so this is a direct
+        # PCIe upload -- no PIL-to-numpy memcpy. The previous
+        # ``np.array(canvas, dtype=np.uint8)`` indirection cost ~4 ms
+        # per frame at 1080p (~12% of the 33 ms 30 fps budget) for no
+        # functional reason; the numpy buffer already satisfies
+        # slangpy's writable + C-contiguous + uint8 constraints.
+        self._display_texture.copy_from_numpy(self._canvas_buffer)
         encoder = self._device.create_command_encoder()
         encoder.blit(surface_texture, self._display_texture)
         self._device.submit_command_buffer(encoder.finish())
@@ -630,7 +652,7 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache = None
         # Re-allocate the canvas so the next ``_render_canvas`` paints
         # at the right resolution.
-        self._canvas = Image.new("RGBA", new_size, BG_COLOR + (255,))
+        self._canvas_buffer, self._canvas = _allocate_canvas(*new_size)
 
     # -- Render ------------------------------------------------------
 
@@ -667,8 +689,15 @@ class SlangPyHudPresenter:
         panel_rect = (camera_area[2], 0, screen_w, screen_h)
 
         draw = ImageDraw.Draw(canvas)
-        # Clear background each frame (cheap full-canvas fill in C).
-        draw.rectangle((0, 0, screen_w, screen_h), fill=BG_COLOR + (255,))
+        # No full-canvas clear here. The chrome panel paste in
+        # :meth:`_draw_panel` fully covers the panel column with an
+        # opaque RGBA chrome image every frame, ``_draw_camera`` covers
+        # the central camera region with the resized opaque RGB frame,
+        # and the camera area's letterbox bars stay at BG_COLOR from
+        # canvas init / resize (nothing paints there in the hot path).
+        # Only the placeholder branch needs to wipe the camera area --
+        # see below. Skipping the full-canvas rectangle here saves a
+        # 2 MP RGBA fill (~3-8 ms at 1080p) every render tick.
 
         camera_drawn = False
         if self._latest_camera_pil is not None:
@@ -683,6 +712,12 @@ class SlangPyHudPresenter:
             #   - engine on, mid-rollout, transient empty queue: same as
             #     warmup; the cached ``_latest_camera_pil`` covers the
             #     normal case so this branch only fires before first frame.
+            # Wipe the camera area so the previous tick's placeholder
+            # text / camera frame doesn't ghost behind the new
+            # placeholder. Cheap relative to the full-screen clear we
+            # used to pay every frame: ~1.5 MP fill instead of 2 MP,
+            # *and* only on placeholder ticks rather than always.
+            draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             if not self._engine_active:
                 placeholder = "Load Scene"
             elif self._has_camera_frame:
