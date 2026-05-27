@@ -1,9 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 from typing import Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import torch
-
 
 FP8_MAX_E4M3 = 448.0
 FP8_SCALE_EPS = 1.0e-12
@@ -113,10 +115,14 @@ def _normalize_group_names(groups: Optional[Sequence[str] | str]) -> Tuple[str, 
     else:
         raw = list(groups)
     normalized = tuple(group.strip().lower() for group in raw if group.strip())
-    unknown = tuple(group for group in normalized if group not in _COSMOS_FP8_LINEAR_POLICY_GROUPS)
+    unknown = tuple(
+        group for group in normalized if group not in _COSMOS_FP8_LINEAR_POLICY_GROUPS
+    )
     if unknown:
         valid = ", ".join(cosmos_fp8_linear_policy_groups())
-        raise ValueError(f"unknown Cosmos FP8 linear policy group {unknown[0]!r}; expected one of: {valid}")
+        raise ValueError(
+            f"unknown Cosmos FP8 linear policy group {unknown[0]!r}; expected one of: {valid}"
+        )
     return normalized
 
 
@@ -131,14 +137,18 @@ def resolve_cosmos_fp8_linear_policy(
     if normalized == "custom":
         groups = _normalize_group_names(custom_groups)
         if not groups:
-            raise ValueError("custom Cosmos FP8 linear policy requires at least one group")
+            raise ValueError(
+                "custom Cosmos FP8 linear policy requires at least one group"
+            )
     elif normalized in _COSMOS_FP8_LINEAR_POLICIES:
         if custom_groups is not None:
             raise ValueError("custom_groups is only valid when policy='custom'")
         groups = _COSMOS_FP8_LINEAR_POLICIES[normalized]
     else:
         valid = ", ".join(cosmos_fp8_linear_policies())
-        raise ValueError(f"unknown Cosmos FP8 linear policy {policy!r}; expected one of: {valid}")
+        raise ValueError(
+            f"unknown Cosmos FP8 linear policy {policy!r}; expected one of: {valid}"
+        )
 
     selected: list[str] = []
     for group in groups:
@@ -162,9 +172,13 @@ def quantize_fp8_per_out_channel(
     """
 
     if weight.dim() != 2:
-        raise ValueError(f"linear weight must be 2D [out, in], got {tuple(weight.shape)}")
+        raise ValueError(
+            f"linear weight must be 2D [out, in], got {tuple(weight.shape)}"
+        )
     if not hasattr(torch, "float8_e4m3fn"):
-        raise RuntimeError("torch.float8_e4m3fn is required for Cosmos FP8 quantization")
+        raise RuntimeError(
+            "torch.float8_e4m3fn is required for Cosmos FP8 quantization"
+        )
 
     weight_f32 = weight.detach().to(torch.float32)
     amax = weight_f32.abs().amax(dim=1)
@@ -200,7 +214,10 @@ def fp8_activation_scale(
     elif mode == "calibrated":
         if calibrated_amax is None:
             raise ValueError("calibrated mode requires calibrated_amax")
-        scale = torch.as_tensor(calibrated_amax, device=device, dtype=torch.float32) / FP8_MAX_E4M3
+        scale = (
+            torch.as_tensor(calibrated_amax, device=device, dtype=torch.float32)
+            / FP8_MAX_E4M3
+        )
     elif mode == "static":
         if static_scale is None:
             raise ValueError("static mode requires static_scale")
@@ -226,7 +243,9 @@ def quantize_fp8_activation_per_tensor(
     """Quantize an activation tensor to raw E4M3 bytes with one tensor scale."""
 
     if not hasattr(torch, "float8_e4m3fn"):
-        raise RuntimeError("torch.float8_e4m3fn is required for Cosmos FP8 quantization")
+        raise RuntimeError(
+            "torch.float8_e4m3fn is required for Cosmos FP8 quantization"
+        )
     scale = fp8_activation_scale(
         activation,
         mode=mode,
@@ -244,9 +263,13 @@ def quantize_fp8_activation_per_tensor(
     return q_u8, scale
 
 
-def assert_fp8_scale_shape(scale: torch.Tensor, expected_shape: Tuple[int, ...], *, name: str) -> None:
+def assert_fp8_scale_shape(
+    scale: torch.Tensor, expected_shape: Tuple[int, ...], *, name: str
+) -> None:
     if tuple(scale.shape) != tuple(expected_shape):
-        raise ValueError(f"{name} must have shape {expected_shape}, got {tuple(scale.shape)}")
+        raise ValueError(
+            f"{name} must have shape {expected_shape}, got {tuple(scale.shape)}"
+        )
     if not scale.is_contiguous():
         raise ValueError(f"{name} must be contiguous")
     if not torch.isfinite(scale.float()).all():
@@ -273,7 +296,9 @@ def validate_cosmos_fp8_activation_calibration(
     normalized: Dict[str, torch.Tensor] = {}
     for site in COSMOS_FP8_ACTIVATION_SCALE_SITES:
         if site not in raw_amax:
-            raise ValueError(f"Cosmos FP8 activation calibration is missing site {site!r}")
+            raise ValueError(
+                f"Cosmos FP8 activation calibration is missing site {site!r}"
+            )
         tensor = torch.as_tensor(raw_amax[site], dtype=torch.float32)
         if tensor.shape != (num_blocks,):
             raise ValueError(
@@ -281,9 +306,13 @@ def validate_cosmos_fp8_activation_calibration(
                 f"({num_blocks},), got {tuple(tensor.shape)}"
             )
         if not torch.isfinite(tensor).all():
-            raise ValueError(f"Cosmos FP8 activation calibration site {site!r} must be finite")
+            raise ValueError(
+                f"Cosmos FP8 activation calibration site {site!r} must be finite"
+            )
         if (tensor <= 0).any():
-            raise ValueError(f"Cosmos FP8 activation calibration site {site!r} must be positive")
+            raise ValueError(
+                f"Cosmos FP8 activation calibration site {site!r} must be positive"
+            )
         normalized[site] = tensor.contiguous()
     return normalized
 
@@ -306,7 +335,9 @@ def cosmos_fp8_activation_scale_tensor(
         calibration,
         num_blocks=num_blocks,
     )
-    stacked_amax = torch.stack([normalized[site] for site in COSMOS_FP8_ACTIVATION_SCALE_SITES], dim=1)
+    stacked_amax = torch.stack(
+        [normalized[site] for site in COSMOS_FP8_ACTIVATION_SCALE_SITES], dim=1
+    )
     scales = torch.clamp(stacked_amax / FP8_MAX_E4M3, min=eps)
     if device is not None:
         scales = scales.to(device=device)
@@ -331,7 +362,9 @@ def fuse_cosmos_self_attn_qkv_fp8_weights(
     out: Dict[str, torch.Tensor] = dict(weights)
     for block_idx in range(num_blocks):
         prefix = f"blocks.{block_idx}."
-        split_keys = tuple(prefix + rel_key for rel_key in _COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS)
+        split_keys = tuple(
+            prefix + rel_key for rel_key in _COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS
+        )
         split_scale_keys = tuple(scale_key_for_weight(key) for key in split_keys)
         fused_key = prefix + _COSMOS_BLOCK_FP8_FUSED_SELF_ATTN_QKV_KEY
         fused_scale_key = scale_key_for_weight(fused_key)
@@ -340,12 +373,16 @@ def fuse_cosmos_self_attn_qkv_fp8_weights(
         if missing:
             if include_missing:
                 continue
-            raise KeyError(f"missing Cosmos split QKV FP8 tensors for fusion: {missing[0]!r}")
+            raise KeyError(
+                f"missing Cosmos split QKV FP8 tensors for fusion: {missing[0]!r}"
+            )
 
         q_weight, k_weight, v_weight = (out[key] for key in split_keys)
         q_scale, k_scale, v_scale = (out[key] for key in split_scale_keys)
         out[fused_key] = torch.cat((q_weight, k_weight, v_weight), dim=0).contiguous()
-        out[fused_scale_key] = torch.cat((q_scale, k_scale, v_scale), dim=0).contiguous()
+        out[fused_scale_key] = torch.cat(
+            (q_scale, k_scale, v_scale), dim=0
+        ).contiguous()
 
         if drop_split_self_attn_qkv:
             for key in (*split_keys, *split_scale_keys):
@@ -407,7 +444,9 @@ def quantize_cosmos_fp8_weights(
         if key not in out:
             continue
 
-    has_all_self_qkv = all(rel_key in selected_rel_keys for rel_key in _COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS)
+    has_all_self_qkv = all(
+        rel_key in selected_rel_keys for rel_key in _COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS
+    )
     if fuse_self_attn_qkv and has_all_self_qkv:
         out = fuse_cosmos_self_attn_qkv_fp8_weights(
             out,
@@ -417,7 +456,9 @@ def quantize_cosmos_fp8_weights(
         )
 
     elif drop_split_self_attn_qkv:
-        raise ValueError("drop_split_self_attn_qkv=True requires a policy that quantizes all self-attention Q/K/V weights")
+        raise ValueError(
+            "drop_split_self_attn_qkv=True requires a policy that quantizes all self-attention Q/K/V weights"
+        )
 
     return out
 
@@ -472,14 +513,20 @@ def add_cosmos_fp8_prepared_aliases(
                 if include_missing:
                     continue
                 missing = key if key not in out else scale_key
-                raise KeyError(f"missing Cosmos FP8 tensor for prepared alias: {missing!r}")
+                raise KeyError(
+                    f"missing Cosmos FP8 tensor for prepared alias: {missing!r}"
+                )
 
             weight = out[key]
             scale = out[scale_key]
             if not isinstance(weight, torch.Tensor) or weight.dtype != torch.uint8:
-                raise ValueError(f"{key} must be torch.uint8 raw E4M3 bytes for FP8 prepared aliases")
+                raise ValueError(
+                    f"{key} must be torch.uint8 raw E4M3 bytes for FP8 prepared aliases"
+                )
             if not isinstance(scale, torch.Tensor):
-                raise ValueError(f"{scale_key} must be a tensor for FP8 prepared aliases")
+                raise ValueError(
+                    f"{scale_key} must be a tensor for FP8 prepared aliases"
+                )
             if scale.dim() != 1 or scale.numel() != weight.shape[0]:
                 raise ValueError(
                     f"{scale_key} must have shape [{weight.shape[0]}], got {tuple(scale.shape)}"
@@ -526,7 +573,9 @@ def prepare_cosmos_quantized_streaming_weights(
             custom_groups=custom_linear_groups,
         )
     )
-    has_all_self_qkv = set(_COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS).issubset(selected_rel_keys)
+    has_all_self_qkv = set(_COSMOS_BLOCK_FP8_SELF_ATTN_QKV_KEYS).issubset(
+        selected_rel_keys
+    )
     if drop_split_self_attn_qkv is None:
         drop_split_self_attn_qkv = fuse_self_attn_qkv and has_all_self_qkv
 
@@ -607,7 +656,10 @@ def missing_cosmos_fp8_keys(
             and isinstance(fused_scale, torch.Tensor)
         )
         if has_all_self_qkv and fused_key in weights and not fused_qkv_ready:
-            if not isinstance(fused_weight, torch.Tensor) or fused_weight.dtype != torch.uint8:
+            if (
+                not isinstance(fused_weight, torch.Tensor)
+                or fused_weight.dtype != torch.uint8
+            ):
                 missing.append(fused_key)
             if not isinstance(fused_scale, torch.Tensor):
                 missing.append(fused_scale_key)
@@ -685,9 +737,15 @@ def missing_cosmos_fp8_prepared_keys(
             prepared_scale_key = fp8_prepared_scale_key(key)
             prepared_weight = weights.get(prepared_weight_key)
             prepared_scale = weights.get(prepared_scale_key)
-            if not isinstance(prepared_weight, torch.Tensor) or prepared_weight.dtype != torch.uint8:
+            if (
+                not isinstance(prepared_weight, torch.Tensor)
+                or prepared_weight.dtype != torch.uint8
+            ):
                 missing.append(prepared_weight_key)
-            elif prepared_weight.shape != weight.shape or not prepared_weight.is_contiguous():
+            elif (
+                prepared_weight.shape != weight.shape
+                or not prepared_weight.is_contiguous()
+            ):
                 missing.append(prepared_weight_key)
             if not isinstance(prepared_scale, torch.Tensor):
                 missing.append(prepared_scale_key)
@@ -695,7 +753,8 @@ def missing_cosmos_fp8_prepared_keys(
                 scale_key = scale_key_for_weight(key)
                 scale = weights.get(scale_key)
                 if isinstance(scale, torch.Tensor) and (
-                    prepared_scale.shape != scale.shape or not prepared_scale.is_contiguous()
+                    prepared_scale.shape != scale.shape
+                    or not prepared_scale.is_contiguous()
                 ):
                     missing.append(prepared_scale_key)
 
@@ -737,7 +796,9 @@ def assert_cosmos_fp8_prepared_ready(
     if missing:
         preview = ", ".join(missing[:8])
         suffix = "" if len(missing) <= 8 else f", ... +{len(missing) - 8} more"
-        raise ValueError(f"Cosmos FP8 prepared weights are incomplete: {preview}{suffix}")
+        raise ValueError(
+            f"Cosmos FP8 prepared weights are incomplete: {preview}{suffix}"
+        )
 
 
 def move_cosmos_fp8_weights_(

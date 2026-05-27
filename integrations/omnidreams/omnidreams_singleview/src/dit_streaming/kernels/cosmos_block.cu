@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // cosmos_block.cu — streaming transformer block orchestrator for Cosmos DiT.
 //
 // One call per layer replaces the ~14 ATen ops the previous bridge issued

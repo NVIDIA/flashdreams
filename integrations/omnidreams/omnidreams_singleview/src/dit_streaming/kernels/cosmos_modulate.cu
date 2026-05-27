@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // cosmos_modulate.cu — fused element-wise primitives for the Cosmos DiT block.
 //
 // Two kernels are exposed:

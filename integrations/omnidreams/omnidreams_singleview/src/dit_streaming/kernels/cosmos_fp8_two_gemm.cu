@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "cosmos_fp8_two_gemm.cuh"
 
 #include "cutlass/epilogue/thread/linear_combination.h"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // dtype_utils.cuh - Unified dtype support for fp16 and bf16
 // Provides type traits, conversion utilities, and common operations for both dtypes
 

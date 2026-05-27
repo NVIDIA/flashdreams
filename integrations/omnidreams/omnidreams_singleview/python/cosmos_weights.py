@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Cosmos streaming weight preparation helpers."""
 
 from __future__ import annotations
@@ -6,7 +9,6 @@ from collections.abc import Mapping
 
 import torch
 from torch import Tensor
-
 
 _PREPARED_SUFFIXES = (
     "self_attn.qkv_proj.weight",
@@ -18,7 +20,9 @@ _PREPARED_SUFFIXES = (
 )
 
 
-def prepare_cosmos_streaming_weights(state_dict: Mapping[str, Tensor]) -> dict[str, Tensor]:
+def prepare_cosmos_streaming_weights(
+    state_dict: Mapping[str, Tensor],
+) -> dict[str, Tensor]:
     """Augment a Cosmos state dict with per-block fused self-attention QKV weights.
 
     Adds ``blocks.{i}.self_attn.qkv_proj.weight`` as

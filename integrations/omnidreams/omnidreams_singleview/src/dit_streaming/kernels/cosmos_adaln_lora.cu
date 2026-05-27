@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // cosmos_adaln_lora.cu — fused adaln-LoRA (down + up) projection helper.
 //
 // Cosmos has three adaln sub-layers per block (self_attn, cross_attn, mlp),

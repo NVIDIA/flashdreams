@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 #include <torch/python.h>
 
 // Build SageAttention-3's Blackwell kernel implementation into OmniDreams single-view native extension

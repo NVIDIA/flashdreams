@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // cosmos_gemm_bf16.cu — bf16 CUTLASS GEMMs for the Cosmos DiT block.
 //
 // The existing `cutlass_linear_layer_rrr*` kernels in `ops.cu` are fp16-only
