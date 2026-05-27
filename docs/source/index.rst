@@ -59,15 +59,15 @@ FlashDreams
 
          .. container:: fd-stat-value
 
-            TBD
+            2.12×
 
          .. container:: fd-stat-label
 
-            Steady-state step (ms)
+            Self-Forcing speedup
 
          .. container:: fd-stat-note
 
-            H100, ``self-forcing-wan2.1-t2v-1.3b-flash``.
+            GB300, vs FastVideo baseline.
 
    .. grid-item::
 
@@ -75,15 +75,15 @@ FlashDreams
 
          .. container:: fd-stat-value
 
-            TBD
+            3.10×
 
          .. container:: fd-stat-label
 
-            FlashDreams / upstream
+            LingBot-World speedup
 
          .. container:: fd-stat-note
 
-            Same recipe, same GPU; ratio > 1 means faster.
+            H100, vs official baseline.
 
    .. grid-item::
 
@@ -91,15 +91,15 @@ FlashDreams
 
          .. container:: fd-stat-value
 
-            TBD
+            1.40×
 
          .. container:: fd-stat-label
 
-            Peak memory (GiB)
+            Wan2.1 speedup
 
          .. container:: fd-stat-note
 
-            Steady-state, post-graph-capture.
+            GB300, vs FastVideo baseline.
 
    .. grid-item::
 
@@ -107,27 +107,15 @@ FlashDreams
 
          .. container:: fd-stat-value
 
-            TBD
+            8
 
          .. container:: fd-stat-label
 
-            Scaling at 8 GPUs
+            Integrated models
 
          .. container:: fd-stat-note
 
-            Ring attention, bidirectional reference.
-
-.. admonition:: PLACEHOLDER — headline stat values
-   :class: placeholder
-
-   **What goes here:** four ≤ 6-character stat values for the grid
-   above, mirroring the canonical grid on :doc:`benchmarks/index`.
-
-   **Source data:** rows of the Results tables on the benchmarks page;
-   do not invent.
-
-   **Reproduce with:** the per-row CLI invocations in *Methodology* on
-   the benchmarks page.
+            One unified ``flashdreams-run`` CLI.
 
 ----
 
@@ -370,6 +358,5 @@ FlashDreams is developed in the open at
    Getting Started <quickstart/index>
    developer_guides/index
    models/index
-   CLI Reference <api/cli>
-   API Reference <api/index>
+   CLI/API References <api/index>
    community/index
