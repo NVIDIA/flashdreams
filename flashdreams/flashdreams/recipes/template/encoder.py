@@ -40,7 +40,9 @@ class TemplateControlEncoderConfig(EncoderConfig):
     HDMap / camera-control / depth encoder here.
     """
 
-    _target: type = field(default_factory=lambda: TemplateControlEncoder)
+    _target: type["TemplateControlEncoder"] = field(
+        default_factory=lambda: TemplateControlEncoder
+    )
 
     control_channels: int = 8
     """Channels of the raw control tensor passed to :meth:`TemplateControlEncoder.forward`."""

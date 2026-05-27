@@ -30,7 +30,7 @@ developer-guide flow, extended with a per-plugin runtime server.
 | slug | description |
 | --- | --- |
 | `lingbot-world-fast` | Lingbot World Fast streaming camera-control I2V (Wan VAE decoder, 4-step). |
-| `lingbot-world-fast-flash` | Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window). |
+| `lingbot-world-fast-taehv-window15-sink3` | LightTAE decoder swap with `window_size_t=15` + `sink_size_t=3` for tighter interactive streaming. |
 
 ## Install
 
@@ -150,14 +150,14 @@ From repository root:
 
 ```bash
 uv run --package flashdreams-lingbot python -m lingbot.webrtc.server \
-    --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-flash
+    --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-taehv-window15-sink3
 
 # 4 GPUs
 uv run --package flashdreams-lingbot \
   python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
   -m lingbot.webrtc.server \
   --host 0.0.0.0 --port 8089 \
-  --config_name lingbot-world-fast-flash
+  --config_name lingbot-world-fast-taehv-window15-sink3
 ```
 
 Then open:

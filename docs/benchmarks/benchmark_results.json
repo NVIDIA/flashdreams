@@ -18,7 +18,7 @@
         "gpu_mem_gib": null
       },
       "provenance": {
-        "command": "uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7",
+        "command": "uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7",
         "commit": null,
         "notes": "6th block latency breakdown from internal benchmark table."
       }

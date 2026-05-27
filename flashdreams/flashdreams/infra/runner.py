@@ -43,7 +43,7 @@ def _is_torchrun_env() -> bool:
 class RunnerConfig(InstantiateConfig):
     """Base config every integration runner extends with its own I/O fields."""
 
-    _target: type = field(default_factory=lambda: Runner)
+    _target: type["Runner"] = field(default_factory=lambda: Runner)
 
     runner_name: str
     """Registry key and ``flashdreams-run`` subcommand name. By convention

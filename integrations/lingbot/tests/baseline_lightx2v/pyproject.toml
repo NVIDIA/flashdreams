@@ -2,7 +2,7 @@
 name = "lingbot-lightx2v-baseline"
 version = "0.1.0a2"
 description = "Isolated venv for the LightX2V LingBot baseline benchmark."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "torch>=2.12.0",

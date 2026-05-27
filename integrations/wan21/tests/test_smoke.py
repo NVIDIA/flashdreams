@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomllib
+import tomli as tomllib
 from wan21 import config as config_mod
 from wan21.config import RUNNER_CONFIGS
 

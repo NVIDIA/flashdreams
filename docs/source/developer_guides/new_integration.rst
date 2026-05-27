@@ -13,7 +13,7 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Add a New Method
+Add a new method
 ===================================
 
 Before you start adding a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to get a big picture of the system architecture.
@@ -22,7 +22,7 @@ FlashDreams aims to offer researchers a codebase that they can utilize to extend
 
 However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the :mod:`TAEHV decoder <flashdreams.recipes.taehv>`), we encourage you to submit a PR to enable others to benefit from them.
 
-File Structure
+File structure
 --------------
 
 We recommend the following file structure for your new method:
@@ -53,7 +53,7 @@ Add optional files only when you need to customize the behavior beyond what we c
    @dataclass(kw_only=True)
    class CustomizedMethodRunnerConfig(RunnerConfig):
        """Runner config for my method."""
-       _target: type = field(default_factory=lambda: CustomizedMethodRunner)
+       _target: type["CustomizedMethodRunner"] = field(default_factory=lambda: CustomizedMethodRunner)
        prompt: str = "A cat surfing."
        total_blocks: int = 60
 
@@ -101,7 +101,7 @@ Add optional files only when you need to customize the behavior beyond what we c
    )
 
 
-You can use the existing integrations under the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory as a minimal guide. These folders are simply examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `LingBot-World <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
+You can use the existing integrations under the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `LingBot-World <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
 
 Registering your method
 -----------------------

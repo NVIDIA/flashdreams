@@ -223,7 +223,7 @@ short ping comment.
 
 ## Coding conventions
 
-- Python 3.12+. Type-annotate new code; the project type-checks with
+- Python 3.10+. Type-annotate new code; the project type-checks with
   [`ty`](https://docs.astral.sh/ty/).
 - Formatting is enforced by `ruff` via pre-commit (`uv run pre-commit
   run -a`). The CI will reject unformatted code; running pre-commit

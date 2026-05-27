@@ -154,4 +154,4 @@ class StreamingVideoDecoder(StreamingDecoder[StreamingDecoderCacheT]):
 class DecoderConfig(InstantiateConfig):
     """Category base for every decoder config."""
 
-    _target: type = field(default_factory=lambda: StreamingDecoder)
+    _target: type["StreamingDecoder"] = field(default_factory=lambda: StreamingDecoder)

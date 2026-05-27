@@ -103,7 +103,9 @@ def _ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> 
 class LingbotWorldRunnerConfig(RunnerConfig):
     """Runner config for every shipped LingBot-World variant."""
 
-    _target: type = field(default_factory=lambda: LingbotWorldRunner)
+    _target: type["LingbotWorldRunner"] = field(
+        default_factory=lambda: LingbotWorldRunner
+    )
 
     prompt: str = ""
     """Text prompt. A non-empty value wins; otherwise the runner reads

@@ -211,4 +211,4 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
 class TransformerConfig(InstantiateConfig):
     """Category base for every flow-prediction transformer config."""
 
-    _target: type = field(default_factory=lambda: Transformer)
+    _target: type["Transformer"] = field(default_factory=lambda: Transformer)

@@ -60,7 +60,7 @@ class TemplateDiTCache:
 class TemplateDiTConfig(InstantiateConfig):
     """Config for the template integration's dummy DiT."""
 
-    _target: type = field(default_factory=lambda: TemplateDiT)
+    _target: type["TemplateDiT"] = field(default_factory=lambda: TemplateDiT)
 
     in_channels: int = 4
     """Per-token channel width seen by the network — the

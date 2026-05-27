@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomllib
+import tomli as tomllib
 from omnidreams import config as config_mod
 from omnidreams.config import OMNIDREAMS_RUNNERS
 

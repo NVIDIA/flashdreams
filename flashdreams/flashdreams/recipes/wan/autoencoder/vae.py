@@ -749,7 +749,7 @@ class WanVAE(nn.Module):
 class WanVAEEncoderConfig(EncoderConfig):
     """Config for the Wan VAE encoder."""
 
-    _target: type = field(default_factory=lambda: WanVAEEncoder)
+    _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
@@ -846,7 +846,7 @@ class WanVAEEncoder(StreamingVideoEncoder[WanVAECache]):
 class WanVAEDecoderConfig(DecoderConfig):
     """Config for the Wan VAE decoder."""
 
-    _target: type = field(default_factory=lambda: WanVAEDecoder)
+    _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16

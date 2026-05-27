@@ -9,6 +9,7 @@ members = [
     "integrations/*",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
     "integrations/omnidreams/ludus-renderer",
+    "integrations/omnidreams/samples/interactive-drive",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -66,23 +67,14 @@ name = "block-sparse-attn"
 version = "0.0.2"
 requires-dist = ["torch", "einops"]
 
-# The `transformer-engine-torch==2.14.0` sdist on PyPI is missing its
-# `build_tools/` directory, so any from-source build (which is the only option
-# since there is no prebuilt wheel) crashes inside setup.py with
-# `ModuleNotFoundError: No module named 'build_tools'`. Tracked upstream in
-# https://github.com/NVIDIA/TransformerEngine/issues/1567 — fixed after 2.14.0.
-# Override the source to build from the v2.14.1 git tag, whose tree includes
-# `build_tools/`. Inside the prebuilt flashdreams container TE is already
-# installed system-wide, so this override is only exercised on host-side
-# `uv sync` runs.
-[tool.uv.sources]
-transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.14.1", subdirectory = "transformer_engine/pytorch" }
-
 [tool.pyright]
 extraPaths = [
     "flashdreams",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
+    # interactive-drive uses a src/ layout, so the extra-path points one level
+    # deeper than the other (flat-layout) integration members.
+    "integrations/omnidreams/samples/interactive-drive/src",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
@@ -99,11 +91,14 @@ reportIncompatibleMethodOverride = "none"
 reportIncompatibleVariableOverride = "none"
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
+    # interactive-drive uses a src/ layout, so the extra-path points one level
+    # deeper than the other (flat-layout) integration members.
+    "integrations/omnidreams/samples/interactive-drive/src",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
@@ -118,6 +113,14 @@ extra-paths = [
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
 exclude = [
     "**/protos/*pb2*",
+    # The interactive-drive sample is type-checked by its own pyright
+    # config (which has a maintained `exclude` list for slangpy / flashdreams
+    # interop files that lack type info). Running the workspace-wide ``ty``
+    # over the sample's tree without that exclude list yields ~40 spurious
+    # errors. Match the pattern used for ``norecursedirs`` and the
+    # workspace-wide pre-commit ``exclude``: the sample owns its own
+    # tooling.
+    "integrations/omnidreams/samples/interactive-drive/**",
 ]
 
 [tool.ty.rules]
@@ -170,7 +173,7 @@ docs-ci = [
     "numpy>=1.24",
     "safetensors>=0.4",
     "torch>=2.11",
-    "torchvision>=0.22",
+    "torchvision>=0.26",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
 ]

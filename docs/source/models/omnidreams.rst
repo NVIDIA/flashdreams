@@ -24,9 +24,11 @@ OmniDreams
      <a class="model-link-button" href="https://gitlab-master.nvidia.com/sil/omni-dreams/" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-As introduced in the OmniDreams project page, OmniDreams is an
-HDMap-conditioned world model for single-view and multi-view driving
-generation, with presets that balance visual fidelity and runtime throughput.
+As introduced in the
+`OmniDreams project page <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_,
+OmniDreams is an HDMap-conditioned world model for single-view and multi-view
+driving generation, with presets that balance visual fidelity and runtime
+throughput.
 
 .. raw:: html
 

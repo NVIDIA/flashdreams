@@ -98,7 +98,7 @@ class Wan21T2VRunnerConfig(RunnerConfig):
     (I2V is T2V plus an ``image_path``).
     """
 
-    _target: type = field(default_factory=lambda: Wan21T2VRunner)
+    _target: type["Wan21T2VRunner"] = field(default_factory=lambda: Wan21T2VRunner)
 
     prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
@@ -123,7 +123,7 @@ class Wan21I2VRunnerConfig(Wan21T2VRunnerConfig):
     adds the first-frame image path that I2V needs at runtime.
     """
 
-    _target: type = field(default_factory=lambda: Wan21I2VRunner)
+    _target: type["Wan21I2VRunner"] = field(default_factory=lambda: Wan21I2VRunner)
 
     image_path: str | Path = DEFAULT_I2V_IMAGE_URL
     """Path to the first-frame RGB image, or an ``http(s)://`` URL that

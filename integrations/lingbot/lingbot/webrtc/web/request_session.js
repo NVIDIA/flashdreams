@@ -783,7 +783,7 @@ function mockChunkPayload() {
     enqueued_frames: numFrames,
     fps: targetFps,
     resolution: { width: 1280, height: 720 },
-    model: "lingbot-world-fast-flash",
+    model: "lingbot-world-fast-taehv-window15-sink3",
     latency_ms: 118 + Math.random() * 48,
     consumed_actions: 1,
     gen_ms: genMs,
@@ -817,7 +817,7 @@ async function startMockSession() {
   connected = true
   metrics.targetFps = 16
   metrics.resolution = "1280x720"
-  metrics.model = "lingbot-world-fast-flash"
+  metrics.model = "lingbot-world-fast-taehv-window15-sink3"
   renderMetrics()
   setStatus("Waiting", "waiting")
   setFlow("mock ready; waiting for input")

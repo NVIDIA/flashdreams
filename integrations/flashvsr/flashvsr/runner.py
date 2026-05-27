@@ -172,7 +172,7 @@ def _probe_input_fps(path: Path) -> float:
 class FlashVSRRunnerConfig(RunnerConfig):
     """Runner config for the FlashVSR streaming video super-resolution pipeline."""
 
-    _target: type = field(default_factory=lambda: FlashVSRRunner)
+    _target: type["FlashVSRRunner"] = field(default_factory=lambda: FlashVSRRunner)
 
     input_path: Path = Path()
     """Low-resolution input video path. Must be readable by ``mediapy``."""

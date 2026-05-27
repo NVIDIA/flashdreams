@@ -63,7 +63,7 @@ class CosmosDiTNetworkCache:
 class CosmosDiTNetworkConfig(InstantiateConfig):
     """Configuration for the Cosmos DiT network."""
 
-    _target: type = field(default_factory=lambda: CosmosDiTNetwork)
+    _target: type["CosmosDiTNetwork"] = field(default_factory=lambda: CosmosDiTNetwork)
 
     in_channels: int = 16
     """Number of input latent channels before patch embedding."""

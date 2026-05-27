@@ -32,7 +32,9 @@ from flashdreams.infra.encoder import Encoder, EncoderConfig
 class CosmosReason1TextEncoderConfig(EncoderConfig):
     """Config for the Cosmos-Reason1 text encoder."""
 
-    _target: type = field(default_factory=lambda: CosmosReason1TextEncoder)
+    _target: type["CosmosReason1TextEncoder"] = field(
+        default_factory=lambda: CosmosReason1TextEncoder
+    )
 
     model_name: str = "nvidia/Cosmos-Reason1-7B"
     """HF repo id of the underlying Qwen2.5-VL model."""

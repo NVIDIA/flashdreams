@@ -45,7 +45,7 @@ from flashdreams.recipes.template.transformer import (
 class TemplateRunnerConfig(RunnerConfig):
     """Runner config for any template variant (offline / AR / AR-compiled)."""
 
-    _target: type = field(default_factory=lambda: TemplateRunner)
+    _target: type["TemplateRunner"] = field(default_factory=lambda: TemplateRunner)
 
     num_ar_steps: int = 1
     """How many AR steps to roll. Pin per-variant: 1 for the offline /

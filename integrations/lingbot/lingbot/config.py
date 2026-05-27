@@ -99,12 +99,13 @@ RUNNER_LINGBOT_WORLD_FAST = LingbotWorldRunnerConfig(
     pipeline=PIPELINE_LINGBOT_WORLD_FAST,
 )
 
-# Faster version with changes:
+# Faster interactive variant for persistent streaming:
 # - LightTAE (TAEHV) decoder.
-# - Tighter streaming window for fast interactive playback.
-PIPELINE_LINGBOT_WORLD_FAST_FLASH = derive_config(
+# - Tighter streaming window: ``window_size_t=15`` (down from 63).
+# - Static sink: ``sink_size_t=3`` to keep early-frame anchors.
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
     PIPELINE_LINGBOT_WORLD_FAST,
-    name="lingbot-world-fast-flash",
+    name="lingbot-world-fast-taehv-window15-sink3",
     decoder=TeahvVAEDecoderConfig(),
     diffusion_model=dict(
         transformer=dict(
@@ -113,17 +114,20 @@ PIPELINE_LINGBOT_WORLD_FAST_FLASH = derive_config(
         ),
     ),
 )
-RUNNER_LINGBOT_WORLD_FAST_FLASH = LingbotWorldRunnerConfig(
-    runner_name=PIPELINE_LINGBOT_WORLD_FAST_FLASH.name,
-    description="Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window).",
-    pipeline=PIPELINE_LINGBOT_WORLD_FAST_FLASH,
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3.name,
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
 )
 
 PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     cfg.name: cfg
     for cfg in (
         PIPELINE_LINGBOT_WORLD_FAST,
-        PIPELINE_LINGBOT_WORLD_FAST_FLASH,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
     )
 }
 """All shipped LingBot-World pipeline configs, keyed by ``name``."""
@@ -132,6 +136,6 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (
         RUNNER_LINGBOT_WORLD_FAST,
-        RUNNER_LINGBOT_WORLD_FAST_FLASH,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
     )
 }

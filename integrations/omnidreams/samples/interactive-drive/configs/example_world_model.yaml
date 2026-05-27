@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+# World-model manifest for the default interactive-drive single-view demo.
+#
+# Inference is handled by the packaged flashdreams Alpadreams pipeline.
+# Flashdreams owns checkpoint selection and cache layout for the selected
+# recipe; this manifest keeps the interactive demo's runtime shape and
+# performance knobs in one place.
+
+resolution_wh: [1280, 704]
+fps: 30
+num_frames_per_block: 8
+# For interactive GUI bring-up, eager mode gives a much faster first chunk than
+# paying torch.compile on the first real inference call.
+compile_net: false
+light_vae: true
+encode_with_pixel_shuffle: false
+local_attn_size: 6
+sink_size: 0
+denoising_steps: [1000, 500]
+upsampling_enabled: false
+upsampling_scale: 4
+device: cuda:0
+seed_for_every_rollout:

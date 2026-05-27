@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomllib
+import tomli as tomllib
 from self_forcing import config as config_mod
 from self_forcing.config import RUNNER_CONFIGS
 

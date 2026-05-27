@@ -35,9 +35,14 @@ FlashDreams
          .. container:: fd-hero-lede
 
             FlashDreams is NVIDIA's streaming inference stack for diffusion-based
-            video — KV-cached transformers, ring attention, and CUDA-graph
-            capture, behind one ``flashdreams-run`` CLI. Eight integrated model
-            recipes, sub-second autoregressive steps after warmup.
+            video and interactive world models — the runtime backbone of the
+            `OmniDreams closed-loop demo at GTC 2026
+            <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
+            KV-cached transformers, ring attention, and CUDA-graph capture,
+            behind one ``flashdreams-run`` CLI. Built for real-time applications
+            across gaming, autonomous vehicles, robotics, and virtual
+            environments — eight integrated model recipes, sub-second
+            autoregressive steps after warmup.
 
          .. container:: fd-cta-row
 

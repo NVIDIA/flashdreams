@@ -38,6 +38,14 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
 switches checkpoint and example-data URLs back to `s3://flashdreams`.
 
+## Samples
+
+- [`samples/interactive-drive/`](samples/interactive-drive/README.md) — a
+  single-process driving demo with a Ludus OpenGL raster backend and a
+  PyTorch world-model backend. Run with `uv run --package
+  omnidreams-interactive-drive interactive-drive ...` from the
+  flashdreams workspace root.
+
 ## Run WebRTC server
 
 From the workspace root, run:

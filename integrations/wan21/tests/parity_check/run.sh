@@ -50,7 +50,7 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 echo "[setup] installing Wan2.1 requirements"
-uv pip install --python "${VENV_PYTHON}" "torch>=2.4.0" "torchvision>=0.19.0"
+uv pip install --python "${VENV_PYTHON}" "torch>=2.11" "torchvision>=0.26"
 
 FILTERED_REQUIREMENTS="$(mktemp)"
 "${VENV_PYTHON}" - <<'PY' "${REPO_DIR}/requirements.txt" "${FILTERED_REQUIREMENTS}"

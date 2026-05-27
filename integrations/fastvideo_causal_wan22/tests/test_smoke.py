@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomllib
+import tomli as tomllib
 from fastvideo_causal_wan22 import config as config_mod
 from fastvideo_causal_wan22.config import RUNNER_CONFIGS
 

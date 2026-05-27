@@ -46,7 +46,9 @@ class PixelShuffleVAEEncoderCache(StreamingEncoderCache):
 class PixelShuffleVAEEncoderConfig(EncoderConfig):
     """Config for the pixel-shuffle pseudo-VAE encoder."""
 
-    _target: type = field(default_factory=lambda: PixelShuffleVAEEncoder)
+    _target: type["PixelShuffleVAEEncoder"] = field(
+        default_factory=lambda: PixelShuffleVAEEncoder
+    )
 
     frame_selection_mode: Literal["first_frame", "last_frame"] = "last_frame"
     """Which frame in each 4-frame window to keep."""

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomllib
+import tomli as tomllib
 from lingbot import config as config_mod
 from lingbot.config import RUNNER_CONFIGS
 

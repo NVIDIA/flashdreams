@@ -19,10 +19,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-self-forcing"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "Self-Forcing distilled streaming T2V inference for Wan 2.1 1.3B, packaged as a flashdreams plugin."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "mediapy>=1.1",
@@ -42,8 +42,8 @@ dev = [
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
 "self-forcing-wan2.1-t2v-1.3b" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B"
-"self-forcing-wan2.1-t2v-1.3b-flash" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_FLASH"
-"self-forcing-wan2.1-t2v-1.3b-anti-drift" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT"
+"self-forcing-wan2.1-t2v-1.3b-taehv" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_TAEHV"
+"self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope" = "self_forcing.config:RUNNER_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE"
 
 [tool.setuptools.packages.find]
 include = ["self_forcing*"]

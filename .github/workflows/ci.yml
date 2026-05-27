@@ -23,6 +23,7 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
+      UV_PYTHON: "3.10"
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -96,6 +97,7 @@ jobs:
       # the checkout directory owned by the runner.
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
+      UV_PYTHON: "3.10"
       # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job
       # uses ~9GB peak memory).
       MAX_JOBS: 8

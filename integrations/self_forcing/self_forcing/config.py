@@ -99,29 +99,29 @@ RUNNER_WAN21_T2V_1PT3B = SelfForcingT2VRunnerConfig(
     pipeline=PIPELINE_WAN21_T2V_1PT3B,
 )
 
-# Faster version with changes:
-# - Use faster VAE decoder.
-PIPELINE_WAN21_T2V_1PT3B_FLASH = cast(
+# Faster-decoder variant: swap the Wan VAE decoder for the lighter TAEHV
+# decoder.
+PIPELINE_WAN21_T2V_1PT3B_TAEHV = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
-        name="self-forcing-wan2.1-t2v-1.3b-flash",
+        name="self-forcing-wan2.1-t2v-1.3b-taehv",
         decoder=TeahvVAEDecoderConfig(),
     ),
 )  # ty:ignore[redundant-cast]
-RUNNER_WAN21_T2V_1PT3B_FLASH = SelfForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_FLASH.name,
+RUNNER_WAN21_T2V_1PT3B_TAEHV = SelfForcingT2VRunnerConfig(
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_TAEHV.name,
     description="Self-Forcing distilled Wan 2.1 1.3B T2V (TAEHV decoder, 4-step).",
-    pipeline=PIPELINE_WAN21_T2V_1PT3B_FLASH,
+    pipeline=PIPELINE_WAN21_T2V_1PT3B_TAEHV,
 )
 
-# Anti-drift Wan preset: static sink=5, rolling window=7
+# Long-rollout streaming preset: static sink=5, rolling window=7
 # (recent=4 + current=3), with KVCache-relative RoPE.
-PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
+PIPELINE_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE = cast(
     WanInferencePipelineConfig,
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
-        name="self-forcing-wan2.1-t2v-1.3b-anti-drift",
+        name="self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope",
         diffusion_model=dict(
             seed=0,
             transformer=dict(
@@ -136,13 +136,13 @@ PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT = cast(
         ),
     ),
 )  # ty:ignore[redundant-cast]
-RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT = SelfForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT.name,
+RUNNER_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE = SelfForcingT2VRunnerConfig(
+    runner_name=PIPELINE_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE.name,
     description=(
         "Self-Forcing distilled Wan 2.1 1.3B T2V "
-        "(KVCache-relative RoPE, static sink/window, 4-step)."
+        "(KVCache-relative RoPE, static sink=5 + window=7, 4-step)."
     ),
-    pipeline=PIPELINE_WAN21_T2V_1PT3B_ANTI_DRIFT,
+    pipeline=PIPELINE_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE,
     total_blocks=80,
 )
 
@@ -150,7 +150,7 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (
         RUNNER_WAN21_T2V_1PT3B,
-        RUNNER_WAN21_T2V_1PT3B_FLASH,
-        RUNNER_WAN21_T2V_1PT3B_ANTI_DRIFT,
+        RUNNER_WAN21_T2V_1PT3B_TAEHV,
+        RUNNER_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE,
     )
 }

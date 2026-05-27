@@ -108,4 +108,4 @@ class Scheduler(nn.Module, ABC):
 class SchedulerConfig(InstantiateConfig):
     """Category base for every denoising-scheduler config."""
 
-    _target: type = field(default_factory=lambda: Scheduler)
+    _target: type["Scheduler"] = field(default_factory=lambda: Scheduler)

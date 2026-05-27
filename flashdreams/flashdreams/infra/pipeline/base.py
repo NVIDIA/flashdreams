@@ -55,7 +55,9 @@ class StreamInferencePipelineConfig(InstantiateConfig):
     (training, latent-space evaluation, or pipelines that own decoding).
     """
 
-    _target: type = field(default_factory=lambda: StreamInferencePipeline)
+    _target: type["StreamInferencePipeline"] = field(
+        default_factory=lambda: StreamInferencePipeline
+    )
 
     name: str
     """Stable slug for this pipeline variant; the primary key of

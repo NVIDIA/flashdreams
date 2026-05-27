@@ -229,7 +229,7 @@ Compressed reference. The first time you touch one of these, also read the match
 
 ### Configs
 
-- Every config: `@dataclass(kw_only=True)` extending `InstantiateConfig` (or one of the category bases like `EncoderConfig` / `DecoderConfig` / `TransformerConfig`), with `_target: type = field(default_factory=lambda: Target)`. The base's `setup() -> Any` flows through, so callers narrow with `isinstance` or by knowing the literal config they passed in. **Never** use a bare instance as a default — always `field(default_factory=...)`.
+- Every config: `@dataclass(kw_only=True)` extending `InstantiateConfig` (or one of the category bases like `EncoderConfig` / `DecoderConfig` / `TransformerConfig`), with `_target: type["Target"] = field(default_factory=lambda: Target)` (always parameterize `type[...]` with the concrete class — use a forward-ref string when the class isn't yet in scope). The base's `setup() -> Any` flows through, so callers narrow with `isinstance` or by knowing the literal config they passed in. **Never** use a bare instance as a default — always `field(default_factory=...)`.
 - **Avoid `__post_init__`.** It's a smell:
   - *Derived sub-config fields* (e.g. `network.in_dim = base + control_channels`) belong in the **literal** — set the final integer the network sees on the literal itself. Conditional channel math lives at the literal definition site, not on the config class.
   - *Cross-field constants* derived purely from config (e.g. `_cuda_graph_capture_ar_idx`) belong on the **transformer instance**, computed in `__init__`. The config should be pure data.

@@ -51,7 +51,7 @@ For example, the offline Self-Forcing T2V quickstart command is:
 
 ```bash
 uv run --project integrations/self_forcing \
-    flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash \
+    flashdreams-run self-forcing-wan2.1-t2v-1.3b \
     --total-blocks 7
 ```
 

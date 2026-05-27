@@ -39,7 +39,7 @@ class TemplateDecoderConfig(DecoderConfig):
     Real integrations replace with a VAE / TAEHV / etc.
     """
 
-    _target: type = field(default_factory=lambda: TemplateDecoder)
+    _target: type["TemplateDecoder"] = field(default_factory=lambda: TemplateDecoder)
 
     in_channels: int = 4
     """Channels of the clean latent produced by the transformer."""

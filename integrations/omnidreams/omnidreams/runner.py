@@ -190,7 +190,7 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     layout. Per-camera asset tuples are in the canonical camera order.
     """
 
-    _target: type = field(default_factory=lambda: OmnidreamsRunner)
+    _target: type["OmnidreamsRunner"] = field(default_factory=lambda: OmnidreamsRunner)
 
     prompt: str = ""
     """Default text prompt applied to every camera. Override per-camera

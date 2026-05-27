@@ -12,7 +12,8 @@ developer-guide flow.
 | slug | description |
 | --- | --- |
 | `self-forcing-wan2.1-t2v-1.3b` | Self-Forcing distilled Wan 2.1 1.3B T2V (Wan VAE decoder, 4-step). |
-| `self-forcing-wan2.1-t2v-1.3b-flash` | Same DiT, swapped to the TAEHV (LightTAE) decoder for faster decoding. |
+| `self-forcing-wan2.1-t2v-1.3b-taehv` | Same DiT, swapped to the TAEHV (LightTAE) decoder for faster decoding. |
+| `self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope` | Long-rollout preset with static sink=5 + window=7 + KVCache-relative RoPE. |
 
 ## Install
 

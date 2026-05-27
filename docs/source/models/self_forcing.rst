@@ -24,7 +24,7 @@ Self-Forcing
      <a class="model-link-button" href="https://github.com/guandeh17/Self-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-Self-Forcing is a Wan2.1-based text-to-video (T2V) model.
+Self-Forcing is a text-to-video (T2V) model based on :doc:`Wan2.1 </models/wan21>`.
 It uses a training paradigm for autoregressive video diffusion that simulates
 inference-time rollout during training with KV caching, reducing the train-test
 gap and enabling efficient streaming generation quality.
@@ -73,10 +73,11 @@ We provide the following variants:
      - Description
    * - ``self-forcing-wan2.1-t2v-1.3b``
      - Official checkpoint.
-   * - ``self-forcing-wan2.1-t2v-1.3b-flash``
-     - Official checkpoint. Swap WAN VAE decoder with faster TAEHV decoder.
-   * - ``self-forcing-wan2.1-t2v-1.3b-anti-drift``
-     - Configuration for steady long rollout (sink + sliding window, with KV cache re-ROPE).
+   * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+     - Official checkpoint. Swap Wan VAE decoder with the faster TAEHV decoder.
+   * - ``self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope``
+     - Steady long-rollout preset: static sink=5 + rolling window=7, with
+       KVCache-relative RoPE.
 
 For multi-GPU inference, use:
 
@@ -126,7 +127,7 @@ Some generated samples from the above commands:
    </div>
 
 
-Profiling Benchmark
+Profiling benchmark
 -------------------
 
 Here is the profiling benchmark on total DiT runtime for FlashDreams Self-Forcing compared to

@@ -2,7 +2,7 @@
 name = "self-forcing-fastvideo-parity-check"
 version = "0.0.0"
 description = "Isolated venv for FastVideo Self-Forcing parity benchmark."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "imageio[ffmpeg]",
