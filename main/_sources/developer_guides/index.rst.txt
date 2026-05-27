@@ -15,7 +15,7 @@
 
 :orphan:
 
-Developer Guides
+Developer guides
 ===================================
 
 Use these guides after the quick start to understand the runtime, choose a

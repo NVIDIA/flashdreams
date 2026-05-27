@@ -32,26 +32,26 @@ Inspect one runner's full options:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --help
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
 
 Run a single-GPU inference:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
 
 Run a multi-GPU inference:
 
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
+       self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
 
 Resolve config only (no model instantiation):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --no-instantiate
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --no-instantiate
 
 See also
 --------

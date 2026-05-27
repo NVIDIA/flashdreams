@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="core.html">Core</a></li>
@@ -295,13 +295,15 @@ stacks wrap the same runner/pipeline abstractions used for offline inference.</p
 <li><p><strong>Runner config</strong> defines serving-relevant I/O fields (prompts, control
 tensors, image paths, output transport).</p></li>
 <li><p><strong>Pipeline</strong> manages model lifecycle and cached state across steps.</p></li>
-<li><p><strong>Integration transport</strong> (for example WebRTC in LingBot-World) handles
+<li><p><strong>Integration transport</strong> (for example WebRTC in
+<a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a>) handles
 session I/O, request routing, and media responses.</p></li>
 </ul>
 </section>
 <section id="reference-integration">
 <h2>Reference integration<a class="headerlink" href="#reference-integration" title="Link to this heading">¶</a></h2>
-<p>LingBot-World provides the canonical serving integration:</p>
+<p><a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> provides the canonical serving
+integration:</p>
 <ul class="simple">
 <li><p>runner and pipeline wiring under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/</span></code>,</p></li>
 <li><p>interactive transport under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/webrtc/</span></code>.</p></li>

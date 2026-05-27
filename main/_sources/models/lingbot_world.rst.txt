@@ -90,8 +90,9 @@ We provide the following variants:
      - Description
    * - ``lingbot-world-fast``
      - Official camera-control I2V (Wan VAE decoder, full KV-cache).
-   * - ``lingbot-world-fast-flash``
-     - Efficient streaming configuration (TAEHV decoder, window + sink KV-cache).
+   * - ``lingbot-world-fast-taehv-window15-sink3``
+     - Efficient streaming configuration: TAEHV decoder, ``window_size_t=15``
+       + ``sink_size_t=3`` streaming KV-cache.
 
 To inspect all supported CLI arguments and their default values, run:
 
@@ -147,7 +148,7 @@ Spin up the interactive LingBot-World server via WebRTC:
    uv run --package flashdreams-lingbot torchrun --nproc_per_node 4 \
        -m lingbot.webrtc.server \
        --host 0.0.0.0 --port 8089 \
-       --config_name lingbot-world-fast-flash \
+       --config_name lingbot-world-fast-taehv-window15-sink3 \
        --example-idx 0
 
 The server may take a few minutes to warm up. When it is ready, it prints
@@ -166,7 +167,7 @@ When successfully connected, the browser-based UI looks like this:
     </video>
   </div>
 
-Profiling Benchmark
+Profiling benchmark
 -------------------
 
 Here is the profiling benchmark on total DiT runtime for FlashDreams LingBot-World

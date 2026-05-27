@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul class="current">
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
@@ -291,7 +291,7 @@ SPDX-License-Identifier: Apache-2.0
   <a class="model-link-button" href="https://self-forcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
   <a class="model-link-button" href="https://arxiv.org/abs/2506.08009" target="_blank" rel="noopener noreferrer">arXiv paper</a>
   <a class="model-link-button" href="https://github.com/guandeh17/Self-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>Self-Forcing is a Wan2.1-based text-to-video (T2V) model.
+</div><p>Self-Forcing is a text-to-video (T2V) model based on <a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>.
 It uses a training paradigm for autoregressive video diffusion that simulates
 inference-time rollout during training with KV caching, reducing the train-test
 gap and enabling efficient streaming generation quality.</p>
@@ -335,11 +335,12 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b</span></code></p></td>
 <td><p>Official checkpoint.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-flash</span></code></p></td>
-<td><p>Official checkpoint. Swap WAN VAE decoder with faster TAEHV decoder.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
+<td><p>Official checkpoint. Swap Wan VAE decoder with the faster TAEHV decoder.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-anti-drift</span></code></p></td>
-<td><p>Configuration for steady long rollout (sink + sliding window, with KV cache re-ROPE).</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope</span></code></p></td>
+<td><p>Steady long-rollout preset: static sink=5 + rolling window=7, with
+KVCache-relative RoPE.</p></td>
 </tr>
 </tbody>
 </table>
@@ -384,7 +385,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
   </div>
 </div></section>
 <section id="profiling-benchmark">
-<h2>Profiling Benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">¶</a></h2>
+<h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">¶</a></h2>
 <p>Here is the profiling benchmark on total DiT runtime for FlashDreams Self-Forcing compared to
 the <a class="reference external" href="https://github.com/guandeh17/Self-Forcing">official Self-Forcing implementation</a>
 and the <a class="reference external" href="https://github.com/hao-ai-lab/FastVideo">FastVideo implementation</a>
@@ -468,7 +469,7 @@ under matched settings.</p>
 <li><a class="reference internal" href="#">Self-Forcing</a><ul>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
-<li><a class="reference internal" href="#profiling-benchmark">Profiling Benchmark</a></li>
+<li><a class="reference internal" href="#profiling-benchmark">Profiling benchmark</a></li>
 </ul>
 </li>
 </ul>

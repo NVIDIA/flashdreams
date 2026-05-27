@@ -32,7 +32,7 @@ Examples:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
    uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
 
 Implemented models

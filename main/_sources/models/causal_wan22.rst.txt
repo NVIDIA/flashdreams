@@ -24,8 +24,9 @@ Causal Wan2.2
      <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-This integration brings FastVideo's Causal Wan2.2 T2V variant into the
-FlashDreams streaming runtime.
+This integration brings the Causal Wan2.2 T2V variant from
+`FastVideo <https://github.com/hao-ai-lab/FastVideo>`_ into the FlashDreams
+streaming runtime.
 
 Installation
 ------------

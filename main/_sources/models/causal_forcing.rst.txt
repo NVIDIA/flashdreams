@@ -24,8 +24,8 @@ Causal-Forcing
      <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-Causal-Forcing provides streaming Wan2.1 variants for both text-to-video (T2V)
-and image-to-video (I2V) generation.
+Causal-Forcing provides streaming :doc:`Wan2.1 </models/wan21>` variants for
+both text-to-video (T2V) and image-to-video (I2V) generation.
 
 Installation
 ------------

@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Core" href="core.html"><link rel="prev" title="Add a New Method" href="../developer_guides/new_integration.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Core" href="core.html"><link rel="prev" title="Add a new method" href="../developer_guides/new_integration.html">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal.png" as="image">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal-light.png" as="image">
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul class="current">
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="core.html">Core</a></li>
@@ -296,20 +296,20 @@ SPDX-License-Identifier: Apache-2.0
 </pre></div>
 </div>
 <p>Inspect one runner’s full options:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>Run a single-GPU inference:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>Run a multi-GPU inference:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+<span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>Resolve config only (no model instantiation):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--no-instantiate
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--no-instantiate
 </pre></div>
 </div>
 </section>
@@ -344,7 +344,7 @@ SPDX-License-Identifier: Apache-2.0
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Add a New Method</div>
+                <div class="title">Add a new method</div>
                 
               </div>
             </a>

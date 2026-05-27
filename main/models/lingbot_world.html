@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
@@ -351,8 +351,9 @@ Valid <code class="docutils literal notranslate"><span class="pre">--example-idx
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
 <td><p>Official camera-control I2V (Wan VAE decoder, full KV-cache).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-flash</span></code></p></td>
-<td><p>Efficient streaming configuration (TAEHV decoder, window + sink KV-cache).</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-taehv-window15-sink3</span></code></p></td>
+<td><p>Efficient streaming configuration: TAEHV decoder, <code class="docutils literal notranslate"><span class="pre">window_size_t=15</span></code>
++ <code class="docutils literal notranslate"><span class="pre">sink_size_t=3</span></code> streaming KV-cache.</p></td>
 </tr>
 </tbody>
 </table>
@@ -400,7 +401,7 @@ Valid <code class="docutils literal notranslate"><span class="pre">--example-idx
 uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>lingbot.webrtc.server<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--config_name<span class="w"> </span>lingbot-world-fast-flash<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--config_name<span class="w"> </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span>
 </pre></div>
 </div>
@@ -416,7 +417,7 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
   </video>
 </div></section>
 <section id="profiling-benchmark">
-<h2>Profiling Benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">¶</a></h2>
+<h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">¶</a></h2>
 <p>Here is the profiling benchmark on total DiT runtime for FlashDreams LingBot-World
 compared to the <a class="reference external" href="https://github.com/robbyant/lingbot-world">official LingBot-World implementation</a>
 and <a class="reference external" href="https://github.com/ModelTC/lightx2v">LightX2V</a> under
@@ -502,7 +503,7 @@ matched settings.</p>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
 <li><a class="reference internal" href="#launch-the-interactive-server">Launch the interactive server</a></li>
-<li><a class="reference internal" href="#profiling-benchmark">Profiling Benchmark</a></li>
+<li><a class="reference internal" href="#profiling-benchmark">Profiling benchmark</a></li>
 </ul>
 </li>
 </ul>

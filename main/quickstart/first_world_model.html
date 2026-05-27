@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
@@ -289,8 +289,10 @@ SPDX-License-Identifier: Apache-2.0
 <h1>Launch your first model<a class="headerlink" href="#launch-your-first-model" title="Link to this heading">¶</a></h1>
 <p>This page provides a minimal path for:</p>
 <ol class="arabic simple">
-<li><p>offline / batch-like long-rollout model inference with Self-Forcing.</p></li>
-<li><p>online interactive world-model serving with LingBot-World.</p></li>
+<li><p>offline / batch-like long-rollout model inference with
+<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a>.</p></li>
+<li><p>online interactive world-model serving with
+<a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a>.</p></li>
 </ol>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
@@ -300,7 +302,7 @@ SPDX-License-Identifier: Apache-2.0
 <h2>Run Self-Forcing T2V offline inference<a class="headerlink" href="#run-self-forcing-t2v-offline-inference" title="Link to this heading">¶</a></h2>
 <p>Launch an offline inference run using the <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> model:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
@@ -323,9 +325,9 @@ SPDX-License-Identifier: Apache-2.0
 </ul>
 <p>For developers:</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a> - Learn about the system architecture and generation loop.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> - Learn about the system architecture and generation loop.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a> - Understand how to modify pipeline and runner configurations.</p></li>
-<li><p><a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a New Method</span></a> - Guide to adding your own custom models and methods.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a new method</span></a> - Guide to adding your own custom models and methods.</p></li>
 <li><p><a class="reference internal" href="../api/index.html"><span class="doc">API reference</span></a> - Check the Python API and CLI references.</p></li>
 </ul>
 </section>

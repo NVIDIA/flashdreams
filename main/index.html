@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api/core.html">Core</a></li>
@@ -296,22 +296,22 @@ SPDX-License-Identifier: Apache-2.0
 </div><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>FlashDreams is a <em>high-performance inference and serving library for
-interactive autoregressive video and world models</em>. It began as the optimized
-runtime behind
-the <a class="reference external" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams closed-loop demo for GTC 2026</a>, and has
-since grown into a general platform for real-time world-model applications across
-gaming, autonomous vehicles, robotics, simulated or virtual environments, and more.</p>
-<p class="fd-subtitle">Why interactive world-model serving matters.</p><p>A world model learns to generate and evolve an environment over time. In
+interactive autoregressive video and world models</em>. It is a general platform
+for real-time world-model applications across gaming, autonomous vehicles,
+robotics, simulated or virtual environments, and more, and is the
+runtime backbone of the <a class="reference external" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams closed-loop demo at
+GTC 2026</a>.</p>
+<p class="fd-subtitle">Interactive world models</p><p>A world model learns to generate and evolve an environment over time. In
 practice this often means video, but the same concept can include actions,
 state, audio, sensor input, and control signals.</p>
 <p>World-model serving is the runtime pattern for putting that model inside a live
-application. Instead of producing one static clip, the system keeps a session
+application. Instead of producing one static video, the system keeps a session
 alive while input, model state, GPU inference, and output evolve together. This
 is useful for interactive simulation, robotics, autonomy, healthcare workflows,
 creative tools, virtual worlds, and game-like experiences.</p>
 <img alt="Offline one-shot video inference compared with online autoregressive world-model serving." src="_images/compare-offline-online-video-model-v2.jpg" />
 <p>In a served world-model application, the key requirement is not only generating
-a high-quality clip. The runtime must keep an interactive session responsive
+a high-quality video. The runtime must keep an interactive session responsive
 while the model continues to advance the world.</p>
 <div class="fd-highlight-grid">
   <div class="fd-highlight-card">
@@ -354,7 +354,7 @@ while the model continues to advance the world.</p>
     <code>initialize -&gt; decode -&gt; decode -&gt; decode -&gt; ...</code>:
     initialize the session once, then advance the world continuously at a fixed pace.
   </p>
-</details><p class="fd-subtitle">Best-in-class inference speed.</p><p>FlashDreams is engineered with efficiency in mind. With a bottom-up system
+</details><p class="fd-subtitle">Best-in-class inference speed</p><p>FlashDreams is engineered with efficiency in mind. With a bottom-up system
 design tailored to autoregressive world-model inference patterns, it delivers best-in-class
 speed across many popular open-source models and GPU architectures.</p>
 <div class="fd-highlight-grid fd-kpi-grid">
@@ -384,8 +384,9 @@ speed across many popular open-source models and GPU architectures.</p>
   </a>
 </div><p>Although FlashDreams is designed for autoregressive inference, the same
 optimization stack applies naturally to bidirectional inference (e.g.,
-Wan2.1) by treating it as a single-rollout autoregressive pass.</p>
-<p class="fd-subtitle">Production-oriented interactive serving backend.</p><p>FlashDreams also includes a production-oriented serving backend for persistent,
+<a class="reference internal" href="models/wan21.html"><span class="doc">Wan2.1</span></a>) by treating it as a single-rollout
+autoregressive pass.</p>
+<p class="fd-subtitle">Production-oriented interactive serving backend</p><p>FlashDreams also includes a production-oriented serving backend for persistent,
 low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
 streaming input/output. Explore the interactive demos powered by FlashDreams:</p>
 <div class="fd-highlight-grid">
@@ -403,7 +404,7 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
   </a>
 </div></section>
 <section id="start-here">
-<h2>Start Here<a class="headerlink" href="#start-here" title="Link to this heading">¶</a></h2>
+<h2>Start here<a class="headerlink" href="#start-here" title="Link to this heading">¶</a></h2>
 <div class="fd-highlight-grid">
   <a class="fd-highlight-link" href="quickstart/index.html">
     <div class="fd-highlight-card">
@@ -413,7 +414,7 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
   </a>
   <a class="fd-highlight-link" href="models/index.html">
     <div class="fd-highlight-card">
-      <div class="fd-highlight-title">Model Cards</div>
+      <div class="fd-highlight-title">Model cards</div>
       <div class="fd-highlight-body">See supported models, how to launch each one, and their performance analysis.</div>
     </div>
   </a>
@@ -425,7 +426,7 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
   </a>
   <a class="fd-highlight-link" href="developer_guides/index.html">
     <div class="fd-highlight-card">
-      <div class="fd-highlight-title">Developer Guides</div>
+      <div class="fd-highlight-title">Developer guides</div>
       <div class="fd-highlight-body">Learn the system design, how to integrate new models, and how to use it in your own projects.</div>
     </div>
   </a>
@@ -486,7 +487,7 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
             <ul>
 <li><a class="reference internal" href="#">FlashDreams</a><ul>
 <li><a class="reference internal" href="#overview">Overview</a></li>
-<li><a class="reference internal" href="#start-here">Start Here</a><ul>
+<li><a class="reference internal" href="#start-here">Start here</a><ul>
 </ul>
 </li>
 </ul>

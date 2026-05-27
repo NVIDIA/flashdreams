@@ -8,7 +8,7 @@
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal-light.png" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Add a New Method - FlashDreams v0.1.0a2</title>
+        <title>Add a new method - FlashDreams v0.1.0a2</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config_system.html">Config system</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
@@ -286,12 +286,12 @@ SPDX-License-Identifier: Apache-2.0
         </div>
         <article role="main" id="furo-main-content">
           <section id="add-a-new-method">
-<h1>Add a New Method<a class="headerlink" href="#add-a-new-method" title="Link to this heading">¶</a></h1>
-<p>Before you start adding a new method, we highly recommend reading the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a> and <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a> pages first to get a big picture of the system architecture.</p>
+<h1>Add a new method<a class="headerlink" href="#add-a-new-method" title="Link to this heading">¶</a></h1>
+<p>Before you start adding a new method, we highly recommend reading the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> and <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a> pages first to get a big picture of the system architecture.</p>
 <p>FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a <em>standalone repository</em> that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory of this repository.</p>
 <p>However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the <a class="reference internal" href="../api/integrations.html#module-flashdreams.recipes.taehv" title="flashdreams.recipes.taehv"><code class="xref py py-mod docutils literal notranslate"><span class="pre">TAEHV</span> <span class="pre">decoder</span></code></a>), we encourage you to submit a PR to enable others to benefit from them.</p>
 <section id="file-structure">
-<h2>File Structure<a class="headerlink" href="#file-structure" title="Link to this heading">¶</a></h2>
+<h2>File structure<a class="headerlink" href="#file-structure" title="Link to this heading">¶</a></h2>
 <p>We recommend the following file structure for your new method:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>customized_method/
 ├── customized_method/
@@ -316,7 +316,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">CustomizedMethodRunnerConfig</span><span class="p">(</span><span class="n">RunnerConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Runner config for my method.&quot;&quot;&quot;</span>
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">CustomizedMethodRunner</span><span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;CustomizedMethodRunner&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">CustomizedMethodRunner</span><span class="p">)</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;A cat surfing.&quot;</span>
     <span class="n">total_blocks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span>
 
@@ -366,7 +366,7 @@ SPDX-License-Identifier: Apache-2.0
 </pre></div>
 </div>
 </div>
-<p>You can use the existing integrations under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory as a minimal guide. These folders are simply examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot">LingBot-World</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing">Self-Forcing</a> integrations for good references on how to extend and use FlashDreams in your own projects.</p>
+<p>You can use the existing integrations under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot">LingBot-World</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing">Self-Forcing</a> integrations for good references on how to extend and use FlashDreams in your own projects.</p>
 </section>
 <section id="registering-your-method">
 <h2>Registering your method<a class="headerlink" href="#registering-your-method" title="Link to this heading">¶</a></h2>
@@ -472,8 +472,8 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Add a New Method</a><ul>
-<li><a class="reference internal" href="#file-structure">File Structure</a></li>
+<li><a class="reference internal" href="#">Add a new method</a><ul>
+<li><a class="reference internal" href="#file-structure">File structure</a></li>
 <li><a class="reference internal" href="#registering-your-method">Registering your method</a></li>
 <li><a class="reference internal" href="#adding-to-the-flashdreams-documentation">Adding to the FlashDreams documentation</a></li>
 </ul>

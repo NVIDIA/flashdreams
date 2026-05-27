@@ -69,7 +69,7 @@ We provide the following variants:
    * - ``flashvsr-v1.1-sparse-ratio-2.0``
      - Streaming 2x video super-resolution with the stable sparse-attention preset.
    * - ``flashvsr-v1.1-sparse-ratio-1.5``
-     - Streaming 2x video super-resolution with a faster sparse-attention preset.
+     - Streaming 2x video super-resolution with the faster sparse-attention preset.
    * - ``flashvsr-v1.1-full-attn``
      - Dense full-attention preset with multi-GPU context-parallel support.
 

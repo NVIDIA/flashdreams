@@ -25,13 +25,15 @@ Serving building blocks
 - **Runner config** defines serving-relevant I/O fields (prompts, control
   tensors, image paths, output transport).
 - **Pipeline** manages model lifecycle and cached state across steps.
-- **Integration transport** (for example WebRTC in LingBot-World) handles
+- **Integration transport** (for example WebRTC in
+  :doc:`LingBot-World </models/lingbot_world>`) handles
   session I/O, request routing, and media responses.
 
 Reference integration
 ---------------------
 
-LingBot-World provides the canonical serving integration:
+:doc:`LingBot-World </models/lingbot_world>` provides the canonical serving
+integration:
 
 - runner and pipeline wiring under ``integrations/lingbot/lingbot/``,
 - interactive transport under ``integrations/lingbot/lingbot/webrtc/``.

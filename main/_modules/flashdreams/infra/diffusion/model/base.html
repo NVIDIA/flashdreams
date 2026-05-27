@@ -218,7 +218,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/omnidreams.html">OmniDreams</a></li>
@@ -229,13 +229,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/config_system.html">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../api/core.html">Core</a></li>
@@ -327,7 +327,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">class</span><span class="w"> </span><span class="nc">DiffusionModelConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the autoregressive diffusion model.&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">DiffusionModel</span><span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;DiffusionModel&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">DiffusionModel</span><span class="p">)</span>
 
     <span class="n">transformer</span><span class="p">:</span> <span class="n">TransformerConfig</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Flow-prediction network config.&quot;&quot;&quot;</span>

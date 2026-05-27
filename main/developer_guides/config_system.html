@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Add a New Method" href="new_integration.html"><link rel="prev" title="Inference Pipeline Overview" href="inference_pipeline_overview.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Add a new method" href="new_integration.html"><link rel="prev" title="Inference pipeline overview" href="inference_pipeline_overview.html">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal.png" as="image">
         <link rel="prefetch" href="../_static/flashdreams-logo-horizontal-light.png" as="image">
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model Cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -230,13 +230,13 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../models/wan21.html">Wan2.1</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/cosmos_predict2.html">Cosmos-Predict2.5</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Developer Guides</span></p>
+<p class="caption" role="heading"><span class="caption-text">Developer guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Config system</a></li>
 <li class="toctree-l1"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">API and CLIs</span></p>
+<p class="caption" role="heading"><span class="caption-text">API and CLI</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/cli.html">CLI reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api/core.html">Core</a></li>
@@ -291,7 +291,7 @@ SPDX-License-Identifier: Apache-2.0
 This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>. It allows you to easily plug in different permutations of model components and nest configurations to define the complete inference pipeline.</p>
 <section id="base-components">
 <h2>Base components<a class="headerlink" href="#base-components" title="Link to this heading">¶</a></h2>
-<p>All configurable components in FlashDreams—such as the encoder, transformer, scheduler, and decoder—have a corresponding configuration dataclass and can be found under <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>. As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference Pipeline Overview</span></a>, the main entry point for defining an integration is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
+<p>All configurable components in FlashDreams—such as the encoder, transformer, scheduler, and decoder—have a corresponding configuration dataclass and can be found under <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>. As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>, the main entry point for defining an integration is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
 <p>These config objects are modular and nestable. A typical pipeline config defines the architecture by composing other config dataclasses:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
@@ -320,7 +320,6 @@ This configuration system is similar to the one employed in <a class="reference 
 <p>If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.</p>
 <p>Let’s say you want to create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>. You can create a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class. Before the model definition, you define the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code> which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Type</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">Encoder</span>
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -328,7 +327,7 @@ This configuration system is similar to the one employed in <a class="reference 
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;My custom encoder config.&quot;&quot;&quot;</span>
 
     <span class="c1"># Point to the class that will be instantiated by this config</span>
-    <span class="n">_target</span><span class="p">:</span> <span class="n">Type</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">MyEncoder</span><span class="p">)</span>
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;MyEncoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">MyEncoder</span><span class="p">)</span>
 
     <span class="c1"># Expose your configurable parameters</span>
     <span class="n">embedding_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">512</span>
@@ -371,18 +370,18 @@ This configuration system is similar to the one employed in <a class="reference 
 <p>Often times, you just want to play with the parameters of an existing model without having to specify a new one. You can easily do so via the CLI, which is powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>.</p>
 <p>Because our configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> automatically generates a comprehensive command-line interface. You can use the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> (The CLI carried in FlashDreams) command to dynamically override any nested dataclass field.</p>
 <p>For example, to list out all existing configurable parameters for a model:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
 </pre></div>
 </div>
 <img alt="CLI helptext showing tyro dynamically parsing nested configuration arguments." src="../_images/cli-screen-shot.png" />
 <p>To run the model with a modified configuration:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-flash<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pipeline.diffusion-model.transformer.use-cuda-graph<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>For full details on the available commands, see the <a class="reference internal" href="../api/cli.html"><span class="doc">CLI</span></a> reference.
-For end-to-end examples of defining custom pipeline configurations, see <a class="reference internal" href="new_integration.html"><span class="doc">Add a New Method</span></a>.</p>
+For end-to-end examples of defining custom pipeline configurations, see <a class="reference internal" href="new_integration.html"><span class="doc">Add a new method</span></a>.</p>
 </section>
 </section>
 
@@ -396,7 +395,7 @@ For end-to-end examples of defining custom pipeline configurations, see <a class
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Add a New Method</div>
+                <div class="title">Add a new method</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -407,7 +406,7 @@ For end-to-end examples of defining custom pipeline configurations, see <a class
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Inference Pipeline Overview</div>
+                <div class="title">Inference pipeline overview</div>
                 
               </div>
             </a>

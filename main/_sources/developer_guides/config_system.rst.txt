@@ -58,7 +58,6 @@ Let's say you want to create a new encoder called ``MyEncoder``. You can create 
 .. code-block:: python
 
    from dataclasses import dataclass, field
-   from typing import Type
    from flashdreams.infra.encoder.base import EncoderConfig, Encoder
 
    @dataclass(kw_only=True)
@@ -66,7 +65,7 @@ Let's say you want to create a new encoder called ``MyEncoder``. You can create 
        """My custom encoder config."""
 
        # Point to the class that will be instantiated by this config
-       _target: Type = field(default_factory=lambda: MyEncoder)
+       _target: type["MyEncoder"] = field(default_factory=lambda: MyEncoder)
 
        # Expose your configurable parameters
        embedding_dim: int = 512
@@ -115,7 +114,7 @@ For example, to list out all existing configurable parameters for a model:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash --help
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
 
 .. image:: /_static/diagrams/cli-screen-shot.png
    :alt: CLI helptext showing tyro dynamically parsing nested configuration arguments.
@@ -125,7 +124,7 @@ To run the model with a modified configuration:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash \
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
        --pipeline.diffusion-model.transformer.use-cuda-graph True \
        --total-blocks 7
 

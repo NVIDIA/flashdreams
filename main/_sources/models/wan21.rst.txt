@@ -77,11 +77,12 @@ To inspect all supported CLI arguments and their default values, run:
        wan21-t2v-1.3b-480p \
        --help
 
-Profiling Benchmark
+Profiling benchmark
 -------------------
 
 Here is the profiling benchmark on DiT per-step runtime for FlashDreams Wan2.1
-compared to the official Wan2.1 implementation and the FastVideo baseline under
+compared to the `official Wan2.1 implementation <https://github.com/Wan-Video/Wan2.1>`_
+and the `FastVideo <https://github.com/hao-ai-lab/FastVideo>`_ baseline under
 matched settings.
 
 .. raw:: html

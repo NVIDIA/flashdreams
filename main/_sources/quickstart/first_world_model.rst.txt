@@ -18,8 +18,10 @@ Launch your first model
 
 This page provides a minimal path for:
 
-1. offline / batch-like long-rollout model inference with Self-Forcing.
-2. online interactive world-model serving with LingBot-World.
+1. offline / batch-like long-rollout model inference with
+   :doc:`Self-Forcing </models/self_forcing>`.
+2. online interactive world-model serving with
+   :doc:`LingBot-World </models/lingbot_world>`.
 
 Prerequisites
 -------------
@@ -34,7 +36,7 @@ Launch an offline inference run using the :doc:`Self-Forcing </models/self_forci
 .. code-block:: bash
 
    uv run --project integrations/self_forcing \
-       flashdreams-run self-forcing-wan2.1-t2v-1.3b-flash \
+       flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
        --total-blocks 7
 
 Run LingBot-World interactive server
