@@ -74,7 +74,7 @@ Running a model
 
          # Streaming Wan 2.1 T2V (Self-Forcing plugin).
          uv run flashdreams-run \
-             self-forcing-wan2.1-t2v-1.3b-flash \
+             self-forcing-wan2.1-t2v-1.3b-taehv \
              --total-blocks 7
 
          # Camera-controlled I2V with bundled example data.
@@ -234,8 +234,8 @@ Adding your own model
             Integration checklist
 
          | 1. Subclass the appropriate runner base class.
-         | 2. Register the recipe via the ``flashdreams.runners``
-         |    entry point.
+         | 2. Register the recipe via the
+         |    ``flashdreams.runner_configs`` entry point.
          | 3. Add a per-model page under ``docs/source/models/``.
          | 4. (Streaming) wire ``--total-blocks`` into the runner
          |    config.

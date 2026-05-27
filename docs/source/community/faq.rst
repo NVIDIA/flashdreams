@@ -26,28 +26,40 @@ Getting started
 What hardware do I need to run FlashDreams?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. admonition:: PLACEHOLDER — supported hardware answer
-   :class: placeholder
+FlashDreams targets recent NVIDIA data-center GPUs. The profiling
+corpus on the :doc:`benchmarks page </benchmarks/index>` runs across
+three devices — NVIDIA H100 SXM5, GB200 NVL72, and GB300 — and the
+per-recipe latency numbers on each model page (e.g.
+:doc:`/models/self_forcing`, :doc:`/models/lingbot_world`) are sourced
+from the same set.
 
-   **What goes here:** A short statement of the minimum and
-   recommended GPU configurations for inference and for training /
-   fine-tuning, with pointers into the :doc:`benchmarks
-   </benchmarks/index>` section for concrete numbers. Mention which
-   compute capabilities are tested.
-
+Any CUDA-capable GPU with enough memory for the chosen checkpoint
+should run the streaming recipes; smaller GPUs may need to drop
+multi-GPU recipes back to a single device. See the per-recipe
+``--total-blocks`` defaults in :doc:`/quickstart/first_world_model`
+for the cheapest path to a working clip, and the
+:doc:`benchmarks page </benchmarks/index>` for the profiled
+configurations.
 
 Which model recipes ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. admonition:: PLACEHOLDER — recipe list
-   :class: placeholder
+Eight first-party integrations ship under ``integrations/`` in the
+repo. The :doc:`/models/index` gallery has the full list; in summary:
 
-   **What goes here:** A concise list with one-line descriptions of
-   each shipped recipe (causal-forcing, self-forcing, wan21,
-   omnidreams, lingbot-world, fastvideo causal wan22, …) and a link
-   into the corresponding model page. Keep in sync with the
-   *Supported models* grid on the landing page.
+- :doc:`/models/self_forcing` — Streaming Wan 2.1 T2V (1.3B).
+- :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).
+- :doc:`/models/causal_wan22` — FastVideo Causal Wan 2.2 14B MoE T2V.
+- :doc:`/models/lingbot_world` — Camera-controllable I2V world model.
+- :doc:`/models/omnidreams` — HDMap-conditioned driving world model
+  (the GTC 2026 closed-loop demo).
+- :doc:`/models/flashvsr` — Streaming video super-resolution.
+- :doc:`/models/wan21` — Bidirectional Wan 2.1 T2V / I2V reference.
+- :doc:`/models/cosmos_predict2` — Bidirectional Cosmos-Predict2.5
+  T2V / I2V reference.
 
+Each model page has the canonical CLI invocation, checkpoint source,
+multi-GPU command, and per-recipe knobs.
 
 Installation and packaging
 --------------------------
@@ -55,15 +67,28 @@ Installation and packaging
 Why can I install ``flashdreams`` from PyPI but not the integration packages?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. admonition:: PLACEHOLDER — packaging answer
-   :class: placeholder
+Only the core ``flashdreams`` package is published as a pure-Python
+wheel on PyPI. Integration packages — ``flashdreams-self-forcing``,
+``flashdreams-lingbot``, and the others listed in
+`DEV.md <https://github.com/NVIDIA/flashdreams/blob/main/DEV.md>`__ —
+are not published; they live under ``integrations/`` in the monorepo
+and are designed to be consumed either as a workspace member or as
+git-installable packages.
 
-   **What goes here:** A short explanation that only the core
-   ``flashdreams`` package is published as a wheel; integrations are
-   git-installable from the monorepo (with a ``pip install
-   "flashdreams-<recipe> @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/<recipe>"``
-   example). Cross-link to ``DEV.md`` for the rationale.
+To install an integration directly from the repo:
 
+.. code-block:: bash
+
+   pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+
+   # or with uv
+   uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+
+The rationale is in `DEV.md
+<https://github.com/NVIDIA/flashdreams/blob/main/DEV.md>`__: the
+core ``flashdreams`` is the only stable, pip-installable surface; the
+per-recipe wheels move at the upstream model's pace and stay
+git-installable so they can pin against a known core commit.
 
 Usage
 -----
@@ -71,30 +96,21 @@ Usage
 How do I plug in a new model recipe?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. admonition:: PLACEHOLDER — new-recipe pointer
-   :class: placeholder
+The :doc:`/developer_guides/new_integration` guide walks the full
+flow — what to subclass on the runner side, how the entry-point
+registration works, and what the per-integration directory layout
+looks like. The eight in-tree integrations under ``integrations/``
+are the canonical references; pick the one closest in shape to your
+new recipe and use it as a template.
 
-   **What goes here:** A one-paragraph orientation followed by a link
-   to the developer guide at
-   :doc:`/developer_guides/new_integration`. Mention the smallest
-   set of abstractions a recipe must implement to plug into the
-   shipped command-line interface.
-
+The minimum surface is: subclass the right runner base, register the
+slug via the ``flashdreams.runner_configs`` entry point, and (for
+streaming runners) wire ``--total-blocks`` into the runner config.
+:doc:`/developer_guides/new_integration` covers each step with the
+exact ``pyproject.toml`` snippet.
 
 Project and licensing
 ---------------------
-
-Is FlashDreams the same project as Cosmos / NeMo / NIM?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. admonition:: PLACEHOLDER — relationship to other NVIDIA stacks
-   :class: placeholder
-
-   **What goes here:** A short, honest answer describing how
-   FlashDreams relates to (or doesn't relate to) other NVIDIA video /
-   generative stacks. If there are integration points or shared
-   components, name them and link out.
-
 
 Can I use FlashDreams commercially?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

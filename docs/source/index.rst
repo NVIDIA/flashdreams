@@ -34,12 +34,12 @@ FlashDreams
 
          .. container:: fd-hero-lede
 
-            NVIDIA's streaming inference stack for diffusion-based video
-            and interactive world models. Sub-second autoregressive steps
-            after warmup, eight integrated model recipes, real-time
-            applications across gaming, autonomous vehicles, robotics, and
-            virtual environments — the runtime backbone of the
-            `OmniDreams closed-loop demo at GTC 2026
+            NVIDIA's streaming inference stack for interactive
+            autoregressive video and world models. Sub-second
+            autoregressive steps after warmup, eight integrated model
+            recipes, real-time applications across gaming, autonomous
+            vehicles, robotics, and virtual environments — the runtime
+            backbone of the `OmniDreams closed-loop demo at GTC 2026
             <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
          .. container:: fd-cta-row
@@ -69,7 +69,7 @@ FlashDreams
             :class: placeholder
 
             **What goes here:** A looping 5–10s clip of one of the streaming
-            recipes (e.g. ``self-forcing-wan2.1-t2v-1.3b-flash``) running
+            recipes (e.g. ``self-forcing-wan2.1-t2v-1.3b-taehv``) running
             end-to-end, or a stylised architecture illustration of the
             KV cache + ring attention + CUDA-graph pipeline.
 
@@ -85,9 +85,9 @@ Headline numbers
 
 .. container:: fd-lede
 
-   Wall-clock speedups on the same recipe, same GPU, against the
-   upstream library's own runner. Numbers track the rolling ``main``
-   branch; full methodology lives on the :doc:`benchmarks page
+   Per-step latency on the same recipe, same GPU, against the upstream
+   library's own runner. Each tile names the GPU and the specific
+   baseline; full methodology lives on the :doc:`benchmarks page
    <benchmarks/index>`.
 
 .. grid:: 1 2 2 4
@@ -107,7 +107,7 @@ Headline numbers
 
          .. container:: fd-stat-note
 
-            GB300, vs FastVideo baseline.
+            GB300, vs FastVideo baseline (362 ms → 171 ms per step).
 
    .. grid-item::
 
@@ -123,7 +123,7 @@ Headline numbers
 
          .. container:: fd-stat-note
 
-            H100, vs official baseline.
+            H100, vs Official baseline (1950 ms → 629 ms per step).
 
    .. grid-item::
 
@@ -139,7 +139,7 @@ Headline numbers
 
          .. container:: fd-stat-note
 
-            GB300, vs FastVideo baseline.
+            GB300, vs FastVideo baseline (534 ms → 382 ms per step).
 
    .. grid-item::
 
@@ -156,6 +156,40 @@ Headline numbers
          .. container:: fd-stat-note
 
             Streaming and bidirectional recipes, one command-line front door.
+
+Born from OmniDreams
+--------------------
+
+.. container:: fd-eyebrow
+
+   Origin story
+
+.. container:: fd-split fd-split-asymmetric-reverse
+
+   .. container:: fd-split-text
+
+      FlashDreams began as the optimized runtime behind the `OmniDreams
+      closed-loop demo for GTC 2026
+      <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_,
+      and has grown into a general platform for real-time world-model
+      applications — driving simulators, autonomous-vehicle scene
+      rollout, embodied robotics, gaming, and virtual environments.
+
+      The same inference pipeline that ships in OmniDreams now hosts
+      seven other model families, and the same per-AR-step latency
+      targets carry across all of them.
+
+   .. container:: fd-split-visual
+
+      .. admonition:: PLACEHOLDER — OmniDreams hero loop
+         :class: placeholder
+
+         **What goes here:** A short looping clip from the OmniDreams
+         multi-view streaming recipe — closed-loop scene rollout,
+         multiple simultaneous camera views, generated end-to-end by
+         FlashDreams. ``_static/omnidreams-loop.avif`` (animated AVIF,
+         16:9). Until that lands, the :doc:`OmniDreams model page
+         <models/omnidreams>` carries the canonical sample videos.
 
 Why FlashDreams
 ---------------
@@ -209,8 +243,7 @@ See it in motion
 .. container:: fd-lede
 
    Streaming recipes generating side-by-side against their upstream
-   references. Each loop is < 10s, captured at native resolution; the
-   final reel will replace the placeholder tiles below.
+   references. Each loop is < 10s, captured at native resolution.
 
 .. container:: fd-media-rail
 
@@ -219,7 +252,7 @@ See it in motion
       .. admonition:: PLACEHOLDER — Self-Forcing T2V loop
          :class: placeholder
 
-         5–10s looping clip of ``self-forcing-wan2.1-t2v-1.3b-flash``
+         5–10s looping clip of ``self-forcing-wan2.1-t2v-1.3b-taehv``
          generating from a held-out prompt. Side-by-side with the
          FastVideo baseline so the wall-clock difference reads
          visually.
@@ -384,6 +417,14 @@ Supported models
       OmniDreams checkpoints, including a diffusion-forcing AR
       variant.
 
+   .. grid-item-card:: FlashVSR
+      :class-card: fd-feature
+      :link: models/flashvsr
+      :link-type: doc
+
+      Streaming video super-resolution for the FlashVSR
+      checkpoint family.
+
    .. grid-item-card:: Wan 2.1 (bidirectional)
       :class-card: fd-feature
       :link: models/wan21
@@ -391,6 +432,13 @@ Supported models
 
       Bidirectional reference model used for parity testing — T2V
       1.3B / 480p and I2V 14B / 480p.
+
+   .. grid-item-card:: Cosmos-Predict2.5 (bidirectional)
+      :class-card: fd-feature
+      :link: models/cosmos_predict2
+      :link-type: doc
+
+      Bidirectional Cosmos-Predict2 reference recipes (T2V / I2V, 2B).
 
 How it compares
 ---------------
@@ -415,9 +463,9 @@ How it compares
       the benchmarks page shows; numbers update with the rolling
       ``main`` branch whenever a recipe lands a perf change.
 
-      Full methodology — hardware, software pin, sampling knobs,
-      what gets timed — lives on the :doc:`benchmarks page
-      <benchmarks/index>`.
+      Full methodology — what gets timed, what we drop as warmup,
+      how the upstream baseline is built — lives on the
+      :doc:`benchmarks page <benchmarks/index>`.
 
    .. container:: fd-split-visual
 
@@ -466,7 +514,7 @@ Quick start
          # Single-GPU streaming inference
          # (Self-Forcing Wan 2.1 T2V).
          uv run flashdreams-run \
-             self-forcing-wan2.1-t2v-1.3b-flash \
+             self-forcing-wan2.1-t2v-1.3b-taehv \
              --total-blocks 7
 
 .. rst-class:: fd-band-accent fd-cta-banner

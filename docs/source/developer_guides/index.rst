@@ -52,20 +52,22 @@ Guides
 
 .. container:: fd-eyebrow
 
-   Three walkthroughs
+   Five walkthroughs
 
 .. container:: fd-lede
 
    Read in order: the pipeline overview anchors the rest. The config
    system is the layer every recipe shares; new integrations sit on
-   top of both.
+   top of both. Usage patterns and interactive serving cover how to
+   embed the pipeline in your own code and keep a streaming session
+   alive.
 
 .. grid:: 1 1 2 2
    :gutter: 3
 
    .. grid-item-card:: Inference pipeline overview
       :class-card: fd-feature fd-feature-hero
-      :columns: 12 12 6 6
+      :columns: 12 12 6 8
       :link: inference_pipeline_overview
       :link-type: doc
 
@@ -76,7 +78,7 @@ Guides
 
    .. grid-item-card:: Config system
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 4
       :link: config_system
       :link-type: doc
 
@@ -85,24 +87,33 @@ Guides
 
    .. grid-item-card:: Add a new method
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 4
       :link: new_integration
       :link-type: doc
 
       The entry-point surface a new recipe ships against — what to
       subclass, what to register, where the parity tests live.
 
-   .. grid-item-card:: Cross-cutting topics
+   .. grid-item-card:: Usage patterns
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 4
+      :link: usage_patterns
+      :link-type: doc
 
-      CUDA-graph capture, ring-attention launching, distributed
-      smoke tests — each cross-references back into the
-      :doc:`/api/index`.
+      Common ways to drive FlashDreams from your own Python — the
+      CLI, the in-process runner API, and the pipeline-level surface
+      for embedding.
 
-.. Temporarily commented out for internal development:
-.. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
-.. - :doc:`Interactive serving </developer_guides/interactive_serving>`
+   .. grid-item-card:: Interactive serving
+      :class-card: fd-feature
+      :columns: 12 12 6 4
+      :link: interactive_serving
+      :link-type: doc
+
+      Patterns for keeping a streaming session alive: warmup,
+      steady-state generation, and how the WebRTC / gRPC servers
+      under ``integrations/`` wire the pipeline up.
+
 
 Where these guides fit
 ----------------------
@@ -158,3 +169,5 @@ Where these guides fit
    inference_pipeline_overview
    config_system
    new_integration
+   usage_patterns
+   interactive_serving

@@ -217,8 +217,7 @@ Maintainers
 
    **What goes here:** A ``MAINTAINERS.md`` file at the repo root
    that lists active maintainers (GitHub handle, area of ownership,
-   contact preference) and the criteria for promotion. Until that
-   file exists, ``CODEOWNERS`` is the de-facto record.
+   contact preference) and the criteria for promotion.
 
 Releases
 --------
@@ -257,10 +256,12 @@ Frequently asked
 
    Recurring questions, all in one place
 
-Answers to questions that come up repeatedly in issues, Discord, and
-Discussions live on the :doc:`faq` page. If a question keeps coming
-up in support channels, propose an FAQ entry via a pull request —
-see :doc:`contributing`.
+.. container:: fd-lede
+
+   Answers to questions that come up repeatedly in issues, Discord, and
+   Discussions live on the :doc:`faq` page. If a question keeps coming
+   up in support channels, propose an FAQ entry via a pull request —
+   see :doc:`contributing`.
 
 .. rst-class:: fd-band-accent fd-cta-banner
 

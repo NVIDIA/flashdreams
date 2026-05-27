@@ -80,7 +80,7 @@ What you'll do
 
          # 3. Run a streaming recipe
          uv run flashdreams-run \
-             self-forcing-wan2.1-t2v-1.3b-flash \
+             self-forcing-wan2.1-t2v-1.3b-taehv \
              --total-blocks 7
 
 Walkthroughs
