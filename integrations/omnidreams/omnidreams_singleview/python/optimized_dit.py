@@ -53,11 +53,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from flashdreams.core.distributed.context_parallel import (
-    cat_outputs_cp,
-    split_inputs_cp,
-)
-from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from omnidreams.transformer import (
     CosmosTransformer,
     CosmosTransformerCache,
@@ -66,10 +61,16 @@ from omnidreams.transformer import (
 from omnidreams.transformer.impl.network import CosmosDiTNetworkCache
 from torch import Tensor
 
+from flashdreams.core.distributed.context_parallel import (
+    cat_outputs_cp,
+    split_inputs_cp,
+)
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_SPARGE_TOPK = 0.25
-_DEFAULT_SPARGE_HYBRID_TOPK = 0.10
+_DEFAULT_SPARGE_HYBRID_TOPK = _DEFAULT_SPARGE_TOPK
 _DEFAULT_SPARGE_HYBRID_PERIOD = 2
 _DEFAULT_SPARGE_HYBRID_PHASE = 0
 
@@ -247,11 +248,15 @@ def _make_cosmos_hdmap_cache(
     dtype: torch.dtype,
 ) -> Tensor:
     batch, views, frames, tokens, _ = hdmap_patched.shape
-    hdmap_flat = hdmap_patched.to(dtype=dtype).reshape(
-        batch,
-        views * frames * tokens,
-        -1,
-    ).contiguous()
+    hdmap_flat = (
+        hdmap_patched.to(dtype=dtype)
+        .reshape(
+            batch,
+            views * frames * tokens,
+            -1,
+        )
+        .contiguous()
+    )
     w_hd = weights["additional_patch_embedding.proj.1.weight"].to(
         device=hdmap_patched.device,
         dtype=dtype,
@@ -288,7 +293,9 @@ def _make_cosmos_streaming_workspace(
     if model_channels % heads != 0:
         raise ValueError("model_channels must be divisible by heads")
     if batch <= 0 or tokens <= 0 or max_attn_tokens <= 0 or num_blocks <= 0:
-        raise ValueError("batch, tokens, max_attn_tokens, and num_blocks must be positive")
+        raise ValueError(
+            "batch, tokens, max_attn_tokens, and num_blocks must be positive"
+        )
     if not 0.0 < sparge_topk_ratio <= 1.0:
         raise ValueError(
             f"sparge_topk_ratio must be in (0, 1], got {sparge_topk_ratio}"
@@ -381,10 +388,30 @@ def _make_cosmos_streaming_workspace(
     }
 
     workspace: dict[str, Tensor] = {}
-    workspace.update({name: torch.empty(shape, device=device, dtype=dtype) for name, shape in bf16_specs.items()})
-    workspace.update({name: torch.empty(shape, device=device, dtype=torch.uint8) for name, shape in u8_specs.items()})
-    workspace.update({name: torch.empty(shape, device=device, dtype=torch.float8_e4m3fn) for name, shape in fp8_specs.items()})
-    workspace.update({name: torch.empty(shape, device=device, dtype=torch.float16) for name, shape in fp16_specs.items()})
+    workspace.update(
+        {
+            name: torch.empty(shape, device=device, dtype=dtype)
+            for name, shape in bf16_specs.items()
+        }
+    )
+    workspace.update(
+        {
+            name: torch.empty(shape, device=device, dtype=torch.uint8)
+            for name, shape in u8_specs.items()
+        }
+    )
+    workspace.update(
+        {
+            name: torch.empty(shape, device=device, dtype=torch.float8_e4m3fn)
+            for name, shape in fp8_specs.items()
+        }
+    )
+    workspace.update(
+        {
+            name: torch.empty(shape, device=device, dtype=torch.float16)
+            for name, shape in fp16_specs.items()
+        }
+    )
     workspace["attn_tc_scale"] = torch.ones((12,), device=device, dtype=torch.float32)
     return workspace
 
@@ -508,7 +535,9 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
         )
 
 
-def prepare_cosmos_streaming_weights(state_dict: Mapping[str, Tensor]) -> dict[str, Tensor]:
+def prepare_cosmos_streaming_weights(
+    state_dict: Mapping[str, Tensor],
+) -> dict[str, Tensor]:
     """Add per-block fused self-attention QKV weights for native_extension.
 
     This lives alongside the public native helper so deployment only needs the
@@ -666,8 +695,16 @@ class OptimizedDiTExecutor:
             "adaln_lora_dim": net_cfg.adaln_lora_dim,
             "timestep_scale": float(net_cfg.timestep_scale),
         }
-        self._requested_attention_backend = (attention_backend or "auto").strip().lower()
-        if self._requested_attention_backend not in {"auto", "cudnn", "sparge", "sage3", "sage3_fp8"}:
+        self._requested_attention_backend = (
+            (attention_backend or "auto").strip().lower()
+        )
+        if self._requested_attention_backend not in {
+            "auto",
+            "cudnn",
+            "sparge",
+            "sage3",
+            "sage3_fp8",
+        }:
             raise ValueError(
                 "--native-attention-backend must be 'auto', 'cudnn', "
                 f"'sparge', 'sage3', or 'sage3_fp8' (got {self._requested_attention_backend!r})"
@@ -700,7 +737,9 @@ class OptimizedDiTExecutor:
         self._fp8_runtime: dict[str, Any] | None = None
         self._bf16_runtime_device: torch.device | None = None
         self._fp8_runtime_device: torch.device | None = None
-        self._optimized_invariant_cache: dict[tuple[Any, ...], _CosmosInvariantTensors] = {}
+        self._optimized_invariant_cache: dict[
+            tuple[Any, ...], _CosmosInvariantTensors
+        ] = {}
         self._optimized_rope_cache: dict[tuple[Any, ...], tuple[Tensor, Tensor]] = {}
         self._optimized_rope_freqs_cache: dict[tuple[Any, ...], Tensor] = {}
         self._optimized_hdmap_cache: dict[tuple[Any, ...], Tensor] = {}
@@ -739,7 +778,9 @@ class OptimizedDiTExecutor:
     def _select_mask(self, cache: CosmosTransformerCache) -> Tensor:
         return self.transformer._select_mask(cache)
 
-    def _cuda_device_index(self, device: torch.device | int | None) -> tuple[int | None, str]:
+    def _cuda_device_index(
+        self, device: torch.device | int | None
+    ) -> tuple[int | None, str]:
         if not torch.cuda.is_available():
             return None, "CUDA is unavailable"
         if isinstance(device, int):
@@ -759,11 +800,15 @@ class OptimizedDiTExecutor:
                 return None, f"torch.cuda.current_device() failed: {e}"
         return int(device.index), ""
 
-    def _sage3_status(self, device: torch.device | int | None = None) -> tuple[bool, str]:
+    def _sage3_status(
+        self, device: torch.device | int | None = None
+    ) -> tuple[bool, str]:
         if sys.platform == "win32":
             return False, "Sage3 is not supported on Windows"
         built_fn = getattr(self._native_extension, "sage3_is_built", None)
-        supported_fn = getattr(self._native_extension, "sage3_is_runtime_supported", None)
+        supported_fn = getattr(
+            self._native_extension, "sage3_is_runtime_supported", None
+        )
         if built_fn is None or supported_fn is None:
             return False, "native_extension does not expose Sage3 availability probes"
         try:
@@ -781,11 +826,15 @@ class OptimizedDiTExecutor:
             return False, f"native_extension.sage3_is_runtime_supported() failed: {e}"
         return True, ""
 
-    def _sparge_status(self, device: torch.device | int | None = None) -> tuple[bool, str]:
+    def _sparge_status(
+        self, device: torch.device | int | None = None
+    ) -> tuple[bool, str]:
         if sys.platform == "win32":
             return False, "Sparge is not supported on Windows"
         built_fn = getattr(self._native_extension, "sparge_is_built", None)
-        supported_fn = getattr(self._native_extension, "sparge_is_runtime_supported", None)
+        supported_fn = getattr(
+            self._native_extension, "sparge_is_runtime_supported", None
+        )
         if built_fn is None or supported_fn is None:
             return False, "native_extension does not expose Sparge availability probes"
         try:
@@ -900,7 +949,9 @@ class OptimizedDiTExecutor:
         device_key = torch.device(device)
         if self._attention_backend_device == device_key:
             return
-        sparge_topk, sparge_hybrid_period, sparge_hybrid_phase = self._resolve_sparge_options()
+        sparge_topk, sparge_hybrid_period, sparge_hybrid_phase = (
+            self._resolve_sparge_options()
+        )
         attention_backend, sparge_hybrid_enabled = self._resolve_attention_backend(
             self._requested_attention_backend,
             sparge_hybrid_period=sparge_hybrid_period,
@@ -922,16 +973,16 @@ class OptimizedDiTExecutor:
         self._sparge_topk = sparge_topk
         self._sparge_hybrid_period = sparge_hybrid_period
         self._sparge_hybrid_phase = (
-            sparge_hybrid_phase % sparge_hybrid_period
-            if sparge_hybrid_period
-            else 0
+            sparge_hybrid_phase % sparge_hybrid_period if sparge_hybrid_period else 0
         )
 
     def after_initialize_autoregressive_cache(
         self,
         cache: CosmosTransformerCache,
     ) -> None:
-        reset_template_cursor = getattr(self.network, "reset_cache_template_cursor", None)
+        reset_template_cursor = getattr(
+            self.network, "reset_cache_template_cursor", None
+        )
         if callable(reset_template_cursor):
             reset_template_cursor()
         self._capture_network_cache_templates(cache)
@@ -976,8 +1027,7 @@ class OptimizedDiTExecutor:
                 # do not coexist on the GPU with the full BF16 DiT, VAE, TAE,
                 # and CUDA graph pools during block 0.
                 cpu_state = {
-                    key: value.detach().cpu()
-                    for key, value in state_dict.items()
+                    key: value.detach().cpu() for key, value in state_dict.items()
                 }
                 # Do not keep the GPU state_dict view alive across the later
                 # network release; its tensor refs would mask the freed memory.
@@ -1069,8 +1119,7 @@ class OptimizedDiTExecutor:
             *(int(t.size(1)) for t in k_self),
         )
         use_sparge_hybrid = (
-            self._attention_backend == "sparge"
-            and self._sparge_hybrid_period > 0
+            self._attention_backend == "sparge" and self._sparge_hybrid_period > 0
         )
         use_sage3_fp8_attention = (
             self._attention_backend == "sage3_fp8" or use_sparge_hybrid
@@ -1095,13 +1144,15 @@ class OptimizedDiTExecutor:
         cfg: dict[str, Any] = {
             "cosmos_linear_backend": "fp8",
             "cosmos_attention_backend": (
-                self._attention_backend if (use_sage3_fp8_attention or use_sparge_attention)
+                self._attention_backend
+                if (use_sage3_fp8_attention or use_sparge_attention)
                 else "fp8_cudnn"
             ),
             "cosmos_kv_cache_backend": "fp8",
             # Hybrid schedules need BF16 self-KV only on Sparge blocks; the
             # bridge forces those per block while leaving Sage3 blocks FP8-only.
-            "cosmos_write_bf16_kv_cache": use_sparge_attention and not use_sparge_hybrid,
+            "cosmos_write_bf16_kv_cache": use_sparge_attention
+            and not use_sparge_hybrid,
             "cosmos_sparge_topk_ratio": self._sparge_topk,
             "cosmos_sparge_hybrid_period": self._sparge_hybrid_period,
             "cosmos_sparge_hybrid_phase": self._sparge_hybrid_phase,
@@ -1157,9 +1208,9 @@ class OptimizedDiTExecutor:
                     "v_cross_sage3_sf_caches": v_cross_sage3_sf,
                 }
             )
-        fp8_sdpa_layout = os.environ.get(
-            "OMNIDREAMS_DIT_FP8_SDPA_LAYOUT", ""
-        ).strip().lower()
+        fp8_sdpa_layout = (
+            os.environ.get("OMNIDREAMS_DIT_FP8_SDPA_LAYOUT", "").strip().lower()
+        )
         if use_sage3_fp8_attention and fp8_sdpa_layout == "bhmd":
             _LOGGER.warning(
                 "OMNIDREAMS_DIT_FP8_SDPA_LAYOUT=bhmd is ignored for the "
@@ -1167,24 +1218,40 @@ class OptimizedDiTExecutor:
                 "Sage3 FP4 cross-attention KV cache layout."
             )
         if not use_sage3_fp8_attention and fp8_sdpa_layout == "bhmd":
-            cfg.update({
-                "k_cross_fp8_bhmd_caches": [
-                    t.view(torch.float8_e4m3fn).permute(0, 2, 1, 3).contiguous().view(torch.uint8)
-                    for t in cfg["k_cross_fp8_caches"]
-                ],
-                "v_cross_fp8_bhmd_caches": [
-                    t.view(torch.float8_e4m3fn).permute(0, 2, 1, 3).contiguous().view(torch.uint8)
-                    for t in cfg["v_cross_fp8_caches"]
-                ],
-                "k_self_fp8_bhmd_caches": [
-                    torch.zeros((t.size(0), t.size(2), t.size(1), t.size(3)), device=t.device, dtype=torch.uint8)
-                    for t in k_self
-                ],
-                "v_self_fp8_bhmd_caches": [
-                    torch.zeros((t.size(0), t.size(2), t.size(1), t.size(3)), device=t.device, dtype=torch.uint8)
-                    for t in v_self
-                ],
-            })
+            cfg.update(
+                {
+                    "k_cross_fp8_bhmd_caches": [
+                        t.view(torch.float8_e4m3fn)
+                        .permute(0, 2, 1, 3)
+                        .contiguous()
+                        .view(torch.uint8)
+                        for t in cfg["k_cross_fp8_caches"]
+                    ],
+                    "v_cross_fp8_bhmd_caches": [
+                        t.view(torch.float8_e4m3fn)
+                        .permute(0, 2, 1, 3)
+                        .contiguous()
+                        .view(torch.uint8)
+                        for t in cfg["v_cross_fp8_caches"]
+                    ],
+                    "k_self_fp8_bhmd_caches": [
+                        torch.zeros(
+                            (t.size(0), t.size(2), t.size(1), t.size(3)),
+                            device=t.device,
+                            dtype=torch.uint8,
+                        )
+                        for t in k_self
+                    ],
+                    "v_self_fp8_bhmd_caches": [
+                        torch.zeros(
+                            (t.size(0), t.size(2), t.size(1), t.size(3)),
+                            device=t.device,
+                            dtype=torch.uint8,
+                        )
+                        for t in v_self
+                    ],
+                }
+            )
         self._fp8_runtime = cfg
         self._fp8_runtime_device = device
         self._release_network_after_fp8_snapshot()
@@ -1259,8 +1326,12 @@ class OptimizedDiTExecutor:
                 continue
             if not self_attn.is_steady_state():
                 continue
-            _roll_fp8_cache_left_like_block_cache(runtime["k_self_fp8_caches"][block_idx], self_attn)
-            _roll_fp8_cache_left_like_block_cache(runtime["v_self_fp8_caches"][block_idx], self_attn)
+            _roll_fp8_cache_left_like_block_cache(
+                runtime["k_self_fp8_caches"][block_idx], self_attn
+            )
+            _roll_fp8_cache_left_like_block_cache(
+                runtime["v_self_fp8_caches"][block_idx], self_attn
+            )
             if "k_self_fp8_bhmd_caches" in runtime:
                 _roll_fp8_cache_left_like_block_cache(
                     runtime["k_self_fp8_bhmd_caches"][block_idx], self_attn, seq_dim=2
@@ -1427,7 +1498,9 @@ class OptimizedDiTExecutor:
             self._optimized_hdmap_cache[key] = cached
         return cached
 
-    def _empty_hdmap_tensor(self, *, device: torch.device, dtype: torch.dtype) -> Tensor:
+    def _empty_hdmap_tensor(
+        self, *, device: torch.device, dtype: torch.dtype
+    ) -> Tensor:
         key = (str(device), dtype)
         cached = self._optimized_empty_hdmap_cache.get(key)
         if cached is None:
@@ -1611,9 +1684,7 @@ class OptimizedDiTExecutor:
         # writes K/V in place at ``write_start``, and the boundary
         # ``finalize`` advances the state machine once.
         net_cache = cache.network_cache
-        write_start = compute_self_attn_write_start(
-            net_cache.block_caches[0].self_attn
-        )
+        write_start = compute_self_attn_write_start(net_cache.block_caches[0].self_attn)
         kv_lists = self._ensure_kv_tensor_lists(cache=cache)
 
         # Upstream single-view CosmosTransformer flattens THW to [B, V, L, D].
@@ -1642,9 +1713,7 @@ class OptimizedDiTExecutor:
                 B, V, T, HW, condition_video_input_mask.shape[-1]
             )
             input_for_ext = (
-                None
-                if input is None
-                else input.reshape(B, V, T, HW, input.shape[-1])
+                None if input is None else input.reshape(B, V, T, HW, input.shape[-1])
             )
         else:
             noisy_for_ext = noisy_latent

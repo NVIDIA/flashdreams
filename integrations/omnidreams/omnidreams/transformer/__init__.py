@@ -23,6 +23,12 @@ from typing import Any, Literal
 
 import torch
 import torch.nn.functional as F
+from omnidreams.native.acceleration import (
+    NativeAccelerationConfig,
+    NativeAccelerationMode,
+    NativeBackendSelection,
+    require_extension_symbols,
+)
 from torch import Tensor
 
 from flashdreams.core.attention.rope import (
@@ -36,12 +42,6 @@ from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
     TransformerConfig,
-)
-from omnidreams.native.acceleration import (
-    NativeAccelerationConfig,
-    NativeAccelerationMode,
-    NativeBackendSelection,
-    require_extension_symbols,
 )
 
 from .impl.context_parallel import (
@@ -228,8 +228,8 @@ class CosmosTransformerConfig(TransformerConfig):
     native_dit_sparge_topk: float | None = None
     """Optional Sparge self-attention top-k ratio.
 
-    ``None`` uses ``0.10`` for the FP8 ``auto`` hybrid schedule and ``0.25``
-    for pure Sparge.
+    ``None`` uses ``0.25`` for both the FP8 ``auto`` hybrid schedule and pure
+    Sparge.
     """
 
     native_dit_sparge_hybrid_period: int | None = None

@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -736,7 +736,11 @@ def test_optimized_dit_hybrid_sends_fp8_only_default_cache_config(
 
     assert executor._attention_backend == "sparge"
     assert executor._sparge_hybrid_period == optimized_dit._DEFAULT_SPARGE_HYBRID_PERIOD
+    assert executor._sparge_topk == optimized_dit._DEFAULT_SPARGE_HYBRID_TOPK
     assert runtime["cosmos_write_bf16_kv_cache"] is False
+    assert (
+        runtime["cosmos_sparge_topk_ratio"] == optimized_dit._DEFAULT_SPARGE_HYBRID_TOPK
+    )
 
 
 @pytest.mark.ci_cpu
