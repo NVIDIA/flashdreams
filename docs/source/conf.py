@@ -84,19 +84,20 @@ html_theme_options = {
         "image_light": "_static/flashdreams-logo-horizontal.png",
         "image_dark": "_static/flashdreams-logo-horizontal-light.png",
     },
-    # Per-page-pattern map (same shape as `html_sidebars`). Front-of-
-    # site pages (homepage, benchmarks, community) get no right
-    # sidebar; reference-docs pages get the in-page TOC. Patterns must
-    # be non-overlapping — pydata warns on any page that matches more
-    # than one — so each section is enumerated explicitly rather than
-    # using a `**` catch-all.
+    # Per-page-pattern map (same shape as `html_sidebars`). Every
+    # marketing-layout page (homepage, benchmarks, community,
+    # quickstart, developer guides, models) renders without a right
+    # sidebar; only `api/*` (autodoc reference) keeps the in-page
+    # TOC. Patterns must be non-overlapping — pydata warns on any
+    # page that matches more than one — so each section is enumerated
+    # explicitly rather than using a `**` catch-all.
     "secondary_sidebar_items": {
         "index": [],
         "benchmarks/*": [],
         "community/*": [],
-        "quickstart/*": ["page-toc"],
-        "developer_guides/*": ["page-toc"],
-        "models/*": ["page-toc"],
+        "quickstart/*": [],
+        "developer_guides/*": [],
+        "models/*": [],
         "api/*": ["page-toc"],
     },
     "pygments_light_style": "tango",
@@ -132,16 +133,18 @@ html_theme_options = {
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
-# Sidebar" toggle) but no nav contents. The homepage, benchmarks, and
-# community pages are front-of-site surfaces — give them no sidebar;
-# every reference-docs page gets the section nav tree.
+# Sidebar" toggle) but no nav contents. Every marketing-layout page
+# (homepage, benchmarks, community, quickstart, developer guides,
+# models) gets no left sidebar — section wayfinding lives in the
+# section-index page's hero + tile grid instead. Only `api/*` (the
+# autodoc reference) keeps the section nav tree.
 html_sidebars = {
     "index": [],
     "benchmarks/*": [],
     "community/*": [],
-    "quickstart/*": ["sidebar-nav-bs"],
-    "developer_guides/*": ["sidebar-nav-bs"],
-    "models/*": ["sidebar-nav-bs"],
+    "quickstart/*": [],
+    "developer_guides/*": [],
+    "models/*": [],
     "api/*": ["sidebar-nav-bs"],
 }
 

@@ -607,24 +607,36 @@ p.fd-hero-title.rubric,
 
    `body.fd-page-landing` is set by the same template so these rules
    can be cleanly scoped to landing pages without `:has()` tricks.
+
+   The marketing layout makes three structural moves on top of the
+   stripped-down scaffold:
+
+   - Full-bleed by default. The body container's max-width is reset
+     and `.fd-landing-main` runs edge-to-edge. Content widths come
+     from per-section bands (see `.fd-band` and the auto-band rules
+     below), not from a single global wrapper.
+   - Hero is a full-bleed display band. No card border, no rounded
+     box; the eyebrow / title / lede / CTAs sit free against the page
+     with a soft accent wash behind them so it reads as a marketing
+     hero, not a callout-at-top-of-doc.
+   - Section rhythm is built from alternating muted-vs-default bands
+     keyed off a CSS counter on the outer page section. This works
+     regardless of what mix of admonitions / grids / paragraphs sits
+     between the H1 and the first H2, where `nth-of-type` was unstable.
 */
 
-/* Full-bleed wrapper for the body content. Page-internal width is
-   controlled by an inner `.fd-page` (auto-applied below to direct
-   children except hero bands), so each section can choose to span
-   edge-to-edge or stay constrained. */
+/* Full-bleed wrapper for the body content. */
 body.fd-page-landing .fd-landing-main {
     width: 100%;
     padding: 0;
     margin: 0;
+    /* Counter for alternating-band styling on top-level sections. */
+    counter-reset: fd-band;
 }
 
 /* Pydata's body container caps page width; reclaim the full viewport
    on landing pages so the alternating section bands can stretch
-   edge-to-edge. Targets the body container only — the header navbar
-   ALSO uses `bd-page-width`, but it lives under `bd-header__inner`,
-   so scoping via `.bd-container` leaves the navbar's centered logo
-   placement intact. */
+   edge-to-edge. */
 body.fd-page-landing .bd-container,
 body.fd-page-landing .bd-container__inner {
     max-width: 100%;
@@ -635,62 +647,25 @@ body.fd-page-landing .bd-main {
     padding-inline: 0;
 }
 
-/* Default constrained inner container — wrap any direct child of
-   .fd-landing-main that isn't an explicit full-width band. Achieved
-   by giving everything a max-width and side-padding by default;
-   `.fd-bleed` opts a child out (used by `.fd-hero` below). */
-body.fd-page-landing .fd-landing-main > * {
-    max-width: var(--fd-max-content);
-    margin-inline: auto;
-    padding-inline: var(--fd-space-4);
-}
-
-/* Section spacing — Sphinx wraps the H1 + the H2 sections of the page
-   in a single outer <section>; within that, each H2-marked top-level
-   section is another nested <section>. Targeting those gives us the
-   "Showcase / Why FlashDreams / What's inside / …" rhythm. */
-body.fd-page-landing .fd-landing-main > section > section {
-    margin-block: var(--fd-space-7);
-}
-
-/* Hero typography: scale up the title further than the base
-   `.fd-hero-title` rule, so the homepage reads as a real landing
-   hero rather than a docs H1. */
-body.fd-page-landing .fd-hero-title,
-body.fd-page-landing p.fd-hero-title.rubric {
-    font-size: clamp(2.5rem, 5vw + 1rem, 4.25rem);
-    letter-spacing: -0.025em;
-    line-height: 1.04;
-}
-
-/* Section H2s carry the section-rule pattern (heading + bottom rule)
-   so each section reads as a distinct marketing band, not a docs sub-
-   heading inside a long article. */
-body.fd-page-landing .fd-landing-main > section > section > h2 {
-    font-size: var(--fd-text-xl);
-    letter-spacing: -0.015em;
-    padding-bottom: var(--fd-space-2);
-    border-bottom: var(--fd-border-width) solid var(--fd-border);
-    margin-bottom: var(--fd-space-4);
-}
-
-/* Alternating section backgrounds. Even-indexed top-level sections
-   pick up the muted neutral background, giving the page visual
-   rhythm as the reader scrolls. The band breaks out of the
-   constrained inner-container by using negative inline margin equal
-   to the container's padding. */
-body.fd-page-landing .fd-landing-main > section > section:nth-of-type(even) {
-    background: var(--fd-bg-muted);
-    margin-inline: calc(50% - 50vw);
-    padding-inline: calc(50vw - 50%);
-    padding-block: var(--fd-space-5) var(--fd-space-6);
+/* The outer Sphinx-emitted `<section id="…">` carrying the H1 plus
+   all H2 sub-sections — strip its own padding so nested band
+   styles control the rhythm. */
+body.fd-page-landing .fd-landing-main > section {
+    padding: 0;
+    margin: 0;
     max-width: none;
 }
 
 /* Hide the docs-y H1 that Sphinx emits at the top of every page —
    the marketing hero IS the page title; the H1 is structural only,
-   present so the toctree caption and browser tab resolve. */
-body.fd-page-landing .fd-landing-main > section > h1 {
+   present so the toctree caption and browser tab resolve.
+
+   Hidden ONLY on hero-bearing pages (landing, benchmarks index,
+   community index). The prose-narrow community subpages
+   (contributing / faq / support) keep their H1 visible because
+   they don't have a hero band of their own and the H1 IS their
+   marketing title. */
+body.fd-page-landing:not(.fd-prose-narrow) .fd-landing-main > section > h1 {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -698,12 +673,661 @@ body.fd-page-landing .fd-landing-main > section > h1 {
     clip: rect(0, 0, 0, 0);
 }
 
-/* Footer-content section spacing on landing pages should match the
-   marketing rhythm, not the docs `--fd-space-3`-tight default. */
-body.fd-page-landing .fd-landing-footer {
-    margin-top: var(--fd-space-6);
-    padding-block: var(--fd-space-5);
+/* Style the H1 + intro prose on prose-narrow pages as a tasteful
+   hero-substitute: large display H1, no card chrome, with a thin
+   accent rule beneath. The Sphinx-emitted intro paragraphs (between
+   H1 and the first H2 section) sit in the outer `<section>` and
+   would otherwise be unstyled — give them prose-narrow treatment. */
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > h1 {
+    font-size: clamp(2rem, 3vw + 1rem, 3rem);
+    letter-spacing: -0.025em;
+    line-height: 1.08;
+    font-weight: 800;
+    color: var(--fd-text);
+    max-width: 50rem;
+    margin: 0 auto var(--fd-space-4);
+    padding-block: var(--fd-space-6) 0;
+    padding-inline: var(--fd-space-4);
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > p {
+    max-width: 50rem;
+    margin-inline: auto;
+    padding-inline: var(--fd-space-4);
+    font-size: var(--fd-text-lg);
+    line-height: 1.6;
+    color: var(--fd-text-muted);
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > p:last-of-type {
+    padding-bottom: var(--fd-space-5);
+    margin-bottom: var(--fd-space-5);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+}
+
+/* DOCS-Y CHROME REMOVAL ---------------------------------------------------
+   Two artifacts that the docutils HTML emitter adds to every page read
+   distinctly as "documentation" on a marketing page:
+
+   - The `<a class="headerlink">#</a>` anchor after every heading.
+   - The `<hr class="docutils" />` separators from the `----` transitions
+     RST authors use to break up landing-page sections.
+
+   Both are useful on reference docs but defeat the marketing layout.
+   Hide them unconditionally on `fd-page-landing`. */
+body.fd-page-landing .headerlink {
+    display: none;
+}
+body.fd-page-landing hr.docutils {
+    display: none;
+}
+
+/* DEFAULT INNER WIDTH ----------------------------------------------------
+   Every top-level H2 section is centered in a constrained inner column
+   by default. The band background spans full-bleed; the content within
+   stays readable. Bands explicitly marked `.fd-band-wide` opt for a
+   wider inner column. */
+body.fd-page-landing .fd-landing-main > section > section {
+    counter-increment: fd-band;
+    padding-block: var(--fd-space-7);
+    padding-inline: var(--fd-space-4);
+    margin: 0;
+    max-width: none;
+}
+
+/* Inner content column — wraps direct children of the band so the band
+   background can extend full-bleed. Implemented by giving each band an
+   `::before` no-op and using a flow root with auto-margin children.
+   Page-writers don't need to author this — every child of a top-level
+   section is auto-constrained via this rule.
+
+   Bands use flexbox column layout so that the optional `fd-eyebrow`
+   container — which RST emits AFTER the H2 because docutils anchors
+   the section by its heading — can be visually reordered to sit
+   above the H2 (the marketing-page convention). */
+body.fd-page-landing .fd-landing-main > section > section {
+    display: flex;
+    flex-direction: column;
+}
+body.fd-page-landing .fd-landing-main > section > section > * {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Visual reorder: the H2 itself stays at its source position; the
+   eyebrow (a direct-child fd-eyebrow container) gets pulled above it
+   with negative `order`. The lede sits immediately below the H2
+   (default DOM order). Everything else flows after. */
+body.fd-page-landing .fd-landing-main > section > section > .fd-eyebrow {
+    order: -2;
+}
+
+/* H2 within a band — marketing-display sizing, no docs-style underline
+   rule. `order: -1` pulls it above the lede/grid/etc. but below the
+   eyebrow (`order: -2`); eyebrow → h2 → lede → body is the rhythm. */
+body.fd-page-landing .fd-landing-main > section > section > h2 {
+    order: -1;
+    font-size: clamp(1.875rem, 2.5vw + 1rem, 2.5rem);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    font-weight: 700;
+    color: var(--fd-text);
+    margin: 0 auto var(--fd-space-4);
+    padding: 0;
+    border: 0;
+    max-width: var(--fd-max-content);
+}
+
+/* H3 within a band — sub-section label. Slightly larger than docs
+   default, still secondary to the section H2. */
+body.fd-page-landing .fd-landing-main > section > section h3 {
+    font-size: var(--fd-text-lg);
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    font-weight: 700;
+    color: var(--fd-text);
+    margin-top: var(--fd-space-5);
+    margin-bottom: var(--fd-space-3);
+}
+
+/* Alternating band backgrounds. Counter-based so the order is stable
+   regardless of any non-section elements sitting between H2s in the
+   Sphinx-emitted markup. Even-numbered bands carry the muted neutral. */
+body.fd-page-landing .fd-landing-main > section > section:nth-of-type(even) {
+    background: var(--fd-bg-muted);
+}
+body.fd-page-landing .fd-landing-main > section > section:nth-of-type(odd) {
+    background: var(--fd-bg);
+}
+
+/* Smaller padding above the first H2 section when the page leads
+   with a hero — the hero already gives the page its top weight.
+   The hero itself carries `.fd-hero-band` and is a sibling of these
+   top-level sections. Use `:first-of-type` on the inner sections so
+   only the first H2 band tightens its top padding. */
+body.fd-page-landing .fd-landing-main > section > .fd-hero-band ~ section:first-of-type {
+    padding-top: var(--fd-space-6);
+}
+
+
+/* HERO BAND --------------------------------------------------------------
+   The hero used to be a rounded card with a border, which read as
+   "callout at top of page". On front-of-site we instead render it as a
+   full-bleed band with no border, soft accent wash, large display
+   typography. Page-writers wrap the hero in a `.. container:: fd-hero
+   fd-hero-band` to opt into the band styling. */
+
+body.fd-page-landing .fd-hero-band,
+body.fd-page-landing .fd-landing-main > section > .fd-hero-band {
+    /* Override the card-style fd-hero rule when in band mode. */
+    background:
+        radial-gradient(80% 120% at 0% 0%,
+                        var(--fd-accent-soft) 0%,
+                        transparent 60%),
+        linear-gradient(180deg, var(--fd-bg-muted) 0%, var(--fd-bg) 100%);
+    border: 0;
+    border-radius: 0;
+    margin: 0;
+    padding-block: clamp(var(--fd-space-6), 8vw, var(--fd-space-7));
+    padding-inline: var(--fd-space-4);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+}
+
+body.fd-page-landing .fd-hero-band > * {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+}
+
+/* Hero display title — scale much larger than docs H1, tightly tracked,
+   so the page leads with marketing-scale type. */
+body.fd-page-landing .fd-hero-band .fd-hero-title,
+body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
+    font-size: clamp(2.5rem, 5.5vw + 1rem, 4.5rem);
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+    font-weight: 800;
+    margin: 0 auto var(--fd-space-3);
+    max-width: var(--fd-max-content);
+}
+
+/* Hero lede — larger leading paragraph, muted color, capped width so
+   it stays scannable on wide viewports. */
+body.fd-page-landing .fd-hero-band .fd-hero-lede,
+body.fd-page-landing .fd-hero-band .fd-hero-lede > p {
+    font-size: clamp(1.125rem, 1.2vw + 0.85rem, 1.375rem);
+    line-height: 1.5;
+    color: var(--fd-text-muted);
+    max-width: 52rem;
+    margin: 0 auto var(--fd-space-5);
+}
+
+/* Hero CTA row — centered + larger primary button so the call to action
+   is unambiguous. */
+body.fd-page-landing .fd-hero-band .fd-cta-row {
+    margin: 0 auto;
+    max-width: var(--fd-max-content);
+    justify-content: flex-start;
+    gap: var(--fd-space-3);
+}
+body.fd-page-landing .fd-hero-band .fd-cta-row .sd-btn {
+    padding: 0.75rem 1.5rem;
+    font-size: var(--fd-text-base);
+}
+
+/* HERO with internal split (asymmetric hero) ------------------------------
+   When the hero contains an `fd-split`, the split's two columns share
+   the hero's content width — let the split lay out without re-capping
+   each child to `--fd-max-content` (which would force the text column
+   to its own centered subwidth). Also let the hero title and lede
+   text-align left so they don't visually drift away from the CTA row. */
+body.fd-page-landing .fd-hero-band > .fd-split {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+}
+body.fd-page-landing .fd-hero-band .fd-split .fd-hero-title,
+body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric,
+body.fd-page-landing .fd-hero-band .fd-split .fd-hero-lede,
+body.fd-page-landing .fd-hero-band .fd-split .fd-hero-lede > p,
+body.fd-page-landing .fd-hero-band .fd-split .fd-cta-row {
+    margin-inline: 0;
+    max-width: none;
+    text-align: left;
+}
+body.fd-page-landing .fd-hero-band .fd-split .fd-hero-title,
+body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
+    /* Slightly smaller title when sharing horizontal space with a
+       visual companion — keep it readable in the 5/7 narrow column. */
+    font-size: clamp(2.25rem, 4.5vw + 0.5rem, 3.75rem);
+}
+
+
+/* EYEBROW + SECTION KICKER ------------------------------------------------
+   A small uppercase label that sits above a section H2 — gives each
+   band a marketing-style eyebrow / title pairing instead of a bare H2.
+   Page-writers use `.. container:: fd-eyebrow` as the first child of
+   the section. */
+.fd-eyebrow,
+.fd-eyebrow > p {
+    margin: 0 auto var(--fd-space-2);
+    font-size: var(--fd-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fd-accent);
+    max-width: var(--fd-max-content);
+}
+
+/* Eyebrow / H2 / lede pairing — the flexbox reorder above places the
+   eyebrow directly above the H2 visually, but they are NOT DOM-
+   adjacent (the h2 actually comes before the eyebrow in source).
+   Margin reset is handled directly on the h2 (margin-top: 0 in the
+   h2 rule above) so no adjacent-sibling rule is needed here. */
+
+
+/* LEDE PARAGRAPH ---------------------------------------------------------
+   A larger leading paragraph used directly under a section H2 — pairs
+   with `.fd-eyebrow` to give marketing-flow sections a defined
+   eyebrow / head / lede stack. */
+.fd-lede,
+.fd-lede > p {
+    font-size: clamp(1.0625rem, 0.6vw + 0.9rem, 1.25rem);
+    line-height: 1.55;
+    color: var(--fd-text-muted);
+    max-width: 56rem;
+    margin: 0 auto var(--fd-space-5);
+}
+
+
+/* BAND TINT VARIANTS ----------------------------------------------------
+   Page-writers can mark a top-level section with one of:
+
+   - `.fd-band-accent` — accent-tinted band (use sparingly; one per page)
+   - `.fd-band-sunken` — deeper neutral band, for the footer-zone CTA
+   - `.fd-band-default` — explicit override to force the default bg on a
+     section the counter-rule would otherwise paint muted
+
+   These take priority over the nth-of-type alternation. */
+body.fd-page-landing .fd-landing-main > section > section.fd-band-accent {
+    background:
+        radial-gradient(70% 100% at 100% 0%,
+                        var(--fd-accent-soft) 0%,
+                        transparent 60%),
+        var(--fd-bg);
+}
+body.fd-page-landing .fd-landing-main > section > section.fd-band-sunken {
+    background: var(--fd-bg-sunken);
+}
+body.fd-page-landing .fd-landing-main > section > section.fd-band-default {
+    background: var(--fd-bg);
+}
+
+
+/* CTA BANNER -------------------------------------------------------------
+   Closing-band component for landing pages — a full-bleed accent band
+   carrying a final headline + CTA row. Page-writers wrap a section in
+   the `.fd-cta-banner` class (compose with `.fd-band-accent`). */
+body.fd-page-landing .fd-landing-main > section > section.fd-cta-banner {
+    text-align: center;
+    padding-block: var(--fd-space-7);
+}
+body.fd-page-landing .fd-cta-banner > h2 {
+    text-align: center;
+    margin-bottom: var(--fd-space-3);
+}
+body.fd-page-landing .fd-cta-banner > .fd-eyebrow {
+    text-align: center;
+}
+body.fd-page-landing .fd-cta-banner > .fd-lede {
+    text-align: center;
+    margin-inline: auto;
+    margin-bottom: var(--fd-space-5);
+}
+body.fd-page-landing .fd-cta-banner .fd-cta-row {
+    justify-content: center;
+}
+
+
+/* FEATURE CARD POLISH (marketing context) -------------------------------
+   On front-of-site, give feature cards a touch more vertical padding
+   and a subtle accent-tinted icon wash so they read as marketing tiles
+   rather than docs cards. */
+body.fd-page-landing .sd-card.fd-feature {
+    padding: var(--fd-space-3);
+}
+body.fd-page-landing .sd-card.fd-feature .sd-card-body {
+    padding: var(--fd-space-3);
+}
+body.fd-page-landing .sd-card.fd-feature .sd-card-title {
+    font-size: 1.0625rem;
+    margin-bottom: var(--fd-space-2);
+}
+
+
+/* STAT BLOCK POLISH (marketing context) ---------------------------------
+   Bigger stat values on landing-band placements so the at-a-glance
+   metrics carry the visual weight of a marketing hero stat strip. */
+body.fd-page-landing .fd-stat {
+    padding: var(--fd-space-4);
+}
+body.fd-page-landing .fd-stat-value > p {
+    font-size: clamp(2rem, 2.5vw + 1rem, 3rem);
+    line-height: 1.05;
+}
+
+
+/* LANDING FOOTER --------------------------------------------------------
+   On front-of-site pages, give the global `bd-footer` (copyright)
+   marketing-page presence — a deeper neutral band that anchors the
+   page bottom instead of a thin border-top docs footer. */
+body.fd-page-landing .bd-footer {
+    background: var(--fd-bg-sunken);
     border-top: var(--fd-border-width) solid var(--fd-border);
+    color: var(--fd-text-muted);
+    font-size: var(--fd-text-sm);
+}
+body.fd-page-landing .bd-footer .bd-footer__inner {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+    padding-block: var(--fd-space-5);
+    padding-inline: var(--fd-space-4);
+}
+
+
+/* COMMUNITY-SUBPAGE PROSE TWEAKS ----------------------------------------
+   The community/contributing, community/faq, community/support pages
+   are heavy prose. They use the landing layout (no sidebars) but with
+   a narrower reading column so paragraphs stay legible. Re-cap the
+   inner width and tighten the band padding to feel like a marketing-
+   prose article rather than a docs page. */
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section {
+    padding-block: var(--fd-space-6);
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section > * {
+    max-width: 50rem;
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section > h2 {
+    max-width: 50rem;
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section h3 {
+    margin-top: var(--fd-space-4);
+}
+body.fd-page-landing.fd-prose-narrow .fd-landing-main p,
+body.fd-page-landing.fd-prose-narrow .fd-landing-main li {
+    line-height: 1.65;
+}
+
+
+/* ASYMMETRIC LAYOUT COMPONENTS --------------------------------------------
+   The marketing flow needs more rhythm than stacked full-bleed bands. The
+   components below turn a section's content into a two-column split:
+   prose on one side, a visual companion (image, video, code block, stat
+   tile cluster) on the other.
+
+   Composition pattern: a page-writer adds `.fd-split` to a section via
+   the `rst-class` trick, then drops a `.fd-split-text` container and a
+   `.fd-split-visual` container as siblings inside it. The split honors
+   the marketing-band scaffold above — the H2, eyebrow, and lede still
+   render in the band's column flow, then the split's two columns lay
+   out beneath.
+
+   Alternative: drop a `.. grid:: 1 2 2 2` sphinx-design grid inside the
+   section and use `.fd-split-text` / `.fd-split-visual` on the two
+   grid-items. The CSS below works for both shapes.
+
+   Variants:
+   - `.fd-split-reverse` — flip visual to the left on viewports ≥ 768px
+   - `.fd-split-asymmetric` — 5fr text / 7fr visual (showcase-leaning)
+   - `.fd-split-asymmetric-reverse` — 7fr text / 5fr visual (prose-leaning)
+
+   Below 768px every split stacks to a single column with the text
+   first; reverse and asymmetric variants share that mobile stack so
+   small-viewport content order is always: prose-then-visual.
+*/
+
+body.fd-page-landing .fd-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--fd-space-5);
+    align-items: center;
+    width: 100%;
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+}
+
+@media (min-width: 768px) {
+    body.fd-page-landing .fd-split {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--fd-space-6);
+    }
+    body.fd-page-landing .fd-split.fd-split-reverse > .fd-split-visual {
+        order: -1;
+    }
+    body.fd-page-landing .fd-split.fd-split-asymmetric {
+        grid-template-columns: 5fr 7fr;
+    }
+    body.fd-page-landing .fd-split.fd-split-asymmetric-reverse {
+        grid-template-columns: 7fr 5fr;
+    }
+}
+
+/* When the split lives directly inside a section band the band's flex
+   layout (`flex-direction: column`) would force the split to full width
+   on its own row — that's exactly what we want. The split keeps its
+   own grid for the two-column layout inside. */
+body.fd-page-landing .fd-landing-main > section > section > .fd-split {
+    margin-block: var(--fd-space-3);
+}
+
+/* Split visual containers: cap their height and round corners so
+   placeholders + images sit consistently. Children stretch to fill
+   the column. */
+body.fd-page-landing .fd-split-visual {
+    display: flex;
+    flex-direction: column;
+    gap: var(--fd-space-3);
+}
+body.fd-page-landing .fd-split-visual > * {
+    margin: 0;
+    width: 100%;
+}
+
+/* Split text column: give prose a comfortable line length even inside
+   the half-width column. */
+body.fd-page-landing .fd-split-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--fd-space-3);
+}
+body.fd-page-landing .fd-split-text > p {
+    margin: 0;
+    line-height: 1.65;
+}
+body.fd-page-landing .fd-split-text > p:not(:last-child) {
+    margin-bottom: var(--fd-space-2);
+}
+
+
+/* ASYMMETRIC FEATURE GRID -------------------------------------------------
+   A 4-tile arrangement where the first tile spans the height of the
+   other three — hero feature tile on the left + 3 supporting tiles
+   stacked on the right. Use sphinx-design `grid-item` with a `:columns:
+   12 12 6 6` on the lead tile and `:columns: 12 12 6 2` on the others,
+   or apply `.fd-feature-hero` to the lead tile (style hook only — the
+   grid layout itself comes from sphinx-design).
+
+   This rule promotes a sphinx-design card with `.fd-feature-hero` to a
+   visually heavier presentation: larger padding, taller min-height,
+   and an accent-tinted top border. */
+body.fd-page-landing .sd-card.fd-feature.fd-feature-hero {
+    padding: var(--fd-space-5);
+    min-height: 100%;
+    border-top: 3px solid var(--fd-accent);
+    background: linear-gradient(180deg,
+                                var(--fd-accent-soft) 0%,
+                                transparent 40%),
+                var(--fd-surface);
+}
+body.fd-page-landing .sd-card.fd-feature.fd-feature-hero .sd-card-title {
+    font-size: var(--fd-text-lg);
+    margin-bottom: var(--fd-space-3);
+}
+body.fd-page-landing .sd-card.fd-feature.fd-feature-hero .sd-card-body {
+    padding: var(--fd-space-4);
+}
+
+
+/* MEDIA RAIL / SHOWCASE STRIP --------------------------------------------
+   A horizontally-arranged row of 3-4 visual tiles (each an image,
+   video, or placeholder admonition) under a section heading. Used for
+   feature-demo loops, supported-model gallery, chart strip, etc.
+
+   Page-writers compose this as either:
+   (a) a `.. grid:: 1 2 3 3` sphinx-design grid with the rail class on
+       the outer container, OR
+   (b) a `.. container:: fd-media-rail` wrapping 3-4 `.fd-media-tile`
+       containers.
+
+   Tiles maintain a consistent aspect ratio so the row reads as a
+   strip rather than as varying-height blocks. */
+body.fd-page-landing .fd-media-rail {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--fd-space-3);
+    width: 100%;
+    max-width: var(--fd-max-content);
+    margin: var(--fd-space-4) auto;
+}
+
+@media (min-width: 600px) {
+    body.fd-page-landing .fd-media-rail {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (min-width: 960px) {
+    body.fd-page-landing .fd-media-rail {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    body.fd-page-landing .fd-media-rail.fd-media-rail-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+body.fd-page-landing .fd-media-tile {
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    background: var(--fd-surface);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+body.fd-page-landing .fd-media-tile > * {
+    margin: 0;
+}
+body.fd-page-landing .fd-media-tile .fd-media-tile-body {
+    padding: var(--fd-space-3) var(--fd-space-4);
+    font-size: var(--fd-text-sm);
+    color: var(--fd-text-muted);
+    line-height: 1.5;
+}
+body.fd-page-landing .fd-media-tile .fd-media-tile-title {
+    font-weight: 700;
+    color: var(--fd-text);
+    margin: 0 0 var(--fd-space-1);
+    font-size: var(--fd-text-base);
+}
+
+/* When a `placeholder` admonition lives inside a media-tile or split-
+   visual, drop its outer margin so the tile / column controls the
+   spacing. */
+body.fd-page-landing .fd-media-tile .admonition.placeholder,
+body.fd-page-landing .fd-split-visual .admonition.placeholder {
+    margin: 0;
+    border-radius: 0;
+}
+body.fd-page-landing .fd-split-visual > .admonition.placeholder {
+    border-radius: var(--fd-radius-md);
+}
+
+
+/* INFO CARD ---------------------------------------------------------------
+   A neutral side-panel companion to prose in a `.fd-split`. Used when
+   the visual companion is metadata (hardware config, version list,
+   key facts) rather than a literal image. */
+body.fd-page-landing .fd-info-card {
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    background: var(--fd-surface);
+    padding: var(--fd-space-4);
+    box-shadow: var(--fd-shadow-1);
+}
+body.fd-page-landing .fd-info-card > .fd-info-card-title,
+body.fd-page-landing .fd-info-card > p.fd-info-card-title {
+    font-size: var(--fd-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fd-accent);
+    margin: 0 0 var(--fd-space-2);
+}
+body.fd-page-landing .fd-info-card dl,
+body.fd-page-landing .fd-info-card ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+/* Ordered lists keep their numbering — they're the step-flow shape. */
+body.fd-page-landing .fd-info-card ol {
+    margin: 0;
+    padding-left: var(--fd-space-4);
+}
+body.fd-page-landing .fd-info-card ol > li {
+    font-size: var(--fd-text-sm);
+    color: var(--fd-text);
+    line-height: 1.5;
+    margin-bottom: var(--fd-space-2);
+}
+body.fd-page-landing .fd-info-card ol > li:last-child {
+    margin-bottom: 0;
+}
+body.fd-page-landing .fd-info-card dl > dt {
+    font-size: var(--fd-text-xs);
+    color: var(--fd-text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-top: var(--fd-space-2);
+}
+body.fd-page-landing .fd-info-card dl > dt:first-child {
+    margin-top: 0;
+}
+body.fd-page-landing .fd-info-card dl > dd {
+    margin: var(--fd-space-1) 0 0;
+    font-size: var(--fd-text-sm);
+    color: var(--fd-text);
+    line-height: 1.5;
+}
+
+
+/* SPLIT-EMBEDDED CODE BLOCK ----------------------------------------------
+   When a `.. code-block::` is dropped into a split column, kill the
+   horizontal margins it would otherwise inherit and give it the column
+   width. */
+body.fd-page-landing .fd-split-visual .highlight,
+body.fd-page-landing .fd-split-text .highlight {
+    margin: 0;
+    width: 100%;
+}
+
+
+/* RESPONSIVE — landing-specific overrides --------------------------------- */
+
+@media (max-width: 768px) {
+    body.fd-page-landing .fd-landing-main > section > section {
+        padding-block: var(--fd-space-5);
+    }
+    body.fd-page-landing .fd-hero-band {
+        padding-block: var(--fd-space-5);
+    }
 }
 
 

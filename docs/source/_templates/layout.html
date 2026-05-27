@@ -22,40 +22,60 @@ SPDX-License-Identifier: Apache-2.0
          </div>
        </main>
 
-   That's the right shape for reference docs but reads as "docs page
-   with a hero on top" on the homepage / benchmarks / community pages.
-   For those pages we bypass the article scaffold entirely and emit
-   `{{ body }}` directly into a full-bleed wrapper. Our `fd-*`
-   components (hero, stat grid, feature card, etc.) bring their own
-   layout via `--fd-max-content`.
+   That's the right shape for autodoc reference but reads as "docs page
+   with a hero on top" on every non-API page. **Every page except
+   `api/*`** is rendered with the marketing layout — bypassed article
+   scaffold, no sidebars, full-bleed wrapper. Our `fd-*` components
+   (hero, stat grid, feature card, etc.) bring their own layout via
+   `--fd-max-content`.
 
-   `pagename` is the Sphinx-source path without extension, so checking
-   `pagename == master_doc`, `pagename.startswith('benchmarks/')`, etc.
-   picks the right set.
+   `pagename` is the Sphinx-source path without extension. Only
+   `api/*` falls through to pydata's default `docs_main`; everything
+   else (homepage, benchmarks, community, quickstart, developer
+   guides, models) uses the marketing layout.
 #}
 {% block docs_main %}
-  {% set _fd_is_landing = pagename == master_doc
-                          or pagename.startswith('benchmarks/')
-                          or pagename.startswith('community/') %}
+  {% set _fd_is_landing = not pagename.startswith('api/') %}
   {% if _fd_is_landing %}
     <div class="fd-landing-main">
       {{ body }}
     </div>
-    <footer class="bd-footer-content fd-landing-footer">
-      {% include "sections/footer-content.html" %}
-    </footer>
+    {# Skip the bd-footer-content slot on landing pages — pydata's
+       footer-content section is unused on this project (it'd render
+       to an empty <footer> that the marketing-layout CSS would still
+       paint as a visible empty band). The site-wide copyright still
+       renders via the outer bd-footer below the main element. #}
   {% else %}
     {{ super() }}
   {% endif %}
 {% endblock docs_main %}
 
 {#
-   Tag <body> so CSS can target front-of-site pages without `:has()`
+   Tag <body> so CSS can target marketing pages without `:has()`
    tricks. Same set as the `docs_main` switch above.
+
+   `fd-prose-narrow` is layered on top of `fd-page-landing` for the
+   prose-heavy sub-pages — community subpages, quickstart walkthroughs,
+   developer guides, and per-model pages. These are reading-column
+   surfaces (paragraphs of explanation, code blocks, walkthrough
+   steps) that benefit from a narrower line length and tighter band
+   padding than the marketing grids on section index pages.
+
+   The section *index* pages themselves (`quickstart/index`,
+   `developer_guides/index`, `models/index`, `community/index`,
+   `benchmarks/index`, and the root `index`) keep the wider default
+   so their hero band, asymmetric splits, and tile grids have room
+   to breathe.
 #}
 {% block body_tag %}
-  {% set _fd_is_landing = pagename == master_doc
-                          or pagename.startswith('benchmarks/')
-                          or pagename.startswith('community/') %}
-  <body data-default-mode="{{ default_mode }}"{% if _fd_is_landing %} class="fd-page-landing"{% endif %}>
+  {% set _fd_is_landing = not pagename.startswith('api/') %}
+  {% set _fd_prose_narrow_indices = ('community/index',
+                                     'quickstart/index',
+                                     'developer_guides/index',
+                                     'models/index',
+                                     'benchmarks/index') %}
+  {% set _fd_is_prose_narrow = _fd_is_landing
+                               and pagename != master_doc
+                               and pagename not in _fd_prose_narrow_indices %}
+  <body data-default-mode="{{ default_mode }}"{% if _fd_is_landing %} class="fd-page-landing{% if _fd_is_prose_narrow %} fd-prose-narrow{% endif %}"{% endif %}>
 {% endblock body_tag %}

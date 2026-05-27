@@ -16,28 +16,51 @@
 Benchmarks
 ==========
 
-FlashDreams is built for **steady-state streaming video diffusion**: the
-interesting numbers are not "time to first frame" but the cost of every
-subsequent autoregressive step once KV caches are warm, CUDA graphs are
-captured, and the pipeline is in its hot loop. This page documents how
-we measure that cost, on what hardware, with what software, and how
-FlashDreams compares to upstream baselines.
+.. container:: fd-hero fd-hero-band
 
-The narrative performance story — what makes streaming inference fast
-at all — lives in
-`PERFORMANCE.md <https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md>`_;
-this page is the **measurement** counterpart, not a duplicate.
+   .. container:: fd-hero-eyebrow
 
-.. admonition:: New to streaming inference?
-   :class: fd-callout
+      Measurement, not marketing
 
-   Start with :doc:`../index` for an overview, then walk a recipe in the
-   :doc:`/quickstart/index` before
-   reading these numbers in context. The architectural rationale lives
-   in the :doc:`/api/index`.
+   .. rubric:: How fast is FlashDreams, really?
+      :class: fd-hero-title
+
+   .. container:: fd-hero-lede
+
+      FlashDreams is built for **steady-state streaming video
+      diffusion** — the interesting numbers are not "time to first
+      frame" but the cost of every subsequent autoregressive step
+      once KV caches are warm, CUDA graphs are captured, and the
+      pipeline is in its hot loop. This page documents what we
+      measure, on what hardware, with what software, and how
+      FlashDreams compares to upstream baselines.
+
+   .. container:: fd-cta-row
+
+      .. button-link:: https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md
+         :color: primary
+
+         Read PERFORMANCE.md
+
+      .. button-ref:: /quickstart/index
+         :ref-type: doc
+         :color: secondary
+         :outline:
+
+         Reproduce locally
 
 Headline metrics
 ----------------
+
+.. container:: fd-eyebrow
+
+   Steady-state, post-warmup, post-graph-capture
+
+.. container:: fd-lede
+
+   Four numbers FlashDreams targets per recipe. The grid below mirrors
+   the one on the :doc:`landing page </index>`; the two must stay in
+   lock-step (see the design system's multi-placement notes).
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -116,133 +139,208 @@ Headline metrics
 
    **Reproduce with:** the per-row CLI invocations in *Methodology*.
 
+.. admonition:: New to streaming inference?
+   :class: fd-callout
+
+   Start with :doc:`/index` for an overview, then walk a recipe in the
+   :doc:`/quickstart/index` before reading these numbers in context.
+   The architectural rationale lives in the :doc:`/api/index`.
 
 What these benchmarks measure
 -----------------------------
 
-For each recipe we report:
+.. container:: fd-eyebrow
 
-- **Steady-state step latency.** Wall-clock of one AR step
-  (``diffuse`` + ``decode`` + ``finalize``) once past AR step 2 and the
-  CUDA graph is captured. p50 and p95 of the steady window.
-- **Throughput.** Frames per second once steady; for bidirectional
-  recipes, total frames / total wall-clock for one full generation.
-- **Peak GPU memory.** ``torch.cuda.max_memory_allocated`` in GiB,
-  plus reserved memory for fragmentation analysis.
-- **Scaling efficiency.** Multi-GPU throughput as a fraction of the
-  ideal linear scaling baseline; reported with the ring-attention
-  topology used.
+   Scope and metrics
 
-Quality metrics (FVD, CLIP-T) are tracked by each recipe's training
-pipeline and are **out of scope** here; we only verify that the
-inference path is bit-for-bit (or tolerance-bounded) parity with the
-upstream reference. Parity is noted per recipe.
+.. container:: fd-lede
+
+   Per-recipe, we report four numbers. Quality metrics (FVD, CLIP-T)
+   are tracked by each recipe's training pipeline and are **out of
+   scope** here — we only verify that the inference path is bit-for-
+   bit (or tolerance-bounded) parity with the upstream reference.
+   Parity status is noted per recipe.
+
+.. grid:: 1 2 2 2
+   :gutter: 3
+
+   .. grid-item-card:: Steady-state step latency
+      :class-card: fd-feature
+
+      Wall-clock of one AR step (``diffuse`` + ``decode`` +
+      ``finalize``) once past AR step 2 and the CUDA graph is
+      captured. p50 and p95 of the steady window.
+
+   .. grid-item-card:: Throughput
+      :class-card: fd-feature
+
+      Frames per second once steady; for bidirectional recipes,
+      total frames / total wall-clock for one full generation.
+
+   .. grid-item-card:: Peak GPU memory
+      :class-card: fd-feature
+
+      ``torch.cuda.max_memory_allocated`` in GiB, plus reserved
+      memory for fragmentation analysis.
+
+   .. grid-item-card:: Scaling efficiency
+      :class-card: fd-feature
+
+      Multi-GPU throughput as a fraction of the ideal linear scaling
+      baseline; reported with the ring-attention topology used.
 
 Methodology
 -----------
 
-Every Results row is generated by **one** of the following invocations.
+.. container:: fd-eyebrow
 
-**1. Single-GPU per-step latency.** Drive a recipe end-to-end through
-``flashdreams-run``, parse the per-step log lines, drop the first two
-AR steps as warm-up, then take the median and 95th percentile of the
-remaining ``total(w/o finalize)`` values.
+   Four templates, every row reproducible
 
-.. code-block:: bash
+.. container:: fd-split fd-split-asymmetric-reverse
 
-   uv run flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-flash \
-       --total-blocks 7 \
-       2>&1 | tee /tmp/bench-self-forcing.log
+   .. container:: fd-split-text
 
-**2. Throughput.** Same invocation; take steady-state window as
-``total − warmup`` and divide generated frame count by it.
+      Every Results row is generated by one of the four invocations
+      below. We do not report mean — single-step JIT / allocator
+      outliers skew it. All step-latency numbers are the **median over
+      five repeat runs** of the AR-2-onward window. p95 is reported
+      alongside p50 only when the spread is informative (> 5 % of p50).
 
-.. code-block:: bash
+      **1. Single-GPU per-step latency.** Drive a recipe end-to-end
+      through ``flashdreams-run``, parse the per-step log lines, drop
+      the first two AR steps as warm-up, then take the median and 95th
+      percentile of the remaining ``total(w/o finalize)`` values.
 
-   uv run flashdreams-run <streaming-recipe-slug> --total-blocks <N> \
-       --output-dir /tmp/bench-frames
+      .. code-block:: bash
 
-``--total-blocks`` is defined on streaming-runner subclasses
-(``self_forcing``, ``causal_forcing``, ``fastvideo_causal_wan22``,
-``lingbot``, ``omnidreams``); bidirectional and non-streaming runners
-(``wan21-*``, ``cosmos2-*``) drop the flag and emit a single end-to-end
-output.
+         uv run flashdreams-run \
+             self-forcing-wan2.1-t2v-1.3b-flash \
+             --total-blocks 7 \
+             2>&1 | tee /tmp/bench-self-forcing.log
 
-**3. Multi-GPU / ring-attention scaling.** Launch with ``torchrun``;
-the recipe transformer auto-detects its context-parallel size from
-``torchrun``'s ``WORLD`` group (no ``--ring-size`` flag — the
-launcher is the source of truth). Sweep world size 1 → 2 → 4 → 8.
+      **2. Throughput.** Same invocation; take steady-state window as
+      ``total − warmup`` and divide generated frame count by it.
 
-.. code-block:: bash
+      .. code-block:: bash
 
-   uv run torchrun --nproc_per_node=8 --no-python \
-       flashdreams-run wan21-t2v-1.3b-480p
+         uv run flashdreams-run \
+             <streaming-recipe-slug> --total-blocks <N> \
+             --output-dir /tmp/bench-frames
 
-**4. Upstream-baseline parity.** Same recipe, same model checkpoint,
-under the upstream library's own environment. Feeds the
-*Comparison* section.
+      ``--total-blocks`` is defined on streaming-runner subclasses
+      (``self_forcing``, ``causal_forcing``,
+      ``fastvideo_causal_wan22``, ``lingbot``, ``omnidreams``);
+      bidirectional and non-streaming runners (``wan21-*``,
+      ``cosmos2-*``) drop the flag and emit a single end-to-end
+      output.
 
-.. code-block:: bash
+      **3. Multi-GPU / ring-attention scaling.** Launch with
+      ``torchrun``; the recipe transformer auto-detects its
+      context-parallel size from ``torchrun``'s ``WORLD`` group (no
+      ``--ring-size`` flag — the launcher is the source of truth).
+      Sweep world size 1 → 2 → 4 → 8.
 
-   # See PERFORMANCE.md for the upstream env setup (e.g. self_forcing).
-   PYTHONPATH=./flashdreams python -m flashdreams.scripts.cli \
-       self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
+      .. code-block:: bash
 
-**Statistical treatment.** All step-latency numbers are the **median
-over five repeat runs** of the AR-2-onward window. p95 is reported
-alongside p50 only when the spread is informative (> 5 % of p50). We
-do not report mean — single-step JIT / allocator outliers skew it.
+         uv run torchrun --nproc_per_node=8 --no-python \
+             flashdreams-run wan21-t2v-1.3b-480p
 
-.. admonition:: PLACEHOLDER — measurement harness
-   :class: placeholder
+      **4. Upstream-baseline parity.** Same recipe, same model
+      checkpoint, under the upstream library's own environment. Feeds
+      the *Versus upstream* section.
 
-   **What goes here:** path to wrapper script(s) under
-   ``scripts/benchmarks/`` that parse logs into the CSVs that back the
-   Results tables. Until that lands, every row is hand-computed from
-   the recipe's stdout.
+      .. code-block:: bash
 
-   **Source data:** TBD: coordinate with infra for the canonical
-   log-parser.
+         # See PERFORMANCE.md for the upstream env setup.
+         PYTHONPATH=./flashdreams python -m flashdreams.scripts.cli \
+             self-forcing-wan2.1-t2v-1.3b-flash --total-blocks 7
 
-   **Reproduce with:** the four CLI templates above.
+   .. container:: fd-split-visual
 
+      .. container:: fd-info-card
 
-Hardware configuration
-----------------------
+         .. container:: fd-info-card-title
 
-.. list-table::
-   :header-rows: 1
-   :widths: 14 14 12 16 16 14 14
+            What we time
 
-   * - System
-     - GPU
-     - Count
-     - NVLink topology
-     - Host CPU
-     - Host RAM
-     - Network
-   * - A100 node
-     - A100 80GB SXM4
-     - 8
-     - NVLink 3 fully connected
-     - TBD
-     - TBD
-     - TBD
-   * - H100 node
-     - H100 80GB SXM5
-     - 8
-     - NVLink 4 fully connected
-     - TBD
-     - TBD
-     - TBD
-   * - GB200 NVL72
-     - GB200
-     - TBD
-     - NVLink 5 (NVL72 fabric)
-     - Grace
-     - TBD
-     - TBD
+         | AR step 2 onward (warm-up dropped)
+         | ``total(w/o finalize)`` per step
+         | Median of 5 repeat runs
+         | p95 reported when spread > 5 %
+
+         .. container:: fd-info-card-title
+
+            What we do **not** report
+
+         | Mean (allocator outliers skew it)
+         | Time-to-first-frame
+         | Quality metrics (FVD, CLIP-T)
+
+         .. container:: fd-info-card-title
+
+            Reproducibility
+
+         | Every row → one CLI template above
+         | Stdout is the source of truth
+         | Hand-aggregated until the
+         | harness lands
+
+      .. admonition:: PLACEHOLDER — measurement harness
+         :class: placeholder
+
+         **What goes here:** wrapper script(s) under
+         ``scripts/benchmarks/`` that parse logs into the CSVs that
+         back the Results tables. Until that lands, every row is
+         hand-computed from the recipe's stdout.
+
+Hardware
+--------
+
+.. container:: fd-eyebrow
+
+   Three test systems
+
+.. container:: fd-lede
+
+   FlashDreams is profiled across A100, H100 SXM5, and GB200 NVL72
+   nodes. The full hardware specification per row is captured below;
+   when the unredacted CPU / RAM / NIC values land, the
+   placeholders are replaced in-place.
+
+.. container:: fd-compare
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 14 14 12 16 16 14 14
+
+      * - System
+        - GPU
+        - Count
+        - NVLink topology
+        - Host CPU
+        - Host RAM
+        - Network
+      * - A100 node
+        - A100 80GB SXM4
+        - 8
+        - NVLink 3 fully connected
+        - TBD
+        - TBD
+        - TBD
+      * - H100 node
+        - H100 80GB SXM5
+        - 8
+        - NVLink 4 fully connected
+        - TBD
+        - TBD
+        - TBD
+      * - GB200 NVL72
+        - GB200
+        - TBD
+        - NVLink 5 (NVL72 fabric)
+        - Grace
+        - TBD
+        - TBD
 
 .. admonition:: PLACEHOLDER — exact hardware spec
    :class: placeholder
@@ -255,35 +353,45 @@ Hardware configuration
 
    **Reproduce with:** scripts under ``scripts/sysinfo/`` (TBD).
 
+Software
+--------
 
-Software configuration
-----------------------
+.. container:: fd-eyebrow
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 30 40
+   Versions pinned per campaign
 
-   * - Component
-     - Version
-     - Notes
-   * - PyTorch
-     - TBD
-     - CUDA build matching the driver below.
-   * - CUDA toolkit
-     - TBD
-     - Compiled-against version, not driver-reported.
-   * - NVIDIA driver
-     - TBD
-     - ``nvidia-smi`` reading.
-   * - Transformer Engine
-     - TBD
-     - Used by recipes that opt into FP8.
-   * - Container image
-     - TBD
-     - See project README for the public equivalent.
-   * - FlashDreams
-     - ``main``
-     - Numbers labelled "main" track the rolling tip.
+.. container:: fd-lede
+
+   Numbers labelled ``main`` track the rolling tip; numbered rows
+   below the table will track tagged releases as those land.
+
+.. container:: fd-compare
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 30 30 40
+
+      * - Component
+        - Version
+        - Notes
+      * - PyTorch
+        - TBD
+        - CUDA build matching the driver below.
+      * - CUDA toolkit
+        - TBD
+        - Compiled-against version, not driver-reported.
+      * - NVIDIA driver
+        - TBD
+        - ``nvidia-smi`` reading.
+      * - Transformer Engine
+        - TBD
+        - Used by recipes that opt into FP8.
+      * - Container image
+        - TBD
+        - See project README for the public equivalent.
+      * - FlashDreams
+        - ``main``
+        - Numbers labelled "main" track the rolling tip.
 
 .. admonition:: PLACEHOLDER — software versions
    :class: placeholder
@@ -297,16 +405,17 @@ Software configuration
    **Reproduce with:** the container image referenced in the row of
    the same name.
 
+Results — autoregressive
+------------------------
 
-Results
--------
+.. container:: fd-eyebrow
 
-Split into the two regimes FlashDreams targets: **autoregressive**
-(KV-cached, causal- / self-forcing) and **bidirectional** (parity
-reference).
+   Steady-state step (ms)
 
-Autoregressive — steady-state step (ms)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. container:: fd-lede
+
+   Median and 95th-percentile step latency across the AR-2-onward
+   window, per recipe. Lower is better.
 
 .. container:: fd-compare fd-compare-numeric
 
@@ -363,9 +472,18 @@ Autoregressive — steady-state step (ms)
 
    **Reproduce with:** *Methodology* CLI #1 for each runner slug.
 
+Results — bidirectional
+-----------------------
 
-Bidirectional — end-to-end (s)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. container:: fd-eyebrow
+
+   End-to-end (s)
+
+.. container:: fd-lede
+
+   Wall-clock for one full denoise pass at each
+   ``(GPU, count, resolution)`` cell. Bidirectional recipes are used
+   as parity references for the streaming variants above.
 
 .. container:: fd-compare fd-compare-numeric
 
@@ -416,63 +534,74 @@ Bidirectional — end-to-end (s)
    **Reproduce with:** *Methodology* CLI #1 (single GPU) or CLI #3
    (multi-GPU / ring attention).
 
-
 Charts
 ------
 
-.. admonition:: PLACEHOLDER — throughput vs batch size
-   :class: placeholder
+.. container:: fd-eyebrow
 
-   **What goes here:** line chart, x = batch size {1, 2, 4, 8},
-   y = frames / s, one series per recipe in *Autoregressive — steady-
-   state step* above. H100 80GB only.
+   Sweeps, not single points
 
-   **Source data:** CSV produced by
-   ``scripts/benchmarks/throughput_sweep.py`` (TBD).
+.. container:: fd-lede
 
-   **Reproduce with:** *Methodology* CLI #2 swept across
-   ``--batch-size {1,2,4,8}`` (flag name TBD per-recipe).
+   Three charts ship alongside the tables once the sweep harness
+   lands. Until then, each placeholder below names the CSV the chart
+   will be drawn from and the methodology row it backs.
 
+.. container:: fd-media-rail
 
-.. admonition:: PLACEHOLDER — scaling vs GPU count
-   :class: placeholder
+   .. container:: fd-media-tile
 
-   **What goes here:** line chart with two y-axes: throughput
-   (frames / s, left) and efficiency (% of linear, right).
-   x = GPU count {1, 2, 4, 8}. One series per recipe, bidirectional
-   only.
+      .. admonition:: PLACEHOLDER — throughput vs batch size
+         :class: placeholder
 
-   **Source data:** CSV produced by
-   ``scripts/benchmarks/scaling_sweep.py`` (TBD).
+         **Chart:** line, x = batch size {1, 2, 4, 8}, y = frames / s.
+         One series per recipe in *Results — autoregressive*.
+         H100 80GB only.
 
-   **Reproduce with:** *Methodology* CLI #3 swept across
-   ``--nproc_per_node {1,2,4,8}`` (CP size auto-derives from
-   ``torchrun``'s WORLD group; no separate ring-size flag).
+         **Source CSV:** ``scripts/benchmarks/throughput_sweep.py``
+         (TBD). **Reproduce with:** *Methodology* CLI #2 swept across
+         ``--batch-size {1,2,4,8}``.
 
+   .. container:: fd-media-tile
 
-.. admonition:: PLACEHOLDER — latency vs resolution
-   :class: placeholder
+      .. admonition:: PLACEHOLDER — scaling vs GPU count
+         :class: placeholder
 
-   **What goes here:** line chart, x = resolution {480p, 720p, 1080p},
-   y = p50 step latency (ms). One series per autoregressive recipe;
-   H100 80GB only.
+         **Chart:** line with two y-axes — throughput (frames / s,
+         left) and efficiency (% of linear, right). x = GPU count
+         {1, 2, 4, 8}. Bidirectional only.
 
-   **Source data:** CSV produced by
-   ``scripts/benchmarks/resolution_sweep.py`` (TBD).
+         **Source CSV:** ``scripts/benchmarks/scaling_sweep.py``
+         (TBD). **Reproduce with:** *Methodology* CLI #3 swept across
+         ``--nproc_per_node {1,2,4,8}``.
 
-   **Reproduce with:** *Methodology* CLI #1 with the resolution flag
-   varied per-recipe (flag name TBD).
+   .. container:: fd-media-tile
 
+      .. admonition:: PLACEHOLDER — latency vs resolution
+         :class: placeholder
 
-Comparison vs upstream baselines
---------------------------------
+         **Chart:** line, x = resolution {480p, 720p, 1080p}, y = p50
+         step latency (ms). One series per autoregressive recipe;
+         H100 80GB only.
 
-The FlashDreams runner calls the same model code paths as the upstream
-library it integrates with, but in a different inference environment:
-KV caches managed by ``flashdreams.infra``, ring attention provided by
-``flashdreams.core``, CUDA graph captured per recipe. The table below
-compares the *same recipe* under each environment, on the *same GPU*.
-Lower is better.
+         **Source CSV:** ``scripts/benchmarks/resolution_sweep.py``
+         (TBD). **Reproduce with:** *Methodology* CLI #1 with the
+         resolution flag varied per-recipe.
+
+Versus upstream
+---------------
+
+.. container:: fd-eyebrow
+
+   Same recipe, same GPU, different runner
+
+.. container:: fd-lede
+
+   The FlashDreams runner calls the same model code paths as the
+   upstream library it integrates with, but in a different inference
+   environment: KV caches managed by ``flashdreams.infra``, ring
+   attention provided by ``flashdreams.core``, CUDA graph captured
+   per recipe. Lower is better.
 
 .. container:: fd-compare fd-compare-numeric
 
@@ -504,9 +633,10 @@ Lower is better.
 .. admonition:: PLACEHOLDER — upstream comparison values
    :class: placeholder
 
-   **What goes here:** fill ``FlashDreams p50`` from the *Autoregressive*
-   table above; collect ``Upstream p50`` by running *Methodology*
-   CLI #4 in the upstream env; ``Ratio`` = upstream / FlashDreams.
+   **What goes here:** fill ``FlashDreams p50`` from the *Results —
+   autoregressive* table above; collect ``Upstream p50`` by running
+   *Methodology* CLI #4 in the upstream env; ``Ratio`` = upstream /
+   FlashDreams.
 
    **Source data:** seed numbers for ``self-forcing`` exist in
    `PERFORMANCE.md
@@ -516,28 +646,6 @@ Lower is better.
    **Reproduce with:** *Methodology* CLI #4 paired with #1 on the same
    GPU + driver.
 
-
-How we got here
----------------
-
-The point of this page is *what* — *why* lives elsewhere:
-
-- The :doc:`/api/index` orients you to the four
-  library surfaces and links to the design notes for ring attention,
-  KV-cache management, and CUDA-graph capture of the steady-state
-  forward.
-- The :doc:`/developer_guides/index` cover
-  the architectural concerns behind the recipes you can run today;
-  *interactive serving* and *new recipes* are the shortest paths to a
-  reproducible local measurement of your own.
-- `PERFORMANCE.md <https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md>`_
-  is the rolling perf narrative: it carries the raw stdout from the
-  three GPUs we've profiled so far, before the numbers were aggregated
-  into this page.
-- :doc:`../community/index` lists the channels to use if a number on
-  this page does not reproduce on your hardware — please file an issue
-  rather than averaging away a discrepancy.
-
 .. admonition:: A note on parity
    :class: fd-callout
 
@@ -546,5 +654,31 @@ The point of this page is *what* — *why* lives elsewhere:
    ``lingbot`` (each has a ``tests/parity_check/run.sh`` intended for
    manual execution in the upstream env, not in CI). Other recipes
    ship smoke tests only. The numbers on this page assume parity
-   holds where it's enforced; see :doc:`../community/index` for how to
-   escalate a regression.
+   holds where it's enforced; see :doc:`../community/index` for how
+   to escalate a regression.
+
+How we got here
+---------------
+
+.. container:: fd-eyebrow
+
+   Pointers into the rest of the project
+
+.. container:: fd-lede
+
+   The point of this page is *what* — *why* lives elsewhere.
+
+- The :doc:`/api/index` orients you to the four library surfaces and
+  links to the design notes for ring attention, KV-cache management,
+  and CUDA-graph capture of the steady-state forward.
+- The :doc:`/developer_guides/index` cover the architectural concerns
+  behind the recipes you can run today; *interactive serving* and
+  *new recipes* are the shortest paths to a reproducible local
+  measurement of your own.
+- `PERFORMANCE.md <https://github.com/NVIDIA/flashdreams/blob/main/PERFORMANCE.md>`_
+  is the rolling perf narrative: it carries the raw stdout from the
+  three GPUs we've profiled so far, before the numbers were
+  aggregated into this page.
+- :doc:`../community/index` lists the channels to use if a number on
+  this page does not reproduce on your hardware — please file an
+  issue rather than averaging away a discrepancy.
