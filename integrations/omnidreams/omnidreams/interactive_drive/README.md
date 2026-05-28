@@ -260,15 +260,31 @@ The HUD also subscribes to the backend's `/bev_stream` and shows a top-down
 BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
 the extra rasterizer dispatch when you don't need it.
 
-**Steering wheel support.** Drop a profile YAML (axis map, FFB settings,
-device-name match patterns) into `configs/wheels/` and the HUD will pick it
-up at startup. With `--wheel-profile auto` (the default), the HUD scans
-`/dev/input/by-id` first, then `/dev/input/event*`, and matches the
-detected device name against each profile's `detection_patterns`. To name a
-specific profile use `--wheel-profile <name>` (matching the YAML filename);
-to bind a known device path directly use `--wheel-device /dev/input/eventX`;
-to disable wheel input entirely use `--no-wheel`. No profiles ship with the
-repo — keyboard-only driving works fine without one.
+**Steering wheel support.** The HUD reads steering, throttle and brake
+from a Linux `evdev` joystick / wheel via a YAML profile that captures the
+device-specific axis map, pedal direction, and force-feedback settings.
+
+The fastest way to set one up is the bundled calibration CLI:
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive-configure-wheel
+```
+
+It auto-detects your wheel, walks you through "centre the wheel" /
+"turn fully left" / "turn fully right" / "press / release each pedal",
+optionally pulses force-feedback for a sanity check, then writes
+`configs/wheels/<your-wheel>.yaml` next to the bundled package data.
+On the next `interactive-drive` launch the HUD picks the profile up
+automatically (`--wheel-profile auto`, the default).
+
+To bypass auto-detect, pass `--wheel-profile <name>` (matching the YAML
+filename stem), or pin a specific device path with
+`--wheel-device /dev/input/eventX`. `--no-wheel` disables wheel input
+entirely (keyboard-only driving works fine without a profile).
+
+If FFB writes fail with a permission error, add yourself to the `input`
+group (`sudo usermod -aG input $USER` + log out / back in) or install a
+udev rule for your device.
 
 ### `--no-hud`: bare backend, local Vulkan window
 

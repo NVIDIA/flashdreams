@@ -90,6 +90,13 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
 
+# Interactive steering-wheel calibration CLI. Walks the user through
+# axis discovery + an optional FFB pulse and writes a YAML profile
+# the demo's ``--wheel-profile auto`` loader picks up. Deliberately
+# kept dependency-light (stdlib + PyYAML only -- *no* slangpy) so
+# users can calibrate before installing the full demo extra.
+interactive-drive-configure-wheel = "omnidreams.interactive_drive.wheel_configurator:main"
+
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
 # scans this group at CLI startup; the entry-point name itself is purely
