@@ -342,12 +342,11 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.11" },
     { name = "scipy", marker = "extra == 'runners'", specifier = ">=1.11" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "torch", marker = "sys_platform != 'win32'", specifier = ">=2.11" },
     { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.11", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchvision", marker = "sys_platform != 'win32'" },
-    { name = "torchvision", marker = "sys_platform != 'win32'", specifier = ">=0.22" },
-    { name = "torchvision", marker = "sys_platform == 'win32'", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.22", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchvision", marker = "sys_platform != 'win32'", specifier = ">=0.26" },
+    { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.26", index = "https://download.pytorch.org/whl/cu130" },
     { name = "tqdm", specifier = ">=4.60" },
     { name = "transformer-engine", extras = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
     { name = "transformers", specifier = ">=5.0,<6" },
@@ -359,11 +358,12 @@ provides-extras = ["dev", "examples", "runners", "serving"]
 
 [[package]]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a2"
+version = "0.1.0a3"
 source = { editable = "../../" }
 dependencies = [
     { name = "diffusers" },
     { name = "flashdreams" },
+    { name = "flashdreams-wan22" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "mediapy" },
     { name = "moviepy" },
@@ -375,12 +375,28 @@ dependencies = [
 requires-dist = [
     { name = "diffusers", specifier = ">=0.34" },
     { name = "flashdreams", editable = "../../../../flashdreams" },
+    { name = "flashdreams-wan22", editable = "../../../wan22" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "moviepy", specifier = ">=1.0,<2" },
     { name = "opencv-python-headless" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-wan22"
+version = "0.1.0a3"
+source = { editable = "../../../wan22" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "../../../../flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
 
