@@ -20,6 +20,10 @@ const eventLog = document.getElementById("eventLog")
 const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
+const firstFramePreview = document.getElementById("firstFramePreview")
+const firstFrameInput = document.getElementById("firstFrameInput")
+const firstFrameName = document.getElementById("firstFrameName")
+const promptInput = document.getElementById("promptInput")
 const fpsValue = document.getElementById("fpsValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
@@ -49,6 +53,11 @@ let heldKeySequence = 0
 let mockChunkIndex = 0
 let mockGenerationStarted = false
 let mockChunkTimer = null
+let actionStarted = false
+let promptEdited = false
+let initialScene = null
+let selectedFirstFrameUrl = null
+let selectedFirstFrameFile = null
 
 const metrics = {
   fps: null,
@@ -119,6 +128,106 @@ function setFlow(message) {
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+  updateReadyPreview()
+}
+
+function updateReadyPreview() {
+  const canPreview = !document.body.classList.contains("has-video")
+  const hasSelectedImage = selectedFirstFrameUrl !== null
+  const hasInitialImage = Boolean(initialScene && initialScene.has_first_frame)
+
+  if (hasSelectedImage) {
+    firstFramePreview.src = selectedFirstFrameUrl
+  } else if (hasInitialImage && initialScene.first_frame_url) {
+    firstFramePreview.src = `${initialScene.first_frame_url}?t=${Date.now()}`
+  }
+
+  document.body.classList.toggle(
+    "is-ready-preview",
+    canPreview && (hasSelectedImage || hasInitialImage)
+  )
+}
+
+function applyInitialScene(scene) {
+  initialScene = scene
+  if (!promptEdited && typeof scene.prompt === "string") {
+    promptInput.value = scene.prompt
+  }
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = scene.has_first_frame ? "Example Image" : "Choose Image"
+  }
+  if (scene.model) {
+    metrics.model = scene.model
+  }
+  if (scene.resolution && typeof scene.resolution === "object") {
+    const width = Number(scene.resolution.width)
+    const height = Number(scene.resolution.height)
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      metrics.resolution = `${width}x${height}`
+    }
+  }
+  renderMetrics()
+  updateReadyPreview()
+}
+
+async function loadInitialScene() {
+  if (mockMode) {
+    applyInitialScene({
+      prompt: promptInput.value,
+      has_first_frame: selectedFirstFrameFile !== null,
+      model: metrics.model,
+      resolution: { width: 832, height: 464 },
+      input_source: selectedFirstFrameFile ? "uploaded" : "default",
+    })
+    return
+  }
+  try {
+    const response = await fetch("/api/session/initial_scene")
+    if (!response.ok) {
+      throw new Error(`initial scene failed (${response.status})`)
+    }
+    applyInitialScene(await response.json())
+  } catch (error) {
+    logEvent(`initial scene unavailable: ${error.message}`, { source: "client" })
+  }
+}
+
+async function uploadSessionInputIfNeeded() {
+  const prompt = promptInput.value.trim()
+  const hasPrompt = promptEdited && prompt.length > 0
+  const hasImage = selectedFirstFrameFile !== null
+  if (!hasPrompt && !hasImage) {
+    return
+  }
+
+  if (mockMode) {
+    applyInitialScene({
+      prompt: hasPrompt ? prompt : promptInput.value,
+      has_first_frame: hasImage,
+      model: metrics.model,
+      resolution: { width: 832, height: 464 },
+      input_source: "uploaded",
+    })
+    return
+  }
+
+  const form = new FormData()
+  if (hasPrompt) {
+    form.append("prompt", prompt)
+  }
+  if (selectedFirstFrameFile) {
+    form.append("image", selectedFirstFrameFile, selectedFirstFrameFile.name)
+  }
+
+  const response = await fetch("/api/session/input", {
+    method: "POST",
+    body: form,
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`input upload failed (${response.status}): ${text}`)
+  }
+  applyInitialScene(await response.json())
 }
 
 function renderMetrics() {
@@ -217,6 +326,8 @@ function takeObservedActionLatency(now = performance.now()) {
 
 function sendControlAction(action) {
   if (mockMode && connected && !controlChannel) {
+    actionStarted = true
+    updateReadyPreview()
     inferenceInFlight = true
     mockGenerationStarted = true
     recordActionSent(action)
@@ -230,6 +341,8 @@ function sendControlAction(action) {
     return false
   }
 
+  actionStarted = true
+  updateReadyPreview()
   inferenceInFlight = true
   controlChannel.send(
     JSON.stringify({
@@ -460,6 +573,8 @@ function disconnectSession({ notify = true } = {}) {
   stopHeartbeat()
   stopStatsPolling()
   connected = false
+  actionStarted = false
+  updateReadyPreview()
   connectButton.disabled = false
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
@@ -484,11 +599,16 @@ async function connectSession() {
 
   connectButton.disabled = true
   setStatus("Connecting", "connecting")
-  setFlow("creating peer connection")
+  setFlow("preparing input")
   logEvent("connecting to server...", { source: "client" })
   disconnecting = false
+  actionStarted = false
+  updateReadyPreview()
 
   try {
+    await uploadSessionInputIfNeeded()
+    setFlow("creating peer connection")
+
     peerConnection = new RTCPeerConnection()
     controlChannel = peerConnection.createDataChannel("controls")
     peerConnection.addTransceiver("video", { direction: "recvonly" })
@@ -531,6 +651,8 @@ async function connectSession() {
       }
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
+        actionStarted = false
+        updateReadyPreview()
         connectButton.disabled = false
         stopHeartbeat()
         stopStatsPolling()
@@ -811,6 +933,8 @@ async function startMockSession() {
   setStatus("Connecting", "connecting")
   setFlow("mock warmup")
   logEvent("connecting to mock server...", { source: "client" })
+  actionStarted = false
+  await uploadSessionInputIfNeeded()
   await new Promise((resolve) => {
     window.setTimeout(resolve, 260)
   })
@@ -838,12 +962,33 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  void loadInitialScene()
   window.requestAnimationFrame(drawMockScene)
   startVideoFrameMonitor()
 }
 
 connectButton.addEventListener("click", () => {
   void connectSession()
+})
+firstFrameInput.addEventListener("change", () => {
+  const [file] = firstFrameInput.files
+  selectedFirstFrameFile = file || null
+  if (selectedFirstFrameUrl) {
+    URL.revokeObjectURL(selectedFirstFrameUrl)
+    selectedFirstFrameUrl = null
+  }
+  if (selectedFirstFrameFile) {
+    selectedFirstFrameUrl = URL.createObjectURL(selectedFirstFrameFile)
+    firstFrameName.textContent = selectedFirstFrameFile.name
+  } else {
+    firstFrameName.textContent = initialScene && initialScene.has_first_frame
+      ? "Example Image"
+      : "Choose Image"
+  }
+  updateReadyPreview()
+})
+promptInput.addEventListener("input", () => {
+  promptEdited = true
 })
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {

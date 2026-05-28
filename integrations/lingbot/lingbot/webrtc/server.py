@@ -20,10 +20,12 @@ import gc
 import logging
 import os
 from pathlib import Path
+from typing import Protocol, cast
 
 import torch
 import torch.distributed as dist
 from aiohttp import web
+from aiohttp.multipart import BodyPartReader
 from loguru import logger
 
 from flashdreams.core.distributed import (
@@ -33,7 +35,12 @@ from flashdreams.core.distributed import (
     init as distributed_init,
 )
 from flashdreams.serving.network import get_external_ip
-from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
+from flashdreams.serving.webrtc.server import (
+    SESSION_MANAGER_KEY,
+    SessionBusyError,
+    WebRTCSessionManager,
+    create_webrtc_app,
+)
 from lingbot.runner import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     EXAMPLE_DATA_DIR_LOCAL,
@@ -41,11 +48,25 @@ from lingbot.runner import (
     example_data_dirname,
 )
 from lingbot.webrtc.session import (
+    LingbotImagePayload,
     LingbotRuntimeConfig,
+    LingbotSessionInput,
     LingbotWebRTCSessionManager,
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+MAX_UPLOAD_IMAGE_BYTES = 15 * 1024 * 1024
+MAX_PROMPT_CHARS = 2_000
+
+
+class LingbotSessionManager(WebRTCSessionManager, Protocol):
+    def get_initial_scene(self) -> dict[str, object]: ...
+    def get_first_frame(self) -> LingbotImagePayload: ...
+    def set_pending_session_input(self, session_input: LingbotSessionInput) -> None: ...
+
+
+def _get_lingbot_manager(app: web.Application) -> LingbotSessionManager:
+    return cast(LingbotSessionManager, app[SESSION_MANAGER_KEY])
 
 
 def configure_logging(*, world_rank: int | None = None) -> None:
@@ -115,12 +136,92 @@ def create_app(
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or LingbotWebRTCSessionManager()
-    return create_webrtc_app(
+    app = create_webrtc_app(
         web_dir=WEB_DIR,
         session_manager=manager,
         preload_name="Lingbot",
         request_session_url=request_session_url,
     )
+    app.router.add_get("/api/session/initial_scene", _initial_scene)
+    app.router.add_get("/api/session/first_frame", _first_frame)
+    app.router.add_post("/api/session/input", _session_input)
+    return app
+
+
+async def _initial_scene(request: web.Request) -> web.StreamResponse:
+    manager = _get_lingbot_manager(request.app)
+    return web.json_response(manager.get_initial_scene())
+
+
+async def _first_frame(request: web.Request) -> web.StreamResponse:
+    manager = _get_lingbot_manager(request.app)
+    payload = manager.get_first_frame()
+    if not isinstance(payload, LingbotImagePayload):
+        raise web.HTTPInternalServerError(reason="Invalid Lingbot first-frame payload.")
+    return web.Response(body=payload.data, content_type=payload.content_type)
+
+
+async def _read_upload_bytes(field: BodyPartReader) -> bytes:
+    data = bytearray()
+    while True:
+        chunk = await field.read_chunk(size=64 * 1024)
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > MAX_UPLOAD_IMAGE_BYTES:
+            raise web.HTTPRequestEntityTooLarge(
+                max_size=MAX_UPLOAD_IMAGE_BYTES,
+                actual_size=len(data),
+            )
+    return bytes(data)
+
+
+async def _session_input(request: web.Request) -> web.StreamResponse:
+    try:
+        reader = await request.multipart()
+    except Exception as exc:
+        raise web.HTTPBadRequest(reason="Expected multipart session input.") from exc
+
+    prompt: str | None = None
+    image_bytes: bytes | None = None
+    image_content_type = "image/jpeg"
+    async for field in reader:
+        if field.name == "prompt":
+            prompt = (await field.text()).strip()
+            if len(prompt) > MAX_PROMPT_CHARS:
+                raise web.HTTPBadRequest(
+                    reason=f"Prompt must be <= {MAX_PROMPT_CHARS} characters."
+                )
+            continue
+        if field.name == "image" and field.filename:
+            image_content_type = field.headers.get(
+                "Content-Type", "application/octet-stream"
+            )
+            if not image_content_type.startswith("image/"):
+                raise web.HTTPBadRequest(
+                    reason="Uploaded first frame must be an image."
+                )
+            image_bytes = await _read_upload_bytes(field)
+            if not image_bytes:
+                raise web.HTTPBadRequest(reason="Uploaded first-frame image is empty.")
+
+    if not prompt and image_bytes is None:
+        raise web.HTTPBadRequest(reason="Upload a prompt, an image, or both.")
+
+    manager = _get_lingbot_manager(request.app)
+    try:
+        manager.set_pending_session_input(
+            LingbotSessionInput(
+                prompt=prompt or None,
+                first_frame_image_bytes=image_bytes,
+                first_frame_content_type=image_content_type,
+            )
+        )
+    except SessionBusyError as exc:
+        raise web.HTTPConflict(reason=str(exc)) from exc
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
+    return web.json_response(manager.get_initial_scene())
 
 
 def build_runtime_config(

@@ -55,7 +55,9 @@ class _FakePipeline:
         return self
 
     def initialize_cache(self, *, text: list[str], image: torch.Tensor) -> object:
-        self.events.append(("initialize_cache", tuple(image.shape), str(image.device)))
+        self.events.append(
+            ("initialize_cache", tuple(text), tuple(image.shape), str(image.device))
+        )
         return object()
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
@@ -106,16 +108,16 @@ def _patch_pipeline_factory(
     derive_calls: list[dict[str, Any]],
     pipeline_events: list[tuple[Any, ...]],
 ) -> None:
-    """Register a fake entry in ``PIPELINE_CONFIGS`` for ``config_name``
-    and swap :func:`session.derive_config` with a capturing stub that
+    """Register a fake pipeline config for ``config_name`` and swap
+    :func:`session.derive_config` with a capturing stub that
     returns a :class:`_FakePipelineConfig`.
 
     The runtime path under test is::
 
-        derive_config(base_config=PIPELINE_CONFIGS[name], ...)
+        derive_config(base_config=pipeline_configs[name], ...)
             .setup().to(device=...)
     """
-    monkeypatch.setitem(session.PIPELINE_CONFIGS, config_name, object())
+    monkeypatch.setattr(session, "_pipeline_configs", lambda: {config_name: object()})
 
     def _fake_derive_config(**kwargs: Any) -> _FakePipelineConfig:
         derive_calls.append(kwargs)
@@ -192,6 +194,94 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
 
     # Without context parallelism the base seed is used verbatim.
     assert derive_calls[0]["diffusion_model"]["seed"] == 10
+
+
+def test_initialize_sync_uses_default_camera_without_intrinsics_or_poses(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "image.jpg").touch()
+    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
+    _patch_cv2(monkeypatch, height=4, width=4)
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+    monkeypatch.setattr(
+        session.np,
+        "load",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("WebRTC runtime must not load intrinsics.npy or poses.npy")
+        ),
+    )
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=4,
+            video_width=4,
+            example_data_dir=tmp_path,
+        )
+    )
+
+    runtime._initialize_sync()
+
+    assert runtime._base_intrinsics is not None
+    assert tuple(runtime._base_intrinsics.shape) == (4,)
+    assert runtime._world_scale == 1.0
+    assert any(
+        event[0] == "initialize_cache" and event[1] == ("drive through a city",)
+        for event in pipeline_events
+    )
+
+
+def test_reset_rollout_accepts_uploaded_prompt_and_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_minimal_assets(tmp_path)
+    default_image = np.zeros((4, 4, 3), dtype=np.uint8)
+    uploaded_image = np.full((4, 4, 3), 255, dtype=np.uint8)
+    monkeypatch.setattr(session.cv2, "imread", lambda path, flags: default_image.copy())
+    monkeypatch.setattr(
+        session.cv2, "imdecode", lambda data, flags: uploaded_image.copy()
+    )
+    monkeypatch.setattr(session.cv2, "cvtColor", lambda src, code: src)
+    monkeypatch.setattr(
+        session.cv2, "resize", lambda src, size, interpolation: src.copy()
+    )
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=4,
+            video_width=4,
+            example_data_dir=tmp_path,
+        )
+    )
+    runtime._initialize_sync()
+
+    runtime._reset_rollout_sync(
+        session_input=session.LingbotSessionInput(
+            prompt="follow a coastal highway",
+            first_frame_image_bytes=b"uploaded-image",
+            first_frame_content_type="image/png",
+        )
+    )
+
+    assert any(
+        event[0] == "initialize_cache" and event[1] == ("follow a coastal highway",)
+        for event in pipeline_events
+    )
 
 
 @pytest.mark.manual
