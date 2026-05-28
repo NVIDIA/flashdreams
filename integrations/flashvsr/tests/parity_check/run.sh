@@ -32,8 +32,10 @@ PIN_COMMIT="b527c6f285fb30df530f5febc8b45764a789c961"
 HF_REPO="JunhaoZhuang/FlashVSR-v1.1"
 HF_LOCAL_DIR="examples/WanVSR/FlashVSR-v1.1"
 
-# Default input video for the benchmark. Override with ``INPUT_PATH=...``.
+# Default input video and scale for the benchmark. Override with
+# ``INPUT_PATH=...`` and ``SCALE=...``.
 INPUT_PATH="${INPUT_PATH:-${REPO_DIR}/examples/WanVSR/inputs/example4.mp4}"
+SCALE="${SCALE:-4.0}"
 
 # ``data_local/docker_interactive.sh`` pins
 # ``UV_PROJECT_ENVIRONMENT=/tmp/venv/flashdreams`` on the docker session so
@@ -81,12 +83,12 @@ fi
 # ``uv pip install -e ./FlashVSR`` further down only works once the patch
 # has landed. Reset the worktree to the pinned commit + drop untracked
 # files (e.g. a benchmark.py from a prior run) first so the apply is
-# idempotent across patch revisions; the HF download dir is gitignored
-# upstream and survives ``git clean -fd``.
+# idempotent across patch revisions; preserve the HF download dir explicitly so
+# reruns do not redownload checkpoints after ``git clean -fd``.
 if [[ -f "${PATCH_FILE}" ]]; then
     echo "[setup] resetting upstream tree to ${PIN_COMMIT} before applying patch"
     git reset --hard "${PIN_COMMIT}"
-    git clean -fd
+    git clean -fd -e "${HF_LOCAL_DIR}/"
     echo "[setup] applying ${PATCH_FILE}"
     git apply "${PATCH_FILE}"
 else
@@ -94,14 +96,13 @@ else
 fi
 
 # --------------------------------------------------------------- HF downloads
-# Upstream README uses ``git lfs clone``; we use ``huggingface-cli download``
-# instead so the user doesn't need a separate git-lfs install (matches the
-# self_forcing parity-check flow). Idempotent: HF CLI no-ops when the local
-# dir already mirrors the repo.
+# Upstream README uses ``git lfs clone``; we use ``hf download`` instead so the
+# user doesn't need a separate git-lfs install (matches the self_forcing
+# parity-check flow). Idempotent: HF CLI no-ops when the local dir already
+# mirrors the repo.
 if [[ ! -f "${HF_LOCAL_DIR}/diffusion_pytorch_model_streaming_dmd.safetensors" ]]; then
     echo "[setup] downloading ${HF_REPO} -> ${HF_LOCAL_DIR}"
-    uv run huggingface-cli download "${HF_REPO}" \
-        --local-dir-use-symlinks False \
+    uv run hf download "${HF_REPO}" \
         --local-dir "${HF_LOCAL_DIR}"
 else
     echo "[setup] ${HF_LOCAL_DIR} already populated, skipping HF download"
@@ -190,13 +191,10 @@ fi
 # ----------------------------------------------------------------- benchmark
 # ``benchmark.py`` lives next to the upstream inference scripts under
 # ``examples/WanVSR/``; run from that directory so its relative
-# ``./FlashVSR-v1.1`` checkpoint paths resolve. ``FORCE_CUDNN_ATTN=1``
-# routes the (non-sparse) cross-attn path through cuDNN's SDPA backend,
-# matching the default flashdreams runs and what the self_forcing
-# parity-check uses.
-echo "[run] starting benchmark with INPUT_PATH=${INPUT_PATH}"
+# ``./FlashVSR-v1.1`` checkpoint paths resolve.
+echo "[run] starting benchmark with INPUT_PATH=${INPUT_PATH} SCALE=${SCALE}"
 cd "${REPO_DIR}/examples/WanVSR"
-FORCE_CUDNN_ATTN=1 uv run python benchmark.py --input "${INPUT_PATH}"
+uv run python benchmark.py --input "${INPUT_PATH}" --scale "${SCALE}"
 
 # -------------------------------------------------------- parity tests
 # Both parity tests live next to this script and run from the same

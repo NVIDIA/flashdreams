@@ -18,7 +18,7 @@ File originally from https://github.com/nv-tlabs/Cosmos-Drive-Dreams/tree/main/c
 """
 
 import json
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, Optional, TypeVar, cast
 
 import numpy as np
 import torch
@@ -479,8 +479,8 @@ class FThetaCamera(CameraBase):
             self._fw_poly = self._compute_fw_poly()
 
         elif self.reference_poly == "fw":
-            fw_poly_coef = self._fw_poly.coef.copy()
-            fw_poly_coef /= 1 / avg_ratio  # ty:ignore[unsupported-operator]
+            fw_poly_coef = cast(np.ndarray, self._fw_poly.coef.copy())
+            fw_poly_coef *= avg_ratio
 
             self._intrinsics = np.array(
                 [

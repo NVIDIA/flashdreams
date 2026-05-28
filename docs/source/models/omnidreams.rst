@@ -84,7 +84,7 @@ For multi-GPU inference, use:
 
    uv run --project integrations/omnidreams \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
        --example-data True \
        --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
        --total-blocks 20
@@ -160,7 +160,6 @@ When successfully connected, the browser-based UI looks like this:
 
 Performance table
 -----------------
-(TODO: To be updated)
 
 Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
 
@@ -174,34 +173,38 @@ Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
      - 4x GPU
      - 8x GPU
    * - HDMap Encoder
-     - 52 ms
-     - 51 ms
-     - 51 ms
-     - 50 ms
+     - 28 ms
+     - 26 ms
+     - 26 ms
+     - 26 ms
    * - Diffusion DiT
-     - 89 ms
-     - 78 ms
-     - 62 ms
-     - 59 ms
+     - 84 ms
+     - 71 ms
+     - 49 ms
+     - 47 ms
    * - VAE Decoder
-     - 13 ms
-     - 13 ms
-     - 14 ms
-     - 13 ms
+     - 6 ms
+     - 5 ms
+     - 5 ms
+     - 5 ms
    * - KV-cache Update
-     - 40 ms
-     - 36 ms
-     - 34 ms
      - 42 ms
+     - 34 ms
+     - 23 ms
+     - 22 ms
    * - **Total**
-     - **154 ms**
-     - **143 ms**
-     - **127 ms**
-     - **121 ms**
+     - **118 ms**
+     - **102 ms**
+     - **80 ms**
+     - **78 ms**
    * - **Effective FPS**
-     - **52**
-     - **56**
-     - **63**
-     - **66**
+     - **68**
+     - **78**
+     - **100**
+     - **103**
 
-*KV-cache Update is off the hot path and excluded from Total.*
+.. raw:: html
+
+   <p class="model-footnote">
+      KV-cache Update is off the hot path and excluded from Total.
+   </p>

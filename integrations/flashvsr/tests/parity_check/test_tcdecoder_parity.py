@@ -63,6 +63,8 @@ import torch
 from flashvsr.decoder import tcdecoder_state_dict_transform
 from flashvsr.decoder.network import FlashVSR_TAEHV as CandidateTAEHV
 
+pytestmark = pytest.mark.manual
+
 _HERE = Path(__file__).resolve().parent
 _UPSTREAM_TCDECODER = (
     _HERE / "FlashVSR" / "examples" / "WanVSR" / "utils" / "TCDecoder.py"
