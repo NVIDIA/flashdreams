@@ -62,17 +62,19 @@ HF_MODELS_DIR="${HF_MODELS_DIR:-${HY_REPO_DIR}/hf_models}"
 CKPT_PATH="${CKPT_PATH:-${HF_MODELS_DIR}/wan_distilled_model/model.pt}"
 
 IMAGE_PATH="${IMAGE_PATH:-${REPO_ROOT}/data_local/cat_surf.jpg}"
-# ``num_chunk=6`` gives 6 chunks * 4 denoising steps = 24 DiT forwards
-# per side. After discarding the first 5 chunks (20 forwards) per
-# manager's "exclude first 5 AR steps" spec, 4 DiT samples remain --
-# the minimum for a "median" statistic but the largest we can fit:
-# vendor OOMs on 44 GiB at ``num_chunk>=7`` (the compiled-block cache
-# + KV memory pool exceed VRAM there). For more samples on a larger
-# GPU, bump ``NUM_CHUNK`` and ``POSE``.
-NUM_CHUNK="${NUM_CHUNK:-6}"
+# ``num_chunk=4`` is the largest setting that vendor fits in 44 GiB
+# of VRAM: the OOM scales with accumulated KV sequence length, not
+# total chunk count, and crosses the 44 GiB ceiling around
+# ``s23 ~ 14000`` (chunk index >= 5). 4 chunks gives 16 DiT forwards.
+# Default ``WARMUP_CHUNKS=2`` (chunks 0-1 are Inductor autotune + the
+# steepest filling phase of the KV cache) leaves 8 DiT samples for the
+# post-warmup median -- short of the manager's "discard first 5"
+# spec, but on a larger GPU the user can bump ``NUM_CHUNK`` /
+# ``WARMUP_CHUNKS`` back to 8 / 5.
+NUM_CHUNK="${NUM_CHUNK:-4}"
 # Native pose. ``num_chunk * 4 - 1`` motion steps (the parser prepends
 # an identity for the input frame).
-POSE="${POSE:-w-23}"
+POSE="${POSE:-w-15}"
 SEED="${SEED:-0}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
@@ -87,7 +89,10 @@ HY_DIT_PROFILE="${HY_DIT_PROFILE:-1}"
 HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA:-1}"
 # Chunks at the start of the rollout to drop from the DiT median
 # (Inductor autotune + CUDA-graph capture land in the first few).
-WARMUP_CHUNKS="${WARMUP_CHUNKS:-5}"
+# Default 2 because vendor's VRAM ceiling caps ``NUM_CHUNK`` at 4 on
+# 44 GiB; bump to 5 (matching the manager's spec) on larger GPUs where
+# you've also bumped ``NUM_CHUNK`` to 8+.
+WARMUP_CHUNKS="${WARMUP_CHUNKS:-2}"
 
 NATIVE_OUT="${OUTPUT_DIR}/native"
 VENDOR_OUT="${OUTPUT_DIR}/vendor"

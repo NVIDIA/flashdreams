@@ -36,10 +36,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 IMAGES_DIR="${IMAGES_DIR:-${REPO_ROOT}/data_local}"
 # Match bench.sh's VRAM-constrained defaults (vendor OOMs on 44 GiB
-# at num_chunk>=7). 6 chunks * 4 denoising = 24 DiT forwards; discard
-# first 5 chunks = 4 DiT samples post-warmup. Bump on larger GPUs.
-NUM_CHUNK="${NUM_CHUNK:-6}"
-POSE="${POSE:-w-23}"
+# at num_chunk>=5). 4 chunks * 4 denoising = 16 DiT forwards; with
+# the default ``WARMUP_CHUNKS=2`` in bench.sh, 8 DiT samples remain
+# post-warmup. Bump on larger GPUs.
+NUM_CHUNK="${NUM_CHUNK:-4}"
+POSE="${POSE:-w-15}"
 SEED="${SEED:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench_pairs}"
 
