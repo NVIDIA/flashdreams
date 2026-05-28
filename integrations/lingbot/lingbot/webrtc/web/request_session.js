@@ -75,6 +75,24 @@ function normalizeKey(rawKey) {
   return String(rawKey || "").toLowerCase()
 }
 
+function isEditableControlTarget(target) {
+  if (!target || typeof target !== "object") {
+    return false
+  }
+  if (target.isContentEditable === true) {
+    return true
+  }
+
+  const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : ""
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true
+  }
+  if (typeof target.closest === "function") {
+    return target.closest("input, textarea, select, [contenteditable]") !== null
+  }
+  return false
+}
+
 function formatTime() {
   return new Date().toLocaleTimeString([], { hour12: false })
 }
@@ -710,6 +728,10 @@ async function connectSession() {
 }
 
 function handleKeyDown(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
+
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -723,6 +745,10 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
+
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -1019,6 +1045,8 @@ firstFrameUrlInput.addEventListener("input", () => {
 promptInput.addEventListener("input", () => {
   promptEdited = true
 })
+firstFrameUrlInput.addEventListener("focus", releaseAllKeys)
+promptInput.addEventListener("focus", releaseAllKeys)
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)
