@@ -98,6 +98,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             num_heads=self.num_heads,
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
+            cp_method=self.cp_method,
         )
 
     def forward(

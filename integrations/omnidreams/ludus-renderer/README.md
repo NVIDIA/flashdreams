@@ -32,7 +32,7 @@ uv sync
 ```
 
 Dependencies installed:
-- PyTorch 2.0+
+- PyTorch 2.11+
 - NumPy, Pandas, SciPy
 - PyArrow (for parquet scene files)
 - Pillow, ImageIO (for image handling)

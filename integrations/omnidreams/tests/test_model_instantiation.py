@@ -16,7 +16,7 @@
 """Omnidreams-specific model instantiation tests.
 
 Split out from ``flashdreams/tests/test_model_instantiation.py`` when
-Omnidreams moved out of the in-tree recipe set; the wan/cosmos/umt5
+Omnidreams moved out of the in-tree integration set; the wan/cosmos/umt5
 tests stay in flashdreams.
 """
 

@@ -164,7 +164,7 @@ def build_flashvsr_v1_1(
     enable_sync_and_profile: bool = False,
     dtype: torch.dtype = torch.bfloat16,
     seed: int = 0,
-    recipe_name: str = "flashvsr-v1.1",
+    name: str = "flashvsr-v1.1",
     attention_mode: Literal["sparse", "full"] = "sparse",
 ) -> FlashVSRPipelineConfig:
     """Default FlashVSR-v1.1 streaming VSR pipeline.
@@ -197,7 +197,7 @@ def build_flashvsr_v1_1(
             one ``cuda.synchronize()`` per step.
         dtype: Compute dtype. ``bfloat16`` matches FlashVSR-tiny weights.
         seed: Diffusion-model initial-noise RNG seed.
-        recipe_name: Slug for the returned pipeline (mirrored into
+        name: Slug for the returned pipeline (mirrored into
             ``runner_name`` by callers). Override per variant when
             shipping multiple presets from this builder.
 
@@ -222,7 +222,7 @@ def build_flashvsr_v1_1(
     )
     checkpoint_path = AVAILABLE_FLASHVSR_CHECKPOINT_PATHS["v1.1-tiny-long"]
     return FlashVSRPipelineConfig(
-        recipe_name=recipe_name,
+        name=name,
         prompt_path=checkpoint_path["prompt"],
         enable_sync_and_profile=enable_sync_and_profile,
         encoder=FlashVSREncoderConfig(
@@ -293,7 +293,7 @@ def _build_sparse_ratio_variant(
     duplicate the ``sparse_ratio * 768*1280 / area`` formula here.
     """
     pipeline = build_flashvsr_v1_1(
-        recipe_name=f"flashvsr-v1.1-sparse-ratio-{sparse_ratio}",
+        name=f"flashvsr-v1.1-sparse-ratio-{sparse_ratio}",
         input_H=704,
         input_W=1280,
         scale=2,
@@ -303,7 +303,7 @@ def _build_sparse_ratio_variant(
         enable_sync_and_profile=True,
     )
     runner = FlashVSRRunnerConfig(
-        runner_name=pipeline.recipe_name,
+        runner_name=pipeline.name,
         description=(
             "FlashVSR-v1.1 streaming video super-resolution "
             f"(2x; sparse_ratio={sparse_ratio} {preset_label} preset; "
@@ -323,7 +323,7 @@ PIPELINE_FLASHVSR_V1_1_SPARSE_1_5, RUNNER_FLASHVSR_V1_1_SPARSE_1_5 = (
 )
 
 PIPELINE_FLASHVSR_V1_1_FULL_ATTN = build_flashvsr_v1_1(
-    recipe_name="flashvsr-v1.1-full-attn",
+    name="flashvsr-v1.1-full-attn",
     input_H=704,
     input_W=1280,
     scale=2,
@@ -333,7 +333,7 @@ PIPELINE_FLASHVSR_V1_1_FULL_ATTN = build_flashvsr_v1_1(
     enable_sync_and_profile=True,
 )
 RUNNER_FLASHVSR_V1_1_FULL_ATTN = FlashVSRRunnerConfig(
-    runner_name=PIPELINE_FLASHVSR_V1_1_FULL_ATTN.recipe_name,
+    runner_name=PIPELINE_FLASHVSR_V1_1_FULL_ATTN.name,
     description=(
         "FlashVSR-v1.1 streaming video super-resolution "
         "(2x; dense full attention; supports multi-GPU context parallelism; "

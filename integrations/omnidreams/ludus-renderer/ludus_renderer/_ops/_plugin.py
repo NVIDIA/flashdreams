@@ -15,11 +15,12 @@
 
 """JIT compilation of the C++/CUDA plugin for Ludus renderer."""
 
-import logging
 import os
+import time
 
 import torch
 import torch.utils.cpp_extension
+from loguru import logger
 
 _cached_plugin = None
 
@@ -103,16 +104,23 @@ def _get_plugin():
 
     # Check for stale lock files
     plugin_name = "ludus_renderer_plugin"
+    build_directory = None
     try:
-        lock_fn = os.path.join(
-            torch.utils.cpp_extension._get_build_directory(plugin_name, False), "lock"
+        build_directory = torch.utils.cpp_extension._get_build_directory(plugin_name, False)
+        lock_fn = os.path.join(build_directory, "lock")
+        logger.info(
+            "Loading Ludus renderer extension {}; build_directory={}.",
+            plugin_name,
+            build_directory,
         )
         if os.path.exists(lock_fn):
-            logging.getLogger("ludus_renderer").warning(
-                "Lock file exists in build directory: '%s'" % lock_fn
+            logger.warning(
+                "Ludus renderer extension lock file exists: {}. "
+                "If no compiler process is active, this may be a stale PyTorch JIT lock.",
+                lock_fn,
             )
-    except:
-        pass
+    except Exception as exc:
+        logger.debug("Could not inspect Ludus renderer extension build directory: {}", exc)
 
     # Speed up compilation on Windows
     if os.name == "nt":
@@ -129,6 +137,7 @@ def _get_plugin():
             pass
 
     # Compile and cache
+    compile_started_at = time.perf_counter()
     source_paths = [os.path.join(os.path.dirname(__file__), fn) for fn in source_files]
     extra_include_paths = [
         os.path.join(os.path.dirname(__file__), "../_cpp/cudaraster/framework"),
@@ -142,6 +151,12 @@ def _get_plugin():
         extra_ldflags=ldflags,
         with_cuda=True,
         verbose=True,
+    )
+    logger.info(
+        "Loaded Ludus renderer extension {} in {:.1f}s{}.",
+        plugin_name,
+        time.perf_counter() - compile_started_at,
+        f"; build_directory={build_directory}" if build_directory else "",
     )
 
     return _cached_plugin

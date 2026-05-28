@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashVSR recipe constants.
+"""FlashVSR integration constants.
 
 Numbers that pin the FlashVSR-v1.1 streaming contract: the chunk-target
 table that the encoder accepts, the TC decoder's latent-channel split

@@ -19,13 +19,13 @@ Wan2.1
 .. raw:: html
 
    <div class="model-link-row">
-     <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://wan.video/" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://arxiv.org/abs/2503.20314" target="_blank" rel="noopener noreferrer">arXiv paper</a>
      <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
-     <a class="model-link-button" href="#" target="_blank" rel="noopener noreferrer">arXiv paper (TODO)</a>
    </div>
 
-Wan2.1 is the bidirectional reference family in FlashDreams, supporting both
-text-to-video (T2V) and image-to-video (I2V) inference presets.
+Wan2.1 is a bidirectional video generation model, supporting both
+text-to-video (T2V) and image-to-video (I2V) tasks.
 
 Installation
 ------------
@@ -43,19 +43,33 @@ To run Wan2.1, launch one of the registered runner slugs via
 
 .. code-block:: bash
 
-   uv run flashdreams-run wan21-t2v-1.3b-480p \
-       --prompt "A reindeer in cinematic sunset light." \
-       --pixel-height 480 --pixel-width 832
+   uv run --project integrations/wan21 \
+       flashdreams-run \
+       wan21-t2v-1.3b-480p \
+       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
+       --pixel-height 832 --pixel-width 480
 
-For multi-GPU inference, use ``torchrun`` instead of ``uv run flashdreams-run``
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 (taking 4 GPUs as an example):
 
 .. code-block:: bash
 
-   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+   uv run --project integrations/wan21 \
+       torchrun --nproc_per_node=4 --no-python flashdreams-run \
        wan21-t2v-1.3b-480p \
-       --prompt "A reindeer in cinematic sunset light." \
-       --pixel-height 480 --pixel-width 832
+       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
+       --pixel-height 832 --pixel-width 480
+
+For I2V, run with the following command:
+
+.. code-block:: bash
+
+   uv run --project integrations/wan21 \
+       flashdreams-run \
+       wan21-i2v-14b-480p \
+       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
+       --image-path https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG \
+       --pixel-height 832 --pixel-width 480
 
 We provide the following variants:
 
@@ -69,3 +83,70 @@ We provide the following variants:
      - Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only).
    * - ``wan21-i2v-14b-480p``
      - Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame).
+
+To inspect all supported CLI arguments and their default values, run:
+
+.. code-block:: bash
+
+   uv run --project integrations/wan21 \
+       flashdreams-run \
+       wan21-t2v-1.3b-480p \
+       --help
+
+Some generated samples from the above commands:
+
+.. raw:: html
+
+   <div class="model-video-grid">
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         prompt: "Two anthropomorphic cats in comfy boxing gear and bright gloves fight intensely on a spotlighted stage."
+       </div>
+     </div>
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         prompt: "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
+         <br/>
+         image: https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG
+       </div>
+     </div>
+   </div>
+
+Profiling benchmark
+-------------------
+
+Here is the profiling benchmark on DiT per-step runtime for FlashDreams Wan2.1
+compared to the `official Wan2.1 implementation <https://github.com/Wan-Video/Wan2.1>`_
+and the `FastVideo <https://github.com/hao-ai-lab/FastVideo>`_ baseline under
+matched settings.
+
+.. raw:: html
+
+   <figure class="benchmark-figure-wrap">
+     <div
+       id="wan21-benchmark-chart"
+       class="benchmark-figure"
+      data-benchmark-md-url="../_static/performance/wan21/perf-0521.md"
+       data-benchmark-series="fastvideo:FastVideo:#f59e0b;official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+       data-chart-aria-label="Wan2.1 benchmark chart"
+     ></div>
+     <figcaption>
+      <p class="model-footnote">
+         This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
+         For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
+         For the official Wan2.1 implementation, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/parity_check">this instruction</a>.
+         For the FastVideo baseline, see
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/baseline_fastvideo">this instruction</a>.
+       </p>
+     </figcaption>
+   </figure>
+  <script src="../_static/js/benchmark_chart.js"></script>

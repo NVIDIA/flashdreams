@@ -93,7 +93,7 @@ def _resolve_image_path(image_path: str | Path) -> Path:
 class Cosmos2T2VRunnerConfig(RunnerConfig):
     """Runner config for the Cosmos-Predict2 T2V variant."""
 
-    _target: type = field(default_factory=lambda: Cosmos2T2VRunner)
+    _target: type["Cosmos2T2VRunner"] = field(default_factory=lambda: Cosmos2T2VRunner)
 
     prompt: str | Path = DEFAULT_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
@@ -187,7 +187,7 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
 class Cosmos2I2VRunnerConfig(Cosmos2T2VRunnerConfig):
     """Runner config for the Cosmos-Predict2 I2V variant."""
 
-    _target: type = field(default_factory=lambda: Cosmos2I2VRunner)
+    _target: type["Cosmos2I2VRunner"] = field(default_factory=lambda: Cosmos2I2VRunner)
 
     image_path: str | Path = DEFAULT_I2V_IMAGE_URL
     """First-frame RGB image. Either a local path or an HTTP(S) URL."""

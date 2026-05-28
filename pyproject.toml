@@ -2,7 +2,7 @@
 members = [
     "flashdreams",
     # Each populated subdir under ``integrations/`` is a standalone
-    # external recipe repo (e.g. ``causal_forcing`` / ``self_forcing``
+    # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
     # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
@@ -66,18 +66,6 @@ name = "block-sparse-attn"
 version = "0.0.2"
 requires-dist = ["torch", "einops"]
 
-# The `transformer-engine-torch==2.14.0` sdist on PyPI is missing its
-# `build_tools/` directory, so any from-source build (which is the only option
-# since there is no prebuilt wheel) crashes inside setup.py with
-# `ModuleNotFoundError: No module named 'build_tools'`. Tracked upstream in
-# https://github.com/NVIDIA/TransformerEngine/issues/1567 — fixed after 2.14.0.
-# Override the source to build from the v2.14.1 git tag, whose tree includes
-# `build_tools/`. Inside the prebuilt flashdreams container TE is already
-# installed system-wide, so this override is only exercised on host-side
-# `uv sync` runs.
-[tool.uv.sources]
-transformer-engine-torch = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.14.1", subdirectory = "transformer_engine/pytorch" }
-
 [tool.pyright]
 extraPaths = [
     "flashdreams",
@@ -100,7 +88,7 @@ reportIncompatibleMethodOverride = "none"
 reportIncompatibleVariableOverride = "none"
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "integrations/omnidreams",
@@ -118,12 +106,18 @@ extra-paths = [
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
+# The ``omnidreams.interactive_drive`` subpackage's flashdreams / slangpy /
+# numpy interop surface has known-untyped areas; exclude both the
+# subpackage source and its tests so workspace ``ty`` stays clean.
+# (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
+    "integrations/omnidreams/omnidreams/interactive_drive/**",
+    "integrations/omnidreams/tests/interactive_drive/**",
 ]
 
 [tool.ty.rules]
-# Intentional pattern: recipe subclasses override base methods with more specific
+# Intentional pattern: integration subclasses override base methods with more specific
 # signatures (violates Liskov but is the established design in this codebase).
 invalid-method-override = "ignore"
 
@@ -135,6 +129,11 @@ replace-imports-with-any = ["transformer_engine.**", "triton.**"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+norecursedirs = [
+    "parity_check",
+    "baseline_fastvideo",
+    "baseline_lightx2v",
+]
 markers = [
     "ci_cpu: CPU-safe test, runs on the CPU CI runner",
     "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
@@ -166,7 +165,7 @@ docs-ci = [
     "numpy>=1.24",
     "safetensors>=0.4",
     "torch>=2.11",
-    "torchvision>=0.22",
+    "torchvision>=0.26",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
 ]

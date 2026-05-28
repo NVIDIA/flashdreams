@@ -55,9 +55,11 @@ class StreamInferencePipelineConfig(InstantiateConfig):
     (training, latent-space evaluation, or pipelines that own decoding).
     """
 
-    _target: type = field(default_factory=lambda: StreamInferencePipeline)
+    _target: type["StreamInferencePipeline"] = field(
+        default_factory=lambda: StreamInferencePipeline
+    )
 
-    recipe_name: str
+    name: str
     """Stable slug for this pipeline variant; the primary key of
     ``<NAME>_CONFIGS``. Runners mirror it as ``runner_name`` so
     ``flashdreams-run <slug>`` resolves to this pipeline."""

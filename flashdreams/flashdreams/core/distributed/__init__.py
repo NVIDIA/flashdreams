@@ -15,6 +15,7 @@
 
 """Distributed-training initialization helpers."""
 
+import atexit
 import ctypes
 import math
 import os
@@ -27,6 +28,22 @@ import torch.distributed as dist
 from loguru import logger
 
 DEFAULT_LOG_LEVEL = "INFO"
+
+
+def _safe_destroy_pg() -> None:
+    """Tear down the default process group on interpreter exit.
+
+    Registered via :func:`atexit.register` from :func:`init` so NCCL stops
+    printing the ``destroy_process_group() was not called before program
+    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``
+    invocation. Best-effort: never raises, so a teardown failure cannot
+    mask the original exit code or exception.
+    """
+    try:
+        if dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
+    except Exception:  # noqa: BLE001 -- best-effort cleanup at exit
+        pass
 
 
 def is_distributed_initialized() -> bool:
@@ -144,6 +161,11 @@ def init() -> int | None:
             timeout=timeout_timedelta,
             device_id=local_rank,
         )
+        # Always destroy the process group on interpreter shutdown so NCCL
+        # does not warn about a leaked group at the end of every run; the
+        # handler is idempotent if a caller (e.g. a long-lived gRPC server)
+        # already destroyed the group explicitly before exiting.
+        atexit.register(_safe_destroy_pg)
         configure_loguru_for_distributed(get_global_rank())
         logger.critical(
             f"Initialized distributed training with local rank {local_rank} with timeout {timeout_seconds}",

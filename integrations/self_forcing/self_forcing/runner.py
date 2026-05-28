@@ -57,7 +57,9 @@ DEFAULT_T2V_PROMPT = (
 class SelfForcingT2VRunnerConfig(RunnerConfig):
     """Runner config for the Self-Forcing T2V variants."""
 
-    _target: type = field(default_factory=lambda: SelfForcingT2VRunner)
+    _target: type["SelfForcingT2VRunner"] = field(
+        default_factory=lambda: SelfForcingT2VRunner
+    )
 
     prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a

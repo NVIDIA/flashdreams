@@ -7,7 +7,7 @@ description = "Isolated venv for the FlashVSR parity-check benchmark."
 # adds ``diffsynth``) plus ``requirements.txt`` work fine on 3.12 too, and
 # keeping the same interpreter as flashdreams lets the layered editable
 # install ride along without a parallel build.
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 
 # flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
 # numpy, tqdm, safetensors, etc. FlashVSR layers a small set of extras on

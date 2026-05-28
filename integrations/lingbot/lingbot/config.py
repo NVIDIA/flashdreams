@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configs for the Lingbot-World streaming camera-control I2V model."""
+"""Configs for the LingBot-World streaming camera-control I2V model."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ CHECKPOINT_PATH = (
 
 # Official LingBot-World-Fast pipeline config.
 PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
-    recipe_name="lingbot-world-fast",
+    name="lingbot-world-fast",
     enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
         i2v=WanI2VCtrlEncoderConfig(
@@ -57,6 +57,7 @@ PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
             network=LingbotWorldDiTNetwork14BConfig(
                 patch_embedding_type="conv3d",
                 control_type="cam",
+                cp_method="ulysses",
                 # 16 noise channels + 4-channel mask + 16-channel image latent
                 # (channel-concat I2V layout). Must match the
                 # ``concat_image_mask_to_latent=True`` setting below.
@@ -93,17 +94,18 @@ PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     ),
 )
 RUNNER_LINGBOT_WORLD_FAST = LingbotWorldRunnerConfig(
-    runner_name=PIPELINE_LINGBOT_WORLD_FAST.recipe_name,
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST.name,
     description="Lingbot World Fast streaming camera-control I2V (Wan VAE decoder, 4-step).",
     pipeline=PIPELINE_LINGBOT_WORLD_FAST,
 )
 
-# Faster version with changes:
+# Faster interactive variant for persistent streaming:
 # - LightTAE (TAEHV) decoder.
-# - Tighter streaming window for fast interactive playback.
-PIPELINE_LINGBOT_WORLD_FAST_FLASH = derive_config(
+# - Tighter streaming window: ``window_size_t=15`` (down from 63).
+# - Static sink: ``sink_size_t=3`` to keep early-frame anchors.
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
     PIPELINE_LINGBOT_WORLD_FAST,
-    recipe_name="lingbot-world-fast-flash",
+    name="lingbot-world-fast-taehv-window15-sink3",
     decoder=TeahvVAEDecoderConfig(),
     diffusion_model=dict(
         transformer=dict(
@@ -112,25 +114,28 @@ PIPELINE_LINGBOT_WORLD_FAST_FLASH = derive_config(
         ),
     ),
 )
-RUNNER_LINGBOT_WORLD_FAST_FLASH = LingbotWorldRunnerConfig(
-    runner_name=PIPELINE_LINGBOT_WORLD_FAST_FLASH.recipe_name,
-    description="Lingbot World Fast-Flash (LightTAE decoder, tighter streaming window).",
-    pipeline=PIPELINE_LINGBOT_WORLD_FAST_FLASH,
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3.name,
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
 )
 
 PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
-    cfg.recipe_name: cfg
+    cfg.name: cfg
     for cfg in (
         PIPELINE_LINGBOT_WORLD_FAST,
-        PIPELINE_LINGBOT_WORLD_FAST_FLASH,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
     )
 }
-"""All shipped Lingbot-World pipeline configs, keyed by ``recipe_name``."""
+"""All shipped LingBot-World pipeline configs, keyed by ``name``."""
 
 RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     cfg.runner_name: cfg
     for cfg in (
         RUNNER_LINGBOT_WORLD_FAST,
-        RUNNER_LINGBOT_WORLD_FAST_FLASH,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
     )
 }

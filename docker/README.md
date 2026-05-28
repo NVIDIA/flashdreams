@@ -13,7 +13,7 @@ AWS CLI v2 -- everything needed to compile and run flashdreams.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Image recipe. Based on `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`. |
+| `Dockerfile` | Image integration. Based on `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`. |
 | `build_with_docker.sh` | Build + push a multi-arch (`linux/arm64` + `linux/amd64`) image to a registry you specify. |
 | `docker_farm_setup.sh` | One-time Buildx "farm" setup so arm64 builds run natively on `dgx-spark` instead of under QEMU emulation. |
 

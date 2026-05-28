@@ -97,7 +97,7 @@ class CosmosInferencePipeline(
     Supports T2V and I2V. Mode is selected by the config's
     ``image_encoder`` slot: ``None`` for T2V, a
     :class:`WanVAEEncoderConfig` for I2V. The rollout loop is shared with
-    the wan recipes for forward compatibility.
+    the wan integrations for forward compatibility.
 
     Examples:
 

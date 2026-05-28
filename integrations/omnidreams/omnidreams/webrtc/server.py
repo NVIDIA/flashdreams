@@ -27,7 +27,7 @@ from flashdreams.core.distributed import (
     init as distributed_init,
 )
 from flashdreams.serving.network import get_external_ip
-from flashdreams.serving.webrtc.server import create_webrtc_app
+from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8081)
+    parser.add_argument("--port", type=int, default=8082)
     parser.add_argument(
         "--pipeline_config_name",
         type=str,
@@ -56,11 +56,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scene_dir",
         type=Path,
-        default=Path(__file__).resolve().parents[4]
-        / "assets"
-        / "example_data"
-        / "omnidreams-webrtc"
-        / "0d404ff7-2b66-498c-b047-1ed8cded60d4",
+        default=None,
+        help=(
+            "Local WebRTC scene directory containing clipgt/first_image.* "
+            "and clipgt/prompt.txt. If omitted, the server downloads and "
+            "stages the selected Hugging Face scene."
+        ),
+    )
+    parser.add_argument(
+        "--scene-uuid",
+        type=str,
+        default=None,
+        help=(
+            "Scene UUID for nvidia/omni-dreams-scenes. Expected dataset asset: "
+            "scenes/clipgt-<uuid>.usdz."
+        ),
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
@@ -92,18 +102,21 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    return args
 
 
 def create_app(
     *,
-    session_manager: OmnidreamsWebRTCSessionManager | None = None,
+    request_session_url: str,
+    session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
     return create_webrtc_app(
         web_dir=WEB_DIR,
         session_manager=manager,
         preload_name="Omnidreams",
+        request_session_url=request_session_url,
     )
 
 
@@ -115,6 +128,7 @@ def build_runtime_config(
     return OmnidreamsRuntimeConfig(
         pipeline_config_name=args.pipeline_config_name,
         scene_dir=args.scene_dir,
+        scene_uuid=args.scene_uuid,
         seed=args.seed,
         device=device_override or args.device,
         video_height=args.video_height,
@@ -198,8 +212,12 @@ def main() -> None:
     runtime_config = build_runtime_config(args, device_override=str(runtime_device))
     session_manager = OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
     if world_rank == 0:
-        app = create_app(session_manager=session_manager)
-        logger.info("Starting on external IP: {}", get_external_ip())
+        external_ip = get_external_ip()
+        app = create_app(
+            session_manager=session_manager,
+            request_session_url=f"http://{external_ip}:{args.port}/request_session",
+        )
+        logger.info("Starting on external IP: {}", external_ip)
         try:
             web.run_app(app, host=args.host, port=args.port)
         finally:

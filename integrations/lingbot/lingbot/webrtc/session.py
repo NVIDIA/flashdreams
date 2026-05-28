@@ -73,7 +73,7 @@ class LingbotControlSignal(IntEnum):
 
 @dataclass(slots=True)
 class LingbotRuntimeConfig:
-    config_name: str = "lingbot-world-fast-flash"
+    config_name: str = "lingbot-world-fast-taehv-window15-sink3"
     compile_network: bool = True
     seed: int = 42
     context_parallel_size: int = 1

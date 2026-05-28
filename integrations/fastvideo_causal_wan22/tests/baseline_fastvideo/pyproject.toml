@@ -2,7 +2,7 @@
 name = "fastvideo-causal-wan22-parity-check"
 version = "0.0.0"
 description = "Isolated venv for FastVideo causal Wan2.2 T2V parity benchmark."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 dependencies = [
     "imageio[ffmpeg]",
     "accelerate",

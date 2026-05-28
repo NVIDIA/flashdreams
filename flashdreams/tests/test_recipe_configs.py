@@ -16,9 +16,9 @@
 """Smoke tests for the central runner registry.
 
 Cheap import-time checks that catch the common mis-registrations:
-duplicate keys, dict key vs ``runner_name`` drift, recipes that
+duplicate keys, dict key vs ``runner_name`` drift, integrations that
 forgot to add their runners to the aggregator, runner_name vs
-pipeline.recipe_name drift (which would surface as confusing
+pipeline.name drift (which would surface as confusing
 ``flashdreams-run <slug>`` failures), and missing CLI descriptions.
 """
 
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-# Importing ``runner_configs`` triggers each in-tree recipe's
+# Importing ``runner_configs`` triggers each in-tree integration's
 # self-registration side effects. Without this import the registry
 # would be empty when tests run in isolation.
 import flashdreams.configs.runner_configs  # noqa: F401
@@ -49,11 +49,11 @@ def test_supported_runners_keys_match_runner_name() -> None:
 
 
 def test_supported_runners_covers_every_runner_dict() -> None:
-    """Each per-recipe ``<NAME>_RUNNERS`` dict must be merged in full.
+    """Each per-integration ``<NAME>_RUNNERS`` dict must be merged in full.
 
-    Catches the case where a new in-tree recipe added a ``<NAME>_RUNNERS``
+    Catches the case where a new in-tree integration added a ``<NAME>_RUNNERS``
     dict but forgot to wire its ``runner.py`` into the aggregator.
-    Out-of-tree plugin recipes are covered by their own smoke tests.
+    Out-of-tree plugin integrations are covered by their own smoke tests.
     """
     runners = supported_runners()
     expected = {
@@ -63,7 +63,7 @@ def test_supported_runners_covers_every_runner_dict() -> None:
     assert not missing, f"supported_runners missing slugs: {sorted(missing)}"
     extra = set(runners) - set(expected)
     assert not extra, (
-        f"supported_runners has slugs outside the per-recipe dicts: {sorted(extra)}"
+        f"supported_runners has slugs outside the per-integration dicts: {sorted(extra)}"
     )
 
 
@@ -76,20 +76,20 @@ def test_supported_runners_unique_runner_names() -> None:
     assert not duplicates, f"duplicate runner_name in supported_runners: {duplicates}"
 
 
-def test_runner_name_mirrors_pipeline_recipe_name() -> None:
-    """``runner_name`` must equal ``pipeline.recipe_name`` by convention.
+def test_runner_name_mirrors_pipeline_name() -> None:
+    """``runner_name`` must equal ``pipeline.name`` by convention.
 
-    The CLI's contract is "``flashdreams-run <recipe_name>`` runs that recipe";
+    The CLI's contract is "``flashdreams-run <name>`` runs that integration";
     a divergence here would silently rename one slug and break that
     contract. Per-runner literals are free to opt out, but the in-tree
     set must hold the line.
     """
     drifted = {
-        key: (cfg.runner_name, cfg.pipeline.recipe_name)
+        key: (cfg.runner_name, cfg.pipeline.name)
         for key, cfg in supported_runners().items()
-        if cfg.runner_name != cfg.pipeline.recipe_name
+        if cfg.runner_name != cfg.pipeline.name
     }
-    assert not drifted, f"runner_name != pipeline.recipe_name (CLI contract): {drifted}"
+    assert not drifted, f"runner_name != pipeline.name (CLI contract): {drifted}"
 
 
 def test_supported_runners_have_descriptions() -> None:

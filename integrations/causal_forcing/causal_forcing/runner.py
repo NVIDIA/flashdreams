@@ -57,9 +57,7 @@ DEFAULT_T2V_PROMPT = (
 )
 
 
-DEFAULT_I2V_IMAGE_URL = (
-    "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
-)
+DEFAULT_I2V_IMAGE_URL = "https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png"
 
 IMAGE_CACHE_DIR = (
     Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
@@ -95,7 +93,9 @@ class CausalForcingT2VRunnerConfig(RunnerConfig):
     (I2V is T2V plus an ``image_path``).
     """
 
-    _target: type = field(default_factory=lambda: CausalForcingT2VRunner)
+    _target: type["CausalForcingT2VRunner"] = field(
+        default_factory=lambda: CausalForcingT2VRunner
+    )
 
     prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
@@ -122,7 +122,9 @@ class CausalForcingI2VRunnerConfig(CausalForcingT2VRunnerConfig):
     adds the first-frame image path that I2V needs at runtime.
     """
 
-    _target: type = field(default_factory=lambda: CausalForcingI2VRunner)
+    _target: type["CausalForcingI2VRunner"] = field(
+        default_factory=lambda: CausalForcingI2VRunner
+    )
 
     image_path: str | Path = DEFAULT_I2V_IMAGE_URL
     """First-frame RGB image. Either a local path or an HTTP(S) URL."""

@@ -66,7 +66,7 @@ class WanDiTNetworkCache:
 class WanDiTNetworkConfig(InstantiateConfig):
     """Configuration for the Wan DiT network."""
 
-    _target: type = field(default_factory=lambda: WanDiTNetwork)
+    _target: type["WanDiTNetwork"] = field(default_factory=lambda: WanDiTNetwork)
 
     patch_size: tuple[int, int, int] = (1, 2, 2)
     """Patch size for the input tensor."""
@@ -101,6 +101,8 @@ class WanDiTNetworkConfig(InstantiateConfig):
 
     apply_rope_before_kvcache: bool = True
     """If True, apply RoPE to keys before storing them in the KV cache."""
+    cp_method: Literal["ring", "ulysses"] = "ring"
+    """Context-parallel attention method for transformer attention ops."""
 
 
 @dataclass
@@ -167,6 +169,7 @@ class WanDiTNetwork(nn.Module):
         self.concat_padding_mask = config.concat_padding_mask
         self.patch_embedding_type = config.patch_embedding_type
         self.apply_rope_before_kvcache = config.apply_rope_before_kvcache
+        self.cp_method = config.cp_method
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -221,6 +224,7 @@ class WanDiTNetwork(nn.Module):
             eps=self.eps,
             i2v=self.cross_attn_enable_img,
             apply_rope_before_kvcache=self.apply_rope_before_kvcache,
+            cp_method=self.cp_method,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:

@@ -7,19 +7,23 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import tempfile
+import time
+import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import IntEnum
-from pathlib import Path
-from typing import Any, Callable, TypeVar
+from pathlib import Path, PurePosixPath
+from typing import AbstractSet, Any, Callable, TypeVar
 
 import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from filelock import FileLock
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
@@ -31,6 +35,15 @@ from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.scenes import (
+    HF_DATASET_BROWSER_URL,
+    SCENE_CLIPGT_DIRNAME,
+    SCENE_IMAGE_SUFFIXES,
+    SCENE_PROMPT_FILENAME,
+    hf_hub_download_scene,
+    hf_scenes_repo_id,
+    scenes_cache_root,
+)
 from omnidreams.transformer import CosmosTransformerConfig
 
 from flashdreams.core.distributed.rank_orchestration import (
@@ -50,10 +63,181 @@ from flashdreams.serving.webrtc.warmup import (
     wait_for_ice_gathering_complete,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
 _T = TypeVar("_T")
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
+DEFAULT_WEBRTC_SCENE_UUID = "065dcac9-ee67-4434-a835-c6b816c88e48"
+# Re-export ``omnidreams.scenes`` constants under their pre-existing
+# ``WEBRTC_SCENES_*`` aliases so external imports (logs, tests, docs)
+# stay valid.
+WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
+WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
+
+
+def _choose_existing_asset(
+    directory: Path,
+    *,
+    exact_name: str | None = None,
+    fallback_stems: tuple[str, ...] = (),
+    fallback_prefixes: tuple[str, ...] = (),
+    allowed_suffixes: AbstractSet[str] | None = None,
+    preferred_stems: tuple[str, ...] = (),
+) -> Path | None:
+    if not directory.is_dir():
+        return None
+
+    if exact_name is not None:
+        exact_path = directory / exact_name
+        if exact_path.is_file() and (
+            allowed_suffixes is None or exact_path.suffix.lower() in allowed_suffixes
+        ):
+            return exact_path
+
+    candidates = []
+    for path in directory.iterdir():
+        if not path.is_file():
+            continue
+        if allowed_suffixes is not None and path.suffix.lower() not in allowed_suffixes:
+            continue
+        if path.stem in fallback_stems or any(
+            path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes
+        ):
+            candidates.append(path)
+
+    if not candidates:
+        return None
+
+    preferred_order = {stem: index for index, stem in enumerate(preferred_stems)}
+    return sorted(
+        candidates,
+        key=lambda path: (
+            preferred_order.get(path.stem, len(preferred_order)),
+            path.name,
+        ),
+    )[0]
+
+
+def _resolve_webrtc_scene_assets(
+    scene_dir: Path,
+    *,
+    prompt_filename: str,
+    clipgt_dirname: str,
+) -> tuple[Path, Path, Path]:
+    missing_assets = []
+    clipgt_dir = scene_dir / clipgt_dirname
+    if not clipgt_dir.is_dir():
+        missing_assets.append(str(scene_dir / clipgt_dirname))
+        clipgt_dir = None
+
+    first_frame_path = (
+        None
+        if clipgt_dir is None
+        else _choose_existing_asset(
+            clipgt_dir,
+            fallback_stems=("first_image",),
+            allowed_suffixes=WEBRTC_SCENE_IMAGE_SUFFIXES,
+            preferred_stems=("first_image",),
+        )
+    )
+    if first_frame_path is None:
+        missing_assets.append(f"first_image.* under {clipgt_dirname}/")
+
+    prompt_path = (
+        None
+        if clipgt_dir is None
+        else _choose_existing_asset(
+            clipgt_dir,
+            exact_name=prompt_filename,
+            allowed_suffixes={".txt"},
+        )
+    )
+    if prompt_path is None:
+        missing_assets.append(f"{prompt_filename} under {clipgt_dirname}/")
+
+    if missing_assets:
+        raise FileNotFoundError(
+            "Missing Omnidreams WebRTC scene assets: " + ", ".join(missing_assets)
+        )
+
+    assert clipgt_dir is not None
+    assert first_frame_path is not None
+    assert prompt_path is not None
+    return clipgt_dir, first_frame_path, prompt_path
+
+
+def _safe_extract_zip(source: Path, destination: Path) -> None:
+    if destination.exists():
+        if destination.is_file() or destination.is_symlink():
+            destination.unlink()
+        else:
+            shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    destination_root = destination.resolve()
+    with zipfile.ZipFile(source) as zf:
+        for member in zf.infolist():
+            member_path = PurePosixPath(member.filename)
+            if (
+                member_path.is_absolute()
+                or not member_path.parts
+                or any(part in {"", ".", ".."} for part in member_path.parts)
+            ):
+                raise ValueError(
+                    f"Unsafe archive member in {source}: {member.filename}"
+                )
+            target = destination / Path(*member_path.parts)
+            target_resolved = target.resolve()
+            if destination_root != target_resolved and destination_root not in (
+                target_resolved.parents
+            ):
+                raise ValueError(
+                    f"Archive member escapes destination: {member.filename}"
+                )
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, target.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+
+def _ensure_hf_webrtc_scene_synced(
+    scene_uuid: str,
+    *,
+    prompt_filename: str = SCENE_PROMPT_FILENAME,
+    clipgt_dirname: str = SCENE_CLIPGT_DIRNAME,
+) -> Path:
+    """Stage an HF scene into the local layout expected by WebRTC.
+
+    The HF repo / archive layout (``<org>/omni-dreams-scenes``,
+    ``scenes/clipgt-<uuid>.usdz``) is shared with the
+    ``omnidreams.interactive_drive`` desktop demo via
+    :mod:`omnidreams.scenes`; this function owns only the webrtc-side
+    cache layout (per-uuid extraction under
+    ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/<uuid>/clipgt/``).
+    """
+    scene_uuid = scene_uuid.strip()
+    assert scene_uuid, "scene_uuid must be set."
+    # ``scenes_cache_root()`` is the same root the desktop demo writes
+    # ``clipgt-<uuid>.usdz`` archives to (via
+    # ``omnidreams.prepare.stage_scene``); they coexist by name
+    # because the archive is a file while the webrtc extraction is a
+    # per-uuid directory.
+    cache_root = scenes_cache_root()
+    scene_dir = cache_root / scene_uuid
+    lock_path = cache_root / ".locks" / f"{scene_uuid}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with FileLock(str(lock_path)):
+        archive_path = hf_hub_download_scene(scene_uuid)
+        _safe_extract_zip(archive_path, scene_dir / clipgt_dirname)
+
+    logger.info(
+        "Synced Omnidreams WebRTC scene {} from Hugging Face ({}) to {}",
+        scene_uuid,
+        hf_scenes_repo_id(),
+        scene_dir,
+    )
+    return scene_dir
 
 
 def _summarize_sdp_candidates(sdp: str) -> str:
@@ -107,22 +291,16 @@ class OmnidreamsRuntimeConfig:
     pipeline_config_name: str = (
         "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
     )
-    scene_dir: Path = (
-        REPO_ROOT
-        / "assets"
-        / "example_data"
-        / "omnidreams-webrtc"
-        / "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-    )
+    scene_dir: Path | None = None
+    scene_uuid: str | None = None
     seed: int | None = 42
     device: str = "cuda:0"
     video_height: int = 704
     video_width: int = 1280
     fps: int = 30
     camera_name: str = "camera_front_wide_120fov"
-    first_frame_filename: str = "first_frame.jpeg"
-    prompt_filename: str = "prompt.txt"
-    clipgt_dirname: str = "clipgt"
+    prompt_filename: str = SCENE_PROMPT_FILENAME
+    clipgt_dirname: str = SCENE_CLIPGT_DIRNAME
     move_speed_per_s: float = 6.0
     rotate_speed_rad_per_s: float = float(np.deg2rad(35.0))
     warmup_chunks: int = 10
@@ -313,20 +491,27 @@ class OmnidreamsInferenceRuntime:
         if self._wrapper is not None:
             return
 
+        init_t0 = time.perf_counter()
         cfg = self.config
-        scene_dir = cfg.scene_dir
-        clipgt_dir = scene_dir / cfg.clipgt_dirname
-        first_frame_path = scene_dir / cfg.first_frame_filename
-        prompt_path = scene_dir / cfg.prompt_filename
-        missing_paths = [
-            str(path)
-            for path in (clipgt_dir, first_frame_path, prompt_path)
-            if not path.exists()
-        ]
-        if missing_paths:
-            raise FileNotFoundError(
-                "Missing Omnidreams WebRTC scene assets: " + ", ".join(missing_paths)
+        if cfg.scene_dir is None:
+            scene_uuid = cfg.scene_uuid or DEFAULT_WEBRTC_SCENE_UUID
+            scene_dir = _ensure_hf_webrtc_scene_synced(
+                scene_uuid,
+                prompt_filename=cfg.prompt_filename,
+                clipgt_dirname=cfg.clipgt_dirname,
             )
+        else:
+            assert cfg.scene_uuid is None, (
+                "scene_uuid must be None when scene_dir is set"
+            )
+            scene_dir = cfg.scene_dir
+
+        cfg.scene_dir = scene_dir
+        clipgt_dir, first_frame_path, prompt_path = _resolve_webrtc_scene_assets(
+            scene_dir,
+            prompt_filename=cfg.prompt_filename,
+            clipgt_dirname=cfg.clipgt_dirname,
+        )
         if cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS:
             supported = ", ".join(sorted(OMNIDREAMS_CONFIGS))
             raise ValueError(
@@ -350,6 +535,7 @@ class OmnidreamsInferenceRuntime:
         if self._device.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for Omnidreams WebRTC runtime.")
 
+        logger.info("Loading Omnidreams first frame from {}", first_frame_path)
         image_bgr = cv2.imread(str(first_frame_path), cv2.IMREAD_COLOR)
         if image_bgr is None:
             raise RuntimeError(f"Failed to read first frame from {first_frame_path}")
@@ -372,6 +558,8 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = [TextPrompt(positive=prompt)]
 
         loadable_clipgt_dir = self._prepare_clipgt_dir(clipgt_dir)
+        logger.info("Loading Omnidreams scene data from {}", loadable_clipgt_dir)
+        scene_t0 = time.perf_counter()
         scene_data = load_scene(
             loadable_clipgt_dir,
             camera_names=[cfg.camera_name],
@@ -379,10 +567,19 @@ class OmnidreamsInferenceRuntime:
             input_pose_fps=SETTINGS["INPUT_POSE_FPS"],
             resize_resolution_hw=(cfg.video_height, cfg.video_width),
         )
+        logger.info(
+            "Loaded Omnidreams scene data in {:.1f}s; attaching Ludus scene.",
+            time.perf_counter() - scene_t0,
+        )
+        ludus_t0 = time.perf_counter()
         scene_data = load_and_attach_ludus_scene(
             loadable_clipgt_dir,
             scene_data,
             device=self._device,
+        )
+        logger.info(
+            "Attached Omnidreams Ludus scene in {:.1f}s.",
+            time.perf_counter() - ludus_t0,
         )
         if not scene_data.ego_poses:
             raise ValueError(f"Scene {loadable_clipgt_dir} has no ego poses.")
@@ -395,14 +592,31 @@ class OmnidreamsInferenceRuntime:
                 f"Camera {cfg.camera_name!r} has no extrinsics in {loadable_clipgt_dir}."
             )
 
+        logger.info(
+            "Setting up Omnidreams pipeline {} on {}. This may load checkpoints, "
+            "compile modules, and initialize CUDA graphs.",
+            cfg.pipeline_config_name,
+            self._device,
+        )
+        pipeline_t0 = time.perf_counter()
         self._wrapper = OmnidreamsConditioningWrapper(
             pipeline_config_name=cfg.pipeline_config_name,
             resolution_wh=(cfg.video_width, cfg.video_height),
             seed_for_every_rollout=cfg.seed,
             device=self._device,
         )
+        logger.info(
+            "Omnidreams pipeline setup complete in {:.1f}s.",
+            time.perf_counter() - pipeline_t0,
+        )
         self._scene_data = scene_data
+        logger.info("Creating Omnidreams renderer for camera {}", cfg.camera_name)
+        renderer_t0 = time.perf_counter()
         self._renderer = self._wrapper.create_renderer(scene_data, [cfg.camera_name])
+        logger.info(
+            "Omnidreams renderer ready in {:.1f}s.",
+            time.perf_counter() - renderer_t0,
+        )
         self._camera_to_rig = torch.as_tensor(
             scene_data.camera_extrinsics[cfg.camera_name],
             device=self._device,
@@ -411,16 +625,44 @@ class OmnidreamsInferenceRuntime:
         self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
         self._reset_rollout_sync()
+        logger.info(
+            "Omnidreams runtime initialization complete in {:.1f}s.",
+            time.perf_counter() - init_t0,
+        )
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
-        if list(clipgt_dir.glob("*.calibration_estimate.parquet")):
+        def _has_prefixed_parquets(path: Path) -> bool:
+            return any(path.glob("*.calibration_estimate.parquet"))
+
+        def _has_unprefixed_parquets(path: Path) -> bool:
+            return (path / "calibration_estimate.parquet").exists()
+
+        if _has_prefixed_parquets(clipgt_dir):
             return clipgt_dir
-        if not (clipgt_dir / "calibration_estimate.parquet").exists():
+
+        parquet_source_dir: Path | None = None
+        if _has_unprefixed_parquets(clipgt_dir):
+            parquet_source_dir = clipgt_dir
+        else:
+            # Some HF scenes extract into ``clipgt/clipgt`` (or another single
+            # nested directory) while first_image/prompt stay one level up.
+            # Discover that nested parquet root and normalize it for loader use.
+            nested_candidates = [
+                child for child in clipgt_dir.iterdir() if child.is_dir()
+            ]
+            for candidate in nested_candidates:
+                if _has_prefixed_parquets(candidate):
+                    return candidate
+                if _has_unprefixed_parquets(candidate):
+                    parquet_source_dir = candidate
+                    break
+
+        if parquet_source_dir is None:
             return clipgt_dir
 
         self._clipgt_temp_dir = tempfile.TemporaryDirectory(prefix="omnidreams-clipgt-")
         staged = Path(self._clipgt_temp_dir.name)
-        for source in clipgt_dir.glob("*.parquet"):
+        for source in parquet_source_dir.glob("*.parquet"):
             target = staged / f"clip.{source.name}"
             os.symlink(source.resolve(), target)
         return staged
@@ -632,13 +874,29 @@ class OmnidreamsWebRTCSessionManager:
     async def preload_runtime(self) -> None:
         async with self._preload_lock:
             if not self._runtime_ready:
+                logger.info("Omnidreams runtime preload: initializing model runtime.")
+                preload_t0 = time.perf_counter()
                 await self._runtime.initialize()
                 self._runtime_ready = True
+                logger.info(
+                    "Omnidreams runtime preload: model runtime ready in {:.1f}s.",
+                    time.perf_counter() - preload_t0,
+                )
             if not self._warmup_complete:
+                logger.info(
+                    "Omnidreams runtime preload: starting loopback warmup with {} "
+                    "chunk(s).",
+                    self.runtime_config.warmup_chunks,
+                )
+                warmup_t0 = time.perf_counter()
                 await self._run_loopback_warmup_session(
                     num_chunks=self.runtime_config.warmup_chunks
                 )
                 self._warmup_complete = True
+                logger.info(
+                    "Omnidreams runtime preload: warmup complete in {:.1f}s.",
+                    time.perf_counter() - warmup_t0,
+                )
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
         if not self._runtime_ready or not self._warmup_complete:

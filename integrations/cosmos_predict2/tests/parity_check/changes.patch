@@ -1,120 +1,168 @@
+diff --git a/cosmos_predict2/_src/predict2/configs/common/defaults/dataloader.py b/cosmos_predict2/_src/predict2/configs/common/defaults/dataloader.py
+index d56b9eb..cf374cd 100644
+--- a/cosmos_predict2/_src/predict2/configs/common/defaults/dataloader.py
++++ b/cosmos_predict2/_src/predict2/configs/common/defaults/dataloader.py
+@@ -23,11 +23,12 @@ from cosmos_predict2._src.predict2.configs.common.mock_data import (
+     MOCK_DATA_VIDEO_ONLY_CONFIG,
+ )
+ from cosmos_predict2._src.predict2.datasets.cached_replay_dataloader import get_cached_replay_dataloader
+-from cosmos_predict2._src.predict2.datasets.dataset_provider import get_image_dataset, get_video_dataset
+ from cosmos_predict2._src.predict2.datasets.joint_dataloader import IterativeJointDataLoader
+ 
+ 
+ def get_image_dataloader(dataset_name: str, object_store: str) -> omegaconf.dictconfig.DictConfig:
++    from cosmos_predict2._src.predict2.datasets.dataset_provider import get_image_dataset
++
+     return L(get_cached_replay_dataloader)(
+         dataset=L(get_image_dataset)(
+             dataset_name=dataset_name,
+@@ -46,6 +47,8 @@ def get_image_dataloader(dataset_name: str, object_store: str) -> omegaconf.dict
+ 
+ 
+ def get_video_dataloader(dataset_name: str, object_store: str) -> omegaconf.dictconfig.DictConfig:
++    from cosmos_predict2._src.predict2.datasets.dataset_provider import get_video_dataset
++
+     return L(get_cached_replay_dataloader)(
+         dataset=L(get_video_dataset)(
+             dataset_name=dataset_name,
+diff --git a/cosmos_predict2/_src/predict2/configs/video2world/config.py b/cosmos_predict2/_src/predict2/configs/video2world/config.py
+index 5f39717..d953f9f 100644
+--- a/cosmos_predict2/_src/predict2/configs/video2world/config.py
++++ b/cosmos_predict2/_src/predict2/configs/video2world/config.py
+@@ -102,6 +102,5 @@ def make_config() -> Config:
+             import_all_modules_from_package("cosmos_predict2.experiments.internal", reload=True)
+     except ModuleNotFoundError:
+         pass  # Module or parent package doesn't exist
+-    import_all_modules_from_package("cosmos_predict2.experiments", reload=True)
+ 
+     return c
+diff --git a/cosmos_predict2/_src/predict2/datasets/dataset_provider.py b/cosmos_predict2/_src/predict2/datasets/dataset_provider.py
+index 2757553..b073353 100644
+--- a/cosmos_predict2/_src/predict2/datasets/dataset_provider.py
++++ b/cosmos_predict2/_src/predict2/datasets/dataset_provider.py
+@@ -28,12 +28,10 @@ from webdataset.handlers import warn_and_continue
+ import cosmos_predict2._src.imaginaire.datasets.webdataset.decoders.image as image_decoders
+ import cosmos_predict2._src.imaginaire.datasets.webdataset.decoders.pickle as pickle_decoders
+ import cosmos_predict2._src.imaginaire.datasets.webdataset.distributors as distributors
+-import cosmos_predict2._src.predict2.datasets.decoders.video_decoder as video_decoder
+ import cosmos_predict2._src.predict2.datasets.distributor.parallel_sync_multi_aspect_ratio as parallel_sync_multi_aspect_ratio
+ import cosmos_predict2._src.predict2.datasets.webdataset as webdataset
+ from cosmos_predict2._src.imaginaire.datasets.webdataset.config.schema import DatasetConfig
+ from cosmos_predict2._src.imaginaire.utils import log
+-from cosmos_predict2._src.predict2.datasets.augmentor_provider import AUGMENTOR_OPTIONS
+ from cosmos_predict2._src.predict2.datasets.data_sources.data_registration import DATASET_OPTIONS
+ from cosmos_predict2._src.predict2.datasets.utils import IMAGE_RES_SIZE_INFO, VIDEO_RES_SIZE_INFO
+ 
+@@ -64,6 +62,11 @@ def get_video_dataset(
+     use_random_interleaved_frames: bool = False,  # If True, enable random interleaved (non-consecutive) frame sampling for fractional fps upsampling/downsampling (e.g., 24->30fps), producing temporally varied clips by mixing frame strides.
+     prefer_crop_over_pad: bool = False,
+ ) -> omegaconf.dictconfig.DictConfig:
++    # Delay importing the video decoder backend until video datasets are actually built.
++    # This avoids importing ``decord`` during unrelated config-module registration.
++    import cosmos_predict2._src.predict2.datasets.decoders.video_decoder as video_decoder
++    from cosmos_predict2._src.predict2.datasets.augmentor_provider import AUGMENTOR_OPTIONS
++
+     assert resolution in VIDEO_RES_SIZE_INFO.keys(), "The provided resolution cannot be found in VIDEO_RES_SIZE_INFO."
+     assert object_store in [
+         "s3",
+@@ -183,6 +186,8 @@ def get_image_dataset(
+     caption_type: str = "ai_v3p1",
+     embedding_type: str = "t5_xxl",
+ ) -> omegaconf.dictconfig.DictConfig:
++    from cosmos_predict2._src.predict2.datasets.augmentor_provider import AUGMENTOR_OPTIONS
++
+     assert resolution in IMAGE_RES_SIZE_INFO.keys(), "The provided resolution cannot be found in IMAGE_RES_SIZE_INFO."
+     assert object_store in ["s3", "swiftstack", "gcp"], "We support s3, gcp and swiftstack only."
+     assert dataset_resolution_type in [
+diff --git a/cosmos_predict2/_src/predict2/inference/video2world.py b/cosmos_predict2/_src/predict2/inference/video2world.py
+index 4129bc0..8e1fd87 100644
+--- a/cosmos_predict2/_src/predict2/inference/video2world.py
++++ b/cosmos_predict2/_src/predict2/inference/video2world.py
+@@ -305,6 +305,12 @@ class Video2WorldInference:
+         # Load the model and config
+         if experiment_opts is None:
+             experiment_opts = []
++        force_torch_attn = os.getenv("COSMOS_FORCE_TORCH_ATTN", "0") == "1"
++        force_torch_compile = os.getenv("COSMOS_FORCE_TORCH_COMPILE", "0") == "1"
++        if force_torch_attn:
++            # Route all attention through the torch SDPA path so FORCE_CUDNN_ATTN can
++            # enforce cuDNN attention globally in the denoising loop.
++            experiment_opts.append("model.config.net.atten_backend=torch")
+         if not INTERNAL:
+             experiment_opts.append("~data_train")
+ 
+@@ -370,6 +376,16 @@ class Video2WorldInference:
+         if self.context_parallel_size > 1:
+             model.net.enable_context_parallel(self.process_group)
+ 
++        if force_torch_compile:
++            if self.offload_diffusion_model:
++                log.warning("Skipping torch.compile because offload_diffusion_model=True")
++            elif not torch.cuda.is_available():
++                log.warning("Skipping torch.compile because CUDA is unavailable")
++            else:
++                compile_mode = os.getenv("COSMOS_TORCH_COMPILE_MODE", "default")
++                log.info(f"[Perf] Compiling diffusion network with torch.compile(mode={compile_mode})")
++                model.net = torch.compile(model.net, mode=compile_mode)
++
+         self.model = model
+         self.config = config
+         self.batch_size = 1
 diff --git a/cosmos_predict2/_src/predict2/models/text2world_model.py b/cosmos_predict2/_src/predict2/models/text2world_model.py
-index 7855133..490d40b 100644
+index 7855133..c41631c 100644
 --- a/cosmos_predict2/_src/predict2/models/text2world_model.py
 +++ b/cosmos_predict2/_src/predict2/models/text2world_model.py
-@@ -584,15 +584,26 @@ class DiffusionModel(ImaginaireModel):
-             sample_scheduler = FlowUniPCMultistepScheduler(
-                 num_train_timesteps=1000, shift=1, use_dynamic_shifting=False
-             )
--            noise = misc.arch_invariant_rand(
--                (n_sample,) + tuple(state_shape),
--                torch.float32,
--                self.tensor_kwargs["device"],
--                seed,
--            )
-+            # noise = misc.arch_invariant_rand(
-+            #     (n_sample,) + tuple(state_shape),
-+            #     torch.float32,
-+            #     self.tensor_kwargs["device"],
-+            #     seed,
-+            # )
+@@ -18,7 +18,7 @@ from __future__ import annotations
+ import collections
+ import math
+ import os
+-from contextlib import contextmanager
++from contextlib import contextmanager, nullcontext
+ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
  
-             seed_g = torch.Generator(device=self.tensor_kwargs["device"])
-             seed_g.manual_seed(seed)
-+            noise = torch.randn(
-+                [
-+                    n_sample,
-+                    self.tokenizer.get_latent_num_frames(_T),
-+                    self.config.state_ch,
-+                    _H // self.tokenizer.spatial_compression_factor,
-+                    _W // self.tokenizer.spatial_compression_factor,
-+                ],
-+                device=self.tensor_kwargs["device"],
-+                generator=seed_g,
-+            ).permute(0, 2, 1, 3, 4).contiguous()
+ import attrs
+@@ -624,7 +624,14 @@ class DiffusionModel(ImaginaireModel):
  
-             sample_scheduler.set_timesteps(num_steps, device=self.tensor_kwargs["device"], shift=5)
- 
+                     # our model supports 0-1 while the t is 0-1000
+                     timestep = torch.stack(timestep) / 1000
+-                    noise_pred = x0_fn(latent_model_input, timestep.unsqueeze(0))
++                    force_cudnn_attn = os.getenv("FORCE_CUDNN_ATTN", "0") == "1"
++                    attn_context = (
++                        torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++                        if force_cudnn_attn and torch.cuda.is_available()
++                        else nullcontext()
++                    )
++                    with attn_context:
++                        noise_pred = x0_fn(latent_model_input, timestep.unsqueeze(0))
+                     temp_x0 = sample_scheduler.step(
+                         noise_pred.unsqueeze(0), t, latents[0].unsqueeze(0), return_dict=False, generator=seed_g
+                     )[0]
 diff --git a/cosmos_predict2/_src/predict2/models/text2world_model_rectified_flow.py b/cosmos_predict2/_src/predict2/models/text2world_model_rectified_flow.py
-index 95d5130..c52df1e 100644
+index 95d5130..6137a43 100644
 --- a/cosmos_predict2/_src/predict2/models/text2world_model_rectified_flow.py
 +++ b/cosmos_predict2/_src/predict2/models/text2world_model_rectified_flow.py
-@@ -529,15 +529,26 @@ class Text2WorldModelRectifiedFlow(ImaginaireModel):
-                 _W // self.tokenizer.spatial_compression_factor,
-             ]
+@@ -17,7 +17,7 @@ from __future__ import annotations
  
--        noise = misc.arch_invariant_rand(
--            (n_sample,) + tuple(state_shape),
--            torch.float32,
--            self.tensor_kwargs["device"],
--            seed,
--        )
-+        # noise = misc.arch_invariant_rand(
-+        #     (n_sample,) + tuple(state_shape),
-+        #     torch.float32,
-+        #     self.tensor_kwargs["device"],
-+        #     seed,
-+        # )
+ import collections
+ import os
+-from contextlib import contextmanager
++from contextlib import contextmanager, nullcontext
+ from typing import Callable, Dict, Mapping, Optional, Tuple
  
-         seed_g = torch.Generator(device=self.tensor_kwargs["device"])
-         seed_g.manual_seed(seed)
-+        noise = torch.randn(
-+            [
-+                n_sample,
-+                self.tokenizer.get_latent_num_frames(_T),
-+                self.config.state_ch,
-+                _H // self.tokenizer.spatial_compression_factor,
-+                _W // self.tokenizer.spatial_compression_factor,
-+            ],
-+            device=self.tensor_kwargs["device"],
-+            generator=seed_g,
-+        ).permute(0, 2, 1, 3, 4).contiguous()
+ import attrs
+@@ -578,7 +578,14 @@ class Text2WorldModelRectifiedFlow(ImaginaireModel):
  
-         self.sample_scheduler.set_timesteps(
-             num_steps,
-@@ -639,15 +650,26 @@ class Text2WorldModelRectifiedFlow(ImaginaireModel):
-                 _W // self.tokenizer.spatial_compression_factor,
-             ]
+             timestep = torch.stack(timestep)
  
--        noise = misc.arch_invariant_rand(
--            (n_sample,) + tuple(state_shape),
--            torch.float32,
--            self.tensor_kwargs["device"],
--            seed,
--        )
-+        # noise = misc.arch_invariant_rand(
-+        #     (n_sample,) + tuple(state_shape),
-+        #     torch.float32,
-+        #     self.tensor_kwargs["device"],
-+        #     seed,
-+        # )
- 
-         seed_g = torch.Generator(device=self.tensor_kwargs["device"])
-         seed_g.manual_seed(seed)
-+        noise = torch.randn(
-+            [
-+                n_sample,
-+                self.tokenizer.get_latent_num_frames(_T),
-+                self.config.state_ch,
-+                _H // self.tokenizer.spatial_compression_factor,
-+                _W // self.tokenizer.spatial_compression_factor,
-+            ],
-+            device=self.tensor_kwargs["device"],
-+            generator=seed_g,
-+        ).permute(0, 2, 1, 3, 4).contiguous()
- 
-         self.sample_scheduler.set_timesteps(
-             num_steps,
-diff --git a/cosmos_predict2/config.py b/cosmos_predict2/config.py
-index 1e3b872..67cb451 100644
---- a/cosmos_predict2/config.py
-+++ b/cosmos_predict2/config.py
-@@ -468,7 +468,7 @@ class InferenceArguments(CommonInferenceArguments):
-     # pyrefly: ignore  # bad-override
-     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
-     "Negative prompt - describing what you don't want in the generated video."
--    seed: int = 0
-+    seed: int = 42
-     "Seed for generation randomness."
-     guidance: Guidance = 7
-     """Range from 0 to 7: the higher the value, the closer the generated video adheres to the prompt."""
+-            velocity_pred = velocity_fn(noise, latent_model_input, timestep.unsqueeze(0))
++            force_cudnn_attn = os.getenv("FORCE_CUDNN_ATTN", "0") == "1"
++            attn_context = (
++                torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION)
++                if force_cudnn_attn and torch.cuda.is_available()
++                else nullcontext()
++            )
++            with attn_context:
++                velocity_pred = velocity_fn(noise, latent_model_input, timestep.unsqueeze(0))
+             temp_x0 = self.sample_scheduler.step(
+                 velocity_pred.unsqueeze(0), t, latents.unsqueeze(0), return_dict=False, generator=seed_g
+             )[0]

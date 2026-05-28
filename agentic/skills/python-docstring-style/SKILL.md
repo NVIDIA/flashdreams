@@ -63,7 +63,7 @@ Examples that should stay:
 Still avoid:
 
 - **Inventories of every kwarg / every option / every internal class.** Those belong in `Args:` / attribute docstrings / autodoc — the `Literal[...]` in the signature *is* the source of truth, so don't echo it in prose.
-- **Loose, sprawling inventories** that try to enumerate everything the module / class touches: `"""Core building blocks shared by all recipes (attention, checkpointing, distributed, I/O, configs, …)."""` — at this point the inventory is no longer load-bearing, just decoration.
+- **Loose, sprawling inventories** that try to enumerate everything the module / class touches: `"""Core building blocks shared by all integrations (attention, checkpointing, distributed, I/O, configs, …)."""` — at this point the inventory is no longer load-bearing, just decoration.
 
 Class / function summary anti-examples:
 
@@ -177,14 +177,14 @@ Rules:
 - One sentence per attribute unless it has real nuance. Wrap at ~88 chars.
 - Include the default value's meaning when it's non-obvious (`"Defaults to 0."`, `"-1 when empty."`).
 - Document private (`_prefix`) fields too when their invariants matter.
-- **Never docstring `_target`.** The `_target: type = field(default_factory=lambda: Foo)` line on every `InstantiateConfig` subclass is plumbing — it has the same meaning everywhere (the runtime class to instantiate) and the docstring would be N copies of the same sentence. Leave the field bare; the type annotation is self-explanatory.
+- **Never docstring `_target`.** The `_target: type["Foo"] = field(default_factory=lambda: Foo)` line on every `InstantiateConfig` subclass is plumbing — it has the same meaning everywhere (the runtime class to instantiate) and the docstring would be N copies of the same sentence. Leave the field bare; the type annotation is self-explanatory. Always parameterize `type[...]` with the concrete class (use a forward-ref string when the class isn't yet in scope) so static type checkers can verify the factory.
 
   ```python
   @dataclass(kw_only=True)
   class DecoderConfig(InstantiateConfig):
       """Category base for every decoder config."""
 
-      _target: type = field(default_factory=lambda: StreamingDecoder)
+      _target: type["StreamingDecoder"] = field(default_factory=lambda: StreamingDecoder)
   ```
 
 ## Module-level constants

@@ -3,7 +3,7 @@ name = "self-forcing-parity-check"
 version = "0.0.0"
 description = "Isolated venv for the Self-Forcing parity-check benchmark."
 # Match flashdreams' supported Python range exactly (it pins 3.12).
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 
 # flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
 # numpy, tqdm, safetensors, etc. Self-Forcing only needs a small handful of

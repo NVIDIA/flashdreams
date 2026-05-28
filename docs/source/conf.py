@@ -3,8 +3,16 @@
 #
 # Sphinx configuration for the FlashDreams documentation site.
 
+import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path
+
+# Ensure autodoc imports the in-repo package (flashdreams/flashdreams/*)
+# instead of any older site-packages install missing newer modules.
+_DOCS_SOURCE_DIR = Path(__file__).resolve().parent
+_REPO_SRC_ROOT = _DOCS_SOURCE_DIR.parent.parent / "flashdreams"
+sys.path.insert(0, str(_REPO_SRC_ROOT))
 
 # -- Project information -----------------------------------------------------
 
@@ -55,13 +63,14 @@ html_theme = "furo"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
-html_logo = "../../assets/logo/flashdreams_logo_horizontal.png"
 
 html_theme_options = {
     "source_repository": "https://github.com/NVIDIA/flashdreams/",
     "source_branch": "main",
     "source_directory": "docs/source/",
     "sidebar_hide_name": True,
+    "light_logo": "flashdreams-logo-horizontal.png",
+    "dark_logo": "flashdreams-logo-horizontal-light.png",
 }
 
 html_context = {

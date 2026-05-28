@@ -19,10 +19,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-lingbot"
-version = "0.1.0a2"
-description = "Lingbot World streaming camera-control I2V recipe + WebRTC server for flashdreams."
+version = "0.1.0a3"
+description = "Lingbot World streaming camera-control I2V integration + WebRTC server for flashdreams."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "aiohttp>=3.9",
@@ -47,7 +47,7 @@ dev = [
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
 "lingbot-world-fast" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST"
-"lingbot-world-fast-flash" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST_FLASH"
+"lingbot-world-fast-taehv-window15-sink3" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3"
 
 [tool.setuptools.packages.find]
 include = ["lingbot*"]

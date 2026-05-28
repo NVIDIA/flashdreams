@@ -56,7 +56,7 @@ class I2VCtrl:
 class WanI2VCtrlEncoderConfig(EncoderConfig):
     """Config for the I2V control encoder."""
 
-    _target: type = field(default_factory=lambda: I2VCtrlEncoder)
+    _target: type["I2VCtrlEncoder"] = field(default_factory=lambda: I2VCtrlEncoder)
 
     encoder: WanVAEEncoderConfig = field(default_factory=WanVAEEncoderConfig)
     """Streaming Wan VAE encoder. Pin its checkpoint to the decoder's so

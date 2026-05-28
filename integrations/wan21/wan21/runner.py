@@ -44,12 +44,7 @@ __all__ = [
 ]
 
 
-DEFAULT_T2V_PROMPT = (
-    "Two anthropomorphic cats in comfy boxing gear and bright gloves "
-    "fight intensely on a spotlighted stage."
-)
-
-DEFAULT_I2V_PROMPT = (
+DEFAULT_PROMPT = (
     "Summer beach vacation style, a white cat wearing sunglasses sits on "
     "a surfboard. The fluffy-furred feline gazes directly at the camera "
     "with a relaxed expression. Blurred beach scenery forms the background "
@@ -98,12 +93,12 @@ class Wan21T2VRunnerConfig(RunnerConfig):
     (I2V is T2V plus an ``image_path``).
     """
 
-    _target: type = field(default_factory=lambda: Wan21T2VRunner)
+    _target: type["Wan21T2VRunner"] = field(default_factory=lambda: Wan21T2VRunner)
 
-    prompt: str | Path = DEFAULT_T2V_PROMPT
+    prompt: str | Path = DEFAULT_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
     txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to :data:`DEFAULT_T2V_PROMPT`."""
+    Defaults to :data:`DEFAULT_PROMPT`."""
 
     pixel_height: int = 480
     """Output video pixel height."""
@@ -123,17 +118,17 @@ class Wan21I2VRunnerConfig(Wan21T2VRunnerConfig):
     adds the first-frame image path that I2V needs at runtime.
     """
 
-    _target: type = field(default_factory=lambda: Wan21I2VRunner)
+    _target: type["Wan21I2VRunner"] = field(default_factory=lambda: Wan21I2VRunner)
 
     image_path: str | Path = DEFAULT_I2V_IMAGE_URL
     """Path to the first-frame RGB image, or an ``http(s)://`` URL that
     will be downloaded on first use into :data:`IMAGE_CACHE_DIR`.
     Defaults to :data:`DEFAULT_I2V_IMAGE_URL`."""
 
-    prompt: str | Path = DEFAULT_I2V_PROMPT
+    prompt: str | Path = DEFAULT_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a
     txt file whose first line is read as the prompt (--prompt prompt.txt).
-    Defaults to :data:`DEFAULT_I2V_PROMPT`."""
+    Defaults to :data:`DEFAULT_PROMPT`."""
 
     pixel_height: int = 832
     """Output video pixel height."""

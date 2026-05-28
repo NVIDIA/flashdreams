@@ -39,7 +39,6 @@ import numpy as np
 import torch
 from einops import rearrange
 from loguru import logger
-from omnidreams.hf import omni_dreams_hf_repo, omni_dreams_hf_url
 from omnidreams.pipeline import (
     OmnidreamsPipeline,
     OmnidreamsPipelineCache,
@@ -60,13 +59,19 @@ IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
-EXAMPLE_DATA_HF_REPO = omni_dreams_hf_repo("omni-dreams-samples")
-"""Single-view HDMap clips + first frames under the configured HF org."""
+EXAMPLE_DATA_HF_REPO = "nvidia/omni-dreams-samples"
+"""Single-view HDMap clips + first frames in the NVIDIA HF dataset."""
 
-DEFAULT_EXAMPLE_DATA_UUID_1V = "23599139-948f-4681-b7f4-74794113086d"
+EXAMPLE_DATA_HF_BROWSER_URL = (
+    "https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/"
+    "data/single_view"
+)
+"""Browser URL for the public single-view sample list."""
+
+DEFAULT_EXAMPLE_DATA_UUID_1V = "239560dc-33d1-11ef-9720-00044bcbccac"
 """Arbitrary first-alphabetically pick from the 32 single-view clips
 the dataset ships. Override with ``--example-data-uuid <uuid>``; see
-the configured Omni Dreams HF dataset's ``data/single_view`` directory."""
+the NVIDIA Omni Dreams HF dataset's ``data/single_view`` directory."""
 
 EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/omnidreams"
 """Internal-team source for both views; also the external fallback for
@@ -122,7 +127,7 @@ def _ensure_hf_single_view_example_data_synced(
         raise FileNotFoundError(
             f"No '*_hdmap.mp4' under {subdir!r} in HF dataset "
             f"{EXAMPLE_DATA_HF_REPO!r}. Pick a UUID listed at "
-            f"{omni_dreams_hf_url('omni-dreams-samples', 'tree/main/data/single_view', repo_type='dataset')} "
+            f"{EXAMPLE_DATA_HF_BROWSER_URL} "
             "via --example-data-uuid <uuid>, or supply --hdmap-video-paths / "
             "--first-frame-paths explicitly."
         )
@@ -185,7 +190,7 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     layout. Per-camera asset tuples are in the canonical camera order.
     """
 
-    _target: type = field(default_factory=lambda: OmnidreamsRunner)
+    _target: type["OmnidreamsRunner"] = field(default_factory=lambda: OmnidreamsRunner)
 
     prompt: str = ""
     """Default text prompt applied to every camera. Override per-camera

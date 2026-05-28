@@ -7,7 +7,7 @@ This harness:
 - clones upstream FastVideo at a pinned commit,
 - applies `changes.patch`,
 - uses an isolated `uv` env with FastVideo-compatible deps, then installs local
-  `flashdreams` (no-deps) so the benchmark can import `flashdreams.infra.profiler`,
+  `flashdreams` (no-deps) to keep the parity env aligned with the main workspace,
 - runs a Wan 2.1 benchmark script that emits parity-style timing JSON.
 
 ## Run
@@ -37,8 +37,8 @@ The benchmark runs with:
 This enforces a fast-path configuration and applies strict cuDNN SDPA forcing
 inside FastVideo's SDPA backend when the env flag is set.
 
-`flashdreams` is installed with `uv pip install --no-deps -e ...` to expose the
-profiler module without forcing flashdreams' full dependency set into this
+`flashdreams` is installed with `uv pip install --no-deps -e ...` for environment
+alignment, without forcing flashdreams' full dependency set into this
 FastVideo/Wan parity environment.
 
 ## Files tracked here

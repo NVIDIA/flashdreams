@@ -118,7 +118,7 @@ class Wan21TransformerConfig(TransformerConfig):
     - ``stamp_image_latent``: overwrite the noisy latent with the clean
       image latent at masked positions every denoising step, and re-stamp
       the predicted ``x0`` the same way. ``network.in_dim`` unchanged.
-      (flashdreams mask-inject recipe; used by the out-of-tree
+      (flashdreams mask-inject integration; used by the out-of-tree
       ``causal_forcing`` plugin.)
     - ``concat_image_mask_to_latent``: append the 4-channel mask and
       16-channel image latent along the channel dim. Builders that set
@@ -172,7 +172,7 @@ class Wan21TransformerConfig(TransformerConfig):
     """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
     stamp_image_latent: bool = False
-    """See class docstring (mask-inject I2V recipe)."""
+    """See class docstring (mask-inject I2V integration)."""
 
     concat_image_mask_to_latent: bool = False
     """See class docstring (channel-concat I2V layout)."""

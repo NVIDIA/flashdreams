@@ -16,7 +16,6 @@
 """HTTP MJPEG viewer support for the FlashVSR gRPC server."""
 
 import io
-import logging
 import queue
 import threading
 import time
@@ -26,8 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
 import torch
-
-log = logging.getLogger(__name__)
+from loguru import logger
 
 DEFAULT_VIEWER_CHUNK_QUEUE_DEPTH = 8
 DEFAULT_VIEWER_JPEG_QUALITY = 90
@@ -189,7 +187,7 @@ class StreamingViewer:
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, format: str, *args) -> None:
-                log.debug("viewer: " + format, *args)
+                logger.debug("viewer: {}", format % args)
 
             def do_GET(self) -> None:
                 if self.path in ("", "/"):
@@ -361,7 +359,7 @@ class StreamingViewer:
         ]
         for thread in self._playback_threads:
             thread.start()
-        log.info("Viewer listening on %s", self.url)
+        logger.info("Viewer listening on {}", self.url)
 
     def _playback_loop(self, channel: str, hub: _MjpegFrameHub) -> None:
         playback_queue = self._playback_queues[channel]
@@ -442,8 +440,8 @@ class StreamingViewer:
             except queue.Full:
                 try:
                     playback_queue.get_nowait()
-                    log.warning(
-                        "Viewer %s playback queue full; dropped oldest completed chunk",
+                    logger.warning(
+                        "Viewer {} playback queue full; dropped oldest completed chunk",
                         channel,
                     )
                 except queue.Empty:

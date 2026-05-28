@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import logging
 import os
 import threading
 import time
@@ -64,8 +63,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-
-_log = logging.getLogger(__name__)
 
 try:
     import lmdb as _lmdb  # ty:ignore[unresolved-import]

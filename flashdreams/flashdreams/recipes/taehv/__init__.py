@@ -70,7 +70,7 @@ slice the live model expects."""
 class TeahvVAEDecoderConfig(DecoderConfig):
     """Config for the TAEHV decoder."""
 
-    _target: type = field(default_factory=lambda: TeahvVAEDecoder)
+    _target: type["TeahvVAEDecoder"] = field(default_factory=lambda: TeahvVAEDecoder)
 
     checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
     """Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights."""

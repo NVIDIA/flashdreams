@@ -38,14 +38,14 @@ CHECKPOINT_PATH_POST_TRAINED_2B = (
 """Cosmos-Predict 2.5 2B post-trained EMA checkpoint."""
 
 PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
-    recipe_name="cosmos2-t2v-2b-720p",
+    name="cosmos2-t2v-2b-720p",
     enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(),
+            network=CosmosDiTNetworkConfig(cp_method="ring"),
             checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
             state_dict_transform=state_dict_transform,
             batch_shape=(),
@@ -54,7 +54,7 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
             # Official code uses formula with 7.0: cond + guidance * (cond - uncond)
             # Equivalent to our formula with 8.0: uncond + guidance * (cond - uncond)
             guidance_scale=8.0,
-            compile_network=False,
+            compile_network=True,
             use_cuda_graph=False,
         ),
         scheduler=FlowMatchUniPCSchedulerConfig(
@@ -66,28 +66,28 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
     ),
 )
 RUNNER_COSMOS2_T2V_2B_720P = Cosmos2T2VRunnerConfig(
-    runner_name=PIPELINE_COSMOS2_T2V_2B_720P.recipe_name,
+    runner_name=PIPELINE_COSMOS2_T2V_2B_720P.name,
     description="Cosmos-Predict2 2B T2V at 720p (single AR step, prompt-only).",
     pipeline=PIPELINE_COSMOS2_T2V_2B_720P,
 )
 
 
 PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
-    recipe_name="cosmos2-i2v-2b-720p",
+    name="cosmos2-i2v-2b-720p",
     enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(),
+            network=CosmosDiTNetworkConfig(cp_method="ring"),
             checkpoint_path=CHECKPOINT_PATH_POST_TRAINED_2B,
             state_dict_transform=state_dict_transform,
             batch_shape=(),
             len_t=24,
             window_size_t=24,
             guidance_scale=8.0,
-            compile_network=False,
+            compile_network=True,
             use_cuda_graph=False,
             conditional_frame_timestep=0.1,
         ),
@@ -101,7 +101,7 @@ PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
     image_encoder=WanVAEEncoderConfig(),
 )
 RUNNER_COSMOS2_I2V_2B_720P = Cosmos2I2VRunnerConfig(
-    runner_name=PIPELINE_COSMOS2_I2V_2B_720P.recipe_name,
+    runner_name=PIPELINE_COSMOS2_I2V_2B_720P.name,
     description="Cosmos-Predict2 2B I2V at 720p (single AR step, prompt + first-frame image).",
     pipeline=PIPELINE_COSMOS2_I2V_2B_720P,
 )

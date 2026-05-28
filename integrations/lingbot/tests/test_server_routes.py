@@ -60,7 +60,10 @@ class FakeSessionManager:
 
 
 async def _build_client(manager: FakeSessionManager) -> TestClient:
-    app = create_app(session_manager=manager)  # ty:ignore[invalid-argument-type]
+    app = create_app(
+        session_manager=manager,
+        request_session_url="http://127.0.0.1:8080/request_session",
+    )
     server = TestServer(app)
     client = TestClient(server)
     await client.start_server()

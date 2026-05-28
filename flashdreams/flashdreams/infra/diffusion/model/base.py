@@ -48,7 +48,7 @@ _FinalStateCacheT = TypeVar(
 class DiffusionModelConfig(InstantiateConfig):
     """Config for the autoregressive diffusion model."""
 
-    _target: type = field(default_factory=lambda: DiffusionModel)
+    _target: type["DiffusionModel"] = field(default_factory=lambda: DiffusionModel)
 
     transformer: TransformerConfig
     """Flow-prediction network config."""

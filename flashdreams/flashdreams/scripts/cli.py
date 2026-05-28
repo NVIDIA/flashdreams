@@ -28,7 +28,7 @@ Usage::
     flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
     flashdreams-run template-offline --no-instantiate # resolve config only
 
-    # Multi-GPU via context-parallelism (recipe transformers auto-detect
+    # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
     # torchrun to execvp the console script directly instead of wrapping
     # it in ``python <script>``:

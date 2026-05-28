@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Omnidreams recipe constants."""
+"""Omnidreams integration constants."""
 
 NEGATIVE_PROMPT = (
     "The video captures a series of frames showing ugly scenes, static with no "

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +14,8 @@ from typing import Any
 
 import pytest
 import torch
+from omnidreams import scenes
+from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
@@ -186,6 +191,291 @@ def test_prepare_clipgt_dir_stages_unprefixed_parquets(
     monkeypatch.chdir(tmp_path)
     staged_from_relative = runtime._prepare_clipgt_dir(Path("clipgt"))
     assert (staged_from_relative / "clip.calibration_estimate.parquet").exists()
+
+
+def test_prepare_clipgt_dir_stages_nested_unprefixed_parquets(tmp_path: Path) -> None:
+    clipgt = tmp_path / "clipgt"
+    clipgt.mkdir()
+    nested = clipgt / "clipgt"
+    nested.mkdir()
+    (clipgt / "first_image.png").touch()
+    (clipgt / "prompt.txt").touch()
+    (nested / "calibration_estimate.parquet").touch()
+    (nested / "egomotion_estimate.parquet").touch()
+    (nested / "lane.parquet").touch()
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
+    )
+
+    staged = runtime._prepare_clipgt_dir(clipgt)
+
+    assert staged != clipgt
+    assert (staged / "clip.calibration_estimate.parquet").exists()
+    assert (staged / "clip.egomotion_estimate.parquet").exists()
+    assert (staged / "clip.lane.parquet").exists()
+
+
+def test_hf_webrtc_scene_sync_requires_usdz_first_frame(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scene_uuid = "065dcac9-ee67-4434-a835-c6b816c88e48"
+    archive_repo_path = f"scenes/clipgt-{scene_uuid}.usdz"
+    archive_path = tmp_path / "clipgt.usdz"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("calibration_estimate.parquet", "calibration")
+        zf.writestr("egomotion_estimate.parquet", "egomotion")
+        zf.writestr("prompt.txt", "archive prompt")
+
+    def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
+        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_type == "dataset"
+        assert filename == archive_repo_path
+        return str(archive_path)
+
+    cache_dir = tmp_path / "flashdreams-cache"
+    stale_scene_dir = cache_dir / "omnidreams-scenes" / scene_uuid
+    stale_scene_dir.mkdir(parents=True)
+    (stale_scene_dir / "first_frame.jpeg").write_text(
+        "stale first frame", encoding="utf-8"
+    )
+    (stale_scene_dir / "prompt.txt").write_text("stale prompt", encoding="utf-8")
+
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", cache_dir)
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        _fake_hf_hub_download,
+    )
+
+    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+
+    with pytest.raises(FileNotFoundError, match="first_image"):
+        session._resolve_webrtc_scene_assets(
+            scene_dir,
+            prompt_filename="prompt.txt",
+            clipgt_dirname="clipgt",
+        )
+
+
+def test_hf_webrtc_scene_sync_uses_extracted_first_image(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scene_uuid = "065dcac9-ee67-4434-a835-c6b816c88e48"
+    archive_repo_path = f"scenes/clipgt-{scene_uuid}.usdz"
+    archive_path = tmp_path / "clipgt.usdz"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("calibration_estimate.parquet", "calibration")
+        zf.writestr("egomotion_estimate.parquet", "egomotion")
+        zf.writestr("first_image.png", "first image")
+        zf.writestr("prompt.txt", "archive prompt")
+
+    def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
+        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_type == "dataset"
+        assert filename == archive_repo_path
+        return str(archive_path)
+
+    cache_dir = tmp_path / "flashdreams-cache"
+    stale_scene_dir = cache_dir / "omnidreams-scenes" / scene_uuid
+    stale_scene_dir.mkdir(parents=True)
+    (stale_scene_dir / "first_frame.jpeg").write_text(
+        "stale first frame", encoding="utf-8"
+    )
+    (stale_scene_dir / "prompt.txt").write_text("stale prompt", encoding="utf-8")
+
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", cache_dir)
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        _fake_hf_hub_download,
+    )
+
+    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+
+    assert (scene_dir / "clipgt" / "first_image.png").read_text(
+        encoding="utf-8"
+    ) == "first image"
+    assert (scene_dir / "clipgt" / "prompt.txt").read_text(
+        encoding="utf-8"
+    ) == "archive prompt"
+
+    clipgt_dir, first_frame_path, prompt_path = session._resolve_webrtc_scene_assets(
+        scene_dir,
+        prompt_filename="prompt.txt",
+        clipgt_dirname="clipgt",
+    )
+    assert clipgt_dir == scene_dir / "clipgt"
+    assert first_frame_path == scene_dir / "clipgt" / "first_image.png"
+    assert prompt_path == scene_dir / "clipgt" / "prompt.txt"
+
+
+def test_hf_webrtc_scene_sync_requires_usdz_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scene_uuid = "065dcac9-ee67-4434-a835-c6b816c88e48"
+    archive_repo_path = f"scenes/clipgt-{scene_uuid}.usdz"
+    archive_path = tmp_path / "clipgt.usdz"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("calibration_estimate.parquet", "calibration")
+        zf.writestr("egomotion_estimate.parquet", "egomotion")
+        zf.writestr("first_image.png", "first image")
+
+    def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
+        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_type == "dataset"
+        assert filename == archive_repo_path
+        return str(archive_path)
+
+    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "flashdreams-cache")
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        _fake_hf_hub_download,
+    )
+
+    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+
+    with pytest.raises(FileNotFoundError, match="prompt.txt"):
+        session._resolve_webrtc_scene_assets(
+            scene_dir,
+            prompt_filename="prompt.txt",
+            clipgt_dirname="clipgt",
+        )
+
+
+def test_resolved_empty_prompt_keeps_runtime_default_behavior(tmp_path: Path) -> None:
+    scene_dir = tmp_path / "scene"
+    clipgt_dir = scene_dir / "clipgt"
+    clipgt_dir.mkdir(parents=True)
+    (clipgt_dir / "first_image.png").write_text("first image", encoding="utf-8")
+    (clipgt_dir / "prompt.txt").write_text("", encoding="utf-8")
+
+    _, _, prompt_path = session._resolve_webrtc_scene_assets(
+        scene_dir,
+        prompt_filename="prompt.txt",
+        clipgt_dirname="clipgt",
+    )
+
+    assert prompt_path == clipgt_dir / "prompt.txt"
+    assert (
+        prompt_path.read_text(encoding="utf-8").strip() or session.AV_POSITIVE_PROMPT
+    ) == session.AV_POSITIVE_PROMPT
+
+
+def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        scene_dir=tmp_path / "local-scene",
+        scene_uuid="scene-123",
+        seed=123,
+        device="cuda:0",
+        video_height=360,
+        video_width=640,
+        fps=24,
+        camera_name="camera_front_wide_120fov",
+        warmup_chunks=0,
+        warmup_timeout_s=30.0,
+        debug_serve_hdmaps=True,
+    )
+
+    cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
+
+    assert cfg.scene_dir == tmp_path / "local-scene"
+    assert cfg.scene_uuid == "scene-123"
+    assert cfg.device == "cuda:7"
+    assert cfg.video_height == 360
+    assert cfg.video_width == 640
+    assert cfg.debug_serve_hdmaps is True
+
+
+def test_parse_args_omits_scene_dir_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "omnidreams.webrtc.server",
+            "--debug_serve_hdmaps",
+        ],
+    )
+
+    args = webrtc_server.parse_args()
+
+    assert args.scene_dir is None
+    assert args.scene_uuid is None
+    assert args.debug_serve_hdmaps is True
+
+
+def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    staged_scene_dir = tmp_path / "staged-scene"
+    calls: list[str] = []
+
+    def _fake_ensure_hf_webrtc_scene_synced(
+        scene_uuid: str,
+        *,
+        prompt_filename: str,
+        clipgt_dirname: str,
+    ) -> Path:
+        del prompt_filename, clipgt_dirname
+        calls.append(scene_uuid)
+        return staged_scene_dir
+
+    def _fake_resolve_webrtc_scene_assets(
+        scene_dir: Path,
+        *,
+        prompt_filename: str,
+        clipgt_dirname: str,
+    ) -> tuple[Path, Path, Path]:
+        del prompt_filename, clipgt_dirname
+        clipgt_dir = scene_dir / "clipgt"
+        return clipgt_dir, clipgt_dir / "first_image.png", clipgt_dir / "prompt.txt"
+
+    monkeypatch.setattr(
+        session,
+        "_ensure_hf_webrtc_scene_synced",
+        _fake_ensure_hf_webrtc_scene_synced,
+    )
+    monkeypatch.setattr(
+        session,
+        "_resolve_webrtc_scene_assets",
+        _fake_resolve_webrtc_scene_assets,
+    )
+    monkeypatch.setattr(session, "load_scene", lambda *args, **kwargs: None)
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(
+            pipeline_config_name="missing-config",
+            device="cpu",
+            scene_dir=None,
+            scene_uuid=None,
+        )
+    )
+
+    with pytest.raises(ValueError, match="Unknown pipeline_config_name"):
+        runtime._initialize_sync()
+
+    assert calls == [session.DEFAULT_WEBRTC_SCENE_UUID]
+
+
+def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        scene_dir=tmp_path / "local-scene",
+        scene_uuid=None,
+        seed=123,
+        device="cuda:0",
+        video_height=360,
+        video_width=640,
+        fps=24,
+        camera_name="camera_front_wide_120fov",
+        warmup_chunks=0,
+        warmup_timeout_s=30.0,
+        debug_serve_hdmaps=True,
+    )
+
+    cfg = webrtc_server.build_runtime_config(args)
+
+    assert cfg.scene_dir == tmp_path / "local-scene"
+    assert cfg.scene_uuid is None
 
 
 @pytest.mark.asyncio

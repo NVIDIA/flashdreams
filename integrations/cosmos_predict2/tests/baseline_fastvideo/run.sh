@@ -45,14 +45,12 @@ fi
 echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
-echo "[setup] installing flashdreams package for profiler access (no-deps)"
+echo "[setup] installing flashdreams package for env alignment (no-deps)"
 ( cd "${SCRIPT_DIR}" && uv pip install --no-deps -e "${REPO_ROOT}/flashdreams" )
 
 echo "[run] starting FastVideo Cosmos 2.5 T2W benchmark"
 FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA \
 FASTVIDEO_FORCE_CUDNN_SDPA=1 \
+FASTVIDEO_PARITY_STATS_PATH="./videos/stats_offline.json" \
 PYTHONPATH="${REPO_DIR}:${PYTHONPATH:-}" \
-"${SCRIPT_DIR}/.venv/bin/python" "${REPO_DIR}/examples/inference/basic/benchmark_cosmos2_5_t2w.py" \
-    --enable_torch_compile \
-    --output "./videos/offline.mp4" \
-    --stats_output "./videos/stats_offline.json"
+"${SCRIPT_DIR}/.venv/bin/python" "${REPO_DIR}/examples/inference/basic/basic_cosmos2_5_t2w.py"

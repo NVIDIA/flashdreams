@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 cd "$SCRIPT_DIR"
 
-uv run --package flash-omnidreams python -m grpc_tools.protoc \
+uv run --package flashdreams-omnidreams python -m grpc_tools.protoc \
     -I. \
     --python_out=. \
     --grpc_python_out=. \

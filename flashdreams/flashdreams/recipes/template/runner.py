@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reference template recipe runner for ``flashdreams-run``.
+"""Reference template integration runner for ``flashdreams-run``.
 
-The template recipe ships toy ``Conv3d`` networks and a synthetic
+The template integration ships toy ``Conv3d`` networks and a synthetic
 control input -- no prompt, no first frame; outputs are diagnostic
 tensors. New runners should mirror this control flow:
 
@@ -45,7 +45,7 @@ from flashdreams.recipes.template.transformer import (
 class TemplateRunnerConfig(RunnerConfig):
     """Runner config for any template variant (offline / AR / AR-compiled)."""
 
-    _target: type = field(default_factory=lambda: TemplateRunner)
+    _target: type["TemplateRunner"] = field(default_factory=lambda: TemplateRunner)
 
     num_ar_steps: int = 1
     """How many AR steps to roll. Pin per-variant: 1 for the offline /
@@ -76,7 +76,7 @@ class TemplateRunnerConfig(RunnerConfig):
 
 
 class TemplateRunner(Runner[TemplateRunnerConfig, StreamInferencePipeline]):
-    """End-to-end driver for any template-recipe variant."""
+    """End-to-end driver for any template-integration variant."""
 
     def run(self) -> None:
         """Roll one rollout and dump the output tensor."""

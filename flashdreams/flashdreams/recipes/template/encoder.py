@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tiny per-AR-step control encoder for the template recipe."""
+"""Tiny per-AR-step control encoder for the template integration."""
 
 from __future__ import annotations
 
@@ -36,11 +36,13 @@ class TemplateControlEncoderConfig(EncoderConfig):
     """Config for the template control encoder.
 
     Point-wise ``Conv3d`` projecting a dummy control channel stack to
-    the transformer's ``in_channels``. Real recipes swap in an
+    the transformer's ``in_channels``. Real integrations swap in an
     HDMap / camera-control / depth encoder here.
     """
 
-    _target: type = field(default_factory=lambda: TemplateControlEncoder)
+    _target: type["TemplateControlEncoder"] = field(
+        default_factory=lambda: TemplateControlEncoder
+    )
 
     control_channels: int = 8
     """Channels of the raw control tensor passed to :meth:`TemplateControlEncoder.forward`."""

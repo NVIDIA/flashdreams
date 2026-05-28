@@ -57,7 +57,9 @@ DEFAULT_T2V_PROMPT = (
 class FastvideoCausalWan22T2VRunnerConfig(RunnerConfig):
     """Runner config for the FastVideo CausalWan 2.2 T2V variants."""
 
-    _target: type = field(default_factory=lambda: FastvideoCausalWan22T2VRunner)
+    _target: type["FastvideoCausalWan22T2VRunner"] = field(
+        default_factory=lambda: FastvideoCausalWan22T2VRunner
+    )
 
     prompt: str | Path = DEFAULT_T2V_PROMPT
     """Either an inline text prompt (--prompt "...") or a path to a

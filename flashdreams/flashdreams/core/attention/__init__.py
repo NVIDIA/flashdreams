@@ -15,9 +15,9 @@
 
 """Attention primitives and KV cache for streaming inference."""
 
+from flashdreams.core.attention.cp import ContextParallelAttention
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.core.attention.native import NativeAttention
-from flashdreams.core.attention.ring import RingAttention
 from flashdreams.core.attention.rope import (
     KVCacheRelativeRotaryPositionEmbedding3D,
     RotaryPositionEmbedding3D,
@@ -29,6 +29,6 @@ __all__ = [
     "KVCacheRelativeRotaryPositionEmbedding3D",
     "BlockKVCache",
     "NativeAttention",
-    "RingAttention",
+    "ContextParallelAttention",
     "apply_rope_freqs",
 ]

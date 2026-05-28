@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reference :class:`Transformer` subclass for the FlashVSR recipe.
+"""Reference :class:`Transformer` subclass for the FlashVSR integration.
 
 Mirrors the ``template/transformer/__init__.py`` role: this module owns
 the :class:`Wan21Transformer` subclass (including its config) that wraps

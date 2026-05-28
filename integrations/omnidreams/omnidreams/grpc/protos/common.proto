@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Copyright (c) 2025 NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 syntax = "proto3";
 
 package omnidreams.common;

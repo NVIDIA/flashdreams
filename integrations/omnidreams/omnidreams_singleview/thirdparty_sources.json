@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "cutlass",
+      "repo": "https://github.com/NVIDIA/cutlass.git",
+      "commit": "f3fde58372d33e9a5650ba7b80fc48b3b49d40c8",
+      "directory": "cutlass",
+      "delete_paths": [
+        "python/CuTeDSL"
+      ],
+      "patches": [
+        {
+          "path": "patches/cutlass/sm120-tma-pool.patch",
+          "strip": 1
+        }
+      ],
+      "overlays": [
+        {
+          "source": "patches/cutlass/include",
+          "destination": "include"
+        }
+      ]
+    },
+    {
+      "name": "SageAttention",
+      "repo": "https://github.com/thu-ml/SageAttention.git",
+      "commit": "d1a57a546c3d395b1ffcbeecc66d81db76f3b4b5",
+      "directory": "SageAttention"
+    },
+    {
+      "name": "SpargeAttn",
+      "repo": "https://github.com/thu-ml/SpargeAttn.git",
+      "commit": "bfd980b781784c04ad6a53e7ee657c0645d99171",
+      "directory": "SpargeAttn"
+    }
+  ]
+}

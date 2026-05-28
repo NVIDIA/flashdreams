@@ -9,11 +9,11 @@ FlashVSR-v1.1 streaming video super-resolution (LR projector + distilled
 Wan 2.1 DiT + TC decoder + AdaIN color corrector), packaged as a
 [`flashdreams`](../..) plugin, in a standalone repo. Wraps everything in
 a `StreamInferencePipeline` so the same `generate` / `finalize`
-lifecycle as the other recipes (`omnidreams`, `lingbot_world`, `wan2_1`)
+lifecycle as the other integrations (`omnidreams`, `lingbot_world`, `wan2_1`)
 applies.
 
 This is a worked example of the
-[Adding a new recipe](../../docs/source/developer_guides/new_recipes.rst)
+[Adding a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
 developer-guide flow.
 
 ## Shipped slugs

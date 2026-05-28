@@ -1244,7 +1244,7 @@ class WanVAEEncoderConfig(EncoderConfig):
     :class:`Wan22TI2V5BVAEEncoderConfig` for the pre-rolled set.
     """
 
-    _target: type = field(default_factory=lambda: WanVAEEncoder)
+    _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
@@ -1379,7 +1379,7 @@ class WanVAEDecoderConfig(DecoderConfig):
     =256`` and the residual up-stage with ``DupUp3D`` shortcut.
     """
 
-    _target: type = field(default_factory=lambda: WanVAEDecoder)
+    _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16

@@ -1,78 +1,20 @@
-diff --git a/examples/inference/basic/benchmark_wan2_1_t2v.py b/examples/inference/basic/benchmark_wan2_1_t2v.py
-new file mode 100644
-index 00000000..f25d8881
---- /dev/null
-+++ b/examples/inference/basic/benchmark_wan2_1_t2v.py
-@@ -0,0 +1,69 @@
-+#!/usr/bin/env python
-+# SPDX-License-Identifier: Apache-2.0
-+"""Wan 2.1 T2V benchmark with parity-style timing output."""
-+
-+import argparse
-+import json
-+import os
-+from pathlib import Path
-+
-+from fastvideo import VideoGenerator
-+from fastvideo.api.sampling_param import SamplingParam
-+
-+DEFAULT_PROMPT = (
-+    "A curious raccoon peers through a vibrant field of yellow sunflowers, its eyes "
-+    "wide with interest. The playful yet serene atmosphere is complemented by soft "
-+    "natural light filtering through the petals. Mid-shot, warm and cheerful tones."
-+)
-+
-+
-+def parse_args() -> argparse.Namespace:
-+    parser = argparse.ArgumentParser(description=__doc__)
-+    parser.add_argument("--model_name", type=str, default="Wan-AI/Wan2.1-T2V-1.3B-Diffusers")
-+    parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
-+    parser.add_argument("--seed", type=int, default=42)
-+    parser.add_argument("--output", type=str, default="./videos/offline.mp4")
-+    parser.add_argument("--stats_output", type=str, default="./videos/stats_offline.json")
-+    parser.add_argument("--num_gpus", type=int, default=1)
-+    parser.add_argument("--enable_torch_compile", action="store_true")
-+    return parser.parse_args()
-+
-+
-+def main() -> None:
-+    args = parse_args()
-+    os.environ["FASTVIDEO_ATTENTION_BACKEND"] = "TORCH_SDPA"
-+    os.environ["FASTVIDEO_FORCE_CUDNN_SDPA"] = "1"
-+    os.environ["FASTVIDEO_PARITY_STATS_PATH"] = args.stats_output
-+
-+    output_path = Path(args.output)
-+    output_path.parent.mkdir(parents=True, exist_ok=True)
-+    stats_path = Path(args.stats_output)
-+    stats_path.parent.mkdir(parents=True, exist_ok=True)
-+
-+    generator = VideoGenerator.from_pretrained(
-+        args.model_name,
-+        num_gpus=args.num_gpus,
-+        use_fsdp_inference=False,
-+        dit_cpu_offload=False,
-+        vae_cpu_offload=False,
+diff --git a/examples/inference/basic/basic.py b/examples/inference/basic/basic.py
+index 766b9bd7..eb2fcd29 100644
+--- a/examples/inference/basic/basic.py
++++ b/examples/inference/basic/basic.py
+@@ -15,8 +15,10 @@ def main():
+         use_fsdp_inference=False, # set to True if GPU is out of memory
+         dit_cpu_offload=False,
+         vae_cpu_offload=False,
+-        text_encoder_cpu_offload=True,
+-        pin_cpu_memory=True, # set to false if low CPU RAM or hit obscure "CUDA error: Invalid argument"
 +        text_encoder_cpu_offload=False,
-+        pin_cpu_memory=False,
-+        enable_torch_compile=args.enable_torch_compile,
++        pin_cpu_memory=False, # keep settings aligned for parity benchmarking
++        enable_torch_compile=True,
 +        torch_compile_kwargs={"mode": "max-autotune-no-cudagraphs"},
-+    )
-+
-+    sampling_param = SamplingParam.from_pretrained(args.model_name)
-+    sampling_param.update({"seed": args.seed, "output_path": str(output_path), "save_video": True, "return_frames": False})
-+    result = generator.generate_video(args.prompt, sampling_param=sampling_param)
-+    print(f"Video saved to: {result.get('video_path')}")
-+
-+    if not stats_path.exists():
-+        raise RuntimeError(f"Expected timing stats at {stats_path}, but file was not generated")
-+    with stats_path.open("r", encoding="utf-8") as f:
-+        stats = json.load(f)
-+    print(f"Per-run stats saved to: {stats_path} ({len(stats)} entries)")
-+    generator.shutdown()
-+
-+
-+if __name__ == "__main__":
-+    main()
+         # image_encoder_cpu_offload=False,
+     )
+ 
 diff --git a/fastvideo/attention/backends/sdpa.py b/fastvideo/attention/backends/sdpa.py
 index 5d9b2159..55c14263 100644
 --- a/fastvideo/attention/backends/sdpa.py
@@ -100,61 +42,3 @@ index 5d9b2159..55c14263 100644
 +            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
          output = output.transpose(1, 2)
          return output
-diff --git a/fastvideo/pipelines/stages/denoising.py b/fastvideo/pipelines/stages/denoising.py
-index c112f48c..de4f7ed0 100644
---- a/fastvideo/pipelines/stages/denoising.py
-+++ b/fastvideo/pipelines/stages/denoising.py
-@@ -4,6 +4,8 @@ Denoising stage for diffusion pipelines.
- """
- 
- import inspect
-+import json
-+import os
- import weakref
- from collections.abc import Iterable
- from typing import Any
-@@ -42,5 +44,7 @@ except ImportError:
- 
- logger = init_logger(__name__)
- 
-+from flashdreams.infra.profiler import EventProfiler
-+
- 
- class DenoisingStage(PipelineStage):
-@@ -84,6 +88,9 @@ class DenoisingStage(PipelineStage):
-         """
-         pipeline = self.pipeline() if self.pipeline else None
-+        stats_path = os.getenv("FASTVIDEO_PARITY_STATS_PATH", "").strip()
-+        collect_timing = bool(stats_path)
-+        denoise_profiler = EventProfiler() if collect_timing else None
-         if not fastvideo_args.model_loaded["transformer"]:
-             loader = TransformerLoader()
-             self.transformer = loader.load(fastvideo_args.model_paths["transformer"], fastvideo_args)
-             if pipeline:
-@@ -411,6 +418,26 @@ class DenoisingStage(PipelineStage):
-                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and
-                                                (i + 1) % self.scheduler.order == 0 and progress_bar is not None):
-                     progress_bar.update()
-+
-+        if denoise_profiler is not None:
-+            denoise_profiler.record("denoise")
-+            stages_ms = denoise_profiler.sync_and_summarize()
-+            total_ms = float(sum(stages_ms.values()))
-+            stats: dict[str, float | int] = {f"{stage}_ms": float(ms) for stage, ms in stages_ms.items()}
-+            stats["kv_update_ms"] = 0.0
-+            stats["decode_ms"] = 0.0
-+            stats["total_ms"] = total_ms
-+            stats["total_ms_wo_finalize"] = total_ms
-+            if torch.cuda.is_available():
-+                device = torch.cuda.current_device()
-+                gib = 1024**3
-+                stats["mem_alloc_gib"] = torch.cuda.memory_allocated(device) / gib
-+                stats["mem_reserved_gib"] = torch.cuda.memory_reserved(device) / gib
-+                stats["mem_peak_gib"] = torch.cuda.max_memory_allocated(device) / gib
-+            stats_dir = os.path.dirname(stats_path) or "."
-+            os.makedirs(stats_dir, exist_ok=True)
-+            with open(stats_path, "w", encoding="utf-8") as f:
-+                json.dump([{"autoregressive_index": 0, **stats}], f, indent=2)
- 
-         trajectory_tensor: torch.Tensor | None = None
-         if trajectory_latents:

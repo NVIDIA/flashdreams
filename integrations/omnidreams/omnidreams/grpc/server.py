@@ -65,10 +65,10 @@ from omnidreams.grpc.utils import (
     camera_spec_to_ftheta,
     compute_camera_poses_from_rig,
     decode_image,
-    dynamic_state_to_object_info,
+    dynamic_state_to_ludus_cube_pool,
     encode_image,
     load_static_world_from_zip_bytes,
-    parse_rig_to_camera,
+    parse_rig_to_camera_transforms,
     proto_to_dict,
     trajectory_to_camera_poses,
 )
@@ -151,16 +151,12 @@ class RenderVideoChunkPayload:
 
     session_id: str
     frame_timestamps_us: list[int]
-    object_info_per_frame: list[dict[str, Any]]
+    dynamic_state: dict[str, Any]
     rig_poses_flu: np.ndarray | torch.Tensor | list[Any]
 
     def __post_init__(self) -> None:
         assert self.session_id, "Expected non-empty session_id"
         assert len(self.frame_timestamps_us) > 0, "Expected non-empty frame timestamps"
-        assert len(self.object_info_per_frame) == len(self.frame_timestamps_us), (
-            "Expected object_info_per_frame to align with frame_timestamps_us, got "
-            f"{len(self.object_info_per_frame)} vs {len(self.frame_timestamps_us)}"
-        )
         assert len(self.rig_poses_flu) == len(self.frame_timestamps_us), (
             "Expected rig_poses_flu to align with frame_timestamps_us, got "
             f"{len(self.rig_poses_flu)} vs {len(self.frame_timestamps_us)}"
@@ -372,6 +368,7 @@ class WorldModelEngine:
                 open_session_payload.hdmap_parquets,
                 camera_names=open_session_payload.camera_names,
                 target_resolution_hw=(res_H, res_W),
+                include_dynamic_obstacles=False,
             )
         logger.info(
             f"[Rank {self.rank}] Loaded scene: {scene_data.scene_id}, num_frames: {scene_data.num_frames}"
@@ -423,10 +420,13 @@ class WorldModelEngine:
         )
         # -------------------------------------------------------------------
         if VERBOSE:
+            requested_actor_count = len(
+                render_video_chunk_payload.dynamic_state.get("actors", [])
+            )
             print(
                 f"[Rank {self.rank}] Render video chunk for session {render_video_chunk_payload.session_id}\n"
                 f"      ├────> # of frames: {len(render_video_chunk_payload.frame_timestamps_us)}\n"
-                f"      ├────> # of dynamic objects: {len(render_video_chunk_payload.object_info_per_frame)}\n"
+                f"      ├────> # of requested dynamic actors: {requested_actor_count}\n"
                 f"      ╰────> # of rig poses: {len(rig_poses_flu_tensor)}, type: {type(rig_poses_flu_tensor)}"
             )
 
@@ -483,6 +483,11 @@ class WorldModelEngine:
 
         # Generate frames
         is_first_chunk = not session_state.generation_started
+        dynamic_actor_pool = dynamic_state_to_ludus_cube_pool(
+            render_video_chunk_payload.dynamic_state,
+            render_video_chunk_payload.frame_timestamps_us,
+            device=self.device,
+        )
         if is_first_chunk:
             logger.info(
                 f"[Rank {self.rank}] Starting generation with {len(render_video_chunk_payload.frame_timestamps_us)} frames (skip_video={skip_video_generation})..."
@@ -507,6 +512,7 @@ class WorldModelEngine:
                         camera_poses_per_view=camera_poses_per_view,
                         frame_timestamps_us=render_video_chunk_payload.frame_timestamps_us,
                         skip_video_generation=skip_video_generation,
+                        dynamic_actor_pool=dynamic_actor_pool,
                     )
             session_state.omnidreams_state = output.state
             session_state.generation_started = True
@@ -530,7 +536,7 @@ class WorldModelEngine:
                         camera_names=camera_names,
                         camera_poses_per_view=camera_poses_per_view,
                         frame_timestamps_us=render_video_chunk_payload.frame_timestamps_us,
-                        object_info_per_frame=render_video_chunk_payload.object_info_per_frame,
+                        dynamic_actor_pool=dynamic_actor_pool,
                         skip_video_generation=skip_video_generation,
                     )
             session_state.omnidreams_state = output.state
@@ -852,7 +858,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         profiler = get_profiler()
         _ = profiler.get_chunk_idx(session_id)
 
-        # 1. Parse camera specs list — extract names, intrinsics, rig_to_camera
+        # 1. Parse camera specs list — extract names and intrinsics
         camera_specs_raw = list(request.camera_specs)
         if not camera_specs_raw:
             raise ValueError(
@@ -861,8 +867,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
 
         camera_names: list[str] = []
         camera_models_from_client: dict[str, FThetaCamera] = {}
-        rig_to_camera_transforms: dict[str, np.ndarray] = {}
-
         for i, spec in enumerate(camera_specs_raw):
             spec_dict = proto_to_dict(spec)
             cam_name = spec_dict.get("logical_id", f"camera_{i}")
@@ -877,9 +881,12 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             if has_camera_model:
                 camera_models_from_client[cam_name] = camera_spec_to_ftheta(spec_dict)
 
-            # Parse rig_to_camera (FLU convention from client → convert to RDF)
-            rig_to_cam_flu = parse_rig_to_camera(spec_dict)
-            rig_to_camera_transforms[cam_name] = rig_to_cam_flu
+        # Parse rig-to-camera extrinsics from SessionRequest, one pose per
+        # camera_spec in the same order. The client and Ludus renderer use FLU.
+        rig_to_camera_transforms = parse_rig_to_camera_transforms(
+            list(request.rig_to_camera),
+            camera_names,
+        )
 
         logger.info(f"Parsed {len(camera_names)} camera specs: {camera_names}")
         assert len(camera_names) == len(camera_models_from_client), (
@@ -916,10 +923,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
                 logger.info("HDMap-only mode enabled (skip_video_generation=True)")
             if return_hdmap_frames:
                 logger.info("HDMap frames will be returned with video")
-            if request.debug_options.return_bev_map:
-                logger.warning(
-                    "debug_options.return_bev_map is ignored; BEV rendering path was removed."
-                )
 
         request_seed = int(request.random_seed)
         if request_seed != 0:
@@ -1027,7 +1030,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             chunk_size = self.conditioning_wrapper.frame_chunk_size
             logger.info(f"Continuation chunk: expecting {chunk_size} poses")
 
-        # 3. Parse rig trajectory (FLU → RDF) and derive per-camera poses
+        # 3. Parse rig trajectory (FLU) and derive per-camera poses
         # FIXME: do this on GPU ... should not do this actually ...
         with profiler.measure(
             "parse_trajectory", session_id=session_id, chunk_idx=chunk_idx
@@ -1064,29 +1067,25 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             f"({len(frame_timestamps_us)} frames)"
         )
 
-        # 5. Parse dynamic state
+        # 5. Parse dynamic state. For gRPC, the request is authoritative:
+        # an empty DynamicWorldState means render no dynamic actors.
         with profiler.measure(
             "parse_dynamic_state", session_id=session_id, chunk_idx=chunk_idx
         ):
             dynamic_state_dict = proto_to_dict(request.dynamic_state)
             logger.debug(f"dynamic_state_dict: {dynamic_state_dict}")
-            object_info_per_frame = [
-                dynamic_state_to_object_info(dynamic_state_dict, ts)
-                for ts in frame_timestamps_us
-            ]
-        logger.info(f"Parsed {len(object_info_per_frame)} frames with dynamic objects")
+        logger.info(
+            f"Parsed {len(dynamic_state_dict.get('actors', []))} requested dynamic actors"
+        )
 
         # 6. Generate frames
         render_video_chunk_payload = RenderVideoChunkPayload(
             session_id=session_id,
             frame_timestamps_us=frame_timestamps_us,
-            object_info_per_frame=object_info_per_frame,
+            dynamic_state=dynamic_state_dict,
             rig_poses_flu=rig_poses_flu,
         )
         response = self.render_video_chunk_all_ranks(render_video_chunk_payload)
-
-        # Echo back rig trajectory
-        response.poses_and_timestamps_of_frames.CopyFrom(request.rig_trajectory)
 
         # Schedule KV cache finalization in background thread
         # This allows the gRPC response to be sent immediately while KV cache update
@@ -1191,7 +1190,7 @@ class SessionState:
         self.session_id = session_id
         self.camera_names = camera_names  # Ordered list of camera logical IDs
         self.rig_to_camera_transforms = (
-            rig_to_camera_transforms  # cam_name → 4×4 rig_to_camera (RDF or FLU)
+            rig_to_camera_transforms  # cam_name → 4×4 rig_to_camera (FLU)
         )
         self.scene_data = scene_data
         self.renderer = renderer  # Created in start_session
@@ -1262,8 +1261,8 @@ def parse_args() -> argparse.Namespace:
         "--output_format",
         type=str,
         choices=["png", "jpeg"],
-        default="png",
-        help="Output image format for generated frames (default: png). JPEG is faster but lossy.",
+        default="jpeg",
+        help="Output image format for generated frames (default: jpeg). PNG is lossless but much slower.",
     )
     parser.add_argument(
         "--jpeg_quality",

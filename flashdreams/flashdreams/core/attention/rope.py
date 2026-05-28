@@ -180,7 +180,7 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
     """Standard 3D RoPE with unbounded autoregressive time positions.
 
     Each AR step emits only the current chunk's monotonically increasing
-    positions. This is the default RoPE used by existing transformer recipes.
+    positions. This is the default RoPE used by existing transformer integrations.
     Use it when keys are rotated before they are written into the KV cache, so
     the cached K tensor already carries its original global position.
 

@@ -33,13 +33,15 @@ from flashdreams.core.distributed import (
     init as distributed_init,
 )
 from flashdreams.serving.network import get_external_ip
-from flashdreams.serving.webrtc.server import create_webrtc_app
+from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
 from lingbot.webrtc.session import (
+    REPO_ROOT,
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 5)
 
 
 def configure_logging(*, world_rank: int | None = None) -> None:
@@ -86,18 +88,28 @@ def parse_args() -> argparse.Namespace:
         default=600.0,
         help="Maximum seconds to wait for synthetic startup warmup chunks.",
     )
+    parser.add_argument(
+        "--example-idx",
+        "--example_idx",
+        type=int,
+        default=0,
+        choices=EXAMPLE_DATA_AVAILABLE_IDXS,
+        help="Example folder index under assets/example_data/lingbot_world (allowed: 0, 1, 2, 5).",
+    )
     return parser.parse_args()
 
 
 def create_app(
     *,
-    session_manager: LingbotWebRTCSessionManager | None = None,
+    request_session_url: str,
+    session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or LingbotWebRTCSessionManager()
     return create_webrtc_app(
         web_dir=WEB_DIR,
         session_manager=manager,
         preload_name="Lingbot",
+        request_session_url=request_session_url,
     )
 
 
@@ -107,6 +119,11 @@ def build_runtime_config(
     device_override: str | None = None,
     context_parallel_size: int = 1,
 ) -> LingbotRuntimeConfig:
+    example_idx = getattr(args, "example_idx", 0)
+    assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
+        f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
+    )
+    example_dir = REPO_ROOT / "assets/example_data/lingbot_world" / f"{example_idx:02d}"
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
@@ -114,6 +131,7 @@ def build_runtime_config(
         device=device_override or args.device,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
+        example_data_dir=example_dir,
     )
 
 
@@ -181,8 +199,12 @@ def main() -> None:
     )
     session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
     if world_rank == 0:
-        app = create_app(session_manager=session_manager)
-        logger.info("Starting on external IP: {}", get_external_ip())
+        external_ip = get_external_ip()
+        app = create_app(
+            session_manager=session_manager,
+            request_session_url=f"http://{external_ip}:{args.port}/request_session",
+        )
+        logger.info("Starting on external IP: {}", external_ip)
         try:
             web.run_app(app, host=args.host, port=args.port)
         finally:

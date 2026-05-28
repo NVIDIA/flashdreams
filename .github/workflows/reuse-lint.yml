@@ -31,15 +31,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: LICENSE and LICENSES/Apache-2.0.txt are byte-identical Apache-2.0
+      - name: LICENSE carries canonical Apache-2.0 text
         run: |
           set -euo pipefail
-          if ! diff -q LICENSE LICENSES/Apache-2.0.txt >/dev/null; then
-            echo "::error::LICENSE and LICENSES/Apache-2.0.txt diverge"
-            diff LICENSE LICENSES/Apache-2.0.txt | head -20
-            exit 1
-          fi
-          # Sentinel strings unique to the canonical Apache-2.0 text.
+          # Sentinel strings unique to the canonical Apache-2.0 text — must
+          # appear in LICENSE even with any preamble in front.
           for line in \
             "Apache License" \
             "Version 2.0, January 2004" \
@@ -52,7 +48,19 @@ jobs:
               exit 1
             fi
           done
-          echo "OK: LICENSE == LICENSES/Apache-2.0.txt, canonical Apache-2.0 text"
+          # LICENSES/Apache-2.0.txt must remain the canonical Apache-2.0
+          # text (no preamble) so REUSE tooling can reuse it verbatim.
+          for line in \
+            "Apache License" \
+            "Version 2.0, January 2004" \
+            "END OF TERMS AND CONDITIONS"
+          do
+            if ! grep -qF "$line" LICENSES/Apache-2.0.txt; then
+              echo "::error file=LICENSES/Apache-2.0.txt::missing canonical Apache-2.0 sentinel: $line"
+              exit 1
+            fi
+          done
+          echo "OK: LICENSE and LICENSES/Apache-2.0.txt carry canonical Apache-2.0 text"
 
       - name: Required OSRB collateral present at repo root
         run: |
@@ -99,7 +107,9 @@ jobs:
                      '*.py' '*.pyx' '*.pyi' \
                      '*.c' '*.cc' '*.cpp' '*.cxx' \
                      '*.h' '*.hh' '*.hpp' '*.hxx' \
-                     '*.cu' '*.cuh' '*.inl')
+                     '*.cu' '*.cuh' '*.inl' \
+                     '*.sh' '*.proto' \
+                     'Dockerfile' '*/Dockerfile' '**/Dockerfile' '*.dockerfile')
           if [ "${#missing_files[@]}" -gt 0 ]; then
             # Print the list to the raw log so it shows in the step output,
             # then emit GitHub annotations so the offending files appear in
@@ -128,13 +138,16 @@ jobs:
       - name: No NVIDIA proprietary banners
         run: |
           set -euo pipefail
-          # Exclude this workflow file itself, which references the banner
-          # strings as grep patterns. Catches the NVIDIA proprietary banner
-          # that pre-dates the Apache-2.0 distribution decision.
+          # Catches the NVIDIA proprietary banner that pre-dates the
+          # Apache-2.0 distribution decision. Excludes the workflow file
+          # itself (which references the strings as grep patterns) and the
+          # maintaining-oss-state skill (which documents these patterns).
           if git grep -nI \
                -e "NVIDIA CORPORATION is strictly prohibited" \
                -e "proprietary rights in and to this software" \
-               -- ':!.github/workflows/reuse-lint.yml'; then
+               -- \
+               ':!.github/workflows/reuse-lint.yml' \
+               ':!agentic/skills/maintaining-oss-state/SKILL.md'; then
             echo "::error::NVIDIA proprietary banner found in repository"
             exit 1
           fi
