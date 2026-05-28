@@ -4,6 +4,7 @@
 import os
 import queue
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -421,6 +422,32 @@ def push_telemetry(
     update(simulation.current_state)
 
 
+def _prepare_queued_frame(
+    queued_frame: QueuedFrame,
+    presenter: PresenterBackend,
+    view_mode: str,
+) -> None:
+    prepare_frame = getattr(presenter, "prepare_frame", None)
+    if callable(prepare_frame):
+        prepare_frame(queued_frame.frame, view_mode=view_mode)
+
+
+def _drain_pipeline_frames(
+    *,
+    pipeline: ChunkPipeline,
+    ready_frames: "deque[QueuedFrame]",
+    presenter: PresenterBackend,
+    view_mode: str,
+) -> None:
+    while True:
+        try:
+            queued_frame = pipeline.frame_queue.get_nowait()
+        except queue.Empty:
+            return
+        _prepare_queued_frame(queued_frame, presenter, view_mode)
+        ready_frames.append(queued_frame)
+
+
 def run_main_loop(
     presenter: PresenterBackend,
     runtime_controls: RuntimeControls,
@@ -454,6 +481,7 @@ def run_main_loop(
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
+    ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory.create(config.history_capacity)
     if _profile_input_to_present_enabled():
         reset_input_to_present_profile_window()
@@ -490,6 +518,14 @@ def run_main_loop(
             # OOB check just consulted.
             push_telemetry(runtime_controls, simulation)
 
+        view_mode = runtime_controls.view_mode
+        _drain_pipeline_frames(
+            pipeline=pipeline,
+            ready_frames=ready_frames,
+            presenter=presenter,
+            view_mode=view_mode,
+        )
+
         now = time.perf_counter()
         if now < state.next_present_time:
             time.sleep(
@@ -497,9 +533,8 @@ def run_main_loop(
             )
             continue
 
-        view_mode = runtime_controls.view_mode
-        try:
-            queued_frame = pipeline.frame_queue.get_nowait()
+        if ready_frames:
+            queued_frame = ready_frames.popleft()
             if queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index:
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
@@ -511,7 +546,7 @@ def run_main_loop(
             )
             last_presented_frame = queued_frame.frame
             state.frame_count += 1
-        except queue.Empty:
+        else:
             # Re-present the last frame with whatever OOB overlay is current
             # for this tick; the merged frame is local to this call so the
             # cached ``last_presented_frame`` stays unmodified for the next

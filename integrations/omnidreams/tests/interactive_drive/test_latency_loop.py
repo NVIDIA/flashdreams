@@ -95,6 +95,22 @@ class _CountingPresenter:
         return
 
 
+class _PreparingPresenter(_CountingPresenter):
+    def __init__(self, present_budget: int) -> None:
+        super().__init__(present_budget=present_budget)
+        self.prepared_frame_ids: set[int] = set()
+        self.unprepared_backend_frame_ids: set[int] = set()
+
+    def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        del view_mode
+        self.prepared_frame_ids.add(id(frame))
+
+    def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if id(frame) not in self.prepared_frame_ids:
+            self.unprepared_backend_frame_ids.add(id(frame))
+        super().present_frame(frame, view_mode)
+
+
 class _FakeRuntimeControls:
     def __init__(self, *, reset_after_present: int | None = None) -> None:
         self._reset_after_present = reset_after_present
@@ -333,6 +349,24 @@ def test_loop_presents_backend_frames_when_available() -> None:
     assert result is False
     assert len(presenter.records) == 2
     assert any(record.frame is not initial for record in presenter.records)
+
+
+def test_loop_prepares_backend_frames_before_presenting_them() -> None:
+    presenter = _PreparingPresenter(present_budget=6)
+    controls = _FakeRuntimeControls()
+    initial = _make_frame()
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=9),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+    )
+
+    assert presenter.prepared_frame_ids
+    assert presenter.unprepared_backend_frame_ids == {id(initial)}
 
 
 def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(

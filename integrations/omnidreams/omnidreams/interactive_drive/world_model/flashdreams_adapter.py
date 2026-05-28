@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import torch
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
+from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
@@ -330,7 +331,7 @@ class FlashdreamsWorldModelSession:
         initial_rgb: object,
         condition_frames: list[object],
         prompt: str,
-    ) -> list[np.ndarray]:
+    ) -> list[object]:
         expected_frames = self.pipeline.get_num_frames(0)
         if len(condition_frames) != expected_frames:
             raise ValueError(
@@ -346,13 +347,15 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
+            model_frames = self._video_tensor_to_frames(video)
+            _synchronize_cuda_frame_event(model_frames)
         self._pending_finalization_index = 0
         self._next_block_index = 1
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         print(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}", flush=True)
-        return self._video_tensor_to_host_frames(video)
+        return model_frames
 
-    def continue_generation(self, condition_frames: list[object]) -> list[np.ndarray]:
+    def continue_generation(self, condition_frames: list[object]) -> list[object]:
         if self._cache is None:
             raise RuntimeError("start() must be called before continue_generation()")
         expected_frames = self.pipeline.get_num_frames(self._next_block_index)
@@ -372,6 +375,8 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
+            model_frames = self._video_tensor_to_frames(video)
+            _synchronize_cuda_frame_event(model_frames)
         block_index = self._next_block_index
         self._pending_finalization_index = block_index
         self._next_block_index += 1
@@ -381,7 +386,7 @@ class FlashdreamsWorldModelSession:
                 f"[flashdreams-session] continue block_index={block_index} total_ms={elapsed_ms:.1f}",
                 flush=True,
             )
-        return self._video_tensor_to_host_frames(video)
+        return model_frames
 
     def reset(self) -> None:
         self._cache = None
@@ -455,6 +460,10 @@ class FlashdreamsWorldModelSession:
         return _initial_rgb_tensor(initial_rgb, device=self.pipeline.device)
 
     def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
+        cuda_video = _condition_cuda_video(condition_frames)
+        if cuda_video is not None:
+            tensor = cuda_video.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
+            return self._to_model_range(tensor)
         video = np.stack([_rgb_hwc_uint8(frame) for frame in condition_frames], axis=0)
         tensor = torch.from_numpy(np.ascontiguousarray(video))
         tensor = tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
@@ -464,7 +473,7 @@ class FlashdreamsWorldModelSession:
         return _to_model_range(tensor, device=self.pipeline.device)
 
     @staticmethod
-    def _video_tensor_to_host_frames(video: torch.Tensor) -> list[np.ndarray]:
+    def _video_tensor_to_frames(video: torch.Tensor) -> list[object]:
         if video.ndim != 6:
             raise ValueError(
                 f"Expected [B,V,T,3,H,W] video tensor, got shape {tuple(video.shape)}"
@@ -473,11 +482,132 @@ class FlashdreamsWorldModelSession:
         if frames.dtype != torch.uint8:
             frames = frames.clamp(-1.0, 1.0)
             frames = ((frames + 1.0) * 127.5).round().to(torch.uint8)
-        frames = frames.permute(0, 2, 3, 1).detach().cpu().numpy()
-        return [np.ascontiguousarray(frame, dtype=np.uint8) for frame in frames]
+        frames = frames.permute(0, 2, 3, 1).contiguous()
+        source_event = None
+        if frames.is_cuda:
+            source_event = torch.cuda.Event()
+            source_event.record(torch.cuda.current_stream(frames.device))
+        return [
+            _LazyRGBFrame(frames, frame_index, source_event=source_event)
+            for frame_index in range(frames.shape[0])
+        ]
+
+
+class _LazyRGBFrame:
+    """Defer GPU-to-host copies until the presenter consumes each frame."""
+
+    def __init__(
+        self,
+        frames_hwc_uint8: torch.Tensor,
+        frame_index: int,
+        *,
+        source_event: object | None = None,
+    ) -> None:
+        self._frames_hwc_uint8: torch.Tensor | None = frames_hwc_uint8
+        self._frame_index = int(frame_index)
+        self._source_event = source_event
+        self._host: np.ndarray | None = None
+        self._prefetch: CudaHostPrefetch | None = None
+
+    def prefetch_to_numpy(self) -> None:
+        if (
+            self._host is not None
+            or self._prefetch is not None
+            or self._frames_hwc_uint8 is None
+        ):
+            return
+        frame = self._frames_hwc_uint8[self._frame_index].detach()
+        prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
+        if prefetch.start():
+            self._prefetch = prefetch
+
+    def to_numpy(self) -> np.ndarray:
+        if self._host is None:
+            if self._prefetch is not None:
+                self._host = self._prefetch.to_numpy()
+                self._prefetch = None
+                self._frames_hwc_uint8 = None
+                return self._host
+            if self._frames_hwc_uint8 is None:
+                raise RuntimeError(
+                    "Lazy RGB frame lost its source tensor before materialization."
+                )
+            frame = self._frames_hwc_uint8[self._frame_index].detach().cpu().numpy()
+            self._host = np.ascontiguousarray(frame, dtype=np.uint8)
+            self._frames_hwc_uint8 = None
+        return self._host
+
+    def to_cuda_tensor(self) -> torch.Tensor:
+        if self._frames_hwc_uint8 is None:
+            raise RuntimeError("Lazy RGB frame was already materialized on the host.")
+        return self._frames_hwc_uint8[self._frame_index]
+
+    def to_cuda_event(self) -> object | None:
+        if self._frames_hwc_uint8 is None:
+            return None
+        return self._source_event
+
+    def __array__(
+        self,
+        dtype: object | None = None,
+        copy: bool | None = None,
+    ) -> np.ndarray:
+        array = self.to_numpy()
+        if dtype is not None:
+            array = array.astype(dtype, copy=False)
+        if copy:
+            return np.array(array, copy=True)
+        return array
 
 
 def _rgb_hwc_uint8(frame: object) -> np.ndarray:
     return np.ascontiguousarray(
         np.array(np.asarray(frame, dtype=np.uint8)[..., :3], copy=True)
     )
+
+
+def _condition_cuda_video(condition_frames: Sequence[object]) -> torch.Tensor | None:
+    tensors: list[torch.Tensor] = []
+    device: torch.device | None = None
+    for frame in condition_frames:
+        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
+        if not callable(to_cuda_tensor):
+            return None
+        try:
+            tensor = to_cuda_tensor()
+        except RuntimeError:
+            return None
+        if (
+            not torch.is_tensor(tensor)
+            or not tensor.is_cuda
+            or tensor.dtype != torch.uint8
+            or tensor.ndim != 3
+            or tensor.shape[-1] < 3
+        ):
+            return None
+        if device is None:
+            device = tensor.device
+        elif tensor.device != device:
+            return None
+
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is not None:
+            torch.cuda.current_stream(tensor.device).wait_event(event)
+        rgb = tensor[..., :3]
+        tensors.append(rgb if rgb.is_contiguous() else rgb.contiguous())
+
+    if not tensors:
+        return None
+    return torch.stack(tensors, dim=0)
+
+
+def _synchronize_cuda_frame_event(frames: Sequence[object]) -> None:
+    for frame in frames:
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is None:
+            continue
+        synchronize = getattr(event, "synchronize", None)
+        if callable(synchronize):
+            synchronize()

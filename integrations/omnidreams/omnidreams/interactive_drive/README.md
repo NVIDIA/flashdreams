@@ -347,6 +347,23 @@ Then open `http://localhost:8080/`.
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
+Both Vulkan presenters can use SlangPy CUDA interop for generated RGB frames
+when the model output is still on CUDA. Because Torch usually owns the CUDA
+context before the presenter is constructed, this path follows upstream and is
+opt-in:
+
+```bash
+INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES=1 \
+  OMNIDREAMS_TRUESIGHT=1 \
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive
+```
+
+Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the host-upload
+fallback. In HUD mode, chrome is still rendered with PIL on the CPU, then
+uploaded as an alpha overlay; the generated camera frame stays lazy on CUDA and
+is resized/composited into the shared presentation buffer on the CUDA stream.
+Use `--no-hud` with the same environment variables for the bare presenter.
+
 Controls (apply in all three modes):
 
 - `W` throttle
@@ -382,6 +399,11 @@ intentional per-frame spacing inside a generated chunk; the raw value is also
 printed for debugging. Set
 `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S` to adjust the report
 period; the default is `2`.
+
+For HUD-specific render timing, set `INTERACTIVE_DRIVE_PROFILE_HUD=1`. The
+`[profile] hud ...` line breaks `present_frame` into stages such as PIL chrome
+rendering, full-window overlay extraction, CUDA enqueue, and Vulkan submission.
+Set `INTERACTIVE_DRIVE_PROFILE_HUD_INTERVAL_S` to adjust its report period.
 
 ### Rollout drift and resets
 
