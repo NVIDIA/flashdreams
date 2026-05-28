@@ -139,7 +139,16 @@ markers = [
 ]
 
 [dependency-groups]
-lint = ["pre-commit>=4.3.0", "ty>=0.0.33"]
+# Test-specific dependencies shared across workspace members. Listed here so
+# that the type checker (ty) can resolve imports in test files and in
+# flashdreams/_pytest_plugins.
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-manual-marker",
+    "imageio-ffmpeg",
+]
+lint = ["pre-commit>=4.3.0", "ty>=0.0.39", {include-group = "test"}]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
