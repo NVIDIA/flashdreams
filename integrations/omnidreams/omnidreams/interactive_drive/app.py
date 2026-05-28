@@ -88,16 +88,6 @@ class InteractiveDriveApp:
         self._keyboard = KeyboardState()
         if config.backend == "omnidreams":
             self._keyboard.set_view_mode("model_rgb")
-        if presenter is None:
-            self._presenter = _build_presenter(config, self._keyboard)
-        else:
-            self._presenter = presenter
-            # Injected presenters (HUD / streaming) are constructed by the
-            # demo with a placeholder keyboard; rebind to ours so input
-            # lands on the engine's actual state object.
-            bind_keyboard = getattr(self._presenter, "bind_keyboard", None)
-            if callable(bind_keyboard):
-                bind_keyboard(self._keyboard)
         # When ``False`` the caller (the demo's outer scene-change loop)
         # owns the presenter's lifecycle: it constructs one presenter at
         # startup, reuses it across many scenes, and only closes it when
@@ -113,7 +103,28 @@ class InteractiveDriveApp:
         self._trace_context = (
             None if trace_sink is None else TraceContext.create(trace_sink)
         )
-        self._pipeline = ChunkPipeline(self._adapter, trace_context=self._trace_context)
+        # The pipeline is built before the presenter so its worker can prime
+        # cuDNN's attention plans first: creating a SlangPy Vulkan device
+        # ahead of the first large cuDNN MHA makes that MHA fail. Warmup
+        # stays gated until the presenter exists, so the primer is the only
+        # thing running in between.
+        self._pipeline = ChunkPipeline(
+            self._adapter,
+            trace_context=self._trace_context,
+            defer_warmup=True,
+        )
+        self._pipeline.wait_for_primer()
+        if presenter is None:
+            self._presenter = _build_presenter(config, self._keyboard)
+        else:
+            self._presenter = presenter
+            # Injected presenters (HUD / streaming) are constructed by the
+            # demo with a placeholder keyboard; rebind to ours so input
+            # lands on the engine's actual state object.
+            bind_keyboard = getattr(self._presenter, "bind_keyboard", None)
+            if callable(bind_keyboard):
+                bind_keyboard(self._keyboard)
+        self._pipeline.start_warmup()
         self._scene: SceneBundle | None = None
         self._map_bounds: MapBounds | None = None
         # Ground snapper for the current scene. Built once per scene (its
