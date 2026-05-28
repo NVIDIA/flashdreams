@@ -32,10 +32,7 @@ class SlangPyPresenter:
         self._device = spy.Device(
             type=spy.DeviceType.vulkan,
             enable_debug_layers=False,
-            # Disable VK_NVX_binary_import + RT extensions: on NVIDIA Linux
-            # Blackwell + driver 595.x they bring up a CUDA primary context
-            # that poisons cuDNN's MHA dispatcher. interactive-drive doesn't
-            # use vkCmdCuLaunchKernelNVX or ray tracing.
+            # Workaround: avoid cuDNN MHA crash on NVIDIA Blackwell + R595.
             enable_cuda_launch_from_gfx=False,
             enable_ray_tracing=False,
         )
