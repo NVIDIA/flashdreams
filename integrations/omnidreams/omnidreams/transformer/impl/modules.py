@@ -275,6 +275,10 @@ class MultiHeadAttention(nn.Module):
         self.q_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
         self.k_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
 
+        # self.attn_op = ContextParallelAttention(
+        #     qkv_format="bshd", backend="flash", method=cp_method
+        # )
+
         self.attn_op = ContextParallelAttention(
             qkv_format="bshd", backend="cudnn", method=cp_method
         )

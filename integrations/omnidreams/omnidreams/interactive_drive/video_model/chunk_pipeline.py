@@ -61,9 +61,21 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 
 class ChunkPipeline:
-    def __init__(self, backend: VideoModelBackend, scene: SceneBundle) -> None:
+    def __init__(
+        self,
+        backend: VideoModelBackend,
+        scene: SceneBundle,
+        *,
+        defer_warmup: bool = False,
+    ) -> None:
         self._backend = backend
         self._scene = scene
+        self._defer_warmup = bool(defer_warmup)
+        self._primer_done = threading.Event()
+        self._warmup_gate = threading.Event()
+        self._abort_before_warmup = False
+        if not self._defer_warmup:
+            self._warmup_gate.set()
         # TODO: replace the loop's chunk-level ``chunks_outstanding`` gate with
         # frame-level in-flight tracking (frames requested - frames consumed,
         # alpasim style) and surface a hook here so callers gate at the
@@ -82,6 +94,15 @@ class ChunkPipeline:
             daemon=True,
         )
         self._thread.start()
+
+    def wait_for_primer(self) -> None:
+        """Block until the worker has run its pre-SlangPy primer hook."""
+        self._primer_done.wait()
+        self._raise_worker_error_if_any()
+
+    def start_warmup(self) -> None:
+        """Allow the worker to continue from primer into backend warmup."""
+        self._warmup_gate.set()
 
     @property
     def frame_queue(self) -> "queue.Queue[QueuedFrame]":
@@ -128,12 +149,22 @@ class ChunkPipeline:
         self._command_queue.put(reset_command)
 
     def shutdown(self) -> None:
+        if self._defer_warmup and not self._warmup_gate.is_set():
+            self._abort_before_warmup = True
+            self._warmup_gate.set()
         self._command_queue.put(_shutdown_command)
         self._thread.join()
         self._raise_worker_error_if_any()
 
     def _worker(self) -> None:
         try:
+            primer = getattr(self._backend, "prime_before_slangpy", None)
+            if callable(primer):
+                primer()
+            self._primer_done.set()
+            self._warmup_gate.wait()
+            if self._abort_before_warmup:
+                return
             warmup_start = time.perf_counter()
             print("[chunk-pipeline] warmup start", flush=True)
             self._backend.warmup(self._scene)
@@ -149,6 +180,7 @@ class ChunkPipeline:
         except BaseException as exc:
             with self._worker_error_lock:
                 self._worker_error = exc
+            self._primer_done.set()
 
     def _raise_worker_error_if_any(self) -> None:
         with self._worker_error_lock:

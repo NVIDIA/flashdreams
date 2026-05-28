@@ -53,6 +53,9 @@ class WorldModelRenderBackend(RenderBackend):
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
 
+    def prime_before_slangpy(self) -> None:
+        self._session.prime_before_slangpy()
+
     def warmup(self, scene: SceneBundle) -> None:
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(

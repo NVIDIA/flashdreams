@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import gc
+import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
@@ -16,6 +17,8 @@ from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
+_CUDNN_SLANGPY_PRIMER_ENV = "OMNIDREAMS_CUDNN_SLANGPY_PRIMER"
+_CUDNN_SLANGPY_PRIMER_SEQ_ENV = "OMNIDREAMS_CUDNN_SLANGPY_PRIMER_SEQ_LEN"
 
 
 def _select_config_name(manifest: WorldModelManifest) -> str:
@@ -249,6 +252,95 @@ def _to_model_range(tensor: torch.Tensor, *, device: torch.device) -> torch.Tens
     return tensor / 127.5 - 1.0
 
 
+def _env_enabled(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _primer_attention_lengths(manifest: WorldModelManifest) -> tuple[int, int, list[int]]:
+    override = os.environ.get(_CUDNN_SLANGPY_PRIMER_SEQ_ENV)
+    if override:
+        seq_len = int(override)
+        return seq_len, seq_len, [seq_len]
+
+    # Single-view OmniDreams VAE checkpoints use an 8x VAE spatial compression,
+    # a 2x2 transformer patch, and two latent timesteps per AR block. At the
+    # bundled 1280x704 resolution this gives S = 2 * 80 * 44 = 7040.
+    width, height = manifest.resolution_wh
+    latent_width = width // 8
+    latent_height = height // 8
+    patch_spatial = 2
+    latent_timesteps = 2
+    tokens_per_latent_step = (latent_width // patch_spatial) * (
+        latent_height // patch_spatial
+    )
+    query_len = latent_timesteps * tokens_per_latent_step
+    total_cache_len = (manifest.local_attn_size + manifest.sink_size) * (
+        tokens_per_latent_step
+    )
+    num_fill_chunks = max(1, (total_cache_len + query_len - 1) // query_len)
+    key_lens = [
+        min(total_cache_len, query_len * chunk_idx)
+        for chunk_idx in range(1, num_fill_chunks + 1)
+    ]
+    return query_len, total_cache_len, key_lens
+
+
+def _prime_cudnn_attention_for_slangpy(manifest: WorldModelManifest) -> None:
+    if not _env_enabled(_CUDNN_SLANGPY_PRIMER_ENV, default=True):
+        return
+    if not torch.cuda.is_available():
+        return
+
+    device = torch.device(manifest.device)
+    if device.type != "cuda":
+        return
+
+    query_len, total_cache_len, key_lens = _primer_attention_lengths(manifest)
+    batch = 1
+    heads = 16
+    head_dim = 128
+    dtype = torch.bfloat16
+    start = time.perf_counter()
+    print(
+        "[flashdreams-session] cuDNN SlangPy primer start "
+        f"q_len={query_len} key_lens={key_lens} dtype={dtype}",
+        flush=True,
+    )
+    with torch.no_grad():
+        q_base = torch.randn(
+            (batch, query_len, heads, head_dim), device=device, dtype=dtype
+        )
+        k_cache = torch.randn(
+            (batch, total_cache_len, heads, head_dim), device=device, dtype=dtype
+        )
+        v_cache = torch.randn(
+            (batch, total_cache_len, heads, head_dim), device=device, dtype=dtype
+        )
+        q = q_base.transpose(1, 2)
+        for key_len in key_lens:
+            k = k_cache[:, :key_len].transpose(1, 2)
+            v = v_cache[:, :key_len].transpose(1, 2)
+            out, lse, *_ = torch.ops.aten._scaled_dot_product_cudnn_attention(
+                q,
+                k,
+                v,
+                None,
+                True,
+            )
+            torch.cuda.synchronize(device)
+            del out, lse, k, v
+    del q, q_base, k_cache, v_cache
+    torch.cuda.empty_cache()
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    print(
+        f"[flashdreams-session] cuDNN SlangPy primer done elapsed_ms={elapsed_ms:.1f}",
+        flush=True,
+    )
+
+
 class FlashdreamsWorldModelSession:
     """Thin adapter from interactive-drive chunking to flashdreams AlpadreamsPipeline."""
 
@@ -315,6 +407,9 @@ class FlashdreamsWorldModelSession:
             )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         print(f"[flashdreams-session] warmup runtime_ms={elapsed_ms:.1f}", flush=True)
+
+    def prime_before_slangpy(self) -> None:
+        _prime_cudnn_attention_for_slangpy(self.manifest)
 
     def start(
         self,

@@ -694,32 +694,45 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     control_assets = _load_control_assets(args.control_assets_dir)
     wheel_selection = None if args.no_wheel else _select_wheel(args)
 
-    # Construct the presenter UPFRONT, before any backend, so the demo
-    # can open the HUD window in "Load Scene" mode and wait for the
-    # user to pick a scene from the dropdown when ``--autoload-scene``
-    # is off. The placeholder ``KeyboardState`` is rebound to each
-    # successive ``InteractiveDriveApp``'s real keyboard via
-    # ``presenter.bind_keyboard`` in the factory below; no engine is
-    # listening to the placeholder, so events are harmlessly dropped
-    # during the initial wait.
-    placeholder_keyboard = KeyboardState()
-    presenter = SlangPyHudPresenter(
-        raster=RasterConfig(),
-        keyboard=placeholder_keyboard,
-        args=args,
-        scene_options=scene_options,
-        control_assets=control_assets,
-        wheel=None,
-    )
+    # When autoload is enabled, delay SlangPy/Vulkan presenter creation until
+    # ``InteractiveDriveApp.run`` has started and primed the model worker
+    # thread. When autoload is off we still need the presenter upfront for the
+    # scene picker, so that path keeps the historical ordering.
+    presenter: SlangPyHudPresenter | None = None
+    if not args.autoload_scene:
+        placeholder_keyboard = KeyboardState()
+        presenter = SlangPyHudPresenter(
+            raster=RasterConfig(),
+            keyboard=placeholder_keyboard,
+            args=args,
+            scene_options=scene_options,
+            control_assets=control_assets,
+            wheel=None,
+        )
     wheel: Any = None
 
+    def _ensure_presenter(keyboard: Any) -> SlangPyHudPresenter:
+        nonlocal presenter
+        if presenter is None:
+            presenter = SlangPyHudPresenter(
+                raster=RasterConfig(),
+                keyboard=keyboard,
+                args=args,
+                scene_options=scene_options,
+                control_assets=control_assets,
+                wheel=None,
+            )
+        return presenter
+
     def _factory(config: Any, keyboard: Any) -> Any:
-        # Called once per ``InteractiveDriveApp.__init__``. The first
-        # call lazily attaches the wheel (so the evdev reader thread
-        # only starts running once the user has actually picked a
-        # scene); subsequent calls rebind the wheel's drive sink to
+        # Called once per ``InteractiveDriveApp.run`` after the model worker
+        # primer completes. The first call lazily attaches the wheel (so the
+        # evdev reader thread only starts running once the user has actually
+        # picked a scene); subsequent calls rebind the wheel's drive sink to
         # the new keyboard without restarting the reader.
         nonlocal wheel
+        presenter = _ensure_presenter(keyboard)
+        presenter.set_engine_active(True)
         if wheel is None and wheel_selection is not None:
             profile, device_path = wheel_selection
             wheel = WheelBridge(
@@ -745,6 +758,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         # the user pick a different scene than ``--scene`` advertises
         # without re-running the binary.
         if not args.autoload_scene:
+            assert presenter is not None
             request = presenter.wait_for_scene_selection()
             if request is None:
                 return  # window closed before any scene was loaded
@@ -754,7 +768,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             presenter.acknowledge_scene_change(scene_path, variant)
 
         while True:
-            presenter.set_engine_active(True)
+            if presenter is not None:
+                presenter.set_engine_active(True)
             config, backend = _cli.prepare_config_and_backend(args)
             app = InteractiveDriveApp(
                 config=config,
@@ -763,6 +778,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
                 close_presenter_on_exit=False,
             )
             app.run()
+            assert presenter is not None
             presenter.set_engine_active(False)
             requested = presenter.pending_scene_change
             if requested is None:
@@ -773,7 +789,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             args.variant = new_variant
             presenter.acknowledge_scene_change(new_scene_path, new_variant)
     finally:
-        presenter.close()
+        if presenter is not None:
+            presenter.close()
 
 
 def _apply_cuda_visible_devices_inplace(requested: str) -> None:

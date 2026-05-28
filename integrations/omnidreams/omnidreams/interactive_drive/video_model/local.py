@@ -18,6 +18,11 @@ class LocalVideoModelAdapter:
         self._backend = backend
         self._is_first_chunk = True
 
+    def prime_before_slangpy(self) -> None:
+        primer = getattr(self._backend, "prime_before_slangpy", None)
+        if callable(primer):
+            primer()
+
     def warmup(self, scene: SceneBundle) -> None:
         self._backend.warmup(scene)
 

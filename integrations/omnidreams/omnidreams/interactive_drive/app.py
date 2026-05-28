@@ -62,8 +62,8 @@ class InteractiveDriveApp:
         self._keyboard = KeyboardState()
         if config.backend == "omnidreams":
             self._keyboard.set_view_mode("model_rgb")
-        factory = presenter_factory or _build_presenter
-        self._presenter = factory(config, self._keyboard)
+        self._presenter_factory = presenter_factory or _build_presenter
+        self._presenter: PresenterBackend | None = None
         # When ``False`` the caller (the slangpy HUD's outer scene-change
         # loop) owns the presenter's lifecycle: it constructs one
         # presenter at startup, reuses it across many ``app.run()``
@@ -84,9 +84,13 @@ class InteractiveDriveApp:
             depth_host_f32=None,
         )
         local_backend = LocalVideoModelAdapter(self._backend)
-        pipeline = ChunkPipeline(local_backend, self._scene)
+        pipeline = ChunkPipeline(local_backend, self._scene, defer_warmup=True)
         try:
-            while not self._presenter.should_close:
+            pipeline.wait_for_primer()
+            self._presenter = self._presenter_factory(self._config, self._keyboard)
+            pipeline.start_warmup()
+            presenter = self._presenter
+            while not presenter.should_close:
                 simulation = EgoVehicleKinematics(
                     initial_state=state_from_initial_pose(
                         initial_rig_to_world=self._scene.initial_rig_to_world,
@@ -103,7 +107,7 @@ class InteractiveDriveApp:
                 )
                 input_backend = KeyboardInputBackend(self._keyboard)
                 reset_requested = run_main_loop(
-                    presenter=self._presenter,
+                    presenter=presenter,
                     runtime_controls=self._keyboard,
                     initial_presented_frame=loading_frame,
                     input_backend=input_backend,
@@ -119,10 +123,16 @@ class InteractiveDriveApp:
                     break
                 pipeline.reset()
         finally:
-            pipeline.shutdown()
+            worker_error: BaseException | None = None
+            try:
+                pipeline.shutdown()
+            except BaseException as exc:
+                worker_error = exc
             self._backend.close()
-            if self._close_presenter_on_exit:
+            if self._close_presenter_on_exit and self._presenter is not None:
                 self._presenter.close()
+            if worker_error is not None:
+                raise worker_error
 
 
 def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> SlangPyPresenter:
