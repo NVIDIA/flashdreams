@@ -30,6 +30,7 @@ from einops import rearrange
 from loguru import logger
 
 from flashdreams.core.distributed import init as init_distributed
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashvsr.encoder import FlashVSREncoder
@@ -44,6 +45,32 @@ __all__ = [
     "FlashVSRRunnerConfig",
     "FlashVSRRunner",
 ]
+
+
+## Default demo input
+
+DEFAULT_INPUT_URL = "https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4"
+
+INPUT_CACHE_DIR = (
+    Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
+    / "flashvsr"
+)
+"""User-writable cache for on-the-fly demo-video downloads."""
+
+
+def _resolve_input_path(input_path: str | Path) -> Path:
+    """Return a local ``Path`` for ``input_path``, downloading URLs on the fly.
+
+    ``http(s)://`` strings are atomically fetched into
+    :data:`INPUT_CACHE_DIR` and validated as decodable videos before being
+    published; local paths pass through unchanged.
+    """
+    if isinstance(input_path, Path):
+        return input_path
+    if not input_path.startswith(("http://", "https://")):
+        return Path(input_path)
+
+    return download_to_cache(input_path, cache_dir=INPUT_CACHE_DIR)
 
 
 ## Chunk planning helpers
@@ -174,8 +201,10 @@ class FlashVSRRunnerConfig(RunnerConfig):
 
     _target: type["FlashVSRRunner"] = field(default_factory=lambda: FlashVSRRunner)
 
-    input_path: Path = Path()
-    """Low-resolution input video path. Must be readable by ``mediapy``."""
+    input_path: str | Path = DEFAULT_INPUT_URL
+    """Low-resolution input video. Either a local path readable by ``mediapy``
+    or an ``http(s)://`` URL that will be downloaded on first use into
+    :data:`INPUT_CACHE_DIR`. Defaults to :data:`DEFAULT_INPUT_URL`."""
 
     chunk_size: Literal[8, 16] = 16
     """Steady-state frames per AR step; ``8`` uses one DiT iteration and
@@ -291,9 +320,13 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             ``W`` are post-crop low-resolution pixel dimensions.
         """
         config = self.config
-        path = config.input_path
-        assert path != Path() and path.is_file(), (
-            f"--input-path must point at an existing video file; got: {path!r}"
+        # Resolve once: local paths pass through, ``http(s)://`` URLs are
+        # downloaded into :data:`INPUT_CACHE_DIR` and validated as
+        # decodable videos before being published.
+        path = _resolve_input_path(config.input_path)
+        assert path.is_file(), (
+            f"--input-path must resolve to an existing video file; got: "
+            f"{config.input_path!r} -> {path!r}"
         )
 
         if self.is_rank_zero:

@@ -7,10 +7,6 @@ exclude: |
     /protos/|
     ^docker/model_specific/cfg_parallel_state\.py$|
     ^integrations/omnidreams/ludus-renderer/|
-    # The interactive-drive sample carries its own .pre-commit-config.yaml
-    # (sample-local pyright + CPY001 copyright check + ruff preview rules).
-    # Skip it here so the workspace-wide hooks don't fight the sample's config.
-    ^integrations/omnidreams/samples/interactive-drive/|
     # Patch files reproduce upstream source byte-for-byte in their context
     # lines, including trailing whitespace and newline-at-eof. Any hook that
     # normalizes whitespace (`trailing-whitespace`, `end-of-file-fixer`) will

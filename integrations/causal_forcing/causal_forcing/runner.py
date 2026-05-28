@@ -57,9 +57,7 @@ DEFAULT_T2V_PROMPT = (
 )
 
 
-DEFAULT_I2V_IMAGE_URL = (
-    "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
-)
+DEFAULT_I2V_IMAGE_URL = "https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png"
 
 IMAGE_CACHE_DIR = (
     Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))

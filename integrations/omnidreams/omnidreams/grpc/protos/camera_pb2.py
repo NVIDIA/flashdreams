@@ -22,32 +22,31 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from omnidreams.grpc.protos import common_pb2 as omnidreams_dot_grpc_dot_protos_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#omnidreams/grpc/protos/camera.proto\x12\x11omnidreams.camera\x1a#omnidreams/grpc/protos/common.proto\"A\n\tLinearCde\x12\x10\n\x08linear_c\x18\x01 \x01(\x01\x12\x10\n\x08linear_d\x18\x02 \x01(\x01\x12\x10\n\x08linear_e\x18\x03 \x01(\x01\"\xec\x02\n\x11\x46thetaCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12K\n\x0ereference_poly\x18\x03 \x01(\x0e\x32\x33.omnidreams.camera.FthetaCameraParam.PolynomialType\x12\x1f\n\x17pixeldist_to_angle_poly\x18\x04 \x03(\x01\x12\x1f\n\x17\x61ngle_to_pixeldist_poly\x18\x05 \x03(\x01\x12\x11\n\tmax_angle\x18\x06 \x01(\x01\x12\x30\n\nlinear_cde\x18\x07 \x01(\x0b\x32\x1c.omnidreams.camera.LinearCde\"M\n\x0ePolynomialType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x16\n\x12PIXELDIST_TO_ANGLE\x10\x01\x12\x16\n\x12\x41NGLE_TO_PIXELDIST\x10\x02\"\xcd\x01\n\x18OpenCVPinholeCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12\x16\n\x0e\x66ocal_length_x\x18\x03 \x01(\x01\x12\x16\n\x0e\x66ocal_length_y\x18\x04 \x01(\x01\x12\x15\n\rradial_coeffs\x18\x05 \x03(\x01\x12\x19\n\x11tangential_coeffs\x18\x06 \x03(\x01\x12\x19\n\x11thin_prism_coeffs\x18\x07 \x03(\x01\"\xaa\x01\n\x18OpenCVFisheyeCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12\x16\n\x0e\x66ocal_length_x\x18\x03 \x01(\x01\x12\x16\n\x0e\x66ocal_length_y\x18\x04 \x01(\x01\x12\x15\n\rradial_coeffs\x18\x05 \x03(\x01\x12\x11\n\tmax_angle\x18\x06 \x01(\x01\"\xa9\x02\n\"BivariateWindshieldModelParameters\x12\x61\n\x0ereference_poly\x18\x01 \x01(\x0e\x32I.omnidreams.camera.BivariateWindshieldModelParameters.ReferencePolynomial\x12\x17\n\x0fhorizontal_poly\x18\x02 \x03(\x01\x12\x15\n\rvertical_poly\x18\x03 \x03(\x01\x12\x1f\n\x17horizontal_poly_inverse\x18\x04 \x03(\x01\x12\x1d\n\x15vertical_poly_inverse\x18\x05 \x03(\x01\"0\n\x13ReferencePolynomial\x12\x0b\n\x07\x46ORWARD\x10\x00\x12\x0c\n\x08\x42\x41\x43KWARD\x10\x01\"\x94\x04\n\nCameraSpec\x12<\n\x0c\x66theta_param\x18\x02 \x01(\x0b\x32$.omnidreams.camera.FthetaCameraParamH\x00\x12K\n\x14opencv_pinhole_param\x18\x03 \x01(\x0b\x32+.omnidreams.camera.OpenCVPinholeCameraParamH\x00\x12K\n\x14opencv_fisheye_param\x18\x04 \x01(\x0b\x32+.omnidreams.camera.OpenCVFisheyeCameraParamH\x00\x12\x12\n\nlogical_id\x18\x05 \x01(\t\x12\x14\n\x0cresolution_h\x18\x07 \x01(\r\x12\x14\n\x0cresolution_w\x18\x08 \x01(\r\x12\x34\n\x0cshutter_type\x18\t \x01(\x0e\x32\x1e.omnidreams.camera.ShutterType\x12\x61\n bivariate_windshield_model_param\x18\n \x01(\x0b\x32\x35.omnidreams.camera.BivariateWindshieldModelParametersH\x01\x12.\n\rrig_to_camera\x18\x0b \x01(\x0b\x32\x17.omnidreams.common.PoseB\x0e\n\x0c\x63\x61mera_paramB\x15\n\x13\x65xternal_distortion*\x92\x01\n\x0bShutterType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x19\n\x15ROLLING_TOP_TO_BOTTOM\x10\x01\x12\x19\n\x15ROLLING_LEFT_TO_RIGHT\x10\x02\x12\x19\n\x15ROLLING_BOTTOM_TO_TOP\x10\x03\x12\x19\n\x15ROLLING_RIGHT_TO_LEFT\x10\x04\x12\n\n\x06GLOBAL\x10\x05\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#omnidreams/grpc/protos/camera.proto\x12\x11omnidreams.camera\"A\n\tLinearCde\x12\x10\n\x08linear_c\x18\x01 \x01(\x01\x12\x10\n\x08linear_d\x18\x02 \x01(\x01\x12\x10\n\x08linear_e\x18\x03 \x01(\x01\"\xec\x02\n\x11\x46thetaCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12K\n\x0ereference_poly\x18\x03 \x01(\x0e\x32\x33.omnidreams.camera.FthetaCameraParam.PolynomialType\x12\x1f\n\x17pixeldist_to_angle_poly\x18\x04 \x03(\x01\x12\x1f\n\x17\x61ngle_to_pixeldist_poly\x18\x05 \x03(\x01\x12\x11\n\tmax_angle\x18\x06 \x01(\x01\x12\x30\n\nlinear_cde\x18\x07 \x01(\x0b\x32\x1c.omnidreams.camera.LinearCde\"M\n\x0ePolynomialType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x16\n\x12PIXELDIST_TO_ANGLE\x10\x01\x12\x16\n\x12\x41NGLE_TO_PIXELDIST\x10\x02\"\xcd\x01\n\x18OpenCVPinholeCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12\x16\n\x0e\x66ocal_length_x\x18\x03 \x01(\x01\x12\x16\n\x0e\x66ocal_length_y\x18\x04 \x01(\x01\x12\x15\n\rradial_coeffs\x18\x05 \x03(\x01\x12\x19\n\x11tangential_coeffs\x18\x06 \x03(\x01\x12\x19\n\x11thin_prism_coeffs\x18\x07 \x03(\x01\"\xaa\x01\n\x18OpenCVFisheyeCameraParam\x12\x19\n\x11principal_point_x\x18\x01 \x01(\x01\x12\x19\n\x11principal_point_y\x18\x02 \x01(\x01\x12\x16\n\x0e\x66ocal_length_x\x18\x03 \x01(\x01\x12\x16\n\x0e\x66ocal_length_y\x18\x04 \x01(\x01\x12\x15\n\rradial_coeffs\x18\x05 \x03(\x01\x12\x11\n\tmax_angle\x18\x06 \x01(\x01\"\xa9\x02\n\"BivariateWindshieldModelParameters\x12\x61\n\x0ereference_poly\x18\x01 \x01(\x0e\x32I.omnidreams.camera.BivariateWindshieldModelParameters.ReferencePolynomial\x12\x17\n\x0fhorizontal_poly\x18\x02 \x03(\x01\x12\x15\n\rvertical_poly\x18\x03 \x03(\x01\x12\x1f\n\x17horizontal_poly_inverse\x18\x04 \x03(\x01\x12\x1d\n\x15vertical_poly_inverse\x18\x05 \x03(\x01\"0\n\x13ReferencePolynomial\x12\x0b\n\x07\x46ORWARD\x10\x00\x12\x0c\n\x08\x42\x41\x43KWARD\x10\x01\"\xe4\x03\n\nCameraSpec\x12<\n\x0c\x66theta_param\x18\x02 \x01(\x0b\x32$.omnidreams.camera.FthetaCameraParamH\x00\x12K\n\x14opencv_pinhole_param\x18\x03 \x01(\x0b\x32+.omnidreams.camera.OpenCVPinholeCameraParamH\x00\x12K\n\x14opencv_fisheye_param\x18\x04 \x01(\x0b\x32+.omnidreams.camera.OpenCVFisheyeCameraParamH\x00\x12\x12\n\nlogical_id\x18\x05 \x01(\t\x12\x14\n\x0cresolution_h\x18\x07 \x01(\r\x12\x14\n\x0cresolution_w\x18\x08 \x01(\r\x12\x34\n\x0cshutter_type\x18\t \x01(\x0e\x32\x1e.omnidreams.camera.ShutterType\x12\x61\n bivariate_windshield_model_param\x18\n \x01(\x0b\x32\x35.omnidreams.camera.BivariateWindshieldModelParametersH\x01\x42\x0e\n\x0c\x63\x61mera_paramB\x15\n\x13\x65xternal_distortion*\x92\x01\n\x0bShutterType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x19\n\x15ROLLING_TOP_TO_BOTTOM\x10\x01\x12\x19\n\x15ROLLING_LEFT_TO_RIGHT\x10\x02\x12\x19\n\x15ROLLING_BOTTOM_TO_TOP\x10\x03\x12\x19\n\x15ROLLING_RIGHT_TO_LEFT\x10\x04\x12\n\n\x06GLOBAL\x10\x05\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'omnidreams.grpc.protos.camera_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SHUTTERTYPE']._serialized_start=1746
-  _globals['_SHUTTERTYPE']._serialized_end=1892
-  _globals['_LINEARCDE']._serialized_start=95
-  _globals['_LINEARCDE']._serialized_end=160
-  _globals['_FTHETACAMERAPARAM']._serialized_start=163
-  _globals['_FTHETACAMERAPARAM']._serialized_end=527
-  _globals['_FTHETACAMERAPARAM_POLYNOMIALTYPE']._serialized_start=450
-  _globals['_FTHETACAMERAPARAM_POLYNOMIALTYPE']._serialized_end=527
-  _globals['_OPENCVPINHOLECAMERAPARAM']._serialized_start=530
-  _globals['_OPENCVPINHOLECAMERAPARAM']._serialized_end=735
-  _globals['_OPENCVFISHEYECAMERAPARAM']._serialized_start=738
-  _globals['_OPENCVFISHEYECAMERAPARAM']._serialized_end=908
-  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS']._serialized_start=911
-  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS']._serialized_end=1208
-  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS_REFERENCEPOLYNOMIAL']._serialized_start=1160
-  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS_REFERENCEPOLYNOMIAL']._serialized_end=1208
-  _globals['_CAMERASPEC']._serialized_start=1211
-  _globals['_CAMERASPEC']._serialized_end=1743
+  _globals['_SHUTTERTYPE']._serialized_start=1661
+  _globals['_SHUTTERTYPE']._serialized_end=1807
+  _globals['_LINEARCDE']._serialized_start=58
+  _globals['_LINEARCDE']._serialized_end=123
+  _globals['_FTHETACAMERAPARAM']._serialized_start=126
+  _globals['_FTHETACAMERAPARAM']._serialized_end=490
+  _globals['_FTHETACAMERAPARAM_POLYNOMIALTYPE']._serialized_start=413
+  _globals['_FTHETACAMERAPARAM_POLYNOMIALTYPE']._serialized_end=490
+  _globals['_OPENCVPINHOLECAMERAPARAM']._serialized_start=493
+  _globals['_OPENCVPINHOLECAMERAPARAM']._serialized_end=698
+  _globals['_OPENCVFISHEYECAMERAPARAM']._serialized_start=701
+  _globals['_OPENCVFISHEYECAMERAPARAM']._serialized_end=871
+  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS']._serialized_start=874
+  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS']._serialized_end=1171
+  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS_REFERENCEPOLYNOMIAL']._serialized_start=1123
+  _globals['_BIVARIATEWINDSHIELDMODELPARAMETERS_REFERENCEPOLYNOMIAL']._serialized_end=1171
+  _globals['_CAMERASPEC']._serialized_start=1174
+  _globals['_CAMERASPEC']._serialized_end=1658
 # @@protoc_insertion_point(module_scope)

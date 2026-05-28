@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, TypeVar
+from typing import AbstractSet, Any, Callable, TypeVar
 
 import cv2
 import numpy as np
@@ -35,6 +35,15 @@ from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.scenes import (
+    HF_DATASET_BROWSER_URL,
+    SCENE_CLIPGT_DIRNAME,
+    SCENE_IMAGE_SUFFIXES,
+    SCENE_PROMPT_FILENAME,
+    hf_hub_download_scene,
+    hf_scenes_repo_id,
+    scenes_cache_root,
+)
 from omnidreams.transformer import CosmosTransformerConfig
 
 from flashdreams.core.distributed.rank_orchestration import (
@@ -58,14 +67,11 @@ _T = TypeVar("_T")
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 DEFAULT_WEBRTC_SCENE_UUID = "065dcac9-ee67-4434-a835-c6b816c88e48"
-WEBRTC_SCENES_HF_REPO = "nvidia/omni-dreams-scenes"
-WEBRTC_SCENES_HF_BROWSER_URL = (
-    "https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes"
-)
-WEBRTC_SCENE_IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
-FLASHDREAMS_CACHE_DIR = Path(
-    os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams"))
-)
+# Re-export ``omnidreams.scenes`` constants under their pre-existing
+# ``WEBRTC_SCENES_*`` aliases so external imports (logs, tests, docs)
+# stay valid.
+WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
+WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
 
 
 def _choose_existing_asset(
@@ -74,7 +80,7 @@ def _choose_existing_asset(
     exact_name: str | None = None,
     fallback_stems: tuple[str, ...] = (),
     fallback_prefixes: tuple[str, ...] = (),
-    allowed_suffixes: set[str] | None = None,
+    allowed_suffixes: AbstractSet[str] | None = None,
     preferred_stems: tuple[str, ...] = (),
 ) -> Path | None:
     if not directory.is_dir():
@@ -197,32 +203,38 @@ def _safe_extract_zip(source: Path, destination: Path) -> None:
 def _ensure_hf_webrtc_scene_synced(
     scene_uuid: str,
     *,
-    prompt_filename: str = "prompt.txt",
-    clipgt_dirname: str = "clipgt",
+    prompt_filename: str = SCENE_PROMPT_FILENAME,
+    clipgt_dirname: str = SCENE_CLIPGT_DIRNAME,
 ) -> Path:
-    """Stage an HF scene into the local layout expected by WebRTC."""
-    from huggingface_hub import hf_hub_download  # noqa: PLC0415
+    """Stage an HF scene into the local layout expected by WebRTC.
 
+    The HF repo / archive layout (``<org>/omni-dreams-scenes``,
+    ``scenes/clipgt-<uuid>.usdz``) is shared with the
+    ``omnidreams.interactive_drive`` desktop demo via
+    :mod:`omnidreams.scenes`; this function owns only the webrtc-side
+    cache layout (per-uuid extraction under
+    ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/<uuid>/clipgt/``).
+    """
     scene_uuid = scene_uuid.strip()
     assert scene_uuid, "scene_uuid must be set."
-    cache_root = FLASHDREAMS_CACHE_DIR / "omnidreams-scenes"
+    # ``scenes_cache_root()`` is the same root the desktop demo writes
+    # ``clipgt-<uuid>.usdz`` archives to (via
+    # ``omnidreams.prepare.stage_scene``); they coexist by name
+    # because the archive is a file while the webrtc extraction is a
+    # per-uuid directory.
+    cache_root = scenes_cache_root()
     scene_dir = cache_root / scene_uuid
     lock_path = cache_root / ".locks" / f"{scene_uuid}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     with FileLock(str(lock_path)):
-        archive_path = Path(
-            hf_hub_download(
-                repo_id=WEBRTC_SCENES_HF_REPO,
-                repo_type="dataset",
-                filename=f"scenes/clipgt-{scene_uuid}.usdz",
-            )
-        )
+        archive_path = hf_hub_download_scene(scene_uuid)
         _safe_extract_zip(archive_path, scene_dir / clipgt_dirname)
 
     logger.info(
-        "Synced Omnidreams WebRTC scene {} from Hugging Face to {}",
+        "Synced Omnidreams WebRTC scene {} from Hugging Face ({}) to {}",
         scene_uuid,
+        hf_scenes_repo_id(),
         scene_dir,
     )
     return scene_dir
@@ -287,8 +299,8 @@ class OmnidreamsRuntimeConfig:
     video_width: int = 1280
     fps: int = 30
     camera_name: str = "camera_front_wide_120fov"
-    prompt_filename: str = "prompt.txt"
-    clipgt_dirname: str = "clipgt"
+    prompt_filename: str = SCENE_PROMPT_FILENAME
+    clipgt_dirname: str = SCENE_CLIPGT_DIRNAME
     move_speed_per_s: float = 6.0
     rotate_speed_rad_per_s: float = float(np.deg2rad(35.0))
     warmup_chunks: int = 10

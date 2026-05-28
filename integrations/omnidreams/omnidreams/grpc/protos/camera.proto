@@ -17,8 +17,6 @@ syntax = "proto3";
 
 package omnidreams.camera;
 
-import "omnidreams/grpc/protos/common.proto";
-
 enum ShutterType {
     UNKNOWN = 0; // Unknown shutter type
     ROLLING_TOP_TO_BOTTOM = 1; // Rolling shutter from top to bottom of the imager
@@ -126,8 +124,4 @@ message CameraSpec {
     oneof external_distortion {
         BivariateWindshieldModelParameters bivariate_windshield_model_param = 10;
     }
-
-    // Pose of camera relative to the ego rig frame.
-    // Identity (default/unset) means the camera is at the rig origin.
-    common.Pose rig_to_camera = 11;
 }

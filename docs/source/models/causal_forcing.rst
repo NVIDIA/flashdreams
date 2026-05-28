@@ -15,17 +15,29 @@
 
 Causal-Forcing
 ===================================
-(TODO: To be updated)
 
 .. raw:: html
 
    <div class="model-link-row">
-     <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://github.com/LiRunyi2001/causal-forcing" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="https://thu-ml.github.io/CausalForcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
+     <a class="model-link-button" href="https://arxiv.org/abs/2602.02214" target="_blank" rel="noopener noreferrer">arXiv paper</a>
+     <a class="model-link-button" href="https://github.com/thu-ml/Causal-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-Causal-Forcing provides streaming :doc:`Wan2.1 </models/wan21>` variants for
-both text-to-video (T2V) and image-to-video (I2V) generation.
+Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
+asymmetric DMD as a theoretically correct initialization for real-time
+interactive video generation.
+
+.. image:: https://thu-ml.github.io/CausalForcing.github.io/images/overview.png
+   :alt: Causal-Forcing overview figure.
+   :width: 100%
+
+.. raw:: html
+
+   <p class="model-footnote">
+     Teaser image source:
+     <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
+   </p>
 
 Installation
 ------------
@@ -43,9 +55,10 @@ To run Causal-Forcing, launch one of the registered runner slugs via
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
+   uv run --project integrations/causal_forcing \
+       flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
-       --prompt "A cat surfing on a neon wave." \
+       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
@@ -54,9 +67,22 @@ For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
 
 .. code-block:: bash
 
-   uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
+   uv run --project integrations/causal_forcing \
+       torchrun --nproc_per_node=4 --no-python flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
-       --prompt "A cat surfing on a neon wave." \
+       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
+       --pixel-height 480 --pixel-width 832 \
+       --total-blocks 21
+
+For I2V, run with the following command:
+
+.. code-block:: bash
+
+   uv run --project integrations/causal_forcing \
+       flashdreams-run \
+       causal-forcing-wan2.1-i2v-1.3b-framewise \
+       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
+       --image-path https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
@@ -79,6 +105,34 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/causal_forcing flashdreams-run \
+   uv run --project integrations/causal_forcing \
+       flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
        --help
+
+Some generated samples from the above commands:
+
+.. raw:: html
+
+   <div class="model-video-grid">
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
+       </div>
+     </div>
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
+         <br/>
+         image: https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png
+       </div>
+     </div>
+   </div>
