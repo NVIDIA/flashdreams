@@ -23,7 +23,7 @@ from flashdreams.infra.diffusion.scheduler import (
     FlowMatchEulerDiscreteSchedulerConfig,
 )
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+from wan22.config import PIPELINE_WAN22_TI2V_5B
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
 
 from hy_worldplay._action import (

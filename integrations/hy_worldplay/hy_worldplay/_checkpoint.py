@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
-from flashdreams.recipes.wan.config import wan22_ti2v_5b_dit_state_dict_transform
+from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
 
 __all__ = [
     "hy_worldplay_distilled_state_dict_transform",

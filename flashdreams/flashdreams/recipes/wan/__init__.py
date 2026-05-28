@@ -27,12 +27,6 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoderConfig,
     wan22_ti2v_5b_vae_state_dict_transform,
 )
-from flashdreams.recipes.wan.config import (
-    PIPELINE_WAN22_TI2V_5B,
-    WAN22_TI2V_5B_DIT_DIFFUSERS_PATH,
-    WAN_CONFIGS,
-    wan22_ti2v_5b_dit_state_dict_transform,
-)
 from flashdreams.recipes.wan.pipeline import (
     WanInferencePipeline,
     WanInferencePipelineCache,
@@ -58,10 +52,7 @@ from flashdreams.recipes.wan.transformer.wan22 import (
 __all__ = [
     "AVAILABLE_WAN_VAE_CHECKPOINT_PATHS",
     "NEGATIVE_PROMPT",
-    "PIPELINE_WAN22_TI2V_5B",
-    "WAN22_TI2V_5B_DIT_DIFFUSERS_PATH",
     "WAN22_TI2V_5B_VAE_DIFFUSERS_PATH",
-    "WAN_CONFIGS",
     "Wan21Transformer",
     "Wan21TransformerConfig",
     "Wan22TI2V5BVAEDecoderConfig",
@@ -81,6 +72,5 @@ __all__ = [
     "WanVAEDecoderConfig",
     "WanVAEEncoder",
     "WanVAEEncoderConfig",
-    "wan22_ti2v_5b_dit_state_dict_transform",
     "wan22_ti2v_5b_vae_state_dict_transform",
 ]

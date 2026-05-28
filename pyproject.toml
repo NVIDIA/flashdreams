@@ -79,6 +79,7 @@ extraPaths = [
     "integrations/lingbot",
     "integrations/self_forcing",
     "integrations/wan21",
+    "integrations/wan22",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -101,6 +102,7 @@ extra-paths = [
     "integrations/lingbot",
     "integrations/self_forcing",
     "integrations/wan21",
+    "integrations/wan22",
 ]
 
 [tool.ty.src]

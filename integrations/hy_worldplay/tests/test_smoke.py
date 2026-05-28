@@ -155,7 +155,7 @@ def test_static_pipeline_swaps_scheduler_to_euler_distilled() -> None:
         FlowMatchEulerDiscreteSchedulerConfig,
         FlowMatchUniPCSchedulerConfig,
     )
-    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+    from wan22.config import PIPELINE_WAN22_TI2V_5B
 
     # Base recipe stays on UniPC so non-HY callers are unaffected.
     assert isinstance(
@@ -171,7 +171,7 @@ def test_static_pipeline_swaps_scheduler_to_euler_distilled() -> None:
 
 def test_static_pipeline_is_distinct_from_base() -> None:
     """The HY swap must not mutate the shared :data:`PIPELINE_WAN22_TI2V_5B` singleton."""
-    from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
+    from wan22.config import PIPELINE_WAN22_TI2V_5B
 
     assert PIPELINE_HY_WORLDPLAY_WAN_I2V_5B is not PIPELINE_WAN22_TI2V_5B
     # And the base recipe still has the stock (non-HY) encoder / transformer.
@@ -187,7 +187,7 @@ def test_static_pipeline_is_distinct_from_base() -> None:
 
 def test_runner_uses_base_checkpoint_without_ckpt_path() -> None:
     """No ``ckpt_path`` keeps the base 5B diffusers safetensors + remap on the static pipeline."""
-    from flashdreams.recipes.wan.config import (
+    from wan22.config import (
         WAN22_TI2V_5B_DIT_DIFFUSERS_PATH,
         wan22_ti2v_5b_dit_state_dict_transform,
     )
@@ -220,7 +220,7 @@ def test_runner_config_accepts_ckpt_path() -> None:
     # transformer config at construction time (see
     # ``HyWorldPlayWanI2VRunner.__init__``).
     transformer = cfg.pipeline.diffusion_model.transformer
-    from flashdreams.recipes.wan.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+    from wan22.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
 
     assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
 
