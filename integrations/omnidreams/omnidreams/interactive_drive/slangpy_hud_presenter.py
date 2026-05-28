@@ -773,13 +773,11 @@ class SlangPyHudPresenter:
         # an alpha allocation, a fresh RGBA allocation, and two
         # memory passes for what only needs to be one RGB slice
         # copy into a long-lived buffer.
-        if (
-            self._camera_rgba_staging is None
-            or self._camera_rgba_staging.shape[:2] != (src_h, src_w)
+        if self._camera_rgba_staging is None or self._camera_rgba_staging.shape[:2] != (
+            src_h,
+            src_w,
         ):
-            self._camera_rgba_staging = np.empty(
-                (src_h, src_w, 4), dtype=np.uint8
-            )
+            self._camera_rgba_staging = np.empty((src_h, src_w, 4), dtype=np.uint8)
             # One-time alpha fill -- the GPU camera path only ever
             # writes the RGB slice from here on, so alpha stays 255.
             self._camera_rgba_staging[..., 3] = 255
