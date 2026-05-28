@@ -17,6 +17,7 @@
 
 #include <torch/extension.h>
 
+#include "dit_streaming/streaming_dit_bindings.h"
 #include "native_primitives.h"
 
 #ifndef OMNIDREAMS_SINGLEVIEW_WITH_CUDA
@@ -87,4 +88,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
   module.def("is_available", &is_available);
   module.def("build_info", &build_info);
   omnidreams_singleview::bind_native_primitives(module);
+  omnidreams_singleview::bind_optimized_dit(module);
 }

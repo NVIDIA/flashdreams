@@ -38,10 +38,15 @@ from omnidreams.native.acceleration import (
 _ROOT = Path(__file__).resolve().parents[2] / "omnidreams_singleview"
 _NATIVE_BUILD_PATH = _ROOT / "tools" / "native_build.py"
 _SOURCE_DIR = _ROOT / "src"
+_PYTHON_DIR = _ROOT / "python"
 _EXTENSION_SOURCE = _SOURCE_DIR / "omnidreams_singleview_ext.cpp"
 _NATIVE_PRIMITIVES_SOURCE = _SOURCE_DIR / "native_primitives.cpp"
 _NATIVE_PRIMITIVES_CUDA_SOURCE = _SOURCE_DIR / "native_primitives_cuda.cu"
 _NATIVE_COMMON_HEADER_DIR = _SOURCE_DIR / "native_common"
+_DIT_STREAMING_DIR = _SOURCE_DIR / "dit_streaming"
+_DIT_STREAMING_KERNEL_DIR = _DIT_STREAMING_DIR / "kernels"
+_DIT_STREAMING_PYEXT_DIR = _DIT_STREAMING_DIR / "pyext"
+_DIT_STREAMING_COMMON_DIR = _DIT_STREAMING_DIR / "common"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
 _DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
@@ -94,6 +99,40 @@ def sync_thirdparty(*, force: bool = False) -> dict[str, Any]:
     }
 
 
+def load_python_module(name: str) -> ModuleType:
+    """Load a helper module shipped with the single-view native sources."""
+
+    if not name.isidentifier():
+        raise ValueError(
+            f"Native helper module name must be an identifier, got {name!r}"
+        )
+    path = _PYTHON_DIR / f"{name}.py"
+    if not path.is_file():
+        raise ImportError(f"Unknown OmniDreams single-view native helper {name!r}")
+    module_name = f"omnidreams_singleview_native_{name}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            f"Cannot import OmniDreams single-view native helper from {path}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    python_dir = str(_PYTHON_DIR)
+    if python_dir not in sys.path:
+        sys.path.insert(0, python_dir)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _first_library_dir(library_name: str, candidates: tuple[Path, ...]) -> Path | None:
+    for directory in candidates:
+        if (directory / library_name).is_file():
+            return directory
+    return None
+
+
 def build_info(
     build_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -115,6 +154,24 @@ def _extension_sources() -> list[Path]:
         _EXTENSION_SOURCE,
         _NATIVE_PRIMITIVES_SOURCE,
         _NATIVE_PRIMITIVES_CUDA_SOURCE,
+        _DIT_STREAMING_DIR / "streaming_dit_bindings.cpp",
+        _DIT_STREAMING_PYEXT_DIR / "streaming_dit_bridge.cu",
+        _DIT_STREAMING_PYEXT_DIR / "sage3_blackwell_api_shim.cu",
+        _DIT_STREAMING_PYEXT_DIR / "sage3_fp4_quant_shim.cu",
+        _DIT_STREAMING_KERNEL_DIR / "attention.cu",
+        _DIT_STREAMING_KERNEL_DIR / "block_quant.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_adaln_lora.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_block.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_fp8_flash.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_fp8_flash_tc.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_fp8_tc_probe.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_fp8_two_gemm.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_gemm_bf16.cu",
+        _DIT_STREAMING_KERNEL_DIR / "cosmos_modulate.cu",
+        _DIT_STREAMING_KERNEL_DIR / "ops.cu",
+        _DIT_STREAMING_KERNEL_DIR / "sage3_attention.cu",
+        _DIT_STREAMING_KERNEL_DIR / "sparge_attention_sm89_inst.cu",
+        _DIT_STREAMING_KERNEL_DIR / "transformer_block.cu",
     ]
 
 
@@ -122,6 +179,10 @@ def _extension_fingerprint_sources() -> list[Path]:
     return [
         *_extension_sources(),
         *sorted(_NATIVE_COMMON_HEADER_DIR.glob("*.h")),
+        *sorted(_DIT_STREAMING_DIR.rglob("*.h")),
+        *sorted(_DIT_STREAMING_DIR.rglob("*.cuh")),
+        *sorted(_DIT_STREAMING_DIR.rglob("*.hpp")),
+        *sorted(_PYTHON_DIR.glob("*.py")),
     ]
 
 
@@ -174,6 +235,16 @@ def _effective_cuda_arch_list() -> str:
         _PYTORCH_CUDA_ARCH_LIST_ENV,
         os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV, _DEFAULT_CUDA_ARCH_LIST),
     )
+
+
+def _python_package_dir(package: str) -> Path | None:
+    spec = importlib.util.find_spec(package)
+    if spec is None or spec.submodule_search_locations is None:
+        return None
+    locations = list(spec.submodule_search_locations)
+    if not locations:
+        return None
+    return Path(locations[0])
 
 
 @contextlib.contextmanager
@@ -239,7 +310,35 @@ def load_extension(
 
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(thirdparty_info)
-            cutlass_include = Path(thirdparty_info["cutlass"]["path"]) / "include"
+            cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
+            cutlass_include = cutlass_dir / "include"
+            sage_attention_dir = Path(thirdparty_info["SageAttention"]["path"])
+            sparge_attn_dir = Path(thirdparty_info["SpargeAttn"]["path"])
+            sparge_attn_csrc = sparge_attn_dir / "csrc"
+            cudnn_frontend_include = (
+                Path(thirdparty_info["cudnn-frontend"]["path"]) / "include"
+            )
+            cudnn_package_dir = _python_package_dir("nvidia.cudnn")
+            cudnn_include = (
+                cudnn_package_dir / "include"
+                if cudnn_package_dir is not None
+                and (cudnn_package_dir / "include" / "cudnn.h").is_file()
+                else None
+            )
+            cudnn_lib = (
+                cudnn_package_dir / "lib"
+                if cudnn_package_dir is not None
+                and (cudnn_package_dir / "lib" / "libcudnn.so.9").is_file()
+                else None
+            )
+            cuda_driver_lib = _first_library_dir(
+                "libcuda.so",
+                (
+                    Path("/usr/lib/wsl/lib"),
+                    Path("/usr/lib/x86_64-linux-gnu"),
+                    Path("/usr/local/cuda/lib64"),
+                ),
+            )
             extension_build_dir = _native_build().torch_extension_build_dir(
                 extension_name,
                 build_root=build_root,
@@ -251,10 +350,47 @@ def load_extension(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],
                     build_directory=str(extension_build_dir),
-                    extra_include_paths=[str(_SOURCE_DIR), str(cutlass_include)],
+                    extra_include_paths=[
+                        str(_SOURCE_DIR),
+                        str(_DIT_STREAMING_DIR),
+                        str(_DIT_STREAMING_KERNEL_DIR),
+                        str(_DIT_STREAMING_PYEXT_DIR),
+                        str(_DIT_STREAMING_COMMON_DIR),
+                        str(cutlass_include),
+                        str(cutlass_dir / "tools" / "util" / "include"),
+                        str(cutlass_dir / "examples" / "common"),
+                        str(cutlass_dir / "examples" / "41_fused_multi_head_attention"),
+                        str(sage_attention_dir),
+                        str(
+                            sage_attention_dir
+                            / "sageattention3_blackwell"
+                            / "sageattn3"
+                        ),
+                        str(
+                            sage_attention_dir
+                            / "sageattention3_blackwell"
+                            / "sageattn3"
+                            / "blackwell"
+                        ),
+                        str(
+                            sage_attention_dir
+                            / "sageattention3_blackwell"
+                            / "sageattn3"
+                            / "quantization"
+                        ),
+                        str(sparge_attn_csrc),
+                        str(sparge_attn_csrc / "qattn"),
+                        str(sparge_attn_csrc / "fused"),
+                        str(cudnn_frontend_include),
+                        *([] if cudnn_include is None else [str(cudnn_include)]),
+                    ],
                     extra_cflags=[
                         "-O3",
+                        "-std=c++20",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
+                        "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA="
                         f'\\"{thirdparty_info["cutlass"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SOURCE_SHA="
@@ -276,7 +412,37 @@ def load_extension(
                     ],
                     extra_cuda_cflags=[
                         "-O3",
+                        "-std=c++20",
+                        "--expt-relaxed-constexpr",
+                        "--expt-extended-lambda",
+                        "-lineinfo",
+                        "--use_fast_math",
+                        "-U__CUDA_NO_HALF_OPERATORS__",
+                        "-U__CUDA_NO_HALF_CONVERSIONS__",
+                        "-U__CUDA_NO_BFLOAT16_OPERATORS__",
+                        "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+                        "-U__CUDA_NO_BFLOAT162_OPERATORS__",
+                        "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
+                        "-DQBLKSIZE=128",
+                        "-DKBLKSIZE=128",
+                        "-DCTA256",
+                        "-DDQINRMEM",
+                        "-DEXECMODE=0",
+                        "-DNDEBUG",
+                        "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
+                        "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
+                    ],
+                    extra_ldflags=[
+                        "-lcublas",
+                        "-lcublasLt",
+                        *([] if cudnn_lib is None else [f"-L{cudnn_lib}"]),
+                        "-lcudnn" if cudnn_lib is None else "-l:libcudnn.so.9",
+                        *([] if cuda_driver_lib is None else [f"-L{cuda_driver_lib}"]),
+                        "-lcuda",
+                        "-lnvrtc",
                     ],
                     with_cuda=True,
                     verbose=verbose,
