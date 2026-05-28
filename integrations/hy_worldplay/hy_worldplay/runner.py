@@ -26,7 +26,6 @@ import torch
 from torch import Tensor
 
 from flashdreams.core.io.download import download_to_cache
-from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -113,45 +112,6 @@ def _pil_to_numpy(img: object) -> object:
     import numpy as np
 
     return np.asarray(img)
-
-
-def _install_native_dit_profile(pipeline: WanInferencePipeline) -> object | None:
-    """Wrap the transformer's ``predict_flow`` with a per-call CUDA-event recorder.
-
-    No-op (returns ``None``) when ``HY_DIT_PROFILE`` is unset or CUDA
-    is unavailable. The recorder is a stateful ``_DitProfileRecorder``
-    holding a list of ``(start, end)`` event pairs; the caller drains
-    it via :func:`_drain_native_dit_records` after the AR loop.
-    """
-    import os
-
-    if os.environ.get("HY_DIT_PROFILE", "") != "1":
-        return None
-    if not torch.cuda.is_available():
-        return None
-    transformer = pipeline.diffusion_model.transformer
-    original_predict_flow = transformer.predict_flow
-    records: list[tuple[object, object]] = []
-
-    def timed_predict_flow(*args: object, **kwargs: object) -> Tensor:
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
-        out = original_predict_flow(*args, **kwargs)
-        end.record()
-        records.append((start, end))
-        return out
-
-    transformer.predict_flow = timed_predict_flow
-    return records
-
-
-def _drain_native_dit_records(records: object | None) -> list[float]:
-    """Sync CUDA and convert recorded ``(start, end)`` event pairs to millisecond floats."""
-    if not records:
-        return []
-    torch.cuda.synchronize()
-    return [start.elapsed_time(end) for start, end in records]
 
 
 def _resolve_prompt(value: str | Path) -> str:
@@ -425,37 +385,28 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
         )
 
         chunks: list[Tensor] = []
-        # Per-chunk CUDA-event timing for the bench summary; skipped on
-        # CPU (e.g. the smoke tests) since ``EventProfiler`` needs
-        # ``torch.cuda``.
-        profiler = EventProfiler() if torch.cuda.is_available() else None
-        # Reset the allocator high-water mark *after* setup + cache init
-        # so the reported peak reflects the AR rollout itself, not the
-        # one-time model / VAE load.
+        # Per-chunk encode/diffuse/decode/finalize timing comes from the
+        # pipeline's own profiler (``enable_sync_and_profile=True`` on
+        # the recipe config). Each :meth:`StreamInferencePipeline.finalize`
+        # call returns the per-stage ms dict for that AR step; collect
+        # them into ``stats_history`` and dump as JSON, mirroring the
+        # ``integrations/omnidreams`` pattern.
+        stats_history: list[dict[str, float]] = []
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
-        # ``HY_DIT_PROFILE=1`` wraps ``transformer.predict_flow`` with a
-        # per-call CUDA-event recorder so the bench can compute a
-        # post-warmup DiT-only median against vendor's matching
-        # ``stats_dit_vendor.json``.
-        dit_records = _install_native_dit_profile(self.pipeline)
         start_time = time.time()
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
                 chunks.append(chunk)
-                if ar_idx < cfg.num_chunk - 1:
-                    self.pipeline.finalize(ar_idx, cache)
-                if profiler is not None:
-                    profiler.record(f"chunk_{ar_idx}")
+                # ``finalize`` records the chunk's CUDA events + advances
+                # the KV cache. Called on every chunk (incl. the last)
+                # for consistent stats; the trailing KV advance is a
+                # cheap one-block forward.
+                stats = self.pipeline.finalize(ar_idx, cache)
+                if stats is not None:
+                    stats_history.append({"autoregressive_index": ar_idx, **stats})
         elapsed = time.time() - start_time
-        per_chunk_ms = profiler.sync_and_summarize() if profiler is not None else {}
-        dit_per_step_ms = _drain_native_dit_records(dit_records)
-        peak_gpu_mem_gib = (
-            torch.cuda.max_memory_allocated() / (1024**3)
-            if torch.cuda.is_available()
-            else None
-        )
 
         if not self.is_rank_zero:
             return
@@ -469,39 +420,12 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
             f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"
         )
 
-        if per_chunk_ms:
+        if stats_history:
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
-            stats_payload: dict[str, object] = {
-                "runner_name": cfg.runner_name,
-                "num_chunk": cfg.num_chunk,
-                "pose": cfg.pose,
-                "elapsed_s": round(elapsed, 3),
-                "per_chunk_ms": {k: round(v, 3) for k, v in per_chunk_ms.items()},
-            }
-            if peak_gpu_mem_gib is not None:
-                stats_payload["peak_gpu_mem_gib"] = round(peak_gpu_mem_gib, 3)
-            stats_path.write_text(json.dumps(stats_payload, indent=2))
+            stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-chunk stats -> "
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> "
                 f"{stats_path.resolve()}"
-            )
-
-        if dit_per_step_ms:
-            dit_path = cfg.output_dir / "stats_dit_native.json"
-            dit_path.write_text(
-                json.dumps(
-                    {
-                        "backend": "native",
-                        "compile_enabled": True,
-                        "dit_per_step_ms": [round(v, 3) for v in dit_per_step_ms],
-                        "n_steps": len(dit_per_step_ms),
-                    },
-                    indent=2,
-                )
-            )
-            logger.info(
-                f"[{cfg.runner_name}] wrote {len(dit_per_step_ms)} native "
-                f"DiT step ms -> {dit_path.resolve()}"
             )
 
     def _fetch_example_image(self) -> Path:

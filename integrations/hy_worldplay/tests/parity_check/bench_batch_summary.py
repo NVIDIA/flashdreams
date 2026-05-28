@@ -26,55 +26,71 @@ _RUNNER_NAME = "hy-worldplay-wan-i2v-5b"
 """Filename stem the native runner uses for its mp4 / stats artifacts."""
 
 
-def _format_per_chunk_ms(stats: dict[str, Any]) -> str:
-    """Render per-chunk CUDA-event timing as ``c0=12.3ms, c1=18.4ms``."""
-    per_chunk = stats.get("per_chunk_ms") or {}
-    if not per_chunk:
+def _format_stage_per_chunk(stats: list[dict[str, Any]] | None, stage_key: str) -> str:
+    """Render per-AR-step ``{stage_key}_ms`` as ``c0=12.3ms, c1=18.4ms``."""
+    if not isinstance(stats, list):
         return "n/a"
     parts: list[str] = []
-    for k, v in per_chunk.items():
-        # ``chunk_0`` -> ``c0`` so cells stay narrow.
-        label = k.replace("chunk_", "c") if k.startswith("chunk_") else k
-        parts.append(f"{label}={float(v):.1f}")
-    return ", ".join(parts)
+    for entry in stats:
+        ar_idx = entry.get("autoregressive_index")
+        v = entry.get(stage_key)
+        if not isinstance(v, (int, float)) or ar_idx is None:
+            continue
+        parts.append(f"c{ar_idx}={float(v):.1f}")
+    return ", ".join(parts) if parts else "n/a"
 
 
-def _read_stats(image_dir: Path) -> dict[str, Any] | None:
-    """Return the runner's stats JSON for one image, or ``None`` if missing."""
+def _read_stats(image_dir: Path) -> list[dict[str, Any]] | None:
+    """Read the omnidreams-style ``stats_<runner>.json`` (one row per AR step)."""
     path = image_dir / f"stats_{_RUNNER_NAME}.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    payload = json.loads(path.read_text())
+    return payload if isinstance(payload, list) else None
 
 
-def _build_table(rows: list[tuple[str, dict[str, Any] | None]]) -> str:
+def _total_wall_s(stats: list[dict[str, Any]] | None) -> str:
+    """Sum per-AR ``total_ms_wo_finalize`` into a seconds string."""
+    if not isinstance(stats, list):
+        return "n/a"
+    total = sum(
+        float(entry.get("total_ms_wo_finalize", 0.0))
+        for entry in stats
+        if isinstance(entry.get("total_ms_wo_finalize"), (int, float))
+    )
+    return f"{total / 1000:.2f}" if total else "n/a"
+
+
+def _peak_gpu(stats: list[dict[str, Any]] | None) -> str:
+    """Pick the last AR step's ``mem_peak_gib``."""
+    if not isinstance(stats, list):
+        return "n/a"
+    for entry in reversed(stats):
+        v = entry.get("mem_peak_gib")
+        if isinstance(v, (int, float)):
+            return f"{float(v):.2f}"
+    return "n/a"
+
+
+def _build_table(rows: list[tuple[str, list[dict[str, Any]] | None]]) -> str:
     """Render the perf rows as a markdown table."""
     header = [
-        "| image | mp4 | elapsed (s) | peak GPU mem (GiB) | per-chunk (ms) |",
+        "| image | mp4 | wall (s) | peak GPU (GiB) | per-AR diffuse (ms) |",
         "| --- | --- | --- | --- | --- |",
     ]
-
-    def cell(stats: dict[str, Any] | None, key: str, fmt: str) -> str:
-        if stats is None:
-            return "n/a"
-        value = stats.get(key)
-        if value is None:
-            return "n/a"
-        return fmt.format(value)
-
     out = list(header)
     for stem, stats in rows:
         mp4_path = f"`{stem}/{_RUNNER_NAME}.mp4`"
-        elapsed = cell(stats, "elapsed_s", "{:.2f}")
-        peak = cell(stats, "peak_gpu_mem_gib", "{:.2f}")
-        per_chunk = _format_per_chunk_ms(stats) if stats is not None else "n/a"
-        out.append(f"| `{stem}` | {mp4_path} | {elapsed} | {peak} | {per_chunk} |")
+        wall = _total_wall_s(stats)
+        peak = _peak_gpu(stats)
+        per_diffuse = _format_stage_per_chunk(stats, "diffuse_ms")
+        out.append(f"| `{stem}` | {mp4_path} | {wall} | {peak} | {per_diffuse} |")
     return "\n".join(out)
 
 
 def _render_report(
     *,
-    rows: list[tuple[str, dict[str, Any] | None]],
+    rows: list[tuple[str, list[dict[str, Any]] | None]],
     num_chunk: int,
     pose: str,
     seed: int,
@@ -121,7 +137,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, required=True)
     args = parser.parse_args()
 
-    rows: list[tuple[str, dict[str, Any] | None]] = []
+    rows: list[tuple[str, list[dict[str, Any]] | None]] = []
     for child in sorted(args.output_dir.iterdir()):
         if not child.is_dir():
             continue

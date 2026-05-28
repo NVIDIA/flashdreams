@@ -84,18 +84,10 @@ PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek ar
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
 HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE:-1}"
 USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE:-1}"
-# DiT-only timer + matched cuDNN SDPA on vendor: Option A
-# methodology for the post-warmup median comparison. Vendor
-# ``torch.compile`` was dropped from this matrix -- vendor's KV cache
-# uses dynamic shapes per chunk that Inductor can't trace cleanly.
-# Native ships ``compile_network=True`` regardless.
-HY_DIT_PROFILE="${HY_DIT_PROFILE:-1}"
-HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA:-1}"
-# Chunks at the start of the rollout to drop from the DiT median
-# (Inductor autotune + CUDA-graph capture land in the first few).
-# Default 0 because the 44 GiB VRAM ceiling caps ``NUM_CHUNK`` at 2,
-# leaving no chunks to spare for warmup. Set to 5 (per manager's
-# spec) when bumping ``NUM_CHUNK`` to 8 on a >=80 GiB GPU.
+# Chunks at the start of the rollout to drop from the post-warmup
+# median (Inductor autotune + KV-fill happen in the first few). 0 is
+# the safe default at ``NUM_CHUNK=2``; bump to 5 (the manager spec)
+# on a >=80 GiB GPU where ``NUM_CHUNK`` can go to 8+.
 WARMUP_CHUNKS="${WARMUP_CHUNKS:-0}"
 
 NATIVE_OUT="${OUTPUT_DIR}/native"
@@ -143,16 +135,13 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
 rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
-echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, CUDNN_SDPA=${HY_VENDOR_CUDNN_SDPA}) -> ${VENDOR_OUT}"
+echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
 PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
     NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
-    HY_DIT_PROFILE="${HY_DIT_PROFILE}" \
-    HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA}" \
-    HY_DIT_OUTPUT_JSON="${VENDOR_OUT}/stats_dit_vendor.json" \
     bash "${SCRIPT_DIR}/run.sh"
 _vendor_elapsed_s=$(( $(date +%s) - _vendor_start_s ))
 
@@ -179,10 +168,9 @@ cat > "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" <<EOF
 EOF
 
 ## -------------------------------------------------------------- native leg
-echo "[bench] running NATIVE leg -> ${NATIVE_OUT} (HY_VENDOR_NOISE_MODE=${HY_VENDOR_NOISE_MODE}, DIT_PROFILE=${HY_DIT_PROFILE})"
+echo "[bench] running NATIVE leg -> ${NATIVE_OUT} (HY_VENDOR_NOISE_MODE=${HY_VENDOR_NOISE_MODE})"
 ( cd "${SCRIPT_DIR}" && \
     HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE}" \
-    HY_DIT_PROFILE="${HY_DIT_PROFILE}" \
     uv run flashdreams-run "${RUNNER_NAME}" \
     --image-path "${IMAGE_PATH}" \
     --ckpt-path "${CKPT_PATH}" \

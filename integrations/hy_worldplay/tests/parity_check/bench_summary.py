@@ -33,19 +33,9 @@ _VISIBLE_THRESHOLD = 5.0
 difference. Matches the threshold the README cites for the parity caveat."""
 
 
-def _load_stats(side_dir: Path) -> dict[str, Any]:
-    """Read ``stats_<runner>.json`` written by the runner on rank zero."""
+def _load_stats(side_dir: Path) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """Read ``stats_<runner>.json`` (omnidreams-style per-AR-step list or wall-clock dict)."""
     path = side_dir / f"stats_{_RUNNER_NAME}.json"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"missing stats file {path}; did the run finish on rank 0?"
-        )
-    return json.loads(path.read_text())
-
-
-def _load_dit_stats(side_dir: Path, side: str) -> dict[str, Any] | None:
-    """Read ``stats_dit_{native,vendor}.json`` if the DiT profiler ran on this side."""
-    path = side_dir / f"stats_dit_{side}.json"
     if not path.exists():
         return None
     return json.loads(path.read_text())
@@ -59,92 +49,105 @@ def _load_video(side_dir: Path) -> np.ndarray:
     return iio.imread(path)
 
 
-def _format_per_chunk_ms(stats: dict[str, Any]) -> str:
-    """Render the per-chunk CUDA-event timing as ``c0=12.3ms, c1=18.4ms``."""
-    per_chunk = stats.get("per_chunk_ms") or {}
-    if not per_chunk:
-        return "n/a"
-    parts: list[str] = []
-    for k, v in per_chunk.items():
-        # ``chunk_0`` -> ``c0`` so the cell stays narrow in the markdown
-        # table.
-        label = k.replace("chunk_", "c") if k.startswith("chunk_") else k
-        parts.append(f"{label}={float(v):.1f}ms")
-    return ", ".join(parts)
+def _median(values: list[float]) -> float | None:
+    """Return the median of ``values`` (``None`` when empty)."""
+    if not values:
+        return None
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    return sorted_vals[n // 2] if n % 2 else 0.5 * (sorted_vals[n // 2 - 1] + sorted_vals[n // 2])
 
 
-def _dit_median_post_warmup(
-    dit_stats: dict[str, Any] | None,
+def _stage_median_post_warmup(
+    stats: list[dict[str, Any]] | None,
+    stage_key: str,
     warmup_chunks: int,
-    inference_steps_per_chunk: int,
 ) -> tuple[float | None, int]:
-    """Median DiT-forward ms over the post-warmup tail.
+    """Median ``{stage_key}_ms`` over the AR steps past ``warmup_chunks``.
 
     Returns:
-        ``(median_ms, n_kept)`` where ``median_ms`` is ``None`` if no
-        post-warmup samples remain.
+        ``(median_ms, n_kept)``. ``median_ms`` is ``None`` when the
+        side reported no per-AR-step stats (e.g. vendor's wall-clock
+        only dict) or the post-warmup slice is empty.
     """
-    if dit_stats is None:
+    if not isinstance(stats, list):
         return None, 0
-    steps = dit_stats.get("dit_per_step_ms") or []
-    discard = warmup_chunks * inference_steps_per_chunk
-    kept = steps[discard:]
-    if not kept:
-        return None, 0
-    sorted_kept = sorted(kept)
-    n = len(sorted_kept)
-    mid = sorted_kept[n // 2] if n % 2 else 0.5 * (sorted_kept[n // 2 - 1] + sorted_kept[n // 2])
-    return mid, n
+    kept = [entry.get(stage_key) for entry in stats[warmup_chunks:]]
+    kept_floats = [float(v) for v in kept if isinstance(v, (int, float))]
+    return _median(kept_floats), len(kept_floats)
+
+
+def _format_per_chunk_stage(
+    stats: list[dict[str, Any]] | None, stage_key: str
+) -> str:
+    """Render per-AR-step ``{stage_key}_ms`` as ``c0=12.3ms, c1=18.4ms``."""
+    if not isinstance(stats, list):
+        return "n/a"
+    parts: list[str] = []
+    for entry in stats:
+        ar_idx = entry.get("autoregressive_index")
+        v = entry.get(stage_key)
+        if not isinstance(v, (int, float)) or ar_idx is None:
+            continue
+        parts.append(f"c{ar_idx}={float(v):.1f}ms")
+    return ", ".join(parts) if parts else "n/a"
+
+
+def _wall_clock(stats: Any) -> str:
+    """Render the side's overall wall-clock (``elapsed_s`` for vendor, ``total_ms_wo_finalize`` sum for native)."""
+    if isinstance(stats, list):
+        total = sum(
+            float(entry.get("total_ms_wo_finalize", 0.0))
+            for entry in stats
+            if isinstance(entry.get("total_ms_wo_finalize"), (int, float))
+        )
+        if total:
+            return f"{total / 1000:.2f} s (sum of per-AR total_ms_wo_finalize)"
+        return "n/a"
+    if isinstance(stats, dict):
+        value = stats.get("elapsed_s")
+        if isinstance(value, (int, float)):
+            return f"{float(value):.2f} s (wall clock)"
+    return "n/a"
+
+
+def _peak_gpu_mem(stats: Any) -> str:
+    """Render peak GPU memory (last AR step's ``mem_peak_gib`` for native, ``peak_gpu_mem_gib`` for vendor)."""
+    if isinstance(stats, list) and stats:
+        for entry in reversed(stats):
+            v = entry.get("mem_peak_gib")
+            if isinstance(v, (int, float)):
+                return f"{float(v):.2f}"
+    if isinstance(stats, dict):
+        v = stats.get("peak_gpu_mem_gib")
+        if isinstance(v, (int, float)):
+            return f"{float(v):.2f}"
+    return "n/a"
 
 
 def _perf_table(
-    native: dict[str, Any],
-    vendor: dict[str, Any],
-    native_dit: dict[str, Any] | None,
-    vendor_dit: dict[str, Any] | None,
+    native: list[dict[str, Any]] | dict[str, Any] | None,
+    vendor: list[dict[str, Any]] | dict[str, Any] | None,
     warmup_chunks: int,
-    inference_steps_per_chunk: int = 4,
 ) -> str:
     """Build the perf markdown table comparing the two backends."""
     rows = [
         "| metric | native | vendor |",
         "| --- | --- | --- |",
+        f"| wall clock | {_wall_clock(native)} | {_wall_clock(vendor)} |",
+        f"| peak GPU mem (GiB) | {_peak_gpu_mem(native)} | {_peak_gpu_mem(vendor)} |",
     ]
 
-    def cell(stats: dict[str, Any], key: str, fmt: str = "{:.3f}") -> str:
-        value = stats.get(key)
-        if value is None:
-            return "n/a"
-        return fmt.format(value)
+    for stage in ("encode", "diffuse", "decode"):
+        nval, n_n = _stage_median_post_warmup(native, f"{stage}_ms", warmup_chunks)
+        vval, n_v = _stage_median_post_warmup(vendor, f"{stage}_ms", warmup_chunks)
+        nc = f"{nval:.1f} ms (n={n_n})" if nval is not None else "n/a"
+        vc = f"{vval:.1f} ms (n={n_v})" if vval is not None else "n/a"
+        rows.append(f"| {stage} median (post-warmup) | {nc} | {vc} |")
 
     rows.append(
-        f"| elapsed (s) | {cell(native, 'elapsed_s', '{:.2f}')}"
-        f" | {cell(vendor, 'elapsed_s', '{:.2f}')} |"
-    )
-    rows.append(
-        f"| peak GPU mem (GiB) | {cell(native, 'peak_gpu_mem_gib', '{:.2f}')}"
-        f" | {cell(vendor, 'peak_gpu_mem_gib', '{:.2f}')} |"
-    )
-    rows.append(
-        f"| per-chunk timing | {_format_per_chunk_ms(native)}"
-        f" | {_format_per_chunk_ms(vendor)} |"
-    )
-
-    native_med, native_n = _dit_median_post_warmup(
-        native_dit, warmup_chunks, inference_steps_per_chunk
-    )
-    vendor_med, vendor_n = _dit_median_post_warmup(
-        vendor_dit, warmup_chunks, inference_steps_per_chunk
-    )
-    native_cell = (
-        f"{native_med:.1f} ms (n={native_n})" if native_med is not None else "n/a"
-    )
-    vendor_cell = (
-        f"{vendor_med:.1f} ms (n={vendor_n})" if vendor_med is not None else "n/a"
-    )
-    rows.append(
-        f"| DiT median (post-warmup, discard first {warmup_chunks} chunks) "
-        f"| {native_cell} | {vendor_cell} |"
+        f"| per-AR diffuse | {_format_per_chunk_stage(native, 'diffuse_ms')}"
+        f" | {_format_per_chunk_stage(vendor, 'diffuse_ms')} |"
     )
     return "\n".join(rows)
 
@@ -173,10 +176,8 @@ def _parity_block(native_mp4: np.ndarray, vendor_mp4: np.ndarray) -> str:
 
 def _render_report(
     *,
-    native_stats: dict[str, Any],
-    vendor_stats: dict[str, Any],
-    native_dit: dict[str, Any] | None,
-    vendor_dit: dict[str, Any] | None,
+    native_stats: Any,
+    vendor_stats: Any,
     native_mp4: np.ndarray,
     vendor_mp4: np.ndarray,
     image_path: Path,
@@ -194,6 +195,7 @@ def _render_report(
         f"- image: `{image_path}`",
         f"- pose: `{pose}` (`num_chunk={num_chunk}`)",
         f"- seed: `{seed}`",
+        f"- warmup chunks discarded: `{warmup_chunks}`",
         (
             f"- native frames: `{native_mp4.shape}`, "
             f"vendor frames: `{vendor_mp4.shape}`"
@@ -201,8 +203,16 @@ def _render_report(
         "",
         "## Perf",
         "",
-        _perf_table(
-            native_stats, vendor_stats, native_dit, vendor_dit, warmup_chunks
+        _perf_table(native_stats, vendor_stats, warmup_chunks),
+        "",
+        (
+            "Native stats come from flashdreams's built-in "
+            "``StreamInferencePipeline`` profiler (``enable_sync_and_profile=True``); "
+            "each AR step contributes one row to ``stats_<runner>.json`` with "
+            "encode / diffuse / decode / finalize / total_ms keys. Vendor's "
+            "``wan/generate.py`` doesn't emit a structured stats JSON, so the "
+            "vendor side only has a wall-clock total; per-stage breakdown on "
+            "the vendor side is a follow-up."
         ),
         "",
         "## Parity (native mp4 vs vendor mp4)",
@@ -231,7 +241,7 @@ def main() -> None:
         "--warmup-chunks",
         type=int,
         default=0,
-        help="DiT samples from the first N chunks are dropped from the median.",
+        help="Drop the first N AR steps from the post-warmup stage medians.",
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -239,8 +249,6 @@ def main() -> None:
     report = _render_report(
         native_stats=_load_stats(args.native_dir),
         vendor_stats=_load_stats(args.vendor_dir),
-        native_dit=_load_dit_stats(args.native_dir, "native"),
-        vendor_dit=_load_dit_stats(args.vendor_dir, "vendor"),
         native_mp4=_load_video(args.native_dir),
         vendor_mp4=_load_video(args.vendor_dir),
         image_path=args.image_path,
