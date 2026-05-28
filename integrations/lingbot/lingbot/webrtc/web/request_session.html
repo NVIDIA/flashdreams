@@ -29,6 +29,7 @@ limitations under the License.
       <h1 class="srOnly">Lingbot WebRTC Viewer</h1>
       <canvas id="mockCanvas" class="mockCanvas" aria-hidden="true"></canvas>
       <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
+      <img id="firstFramePreview" class="firstFramePreview" alt="" aria-hidden="true">
       <div class="stageVignette" aria-hidden="true"></div>
 
       <header class="brandOverlay" aria-label="FlashDreams World Model">
@@ -46,6 +47,18 @@ limitations under the License.
           <span>Flow</span>
           <strong id="flowText">waiting</strong>
         </div>
+      </section>
+
+      <section class="sceneCard overlayPanel" aria-label="Initial Scene">
+        <span class="panelLabel">Initial Scene</span>
+        <label class="uploadControl">
+          <input id="firstFrameInput" type="file" accept="image/*">
+          <span id="firstFrameName">Choose Image</span>
+        </label>
+        <label class="promptControl">
+          <span>Prompt</span>
+          <textarea id="promptInput" rows="4" maxlength="2000"></textarea>
+        </label>
       </section>
 
       <section class="controlCard overlayPanel" aria-label="Controls">

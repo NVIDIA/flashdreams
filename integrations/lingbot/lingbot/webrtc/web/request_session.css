@@ -64,6 +64,7 @@ button {
 
 .mockCanvas,
 .stageVideo,
+.firstFramePreview,
 .stageVignette {
   position: absolute;
   inset: 0;
@@ -84,11 +85,27 @@ button {
   transition: opacity 220ms ease;
 }
 
+.firstFramePreview {
+  z-index: 0;
+  display: block;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
 body.has-video .stageVideo {
   opacity: 1;
 }
 
 body.has-video .mockCanvas {
+  opacity: 0;
+}
+
+body.is-ready-preview .firstFramePreview {
+  opacity: 1;
+}
+
+body.is-ready-preview .mockCanvas {
   opacity: 0;
 }
 
@@ -237,6 +254,76 @@ body[data-status="generating"] .connectButton {
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sceneCard {
+  position: absolute;
+  top: clamp(120px, 15vh, 168px);
+  left: clamp(18px, 3vw, 52px);
+  width: min(390px, calc(100vw - 36px));
+  padding: 16px 18px 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.uploadControl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.uploadControl:hover {
+  border-color: rgba(142, 240, 28, 0.48);
+  background: rgba(142, 240, 28, 0.14);
+}
+
+.uploadControl input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.uploadControl span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.promptControl {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.promptControl textarea {
+  width: 100%;
+  min-height: 94px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(4, 6, 7, 0.62);
+  color: var(--text);
+  font: 0.9rem/1.35 inherit;
+  padding: 10px 12px;
+}
+
+.promptControl textarea:focus {
+  outline: 2px solid rgba(142, 240, 28, 0.38);
+  outline-offset: 2px;
 }
 
 .controlCard {
@@ -450,7 +537,7 @@ body[data-status="generating"] .statusLine strong {
   }
 
   .stage {
-    min-height: max(100svh, 980px);
+    min-height: max(100svh, 1120px);
   }
 
   .brandOverlay {
@@ -465,6 +552,13 @@ body[data-status="generating"] .statusLine strong {
     right: auto;
   }
 
+  .sceneCard {
+    top: 242px;
+    left: 18px;
+    right: 18px;
+    width: auto;
+  }
+
   .controlCard,
   .logCard {
     left: 18px;
@@ -473,7 +567,7 @@ body[data-status="generating"] .statusLine strong {
   }
 
   .controlCard {
-    bottom: 440px;
+    bottom: 360px;
   }
 
   .logCard {
