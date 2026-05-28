@@ -3,7 +3,16 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import (
+    Dict,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Sequence,
+    Tuple,
+    cast,
+)
 
 import torch
 
@@ -292,14 +301,15 @@ def validate_cosmos_fp8_activation_calibration(
     raw_amax = calibration.get("amax")
     if not isinstance(raw_amax, Mapping):
         raise ValueError("Cosmos FP8 activation calibration requires an 'amax' mapping")
+    raw_amax_map = cast(Mapping[str, object], raw_amax)
 
     normalized: Dict[str, torch.Tensor] = {}
     for site in COSMOS_FP8_ACTIVATION_SCALE_SITES:
-        if site not in raw_amax:
+        if site not in raw_amax_map:
             raise ValueError(
                 f"Cosmos FP8 activation calibration is missing site {site!r}"
             )
-        tensor = torch.as_tensor(raw_amax[site], dtype=torch.float32)
+        tensor = torch.as_tensor(raw_amax_map[site], dtype=torch.float32)
         if tensor.shape != (num_blocks,):
             raise ValueError(
                 f"Cosmos FP8 activation calibration site {site!r} must have shape "

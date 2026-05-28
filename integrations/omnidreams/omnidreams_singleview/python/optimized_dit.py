@@ -48,7 +48,7 @@ import os
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
@@ -765,7 +765,7 @@ class OptimizedDiTExecutor:
 
     @network.setter
     def network(self, value: torch.nn.Module) -> None:
-        self.transformer.network = value  # type: ignore[assignment]
+        cast(Any, self.transformer).network = value
 
     def _maybe_inject_image(
         self,
@@ -1058,9 +1058,9 @@ class OptimizedDiTExecutor:
         # The parent graph wrappers point at the freed PyTorch network and
         # must stay disabled when a reset initializes a fresh cache.
         self.transformer._use_cuda_graph = False
-        self.transformer._network_call = None  # type: ignore[assignment]
-        self.transformer._network_call_uncond = None  # type: ignore[assignment]
-        self.network = shape_ops  # type: ignore[assignment]
+        cast(Any, self.transformer)._network_call = None
+        cast(Any, self.transformer)._network_call_uncond = None
+        self.network = shape_ops
         self._released_network_for_fp8 = True
         gc.collect()
         if torch.cuda.is_available():
@@ -1556,7 +1556,7 @@ class OptimizedDiTExecutor:
         v_self: list[Tensor],
         write_start: int,
     ) -> Tensor:
-        config = dict(self._optimized_streaming_config)
+        config: dict[str, Any] = dict(self._optimized_streaming_config)
         if hdmap_embed is not None:
             config["cosmos_hdmap_embed"] = hdmap_embed
         if t_emb is not None:
