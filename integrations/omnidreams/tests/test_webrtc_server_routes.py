@@ -103,7 +103,10 @@ async def test_request_session_includes_idle_animation_canvas() -> None:
         response = await client.get("/request_session")
         body = await response.text()
         assert response.status == 200
-        assert '<canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>' in body
+        assert (
+            '<canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>'
+            in body
+        )
     finally:
         await client.close()
 
@@ -142,7 +145,7 @@ async def test_static_js_keeps_omnidreams_controls_and_lingbot_status_helpers() 
         body = await response.text()
         assert response.status == 200
         assert 'const allowedKeys = new Set(["w", "a", "s", "d"])' in body
-        assert "const logState = document.getElementById(\"logState\")" in body
+        assert 'const logState = document.getElementById("logState")' in body
         assert 'logState.textContent = state === "idle" ? "Waiting" : message' in body
         assert "eventLog.prepend(entry)" in body
     finally:
@@ -157,7 +160,7 @@ async def test_static_js_draws_idle_animation_until_video_arrives() -> None:
         response = await client.get("/static/request_session.js")
         body = await response.text()
         assert response.status == 200
-        assert "const idleCanvas = document.getElementById(\"idleCanvas\")" in body
+        assert 'const idleCanvas = document.getElementById("idleCanvas")' in body
         assert "function drawIdleScene(now)" in body
         assert "window.requestAnimationFrame(drawIdleScene)" in body
     finally:
@@ -172,7 +175,13 @@ async def test_static_css_uses_lingbot_overlay_classes() -> None:
         response = await client.get("/static/request_session.css")
         body = await response.text()
         assert response.status == 200
-        for selector in (".overlayPanel", ".brandOverlay", ".statusCard", ".controlCard", ".logCard"):
+        for selector in (
+            ".overlayPanel",
+            ".brandOverlay",
+            ".statusCard",
+            ".controlCard",
+            ".logCard",
+        ):
             assert selector in body
     finally:
         await client.close()
