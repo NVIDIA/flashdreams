@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import array
-import fcntl
 import io
 import math
 import os
@@ -24,18 +22,23 @@ import numpy as np
 import yaml
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
+from omnidreams.interactive_drive._evdev import (
+    EV_ABS,
+    EV_FF,
+    EVDEV_EVENT_FORMAT,
+    EVDEV_EVENT_SIZE,
+    FF_AUTOCENTER,
+    FF_GAIN,
+    AxisRange,
+    EvdevDevice,
+    query_axis_range as _query_axis_range,
+    read_evdev_name as _read_evdev_name,
+    scan_evdev_devices as _scan_evdev_devices,
+)
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
-
-EVDEV_EVENT_FORMAT = "llHHi"
-EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)
-EV_ABS = 0x03
-EV_FF = 0x15
-FF_AUTOCENTER = 0x61
-FF_GAIN = 0x60
-EVIOCGABS = lambda axis: 0x80184540 + axis  # noqa: E731
 
 # Width of the right-side HUD panel that holds the steering wheel,
 # pedals, speed digit and BEV minimap. The camera area fills the rest
@@ -90,26 +93,6 @@ _GMAPS_TINTED_MUL = (
 _BEV_DEFAULTS = BevConfig()
 BEV_FOV_DEG = _BEV_DEFAULTS.fov_deg
 BEV_TILT_DEG = _BEV_DEFAULTS.tilt_deg
-
-
-@dataclass(frozen=True)
-class AxisRange:
-    minimum: int
-    maximum: int
-
-    @property
-    def center(self) -> float:
-        return (float(self.minimum) + float(self.maximum)) * 0.5
-
-    @property
-    def span(self) -> float:
-        return max(1.0, float(self.maximum - self.minimum))
-
-
-@dataclass(frozen=True)
-class EvdevDevice:
-    path: Path
-    name: str
 
 
 @dataclass(frozen=True)
@@ -1295,31 +1278,6 @@ def _detect_device_for_profile(profile: WheelProfile) -> EvdevDevice | None:
     return None
 
 
-def _scan_evdev_devices() -> tuple[EvdevDevice, ...]:
-    candidates: list[Path] = []
-    by_id = Path("/dev/input/by-id")
-    if by_id.is_dir():
-        candidates.extend(
-            sorted(path for path in by_id.glob("*event*") if path.exists())
-        )
-    candidates.extend(sorted(Path("/dev/input").glob("event*")))
-
-    devices: list[EvdevDevice] = []
-    seen: set[Path] = set()
-    for path in candidates:
-        try:
-            resolved = path.resolve()
-        except OSError:
-            resolved = path
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        name = _read_evdev_name(path)
-        if name is not None:
-            devices.append(EvdevDevice(path=path, name=name))
-    return tuple(devices)
-
-
 def _device_matches_profile(device: EvdevDevice, profile: WheelProfile) -> bool:
     name = device.name.lower()
     if not any(pattern.lower() in name for pattern in profile.detection_patterns):
@@ -1328,16 +1286,6 @@ def _device_matches_profile(device: EvdevDevice, profile: WheelProfile) -> bool:
     return all(
         _query_axis_range(device.path, axis) is not None for axis in required_axes
     )
-
-
-def _read_evdev_name(path: Path) -> str | None:
-    try:
-        with path.open("rb") as handle:
-            name_buf = array.array("B", [0] * 256)
-            fcntl.ioctl(handle.fileno(), 0x80004506 + (256 << 16), name_buf)
-            return name_buf.tobytes().split(b"\x00")[0].decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
 
 
 def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
@@ -1433,16 +1381,6 @@ def _apply_wheel_overrides(
         threshold=profile.threshold,
         is_default=profile.is_default,
     )
-
-
-def _query_axis_range(path: Path, axis: int) -> AxisRange | None:
-    try:
-        with path.open("rb") as handle:
-            payload = array.array("i", [0, 0, 0, 0, 0, 0])
-            fcntl.ioctl(handle.fileno(), EVIOCGABS(axis), payload, True)
-            return AxisRange(minimum=int(payload[1]), maximum=int(payload[2]))
-    except OSError:
-        return None
 
 
 def _parse_axis(value: str) -> int:
