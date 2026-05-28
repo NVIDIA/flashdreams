@@ -65,7 +65,13 @@ ludus-renderer = { workspace = true }
 # after the consumer (the ``interactive-drive`` script) rather than
 # the abstract capability so the install command is self-documenting.
 interactive-drive = [
-    "slangpy==0.41.0",
+    # 0.42.0 added `enable_cuda_launch_from_gfx` / `enable_ray_tracing`
+    # opt-out flags. They're required: without them, slangpy unconditionally
+    # enables VK_NVX_binary_import + Vulkan RT extensions, which on NVIDIA
+    # Linux Blackwell + driver 595.x bring up a CUDA primary context that
+    # poisons cuDNN's MHA dispatcher (RuntimeError during _scaled_dot_product
+    # _cudnn_attention). See presenter.py / slangpy_hud_presenter.py.
+    "slangpy==0.42.0",
 ]
 dev = [
     "pytest>=8.0",

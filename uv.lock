@@ -1375,7 +1375,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "safetensors", specifier = ">=0.5" },
     { name = "shapely" },
-    { name = "slangpy", marker = "extra == 'interactive-drive'", specifier = "==0.41.0" },
+    { name = "slangpy", marker = "extra == 'interactive-drive'", specifier = "==0.42.0" },
     { name = "torch", specifier = ">=2.11" },
     { name = "torchvision", specifier = ">=0.26" },
     { name = "tqdm", specifier = ">=4.67" },
@@ -4598,7 +4598,7 @@ wheels = [
 
 [[package]]
 name = "slangpy"
-version = "0.41.0"
+version = "0.42.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -4606,22 +4606,22 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/23/06eccc4ba324eea35781622a81ddd04ae5ffde3ed25faf75f81c9cc76ead/slangpy-0.41.0-cp310-cp310-macosx_15_0_arm64.whl", hash = "sha256:dc36d82ff57753ef16f094c25c1566c88252adfe279528a2658da3f0cd279cca", size = 36045498, upload-time = "2026-04-16T04:51:45.244Z" },
-    { url = "https://files.pythonhosted.org/packages/a6/27/13604411ffcec033d8f485a7235c0377d283ff54a17232ea327c9a00a287/slangpy-0.41.0-cp310-cp310-manylinux_2_34_aarch64.whl", hash = "sha256:6bf161bd1894a829e1e2c3f8cbbcfc73f5e3878d3a00ebfdf75225ba23f9668f", size = 79677302, upload-time = "2026-04-16T04:51:48.89Z" },
-    { url = "https://files.pythonhosted.org/packages/43/dc/6be56a168d96c07dfce117d05b082bbfacf19fa93755ff2357cd8b3cd358/slangpy-0.41.0-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:69e80ea96105713d5676f23b9082e6bc62d6c1128d6d9184cf609da26bb35b94", size = 81212060, upload-time = "2026-04-16T04:51:53.705Z" },
-    { url = "https://files.pythonhosted.org/packages/12/9d/2cca789ce12d620c80d54333c0afea8a38f08d36ecb382829c0669cf32ba/slangpy-0.41.0-cp310-cp310-win_amd64.whl", hash = "sha256:08bc9bcfaa6298b48ea7b64168261d4d7b5c25f831a0a6aa50efcd419a7b9bfa", size = 77989792, upload-time = "2026-04-16T04:51:57.654Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/b7/eede6900fee662407cbe5d04bfb111bc01054ac25a4e316af4c986452e9b/slangpy-0.41.0-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:8b31a54325ce4ae73bbb969172f1d489cf0ee8189aabad1b2179219ecbd173df", size = 36045976, upload-time = "2026-04-16T04:52:00.982Z" },
-    { url = "https://files.pythonhosted.org/packages/38/71/16a77e20cb6791dfa9435e71322abdc5295d1584f541a0eb4c0c0d98dc24/slangpy-0.41.0-cp311-cp311-manylinux_2_34_aarch64.whl", hash = "sha256:e7e053eb3dc3b4beb109363e575c812ac984100a5c84cd80b909aee55737d1ff", size = 79700759, upload-time = "2026-04-16T04:52:05.099Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/3e/0a0b8496872c1c8984f697b7684552e5ec06cf770ee8448e379fc5a88a66/slangpy-0.41.0-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:575d130686c6ac9fbfd6802b5e4ef6f273196c9389144c38754ad18cb08a5a00", size = 81233187, upload-time = "2026-04-16T04:52:09.324Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/a1/4e67c75dba632a207241726ee910a9b3f0d8af03cd01c333e0107f4c8f7d/slangpy-0.41.0-cp311-cp311-win_amd64.whl", hash = "sha256:1b9719c599070c4b191eba36e887a9c57433140e8885abf51decf41577ba3090", size = 77990825, upload-time = "2026-04-16T04:52:13.269Z" },
-    { url = "https://files.pythonhosted.org/packages/d8/84/f8fad9695885030e4a9fbfde6106ef9fc669787d4edfdd8e9f1e5ddf410e/slangpy-0.41.0-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:8b88c38ea5a00421bdf8eccce9dd3bb6395c4d183b257649d62497fe76a540dc", size = 36047392, upload-time = "2026-04-16T04:52:16.717Z" },
-    { url = "https://files.pythonhosted.org/packages/47/12/64fceb1e98ec0cc55bfb2411cd9cc10a541c3fbbc2c1a7da8c873016d1d9/slangpy-0.41.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:dbbc984e8e819270f7eba52083807bcfeabce25d19ea4048341fe59977799751", size = 79752629, upload-time = "2026-04-16T04:52:20.393Z" },
-    { url = "https://files.pythonhosted.org/packages/50/5f/4b56a11ea85c8c6f1900ee28b7089d05e287ce29b2dbbb8617314aaee4ac/slangpy-0.41.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:7bdcfed10bd36b4a6a780aeb1fafee66e69f04f549c419d44bb6f4264fdaff23", size = 81286793, upload-time = "2026-04-16T04:52:24.467Z" },
-    { url = "https://files.pythonhosted.org/packages/20/5d/f42b8bc17e75d488699a0ffb5ec0c92d0e09dd0faa76507b84f37338a2ff/slangpy-0.41.0-cp312-cp312-win_amd64.whl", hash = "sha256:84ce78b28b77c53423adac8096624351bafffbe9d967369121bc3166e5a41109", size = 77999008, upload-time = "2026-04-16T04:52:28.564Z" },
-    { url = "https://files.pythonhosted.org/packages/00/73/3118556a741733b8ff6d936564b685655a44ef401806f0eb9bd6b6142149/slangpy-0.41.0-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:c4cee3bb5c2ab82d5a8e3a36a0a50725873de4f28fe501d5deb2cd0fee44efd3", size = 36047522, upload-time = "2026-04-16T04:52:31.735Z" },
-    { url = "https://files.pythonhosted.org/packages/95/43/6e78c3ed40e2b13b88c01cc3b5d1430f2360fa80b6f47746689482d29ec3/slangpy-0.41.0-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:209ee833654510b6077f99ab588d64110d16b5a8c5a49262ed9a25895f9152c2", size = 79748583, upload-time = "2026-04-16T04:52:35.087Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/7c/5c732fb5bb504922e3f5919b8608cc9fd0e6d95fc36371b14f9812a18261/slangpy-0.41.0-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:8ad68f4459b0e56aec3d7efce8439d498259f2219d41e4aa396a53f3660eb45b", size = 81288663, upload-time = "2026-04-16T04:52:39.806Z" },
-    { url = "https://files.pythonhosted.org/packages/80/48/422ed01a936756dee6a6de5858a77c1907c9f341fe23a2b8ce063512e388/slangpy-0.41.0-cp313-cp313-win_amd64.whl", hash = "sha256:fa976fd85ee4a14168f2b8e9a59954502284488bf84e5acc6416775114dcb427", size = 77999453, upload-time = "2026-04-16T04:52:44.794Z" },
+    { url = "https://files.pythonhosted.org/packages/33/d1/0314d9a1818eb3862c80de42ced589ab50fae31e51c6eb2ff19e141eddf9/slangpy-0.42.0-cp310-cp310-macosx_15_0_arm64.whl", hash = "sha256:710c68048a505792d58e9a9e1d8d4800b1dcb8d398d5dfd8302975e081528377", size = 37734579, upload-time = "2026-05-28T22:39:32.341Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/ae/dfccdcd8d9c496e5612182181171ea412c496efcc72d42fba3bfd0d45c89/slangpy-0.42.0-cp310-cp310-manylinux_2_34_aarch64.whl", hash = "sha256:ff9360a76d31d12865aa80af98640f9342f456b71d24d848adcafcdb51fbe615", size = 82047120, upload-time = "2026-05-28T22:39:37.158Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/ae/d28d01bafe6a222a700fa7e78398065d93791f68637aeea989547e2591e2/slangpy-0.42.0-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:3beacf6a94d6a4fc788e2f1f8abad8d97ba80f5434ac6f61d699068764dde1ca", size = 83597160, upload-time = "2026-05-28T22:39:42.465Z" },
+    { url = "https://files.pythonhosted.org/packages/68/6d/9e5835439d6f00f97df0e3ec11c070e120953a41908deef890f3084659a7/slangpy-0.42.0-cp310-cp310-win_amd64.whl", hash = "sha256:b9b5276cbb9f18fe22254d7ee06e6f586011d5c1fa7d906b69a747b92e1b50c2", size = 78270831, upload-time = "2026-05-28T22:39:47.986Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/ff/a8f0f0eb9545a1f45911236e212856e216ededc697b51c04a451a7c7070d/slangpy-0.42.0-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:c2a213e3e154e180b496d6c07a60d3cc1edf22c5ccd2cd551f4225e2f8f5683e", size = 37736593, upload-time = "2026-05-28T22:39:52.205Z" },
+    { url = "https://files.pythonhosted.org/packages/92/4f/f58d3d33435a3a4f3ac17b8e4b5912b29e74e5244a47d797c389e4b805e2/slangpy-0.42.0-cp311-cp311-manylinux_2_34_aarch64.whl", hash = "sha256:c74b5769b85c8dbf103d816649bf5a50555ef9fbcba3557fada428e175ac8907", size = 82070838, upload-time = "2026-05-28T22:39:57.6Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/32/87c9f00fdac276bb3d84578b73905fd509e65bda0287dee743ed4cf5565e/slangpy-0.42.0-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:c7b979bea1e30c8e2ab513fb6a012e1c1928cc4bc1f147f82717fd1c92cf716c", size = 83614364, upload-time = "2026-05-28T22:40:07.925Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/0a/599a9fdc3d97e09dc27cd59ecaa470a74e916e4ccfa54d3d16fbee7e5d7e/slangpy-0.42.0-cp311-cp311-win_amd64.whl", hash = "sha256:b9c016a300935c5f5c145e006bc2f4c39d2cdb14066b940c9176b74dbd032e64", size = 78272023, upload-time = "2026-05-28T22:40:13.97Z" },
+    { url = "https://files.pythonhosted.org/packages/83/5f/18503807e8f5503b69bbf6503c92e0e2a1529a0a142d793a1872f5066adc/slangpy-0.42.0-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:e2ed4b31f5f9bff32294bc832ff895b3562b5972c462c8d6d86bc169911b7373", size = 37739352, upload-time = "2026-05-28T22:40:19.966Z" },
+    { url = "https://files.pythonhosted.org/packages/20/bc/446357c229692f51885f4c5f3894af3aff37ccaafebc4f24066c2b9b5b80/slangpy-0.42.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:4e2f76d3709ee2152f54620a27ab45fbb459db392c03b2d492382f675bfccc2a", size = 82123007, upload-time = "2026-05-28T22:40:30.815Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/d1/d9822a2c38dc583850608650e6d3304f6cf6e03a1335ba21078440790a68/slangpy-0.42.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:8dbc36b32c1c1fc8dffa70d63ddf0ab538c473ba072f802c8d7730530bea7a7c", size = 83670144, upload-time = "2026-05-28T22:40:37.618Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/b8/94d067236898b5bec62a7ae682c296ba2310ebf9aa894bb32de9a4cfd478/slangpy-0.42.0-cp312-cp312-win_amd64.whl", hash = "sha256:82e212b7b195aeafb23ab43a43069980e3be0952f91869b65b5b4288bad9129d", size = 78280523, upload-time = "2026-05-28T22:40:44.154Z" },
+    { url = "https://files.pythonhosted.org/packages/15/3c/44f8d8c20b83e10dc2dffc45d9a93adc3e6d037ec1b72756e8dfeec9cd7d/slangpy-0.42.0-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:c070359285acf177fb7f4ca6cbd29c6c7f37a9b036f42f436353aa773c08e665", size = 37738648, upload-time = "2026-05-28T22:40:48.454Z" },
+    { url = "https://files.pythonhosted.org/packages/da/23/6427597cd186477c6020124883eb1f5d7e15ae4e46bb7ee60125fbc30979/slangpy-0.42.0-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:07a8a5bb32e5644ea0226e40db5c773f1218c901883e70d2f7b20ceef433f724", size = 82125926, upload-time = "2026-05-28T22:40:54.468Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/b1/cbde95d04d94d2c3f0241b54354f5e792e64a1c1643b4424a2ccb80f2788/slangpy-0.42.0-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:4c26022765a414925efde972e26ca3f99458435879c1133c6bbe2e962a6c2c16", size = 83670289, upload-time = "2026-05-28T22:41:00.771Z" },
+    { url = "https://files.pythonhosted.org/packages/83/9e/e57c578d8a576ddfea74f2f11d561d2ceca6b4fd92fa1341dc3d93a6b7f8/slangpy-0.42.0-cp313-cp313-win_amd64.whl", hash = "sha256:dd0a32184bce8a8c507adbfedf5b49694f55543223c019a3c540ffe4a7df1730", size = 78280954, upload-time = "2026-05-28T22:41:06.903Z" },
 ]
 
 [[package]]
