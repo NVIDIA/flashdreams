@@ -293,7 +293,16 @@ class SlangPyHudPresenter:
             title="interactive-drive HUD",
             resizable=True,
         )
-        self._device = spy.Device(type=spy.DeviceType.vulkan, enable_debug_layers=False)
+        self._device = spy.Device(
+            type=spy.DeviceType.vulkan,
+            enable_debug_layers=False,
+            # Disable VK_NVX_binary_import + RT extensions: on NVIDIA Linux
+            # Blackwell + driver 595.x they bring up a CUDA primary context
+            # that poisons cuDNN's MHA dispatcher. interactive-drive doesn't
+            # use vkCmdCuLaunchKernelNVX or ray tracing.
+            enable_cuda_launch_from_gfx=False,
+            enable_ray_tracing=False,
+        )
         print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
