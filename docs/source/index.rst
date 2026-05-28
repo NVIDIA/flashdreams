@@ -291,7 +291,7 @@ What's inside
    :gutter: 3
 
    .. grid-item-card:: One CLI for every model
-      :class-card: fd-feature fd-feature-hero
+      :class-card: fd-feature
       :columns: 12 12 6 6
       :link: api/cli
       :link-type: doc
@@ -303,7 +303,7 @@ What's inside
 
    .. grid-item-card:: Multi-GPU by default
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 6
       :link: api/infra
       :link-type: doc
 
@@ -312,7 +312,7 @@ What's inside
 
    .. grid-item-card:: Plugin-friendly recipes
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 6
       :link: developer_guides/new_integration
       :link-type: doc
 
@@ -322,7 +322,7 @@ What's inside
 
    .. grid-item-card:: Mockable for CI
       :class-card: fd-feature
-      :columns: 12 12 6 2
+      :columns: 12 12 6 6
       :link: developer_guides/inference_pipeline_overview
       :link-type: doc
 
