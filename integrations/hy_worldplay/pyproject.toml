@@ -19,10 +19,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "HY-WorldPlay (HY-World 1.5) interactive world model integration for flashdreams (WAN 2.2 5B I2V variant)."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 # The upstream HY-WorldPlay model code (``hyvideo/`` and ``wan/``) lives in
 # https://github.com/Tencent-Hunyuan/HY-WorldPlay and is *not* on PyPI.
 # The recipe wrapper here only provides the flashdreams-side configs +

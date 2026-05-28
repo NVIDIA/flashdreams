@@ -120,11 +120,6 @@ _WAN21_LATENT_STD: tuple[float, ...] = (
 )
 """16-channel latent std for Wan 2.1 / 14B VAE."""
 
-# Back-compat aliases for downstream code that still imports the old
-# private names; new code should reference the explicit ``_WAN21_*`` names.
-_LATENT_MEAN = _WAN21_LATENT_MEAN
-_LATENT_STD = _WAN21_LATENT_STD
-
 
 _WAN22_TI2V_5B_LATENT_MEAN: tuple[float, ...] = (
     -0.2289, -0.0052, -0.1323, -0.2339, -0.2799, 0.0174, 0.1838, 0.1557,
