@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import json
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -47,15 +51,35 @@ from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
     wait_for_ice_gathering_complete,
 )
+from lingbot.encoder.utils import preprocess_example_poses
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 _INTRINSICS_REFERENCE_HEIGHT = 480
 _INTRINSICS_REFERENCE_WIDTH = 832
-_DEFAULT_INTRINSICS = (500.0, 500.0, 416.0, 240.0)
-_DEFAULT_WORLD_SCALE = 1.0
-_DEFAULT_PROMPT = "A realistic driving scene"
+_DEFAULT_INTRINSICS = (
+    502.9115905761719,
+    503.1081237792969,
+    415.7778625488281,
+    239.7777862548828,
+)
+_DEFAULT_WORLD_SCALE = 1.271182656288147
+_DEFAULT_PROMPT = (
+    "The video presents a soaring journey through a fantasy jungle. The wind whips "
+    "past the rider's blue hands gripping the reins, causing the leather straps to "
+    "vibrate. The ancient gothic castle approaches steadily, its stone details "
+    "becoming clearer against the backdrop of floating islands and distant waterfalls."
+)
+_DEFAULT_DEMO_BASE_URL = (
+    "https://raw.githubusercontent.com/robbyant/lingbot-world/main/examples/00"
+)
+_DEFAULT_IMAGE_URL = f"{_DEFAULT_DEMO_BASE_URL}/image.jpg"
+_DEFAULT_INTRINSICS_URL = f"{_DEFAULT_DEMO_BASE_URL}/intrinsics.npy"
+_DEFAULT_POSES_URL = f"{_DEFAULT_DEMO_BASE_URL}/poses.npy"
+_MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
+_MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
+_REMOTE_READ_TIMEOUT_S = 20.0
 
 
 class LingbotRuntimeError(RuntimeError):
@@ -71,6 +95,54 @@ def _content_type_for_image_path(path: Path) -> str:
     if suffix == ".webp":
         return "image/webp"
     return "application/octet-stream"
+
+
+def _validate_remote_url(url: str, *, field_name: str) -> str:
+    normalized = url.strip()
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field_name} must be an http(s) URL.")
+    return normalized
+
+
+def _read_remote_bytes(
+    url: str, *, max_bytes: int, field_name: str
+) -> tuple[bytes, str]:
+    normalized = _validate_remote_url(url, field_name=field_name)
+    request = urllib.request.Request(
+        normalized,
+        headers={"User-Agent": "flashdreams-lingbot-webrtc/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=_REMOTE_READ_TIMEOUT_S
+        ) as response:
+            data = response.read(max_bytes + 1)
+            content_type = response.headers.get_content_type()
+    except urllib.error.URLError as exc:
+        raise ValueError(f"Failed to fetch {field_name}: {exc.reason}") from exc
+    if len(data) > max_bytes:
+        raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
+    if not data:
+        raise ValueError(f"{field_name} returned an empty response.")
+    return data, content_type
+
+
+def _decode_image_bytes_rgb(image_bytes: bytes, *, field_name: str) -> np.ndarray:
+    encoded = np.frombuffer(image_bytes, dtype=np.uint8)
+    image_bgr = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        raise ValueError(f"{field_name} could not be decoded as an image.")
+    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+
+def _load_npy_payload(source: Path | str, *, field_name: str) -> np.ndarray:
+    if isinstance(source, Path):
+        return np.load(source, allow_pickle=False)
+    data, _ = _read_remote_bytes(
+        source, max_bytes=_MAX_REMOTE_NUMPY_BYTES, field_name=field_name
+    )
+    return np.load(io.BytesIO(data), allow_pickle=False)
 
 
 def _pipeline_configs() -> dict[str, Any]:
@@ -117,9 +189,12 @@ class LingbotRuntimeConfig:
     device: str = "cuda:0"
     video_height: int = 464
     video_width: int = 832
-    world_scale: float | None = _DEFAULT_WORLD_SCALE
-    default_intrinsics: tuple[float, float, float, float] = _DEFAULT_INTRINSICS
+    world_scale: float | None = None
+    default_intrinsics: tuple[float, float, float, float] | None = None
     default_prompt: str = _DEFAULT_PROMPT
+    default_image_url: str | None = _DEFAULT_IMAGE_URL
+    default_intrinsics_url: str | None = _DEFAULT_INTRINSICS_URL
+    default_poses_url: str | None = _DEFAULT_POSES_URL
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
 
@@ -134,6 +209,7 @@ class LingbotRuntimeConfig:
 class LingbotSessionInput:
     prompt: str | None = None
     first_frame_image_bytes: bytes | None = None
+    first_frame_image_url: str | None = None
     first_frame_content_type: str = "image/jpeg"
 
 
@@ -350,10 +426,28 @@ class LingbotInferenceRuntime:
     def _build_base_intrinsics(self) -> torch.Tensor:
         if self._device is None:
             raise LingbotRuntimeError("Runtime device is not initialized.")
-        base_intrinsics = np.asarray(self.config.default_intrinsics, dtype=np.float32)
+        intrinsics_path = self.config.example_data_dir / self.config.intrinsics_filename
+        if self.config.default_intrinsics is not None:
+            intrinsics = np.asarray(self.config.default_intrinsics, dtype=np.float32)
+        elif intrinsics_path.exists():
+            intrinsics = _load_npy_payload(
+                intrinsics_path, field_name="Lingbot default intrinsics"
+            )
+        elif self.config.default_intrinsics_url:
+            intrinsics = _load_npy_payload(
+                self.config.default_intrinsics_url,
+                field_name="Lingbot default intrinsics URL",
+            )
+        else:
+            intrinsics = np.asarray(_DEFAULT_INTRINSICS, dtype=np.float32)
+
+        base_intrinsics = np.asarray(intrinsics, dtype=np.float32)
+        if base_intrinsics.ndim == 2 and base_intrinsics.shape[1] == 4:
+            base_intrinsics = base_intrinsics[0]
         if base_intrinsics.shape != (4,):
             raise ValueError(
-                f"Expected default_intrinsics shape (4,), got {base_intrinsics.shape}"
+                f"Expected default Lingbot intrinsics shape (4,) or [N, 4], "
+                f"got {base_intrinsics.shape}."
             )
 
         base_intrinsics_t = torch.from_numpy(base_intrinsics).to(
@@ -370,13 +464,27 @@ class LingbotInferenceRuntime:
         ).view(4)
 
     def _resolve_world_scale(self) -> float:
-        world_scale = (
-            _DEFAULT_WORLD_SCALE
-            if self.config.world_scale is None
-            else float(self.config.world_scale)
-        )
+        if self.config.world_scale is not None:
+            world_scale = float(self.config.world_scale)
+            if world_scale <= 0:
+                raise ValueError(f"world_scale must be > 0, got {world_scale}.")
+            return world_scale
+
+        poses_path = self.config.example_data_dir / self.config.poses_filename
+        if poses_path.exists():
+            poses = _load_npy_payload(poses_path, field_name="Lingbot default poses")
+        elif self.config.default_poses_url:
+            poses = _load_npy_payload(
+                self.config.default_poses_url,
+                field_name="Lingbot default poses URL",
+            )
+        else:
+            return _DEFAULT_WORLD_SCALE
+
+        _, world_scale = preprocess_example_poses(np.asarray(poses, dtype=np.float32))
+        world_scale = float(world_scale)
         if world_scale <= 0:
-            raise ValueError(f"world_scale must be > 0, got {world_scale}.")
+            return _DEFAULT_WORLD_SCALE
         return world_scale
 
     def _load_default_prompt(self) -> str:
@@ -400,18 +508,29 @@ class LingbotInferenceRuntime:
                 )
             return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
+        if self.config.default_image_url:
+            return self._load_remote_first_frame_rgb(self.config.default_image_url)
+
         return np.full(
             (self.config.video_height, self.config.video_width, 3),
             127,
             dtype=np.uint8,
         )
 
+    def _load_remote_first_frame_rgb(self, image_url: str) -> np.ndarray:
+        image_bytes, _ = _read_remote_bytes(
+            image_url,
+            max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+            field_name="Lingbot first-frame image URL",
+        )
+        return _decode_image_bytes_rgb(
+            image_bytes, field_name="Lingbot first-frame image URL"
+        )
+
     def _load_uploaded_first_frame_rgb(self, image_bytes: bytes) -> np.ndarray:
-        encoded = np.frombuffer(image_bytes, dtype=np.uint8)
-        image_bgr = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
-        if image_bgr is None:
-            raise ValueError("Uploaded first-frame image could not be decoded.")
-        return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        return _decode_image_bytes_rgb(
+            image_bytes, field_name="Uploaded first-frame image"
+        )
 
     def _first_frame_to_tensor(self, image_rgb: np.ndarray) -> torch.Tensor:
         if self._device is None:
@@ -449,6 +568,10 @@ class LingbotInferenceRuntime:
         if session_input is not None and session_input.first_frame_image_bytes:
             image_rgb = self._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
+            )
+        elif session_input is not None and session_input.first_frame_image_url:
+            image_rgb = self._load_remote_first_frame_rgb(
+                session_input.first_frame_image_url
             )
         else:
             image_rgb = self._load_default_first_frame_rgb()
@@ -654,16 +777,30 @@ class LingbotWebRTCSessionManager:
             if pending_input is not None and pending_input.prompt is not None
             else self._runtime._load_default_prompt()
         )
+        if pending_input is not None and pending_input.first_frame_image_url:
+            image_url = pending_input.first_frame_image_url
+        else:
+            image_url = self.runtime_config.default_image_url
         input_source = "uploaded" if pending_input is not None else "default"
         first_frame_path = (
             self.runtime_config.example_data_dir
             / self.runtime_config.first_frame_filename
         )
-        has_first_frame = bool(
-            pending_input is not None and pending_input.first_frame_image_bytes
-        ) or first_frame_path.exists()
+        has_first_frame = (
+            bool(
+                pending_input is not None
+                and (
+                    pending_input.first_frame_image_bytes
+                    or pending_input.first_frame_image_url
+                )
+            )
+            or first_frame_path.exists()
+            or bool(self.runtime_config.default_image_url)
+        )
         return {
             "first_frame_url": "/api/session/first_frame",
+            "image_url": image_url,
+            "default_image_url": self.runtime_config.default_image_url,
             "has_first_frame": has_first_frame,
             "prompt": prompt,
             "input_source": input_source,
@@ -681,6 +818,13 @@ class LingbotWebRTCSessionManager:
                 data=pending_input.first_frame_image_bytes,
                 content_type=pending_input.first_frame_content_type,
             )
+        if pending_input is not None and pending_input.first_frame_image_url:
+            image_bytes, content_type = _read_remote_bytes(
+                pending_input.first_frame_image_url,
+                max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+                field_name="Lingbot first-frame image URL",
+            )
+            return LingbotImagePayload(data=image_bytes, content_type=content_type)
 
         first_frame_path = (
             self.runtime_config.example_data_dir
@@ -707,6 +851,16 @@ class LingbotWebRTCSessionManager:
             self._runtime._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
             )
+        image_url = None
+        if (
+            session_input.first_frame_image_bytes is None
+            and session_input.first_frame_image_url is not None
+        ):
+            image_url = _validate_remote_url(
+                session_input.first_frame_image_url,
+                field_name="Lingbot first-frame image URL",
+            )
+            self._runtime._load_remote_first_frame_rgb(image_url)
 
         current = self._pending_session_input
         self._pending_session_input = LingbotSessionInput(
@@ -718,8 +872,17 @@ class LingbotWebRTCSessionManager:
             first_frame_image_bytes=(
                 session_input.first_frame_image_bytes
                 if session_input.first_frame_image_bytes is not None
+                else (current.first_frame_image_bytes if current is not None else None)
+            ),
+            first_frame_image_url=(
+                None
+                if session_input.first_frame_image_bytes is not None
                 else (
-                    current.first_frame_image_bytes if current is not None else None
+                    image_url
+                    if image_url is not None
+                    else (
+                        current.first_frame_image_url if current is not None else None
+                    )
                 )
             ),
             first_frame_content_type=(

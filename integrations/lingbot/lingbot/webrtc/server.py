@@ -177,36 +177,68 @@ async def _read_upload_bytes(field: BodyPartReader) -> bytes:
 
 
 async def _session_input(request: web.Request) -> web.StreamResponse:
-    try:
-        reader = await request.multipart()
-    except Exception as exc:
-        raise web.HTTPBadRequest(reason="Expected multipart session input.") from exc
-
     prompt: str | None = None
     image_bytes: bytes | None = None
+    image_url: str | None = None
     image_content_type = "image/jpeg"
-    async for field in reader:
-        if field.name == "prompt":
-            prompt = (await field.text()).strip()
+
+    if request.content_type.startswith("multipart/"):
+        try:
+            reader = await request.multipart()
+        except Exception as exc:
+            raise web.HTTPBadRequest(
+                reason="Expected multipart session input."
+            ) from exc
+
+        while True:
+            field = await reader.next()
+            if field is None:
+                break
+            if not isinstance(field, BodyPartReader):
+                continue
+            if field.name == "prompt":
+                prompt = (await field.text()).strip()
+                if len(prompt) > MAX_PROMPT_CHARS:
+                    raise web.HTTPBadRequest(
+                        reason=f"Prompt must be <= {MAX_PROMPT_CHARS} characters."
+                    )
+                continue
+            if field.name == "image_url":
+                image_url = (await field.text()).strip() or None
+                continue
+            if field.name == "image" and field.filename:
+                image_content_type = field.headers.get(
+                    "Content-Type", "application/octet-stream"
+                )
+                if not image_content_type.startswith("image/"):
+                    raise web.HTTPBadRequest(
+                        reason="Uploaded first frame must be an image."
+                    )
+                image_bytes = await _read_upload_bytes(field)
+                if not image_bytes:
+                    raise web.HTTPBadRequest(
+                        reason="Uploaded first-frame image is empty."
+                    )
+    else:
+        form = await request.post()
+        prompt_raw = form.get("prompt")
+        image_url_raw = form.get("image_url")
+        if isinstance(prompt_raw, str):
+            prompt = prompt_raw.strip()
             if len(prompt) > MAX_PROMPT_CHARS:
                 raise web.HTTPBadRequest(
                     reason=f"Prompt must be <= {MAX_PROMPT_CHARS} characters."
                 )
-            continue
-        if field.name == "image" and field.filename:
-            image_content_type = field.headers.get(
-                "Content-Type", "application/octet-stream"
-            )
-            if not image_content_type.startswith("image/"):
-                raise web.HTTPBadRequest(
-                    reason="Uploaded first frame must be an image."
-                )
-            image_bytes = await _read_upload_bytes(field)
-            if not image_bytes:
-                raise web.HTTPBadRequest(reason="Uploaded first-frame image is empty.")
+        if isinstance(image_url_raw, str):
+            image_url = image_url_raw.strip() or None
 
-    if not prompt and image_bytes is None:
-        raise web.HTTPBadRequest(reason="Upload a prompt, an image, or both.")
+    if image_bytes is not None:
+        image_url = None
+
+    if not prompt and image_bytes is None and image_url is None:
+        raise web.HTTPBadRequest(
+            reason="Upload a prompt, an image file, an image URL, or a combination."
+        )
 
     manager = _get_lingbot_manager(request.app)
     try:
@@ -214,6 +246,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             LingbotSessionInput(
                 prompt=prompt or None,
                 first_frame_image_bytes=image_bytes,
+                first_frame_image_url=image_url,
                 first_frame_content_type=image_content_type,
             )
         )
@@ -232,6 +265,12 @@ def build_runtime_config(
 ) -> LingbotRuntimeConfig:
     example_idx = getattr(args, "example_idx", 0)
     example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
+    if (
+        example_idx == 0
+        and not example_dir.exists()
+        and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
+    ):
+        example_dir = EXAMPLE_DATA_DIR_LOCAL
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,

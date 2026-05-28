@@ -34,6 +34,9 @@ def _write_minimal_assets(data_dir: Path) -> None:
     np.save(
         data_dir / "intrinsics.npy", np.array([1.0, 1.0, 0.5, 0.5], dtype=np.float32)
     )
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 13, axis=0)
+    poses[:, 2, 3] = np.linspace(0.0, 1.2, poses.shape[0], dtype=np.float32)
+    np.save(data_dir / "poses.npy", poses)
     (data_dir / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
 
 
@@ -196,22 +199,23 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
     assert derive_calls[0]["diffusion_model"]["seed"] == 10
 
 
-def test_initialize_sync_uses_default_camera_without_intrinsics_or_poses(
+def test_initialize_sync_uses_demo_camera_defaults_from_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "image.jpg").touch()
-    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
-    _patch_cv2(monkeypatch, height=4, width=4)
-    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
-    monkeypatch.setattr(
-        session.np,
-        "load",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("WebRTC runtime must not load intrinsics.npy or poses.npy")
-        ),
+    demo_intrinsics = np.array(
+        [502.9115905761719, 503.1081237792969, 415.7778625488281, 239.7777862548828],
+        dtype=np.float32,
     )
+    np.save(tmp_path / "intrinsics.npy", demo_intrinsics)
+    demo_poses = np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 13, axis=0)
+    demo_poses[:, 2, 3] = np.linspace(0.0, 1.2, demo_poses.shape[0], dtype=np.float32)
+    np.save(tmp_path / "poses.npy", demo_poses)
+    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
+    _patch_cv2(monkeypatch, height=464, width=832)
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
 
     derive_calls: list[dict[str, Any]] = []
     pipeline_events: list[tuple[Any, ...]] = []
@@ -221,8 +225,8 @@ def test_initialize_sync_uses_default_camera_without_intrinsics_or_poses(
         config=session.LingbotRuntimeConfig(
             config_name="TestLingbot",
             device="cpu",
-            video_height=4,
-            video_width=4,
+            video_height=464,
+            video_width=832,
             example_data_dir=tmp_path,
         )
     )
@@ -230,12 +234,54 @@ def test_initialize_sync_uses_default_camera_without_intrinsics_or_poses(
     runtime._initialize_sync()
 
     assert runtime._base_intrinsics is not None
-    assert tuple(runtime._base_intrinsics.shape) == (4,)
-    assert runtime._world_scale == 1.0
+    expected_intrinsics = session._transform_intrinsics(
+        torch.from_numpy(demo_intrinsics).view(1, 4),
+        height_org=session._INTRINSICS_REFERENCE_HEIGHT,
+        width_org=session._INTRINSICS_REFERENCE_WIDTH,
+        height_resize=464,
+        width_resize=832,
+        height_final=464,
+        width_final=832,
+    ).view(4)
+    torch.testing.assert_close(runtime._base_intrinsics.cpu(), expected_intrinsics)
+    _, expected_world_scale = session.preprocess_example_poses(demo_poses)
+    assert runtime._world_scale == pytest.approx(expected_world_scale)
     assert any(
         event[0] == "initialize_cache" and event[1] == ("drive through a city",)
         for event in pipeline_events
     )
+
+
+def test_initialize_sync_uses_demo_world_scale_as_offline_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "image.jpg").touch()
+    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
+    _patch_cv2(monkeypatch, height=464, width=832)
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=464,
+            video_width=832,
+            example_data_dir=tmp_path,
+            default_image_url=None,
+            default_intrinsics_url=None,
+            default_poses_url=None,
+        )
+    )
+
+    runtime._initialize_sync()
+
+    assert runtime._world_scale == pytest.approx(session._DEFAULT_WORLD_SCALE)
 
 
 def test_reset_rollout_accepts_uploaded_prompt_and_first_frame(
