@@ -89,7 +89,7 @@ message SessionRequest {
     DebugOptions debug_options = 3;      // Optional debug output options
     repeated camera.CameraSpec camera_specs = 4;  // One per view
     repeated Image initial_frames = 5;            // One conditioning frame per view
-    repeated common.Pose rig_to_camera = 6; // Rig-to-camera extrinsics (one per view)
+    repeated common.Pose rig_to_camera = 6; // Rig-to-camera extrinsics (one per camera_spec)
     fixed64 random_seed = 7;  // Optional random seed for deterministic generation (0 = server chooses)
 }
 

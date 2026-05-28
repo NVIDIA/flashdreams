@@ -67,10 +67,6 @@ def _build_camera_spec(
             angle_to_pixeldist_poly=[focal],
             linear_cde=camera_pb2.LinearCde(linear_c=1.0, linear_d=0.0, linear_e=0.0),
         ),
-        rig_to_camera=common_pb2.Pose(
-            vec=common_pb2.Vec3(x=0.0, y=0.0, z=0.0),
-            quat=common_pb2.Quat(w=1.0, x=0.0, y=0.0, z=0.0),
-        ),
     )
 
 
@@ -244,6 +240,12 @@ def test_grpc_server_start_render_close_roundtrip(
                             width=resolution_w,
                         ),
                         format=video_model_pb2.ImageFormat.PNG,
+                    )
+                ],
+                rig_to_camera=[
+                    common_pb2.Pose(
+                        vec=common_pb2.Vec3(x=0.0, y=0.0, z=0.0),
+                        quat=common_pb2.Quat(w=1.0, x=0.0, y=0.0, z=0.0),
                     )
                 ],
                 random_seed=42,

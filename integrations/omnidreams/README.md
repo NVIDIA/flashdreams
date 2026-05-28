@@ -38,13 +38,24 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
 switches checkpoint and example-data URLs back to `s3://flashdreams`.
 
-## Samples
+## Run interactive-drive (desktop demo)
 
-- [`samples/interactive-drive/`](samples/interactive-drive/README.md) — a
-  single-process driving demo with a Ludus OpenGL raster backend and a
-  PyTorch world-model backend. Run with `uv run --package
-  omnidreams-interactive-drive interactive-drive ...` from the
-  flashdreams workspace root.
+The `omnidreams.interactive_drive` subpackage ships a single-process
+driving demo with a Ludus OpenGL raster backend and a PyTorch world-model
+backend ([see its README](omnidreams/interactive_drive/README.md) for the
+full guide). From the flashdreams workspace root:
+
+```bash
+uv sync --package flashdreams-omnidreams --extra interactive-drive
+uv run --package flashdreams-omnidreams interactive-drive
+```
+
+The `interactive-drive` extra adds `slangpy` (the Vulkan-backed local
+windowing runtime); server users running only `omnidreams.webrtc` or
+`omnidreams.grpc` can skip it. The default scene auto-stages from
+`nvidia/omni-dreams-scenes` on first launch when `HF_TOKEN` is set; use
+`omnidreams-prepare` for explicit staging of arbitrary scene UUIDs
+or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
 
 ## Run WebRTC server
 

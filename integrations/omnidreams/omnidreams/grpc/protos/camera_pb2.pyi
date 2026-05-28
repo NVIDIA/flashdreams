@@ -1,4 +1,3 @@
-from omnidreams.grpc.protos import common_pb2 as _common_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -114,7 +113,7 @@ class BivariateWindshieldModelParameters(_message.Message):
     def __init__(self, reference_poly: _Optional[_Union[BivariateWindshieldModelParameters.ReferencePolynomial, str]] = ..., horizontal_poly: _Optional[_Iterable[float]] = ..., vertical_poly: _Optional[_Iterable[float]] = ..., horizontal_poly_inverse: _Optional[_Iterable[float]] = ..., vertical_poly_inverse: _Optional[_Iterable[float]] = ...) -> None: ...
 
 class CameraSpec(_message.Message):
-    __slots__ = ("ftheta_param", "opencv_pinhole_param", "opencv_fisheye_param", "logical_id", "resolution_h", "resolution_w", "shutter_type", "bivariate_windshield_model_param", "rig_to_camera")
+    __slots__ = ("ftheta_param", "opencv_pinhole_param", "opencv_fisheye_param", "logical_id", "resolution_h", "resolution_w", "shutter_type", "bivariate_windshield_model_param")
     FTHETA_PARAM_FIELD_NUMBER: _ClassVar[int]
     OPENCV_PINHOLE_PARAM_FIELD_NUMBER: _ClassVar[int]
     OPENCV_FISHEYE_PARAM_FIELD_NUMBER: _ClassVar[int]
@@ -123,7 +122,6 @@ class CameraSpec(_message.Message):
     RESOLUTION_W_FIELD_NUMBER: _ClassVar[int]
     SHUTTER_TYPE_FIELD_NUMBER: _ClassVar[int]
     BIVARIATE_WINDSHIELD_MODEL_PARAM_FIELD_NUMBER: _ClassVar[int]
-    RIG_TO_CAMERA_FIELD_NUMBER: _ClassVar[int]
     ftheta_param: FthetaCameraParam
     opencv_pinhole_param: OpenCVPinholeCameraParam
     opencv_fisheye_param: OpenCVFisheyeCameraParam
@@ -132,5 +130,4 @@ class CameraSpec(_message.Message):
     resolution_w: int
     shutter_type: ShutterType
     bivariate_windshield_model_param: BivariateWindshieldModelParameters
-    rig_to_camera: _common_pb2.Pose
-    def __init__(self, ftheta_param: _Optional[_Union[FthetaCameraParam, _Mapping]] = ..., opencv_pinhole_param: _Optional[_Union[OpenCVPinholeCameraParam, _Mapping]] = ..., opencv_fisheye_param: _Optional[_Union[OpenCVFisheyeCameraParam, _Mapping]] = ..., logical_id: _Optional[str] = ..., resolution_h: _Optional[int] = ..., resolution_w: _Optional[int] = ..., shutter_type: _Optional[_Union[ShutterType, str]] = ..., bivariate_windshield_model_param: _Optional[_Union[BivariateWindshieldModelParameters, _Mapping]] = ..., rig_to_camera: _Optional[_Union[_common_pb2.Pose, _Mapping]] = ...) -> None: ...
+    def __init__(self, ftheta_param: _Optional[_Union[FthetaCameraParam, _Mapping]] = ..., opencv_pinhole_param: _Optional[_Union[OpenCVPinholeCameraParam, _Mapping]] = ..., opencv_fisheye_param: _Optional[_Union[OpenCVFisheyeCameraParam, _Mapping]] = ..., logical_id: _Optional[str] = ..., resolution_h: _Optional[int] = ..., resolution_w: _Optional[int] = ..., shutter_type: _Optional[_Union[ShutterType, str]] = ..., bivariate_windshield_model_param: _Optional[_Union[BivariateWindshieldModelParameters, _Mapping]] = ...) -> None: ...

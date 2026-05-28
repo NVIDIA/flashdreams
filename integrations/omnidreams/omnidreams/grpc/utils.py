@@ -599,21 +599,20 @@ def dynamic_state_to_ludus_cube_pool(
 # =============================================================================
 
 
-def parse_rig_to_camera(camera_spec_dict: dict) -> np.ndarray:
+def parse_rig_to_camera(rig_to_camera_dict: dict) -> np.ndarray:
     """
-    Extract the rig_to_camera 4x4 transformation matrix from a CameraSpec dict.
+    Convert a rig-to-camera Pose dict to a 4x4 transformation matrix.
 
-    If the ``rig_to_camera`` field is absent or contains the default (zero)
-    values, an identity matrix is returned — meaning the camera coincides
+    An absent or empty pose is treated as identity, meaning the camera coincides
     with the rig origin.
 
     Args:
-        camera_spec_dict: Dict representation of a ``CameraSpec`` proto message.
+        rig_to_camera_dict: Dict representation of a ``common.Pose`` proto message.
 
     Returns:
         4x4 rig_to_camera transformation matrix (float32).
     """
-    rig_to_cam = camera_spec_dict.get("rig_to_camera", {})
+    rig_to_cam = rig_to_camera_dict
     if not rig_to_cam:
         return np.eye(4, dtype=np.float32)
 
@@ -633,6 +632,24 @@ def parse_rig_to_camera(camera_spec_dict: dict) -> np.ndarray:
     )
 
     return pose_to_matrix(translation, quat_wxyz)
+
+
+def parse_rig_to_camera_transforms(
+    rig_to_camera_messages: list[object],
+    camera_names: list[str],
+) -> dict[str, np.ndarray]:
+    """Parse SessionRequest.rig_to_camera into a per-camera transform map."""
+    if len(rig_to_camera_messages) != len(camera_names):
+        raise ValueError(
+            "SessionRequest.rig_to_camera must contain exactly one Pose per "
+            f"camera_spec; got {len(rig_to_camera_messages)} poses for "
+            f"{len(camera_names)} camera_specs."
+        )
+
+    return {
+        cam_name: parse_rig_to_camera(proto_to_dict(rig_to_camera))
+        for cam_name, rig_to_camera in zip(camera_names, rig_to_camera_messages)
+    }
 
 
 def compute_camera_poses_from_rig(

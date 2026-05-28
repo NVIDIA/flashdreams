@@ -9,7 +9,6 @@ members = [
     "integrations/*",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
     "integrations/omnidreams/ludus-renderer",
-    "integrations/omnidreams/samples/interactive-drive",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -72,9 +71,6 @@ extraPaths = [
     "flashdreams",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
-    # interactive-drive uses a src/ layout, so the extra-path points one level
-    # deeper than the other (flat-layout) integration members.
-    "integrations/omnidreams/samples/interactive-drive/src",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
@@ -96,9 +92,6 @@ extra-paths = [
     "flashdreams",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
-    # interactive-drive uses a src/ layout, so the extra-path points one level
-    # deeper than the other (flat-layout) integration members.
-    "integrations/omnidreams/samples/interactive-drive/src",
     "integrations/causal_forcing",
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
@@ -111,16 +104,14 @@ extra-paths = [
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
+# The ``omnidreams.interactive_drive`` subpackage's flashdreams / slangpy /
+# numpy interop surface has known-untyped areas; exclude both the
+# subpackage source and its tests so workspace ``ty`` stays clean.
+# (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
-    # The interactive-drive sample is type-checked by its own pyright
-    # config (which has a maintained `exclude` list for slangpy / flashdreams
-    # interop files that lack type info). Running the workspace-wide ``ty``
-    # over the sample's tree without that exclude list yields ~40 spurious
-    # errors. Match the pattern used for ``norecursedirs`` and the
-    # workspace-wide pre-commit ``exclude``: the sample owns its own
-    # tooling.
-    "integrations/omnidreams/samples/interactive-drive/**",
+    "integrations/omnidreams/omnidreams/interactive_drive/**",
+    "integrations/omnidreams/tests/interactive_drive/**",
 ]
 
 [tool.ty.rules]

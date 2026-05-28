@@ -68,7 +68,7 @@ from omnidreams.grpc.utils import (
     dynamic_state_to_ludus_cube_pool,
     encode_image,
     load_static_world_from_zip_bytes,
-    parse_rig_to_camera,
+    parse_rig_to_camera_transforms,
     proto_to_dict,
     trajectory_to_camera_poses,
 )
@@ -858,7 +858,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         profiler = get_profiler()
         _ = profiler.get_chunk_idx(session_id)
 
-        # 1. Parse camera specs list — extract names, intrinsics, rig_to_camera
+        # 1. Parse camera specs list — extract names and intrinsics
         camera_specs_raw = list(request.camera_specs)
         if not camera_specs_raw:
             raise ValueError(
@@ -867,8 +867,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
 
         camera_names: list[str] = []
         camera_models_from_client: dict[str, FThetaCamera] = {}
-        rig_to_camera_transforms: dict[str, np.ndarray] = {}
-
         for i, spec in enumerate(camera_specs_raw):
             spec_dict = proto_to_dict(spec)
             cam_name = spec_dict.get("logical_id", f"camera_{i}")
@@ -883,9 +881,12 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             if has_camera_model:
                 camera_models_from_client[cam_name] = camera_spec_to_ftheta(spec_dict)
 
-            # Parse rig_to_camera (FLU convention from client → convert to RDF)
-            rig_to_cam_flu = parse_rig_to_camera(spec_dict)
-            rig_to_camera_transforms[cam_name] = rig_to_cam_flu
+        # Parse rig-to-camera extrinsics from SessionRequest, one pose per
+        # camera_spec in the same order. The client and Ludus renderer use FLU.
+        rig_to_camera_transforms = parse_rig_to_camera_transforms(
+            list(request.rig_to_camera),
+            camera_names,
+        )
 
         logger.info(f"Parsed {len(camera_names)} camera specs: {camera_names}")
         assert len(camera_names) == len(camera_models_from_client), (
@@ -1029,7 +1030,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             chunk_size = self.conditioning_wrapper.frame_chunk_size
             logger.info(f"Continuation chunk: expecting {chunk_size} poses")
 
-        # 3. Parse rig trajectory (FLU → RDF) and derive per-camera poses
+        # 3. Parse rig trajectory (FLU) and derive per-camera poses
         # FIXME: do this on GPU ... should not do this actually ...
         with profiler.measure(
             "parse_trajectory", session_id=session_id, chunk_idx=chunk_idx
@@ -1189,7 +1190,7 @@ class SessionState:
         self.session_id = session_id
         self.camera_names = camera_names  # Ordered list of camera logical IDs
         self.rig_to_camera_transforms = (
-            rig_to_camera_transforms  # cam_name → 4×4 rig_to_camera (RDF or FLU)
+            rig_to_camera_transforms  # cam_name → 4×4 rig_to_camera (FLU)
         )
         self.scene_data = scene_data
         self.renderer = renderer  # Created in start_session
