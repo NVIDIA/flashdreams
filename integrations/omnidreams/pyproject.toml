@@ -20,10 +20,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams-omnidreams"
 version = "0.1.0a3"
-description = "Omnidreams inference with flashdreams"
+description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    # Core inference / serving deps (consumed by ``omnidreams.webrtc``,
+    # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
+    # demo subpackage).
     "flashdreams[serving]",
     "mediapy>=1.1",
     "ludus-renderer",
@@ -32,7 +35,22 @@ dependencies = [
     "grpcio",
     "nvidia-cudnn-frontend==1.22.1",
     "opencv-python-headless",
-    "shapely"
+    "shapely",
+    # Runtime deps for the ``omnidreams.interactive_drive`` desktop demo
+    # subpackage. Most are already transitive via ``flashdreams[serving]``
+    # but listed here explicitly so the subpackage's dep surface is
+    # self-describing.
+    "numpy>=1.26",
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+    "pyarrow>=16.0",
+    "torch>=2.11",
+    "torchvision>=0.26",
+    "einops>=0.8",
+    "safetensors>=0.5",
+    "tqdm>=4.67",
+    "transformers>=5.0,<6",
+    "huggingface_hub>=0.24",
 ]
 
 [tool.uv.sources]
@@ -40,10 +58,37 @@ flashdreams = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
+# Slangpy + Vulkan runtime, only needed by the ``interactive-drive``
+# desktop demo (``omnidreams.interactive_drive``). Server users
+# (``omnidreams.webrtc`` / ``omnidreams.grpc``) don't need this and
+# shouldn't pay the slangpy install cost in their containers. Named
+# after the consumer (the ``interactive-drive`` script) rather than
+# the abstract capability so the install command is self-documenting.
+interactive-drive = [
+    "slangpy==0.41.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-manual-marker",
+    # ``omnidreams.interactive_drive`` test-only deps.
+    "pyvirtualdisplay>=3.0",
+    "flip-evaluator>=1.7",
 ]
+
+[project.scripts]
+# ``omnidreams-prepare`` stages resources used by *both* demo paths
+# (desktop ``interactive-drive`` *and* ``omnidreams.webrtc.server``):
+# the scene USDZs from ``nvidia/omni-dreams-scenes`` and the
+# Cosmos-Reason1 text encoder pinned to its runtime revision. Lives at
+# the package level (``omnidreams.prepare``) rather than under
+# ``omnidreams.interactive_drive`` so the name doesn't suggest a single
+# demo.
+omnidreams-prepare = "omnidreams.prepare:main"
+
+# Desktop interactive-drive demo entry point. Requires the
+# ``interactive-drive`` extra (it adds slangpy); without it the
+# presenter import fails fast with a clear message.
+interactive-drive = "omnidreams.interactive_drive.demo:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
@@ -68,6 +113,22 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]
 exclude = ["tests"]
+
+# Ship the ``omnidreams.interactive_drive`` subpackage's bundled assets
+# (configs + scene staging dir + doc images) in built wheels so the
+# in-process CLI defaults (resolved relative to ``_PACKAGE_ROOT`` in
+# ``cli.py``) work for users who install a wheel rather than the
+# workspace editable. Editable installs pick these up from the source
+# tree automatically.
+[tool.setuptools.package-data]
+"omnidreams.interactive_drive" = [
+    "configs/*.yaml",
+    "configs/wheels/*.yaml",
+    "assets/README.md",
+    "README.md",
+    "hdmap.png",
+    "screenshot.jpg",
+]
 
 [tool.uv]
 managed = true

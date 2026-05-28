@@ -38,13 +38,39 @@ export HF_TOKEN=<YOUR-HF-TOKEN>
 Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
 switches checkpoint and example-data URLs back to `s3://flashdreams`.
 
-## Samples
+## Run interactive-drive (desktop demo)
 
-- [`samples/interactive-drive/`](samples/interactive-drive/README.md) — a
-  single-process driving demo with a Ludus OpenGL raster backend and a
-  PyTorch world-model backend. Run with `uv run --package
-  omnidreams-interactive-drive interactive-drive ...` from the
-  flashdreams workspace root.
+The `omnidreams.interactive_drive` subpackage ships a single-process
+driving demo with a Ludus OpenGL raster backend and a PyTorch world-model
+backend ([see its README](omnidreams/interactive_drive/README.md) for the
+full guide). From the flashdreams workspace root:
+
+```bash
+uv sync --package flashdreams-omnidreams --extra interactive-drive
+uv run --package flashdreams-omnidreams interactive-drive
+```
+
+The `interactive-drive` extra adds `slangpy` (the Vulkan-backed local
+windowing runtime); server users running only `omnidreams.webrtc` or
+`omnidreams.grpc` can skip it. The default scene auto-stages from
+`nvidia/omni-dreams-scenes` on first launch when `HF_TOKEN` is set; use
+`omnidreams-prepare` for explicit staging of arbitrary scene UUIDs
+or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
+
+## Native DiT defaults
+
+OmniDreams native DiT acceleration remains gated by the pipeline config's
+`native_dit_acceleration` policy (`disabled`, `auto`, or `required`). When that
+native path is enabled, the default compute profile is the FP8 KV-cache backend
+with cuDNN attention:
+
+- `native_dit_backend="fp8_kvcache_cudnn"`
+- `native_dit_attention_backend="auto"` (currently resolves to cuDNN)
+
+Set `native_dit_attention_backend="sparge"`, `"sage3"`, or `"sage3_fp8"`
+explicitly to opt into Sparge/SageAttention-3 experiments. Use
+`native_dit_sparge_hybrid_period > 1` with `"sparge"` to enable the FP8
+Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 
 ## Run WebRTC server
 

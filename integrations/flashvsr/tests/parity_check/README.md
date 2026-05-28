@@ -4,9 +4,6 @@ Self-contained benchmark of upstream
 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) with a small local
 patch (`changes.patch`) that adds `EventProfiler`-based per-chunk timing
 and JSON stats output (mirroring `flashdreams`'s pipeline profiling).
-Default we test with torch CUDNN attention backend (`FORCE_CUDNN_ATTN=1`)
-for the dense cross-attn path; the sparse self-attn path always uses
-`block_sparse_attn`.
 
 ## Run
 
@@ -33,7 +30,39 @@ runs both parity tests (`test_tcdecoder_parity.py` and
 runs skip whatever's already in place and just re-run the parity
 tests + benchmark.
 
-Override the input video with `INPUT_PATH=/abs/path/to/clip.mp4 bash run.sh`.
+Override the input video and upscale factor with environment variables:
+
+```bash
+INPUT_PATH=/abs/path/to/clip.mp4 SCALE=4.0 bash run.sh
+```
+
+`INPUT_PATH` defaults to upstream's `examples/WanVSR/inputs/example4.mp4`.
+`SCALE` defaults to `4.0`, matching the patched `benchmark.py` default; set
+it to the same value on the FlashDreams side when comparing outputs or stats.
+
+## Compare against FlashDreams
+
+Run the matching FlashDreams preset from the repository root with the same clip
+and scale:
+
+```bash
+uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 \
+    --input-path /abs/path/to/clip.mp4 \
+    --chunk-size 8 \
+    --pipeline.encoder.scale 2 \
+    --pipeline.enable-sync-and-profile True
+```
+
+Use `--chunk-size 8` for parity with the upstream benchmark. The FlashDreams
+runner defaults to `--chunk-size 16`, which groups the cold/steady sequence as
+`13/16` raw frames and runs two DiT iterations per generated chunk. The
+upstream tiny-long loop emits one 8-frame padded model step per chunk, so
+`--chunk-size 8` uses the compatible `5/8` raw-frame schedule and gives
+per-chunk profiler rows that line up with `videos/stats_offline.json`.
+
+`flashvsr-v1.1-sparse-ratio-2.0` matches the upstream benchmark's default
+`--sparse_ratio 2.0`; use `--pipeline.encoder.scale 2` only when `run.sh` is
+also launched with `SCALE=2`.
 
 ## Outputs
 
@@ -101,12 +130,18 @@ streaming-forward wrapper
 live `flashvsr.transformer.FlashVSRTransformer` candidate side-by-side,
 then asserts:
 
-- state-dict shapes match `flashvsr_tiny_long/dit_state_dict.pt` for
-  both upstream and candidate,
-- chunk-by-chunk numerical parity under the streaming KV-cache
-  protocol at `atol=rtol=1e-3` (the upstream side rotates RoPE in
-  fp64 then casts back; the candidate stays in compute dtype, which
-  the existing envelope absorbs on H100).
+- state-dict shapes match the downloaded
+  `FlashVSR-v1.1/diffusion_pytorch_model_streaming_dmd.safetensors`
+  checkpoint for both upstream and candidate; the upstream model config
+  is derived with `WanModelStateDictConverter().from_civitai(...)`,
+- steady-state chunk-by-chunk numerical parity under the streaming
+  KV-cache protocol with a calibrated bf16 envelope (`max_abs <= 2.5e-1`
+  and `mean_abs <= 3.5e-2`); the upstream cold-start chunk seeds the
+  candidate's self-attention KV cache directly because upstream executes
+  cold start as one 6-latent-frame call while FlashDreams' production path
+  splits work into 2-latent-frame internal steps. The wider envelope
+  accounts for upstream's fp64 RoPE + public sparse-attention wrapper
+  versus FlashDreams' fused RoPE + direct sparse-attention path.
 
 The upstream `WanModel.forward` is training-only; the streaming
 inference path the upsampler actually drives is
@@ -177,8 +212,7 @@ override it at script start.
 - `run.sh` — clone + setup + patch + parity test + benchmark, idempotent
 - `pyproject.toml` — isolated venv definition (materialized via `uv sync`)
 - `changes.patch` — local edits on top of the pinned upstream commit
-  (`EventProfiler` timing, JSON stats dump, `FORCE_CUDNN_ATTN` env-gated
-  cuDNN SDPA backend for the dense attention path)
+  (`EventProfiler` timing, JSON stats dump)
 - `test_tcdecoder_parity.py` — TC decoder parity test against
   upstream's `examples/WanVSR/utils/TCDecoder.py`; run via this
   directory's parity-check venv (see above)
