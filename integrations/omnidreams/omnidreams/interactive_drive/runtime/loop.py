@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import os
 import queue
 import time
 from dataclasses import dataclass, replace
@@ -20,6 +21,98 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkRequest,
     QueuedFrame,
 )
+
+_PROFILE_INPUT_TO_PRESENT_ENV = "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT"
+_PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (
+    "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S"
+)
+
+_PROFILE_E2E_SUM_RAW_MS: float = 0.0
+_PROFILE_E2E_SUM_ADJ_MS: float = 0.0
+_PROFILE_E2E_COUNT: int = 0
+_PROFILE_E2E_WINDOW_START: float | None = None
+
+
+def _profile_input_to_present_enabled() -> bool:
+    raw = os.environ.get(_PROFILE_INPUT_TO_PRESENT_ENV, "")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _profile_input_to_present_interval_s() -> float:
+    raw = os.environ.get(_PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV, "2").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 2.0
+    return max(0.25, value)
+
+
+def reset_input_to_present_profile_window() -> None:
+    """Clear accumulated e2e samples when the main loop starts."""
+    global _PROFILE_E2E_SUM_RAW_MS
+    global _PROFILE_E2E_SUM_ADJ_MS
+    global _PROFILE_E2E_COUNT
+    global _PROFILE_E2E_WINDOW_START
+
+    _PROFILE_E2E_SUM_RAW_MS = 0.0
+    _PROFILE_E2E_SUM_ADJ_MS = 0.0
+    _PROFILE_E2E_COUNT = 0
+    _PROFILE_E2E_WINDOW_START = None
+
+
+def _chunk_frame_interval_s(chunk_times: ChunkTimes) -> float:
+    frames = chunk_times.frames
+    if len(frames) >= 2:
+        return max(
+            0.0, frames[1].intended_present_time - frames[0].intended_present_time
+        )
+    return 0.0
+
+
+def _record_input_to_present_for_profile(
+    *,
+    present_time: float,
+    input_sample_time: float,
+    frame_index: int,
+    frame_interval_s: float,
+) -> None:
+    global _PROFILE_E2E_SUM_RAW_MS
+    global _PROFILE_E2E_SUM_ADJ_MS
+    global _PROFILE_E2E_COUNT
+    global _PROFILE_E2E_WINDOW_START
+
+    raw_ms = (present_time - input_sample_time) * 1000.0
+    scheduled_ms = frame_index * (frame_interval_s * 1000.0)
+    adj_ms = raw_ms - scheduled_ms
+    _PROFILE_E2E_SUM_RAW_MS += raw_ms
+    _PROFILE_E2E_SUM_ADJ_MS += adj_ms
+    _PROFILE_E2E_COUNT += 1
+    if _PROFILE_E2E_WINDOW_START is None:
+        _PROFILE_E2E_WINDOW_START = present_time
+
+    interval_s = _profile_input_to_present_interval_s()
+    if present_time - _PROFILE_E2E_WINDOW_START < interval_s:
+        return
+
+    count = _PROFILE_E2E_COUNT
+    if count <= 0:
+        return
+    window_s = present_time - _PROFILE_E2E_WINDOW_START
+    wall_present_fps = float(count) / window_s if window_s > 1e-9 else 0.0
+    avg_raw_ms = _PROFILE_E2E_SUM_RAW_MS / float(count)
+    avg_adj_ms = _PROFILE_E2E_SUM_ADJ_MS / float(count)
+    print(
+        "[profile] e2e "
+        f"wall_present_fps={wall_present_fps:.1f} "
+        f"avg_adj_control_to_present_ms={avg_adj_ms:.2f} "
+        f"avg_raw_control_to_present_ms={avg_raw_ms:.2f} "
+        f"samples={count}",
+        flush=True,
+    )
+    _PROFILE_E2E_SUM_RAW_MS = 0.0
+    _PROFILE_E2E_SUM_ADJ_MS = 0.0
+    _PROFILE_E2E_COUNT = 0
+    _PROFILE_E2E_WINDOW_START = present_time
 
 
 class PresenterBackend(Protocol):
@@ -180,6 +273,13 @@ def present_queued_frame(
     presenter.present_frame(display_frame, view_mode=view_mode)
     present_time = time.perf_counter()
     frame_times.present_time = present_time
+    if _profile_input_to_present_enabled():
+        _record_input_to_present_for_profile(
+            present_time=present_time,
+            input_sample_time=queued_frame.chunk_times.input_sample_time,
+            frame_index=queued_frame.frame_index,
+            frame_interval_s=_chunk_frame_interval_s(queued_frame.chunk_times),
+        )
     return present_time
 
 
@@ -355,6 +455,8 @@ def run_main_loop(
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
     chunk_history = ChunkHistory.create(config.history_capacity)
+    if _profile_input_to_present_enabled():
+        reset_input_to_present_profile_window()
 
     while not presenter.should_close:
         presenter.process_events()

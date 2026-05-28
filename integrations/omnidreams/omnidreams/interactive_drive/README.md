@@ -364,6 +364,25 @@ The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.
 
+### Generated-frame e2e profiling
+
+Set `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1` to log generated-frame
+input-to-present timing while the demo runs:
+
+```bash
+INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
+  OMNIDREAMS_TRUESIGHT=1 \
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive --autoload-scene
+```
+
+The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames
+consumed from the model pipeline queue, so loading-frame or hold-frame
+re-presents are excluded. `avg_adj_control_to_present_ms` subtracts the
+intentional per-frame spacing inside a generated chunk; the raw value is also
+printed for debugging. Set
+`INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S` to adjust the report
+period; the default is `2`.
+
 ### Rollout drift and resets
 
 OmniDreams generates video autoregressively, so long rollouts can accumulate
