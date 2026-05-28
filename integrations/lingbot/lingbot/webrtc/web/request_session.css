@@ -301,7 +301,8 @@ body[data-status="generating"] .connectButton {
   white-space: nowrap;
 }
 
-.promptControl {
+.promptControl,
+.urlControl {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -309,10 +310,9 @@ body[data-status="generating"] .connectButton {
   font-weight: 700;
 }
 
-.promptControl textarea {
+.promptControl textarea,
+.urlControl input {
   width: 100%;
-  min-height: 94px;
-  resize: vertical;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 6px;
   background: rgba(4, 6, 7, 0.62);
@@ -321,7 +321,17 @@ body[data-status="generating"] .connectButton {
   padding: 10px 12px;
 }
 
-.promptControl textarea:focus {
+.urlControl input {
+  min-height: 38px;
+}
+
+.promptControl textarea {
+  min-height: 94px;
+  resize: vertical;
+}
+
+.promptControl textarea:focus,
+.urlControl input:focus {
   outline: 2px solid rgba(142, 240, 28, 0.38);
   outline-offset: 2px;
 }

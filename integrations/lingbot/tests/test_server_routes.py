@@ -40,7 +40,7 @@ class FakeSessionManager:
         self.pending_inputs: list[LingbotSessionInput] = []
         self.active = False
         self.runtime_ready = False
-        self.initial_scene = {
+        self.initial_scene: dict[str, object] = {
             "first_frame_url": "/api/session/first_frame",
             "prompt": "drive through a city",
             "model": "FakeLingbot",
@@ -203,6 +203,54 @@ async def test_session_input_upload_stores_prompt_and_image() -> None:
         assert session_input.prompt == "turn onto a rain-soaked neon street"
         assert session_input.first_frame_image_bytes == png_bytes
         assert session_input.first_frame_content_type == "image/png"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_accepts_image_url() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("image_url", "https://example.test/scene.jpg")
+
+        response = await client.post("/api/session/input", data=form)
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert session_input.first_frame_image_url == "https://example.test/scene.jpg"
+        assert session_input.first_frame_image_bytes is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_file_upload_overrides_image_url() -> None:
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+        "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("image_url", "https://example.test/scene.jpg")
+        form.add_field(
+            "image",
+            png_bytes,
+            filename="scene.png",
+            content_type="image/png",
+        )
+
+        response = await client.post("/api/session/input", data=form)
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert session_input.first_frame_image_url is None
+        assert session_input.first_frame_image_bytes == png_bytes
     finally:
         await client.close()
 

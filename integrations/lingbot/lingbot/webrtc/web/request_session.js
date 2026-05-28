@@ -22,6 +22,7 @@ const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
 const firstFramePreview = document.getElementById("firstFramePreview")
 const firstFrameInput = document.getElementById("firstFrameInput")
+const firstFrameUrlInput = document.getElementById("firstFrameUrlInput")
 const firstFrameName = document.getElementById("firstFrameName")
 const promptInput = document.getElementById("promptInput")
 const fpsValue = document.getElementById("fpsValue")
@@ -55,6 +56,7 @@ let mockGenerationStarted = false
 let mockChunkTimer = null
 let actionStarted = false
 let promptEdited = false
+let firstFrameUrlEdited = false
 let initialScene = null
 let selectedFirstFrameUrl = null
 let selectedFirstFrameFile = null
@@ -133,18 +135,22 @@ function setVideoVisible(visible) {
 
 function updateReadyPreview() {
   const canPreview = !document.body.classList.contains("has-video")
+  const imageUrl = firstFrameUrlInput.value.trim()
   const hasSelectedImage = selectedFirstFrameUrl !== null
+  const hasImageUrl = imageUrl.length > 0
   const hasInitialImage = Boolean(initialScene && initialScene.has_first_frame)
 
   if (hasSelectedImage) {
     firstFramePreview.src = selectedFirstFrameUrl
+  } else if (hasImageUrl) {
+    firstFramePreview.src = imageUrl
   } else if (hasInitialImage && initialScene.first_frame_url) {
     firstFramePreview.src = `${initialScene.first_frame_url}?t=${Date.now()}`
   }
 
   document.body.classList.toggle(
     "is-ready-preview",
-    canPreview && (hasSelectedImage || hasInitialImage)
+    canPreview && (hasSelectedImage || hasImageUrl || hasInitialImage)
   )
 }
 
@@ -153,8 +159,16 @@ function applyInitialScene(scene) {
   if (!promptEdited && typeof scene.prompt === "string") {
     promptInput.value = scene.prompt
   }
+  const sceneImageUrl = typeof scene.image_url === "string"
+    ? scene.image_url
+    : (typeof scene.default_image_url === "string" ? scene.default_image_url : "")
+  if (!firstFrameUrlEdited && sceneImageUrl) {
+    firstFrameUrlInput.value = sceneImageUrl
+  }
   if (!selectedFirstFrameFile) {
-    firstFrameName.textContent = scene.has_first_frame ? "Example Image" : "Choose Image"
+    firstFrameName.textContent = firstFrameUrlInput.value.trim()
+      ? "Upload Image"
+      : (scene.has_first_frame ? "Example Image" : "Choose Image")
   }
   if (scene.model) {
     metrics.model = scene.model
@@ -174,7 +188,8 @@ async function loadInitialScene() {
   if (mockMode) {
     applyInitialScene({
       prompt: promptInput.value,
-      has_first_frame: selectedFirstFrameFile !== null,
+      has_first_frame: selectedFirstFrameFile !== null || firstFrameUrlInput.value.trim().length > 0,
+      image_url: firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
       input_source: selectedFirstFrameFile ? "uploaded" : "default",
@@ -194,16 +209,19 @@ async function loadInitialScene() {
 
 async function uploadSessionInputIfNeeded() {
   const prompt = promptInput.value.trim()
+  const imageUrl = firstFrameUrlInput.value.trim()
   const hasPrompt = promptEdited && prompt.length > 0
   const hasImage = selectedFirstFrameFile !== null
-  if (!hasPrompt && !hasImage) {
+  const hasImageUrl = !hasImage && firstFrameUrlEdited && imageUrl.length > 0
+  if (!hasPrompt && !hasImage && !hasImageUrl) {
     return
   }
 
   if (mockMode) {
     applyInitialScene({
       prompt: hasPrompt ? prompt : promptInput.value,
-      has_first_frame: hasImage,
+      has_first_frame: hasImage || hasImageUrl,
+      image_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
       input_source: "uploaded",
@@ -217,6 +235,8 @@ async function uploadSessionInputIfNeeded() {
   }
   if (selectedFirstFrameFile) {
     form.append("image", selectedFirstFrameFile, selectedFirstFrameFile.name)
+  } else if (hasImageUrl) {
+    form.append("image_url", imageUrl)
   }
 
   const response = await fetch("/api/session/input", {
@@ -981,9 +1001,18 @@ firstFrameInput.addEventListener("change", () => {
     selectedFirstFrameUrl = URL.createObjectURL(selectedFirstFrameFile)
     firstFrameName.textContent = selectedFirstFrameFile.name
   } else {
-    firstFrameName.textContent = initialScene && initialScene.has_first_frame
-      ? "Example Image"
-      : "Choose Image"
+    firstFrameName.textContent = firstFrameUrlInput.value.trim()
+      ? "Upload Image"
+      : (initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image")
+  }
+  updateReadyPreview()
+})
+firstFrameUrlInput.addEventListener("input", () => {
+  firstFrameUrlEdited = true
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = firstFrameUrlInput.value.trim()
+      ? "Upload Image"
+      : (initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image")
   }
   updateReadyPreview()
 })
