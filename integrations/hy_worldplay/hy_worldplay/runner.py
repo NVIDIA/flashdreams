@@ -97,6 +97,45 @@ def _pil_to_numpy(img: object) -> object:
     return np.asarray(img)
 
 
+def _install_native_dit_profile(pipeline: WanInferencePipeline) -> object | None:
+    """Wrap the transformer's ``predict_flow`` with a per-call CUDA-event recorder.
+
+    No-op (returns ``None``) when ``HY_DIT_PROFILE`` is unset or CUDA
+    is unavailable. The recorder is a stateful ``_DitProfileRecorder``
+    holding a list of ``(start, end)`` event pairs; the caller drains
+    it via :func:`_drain_native_dit_records` after the AR loop.
+    """
+    import os
+
+    if os.environ.get("HY_DIT_PROFILE", "") != "1":
+        return None
+    if not torch.cuda.is_available():
+        return None
+    transformer = pipeline.diffusion_model.transformer
+    original_predict_flow = transformer.predict_flow
+    records: list[tuple[object, object]] = []
+
+    def timed_predict_flow(*args: object, **kwargs: object) -> Tensor:
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        out = original_predict_flow(*args, **kwargs)
+        end.record()
+        records.append((start, end))
+        return out
+
+    transformer.predict_flow = timed_predict_flow
+    return records
+
+
+def _drain_native_dit_records(records: object | None) -> list[float]:
+    """Sync CUDA and convert recorded ``(start, end)`` event pairs to millisecond floats."""
+    if not records:
+        return []
+    torch.cuda.synchronize()
+    return [start.elapsed_time(end) for start, end in records]
+
+
 def _resolve_prompt(value: str | Path) -> str:
     """Read an inline prompt or the first non-empty line of a prompt file."""
     if isinstance(value, Path):
@@ -363,6 +402,11 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
         # one-time model / VAE load.
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
+        # ``HY_DIT_PROFILE=1`` wraps ``transformer.predict_flow`` with a
+        # per-call CUDA-event recorder so the bench can compute a
+        # post-warmup DiT-only median against vendor's matching
+        # ``stats_dit_vendor.json``.
+        dit_records = _install_native_dit_profile(self.pipeline)
         start_time = time.time()
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
@@ -374,6 +418,7 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
                     profiler.record(f"chunk_{ar_idx}")
         elapsed = time.time() - start_time
         per_chunk_ms = profiler.sync_and_summarize() if profiler is not None else {}
+        dit_per_step_ms = _drain_native_dit_records(dit_records)
         peak_gpu_mem_gib = (
             torch.cuda.max_memory_allocated() / (1024**3)
             if torch.cuda.is_available()
@@ -407,6 +452,24 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
             logger.info(
                 f"[{cfg.runner_name}] wrote per-chunk stats -> "
                 f"{stats_path.resolve()}"
+            )
+
+        if dit_per_step_ms:
+            dit_path = cfg.output_dir / "stats_dit_native.json"
+            dit_path.write_text(
+                json.dumps(
+                    {
+                        "backend": "native",
+                        "compile_enabled": True,
+                        "dit_per_step_ms": [round(v, 3) for v in dit_per_step_ms],
+                        "n_steps": len(dit_per_step_ms),
+                    },
+                    indent=2,
+                )
+            )
+            logger.info(
+                f"[{cfg.runner_name}] wrote {len(dit_per_step_ms)} native "
+                f"DiT step ms -> {dit_path.resolve()}"
             )
 
     def _bind_action_labels(self) -> None:

@@ -35,8 +35,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 IMAGES_DIR="${IMAGES_DIR:-${REPO_ROOT}/data_local}"
-NUM_CHUNK="${NUM_CHUNK:-2}"
-POSE="${POSE:-w-7}"
+# Match bench.sh: 8 chunks (32 DiT forwards) gives enough samples for
+# a stable post-warmup median after discarding the first 5 chunks.
+NUM_CHUNK="${NUM_CHUNK:-8}"
+POSE="${POSE:-w-31}"
 SEED="${SEED:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench_pairs}"
 

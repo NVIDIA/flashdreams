@@ -79,6 +79,10 @@ def _patch_and_run() -> None:
 
     install_vae_mean_patch()
 
+    from dit_profile_patch import install_dit_profile_patch  # noqa: E402
+
+    install_dit_profile_patch()
+
     runpy.run_path(
         str(_REPO_DIR / "wan" / "generate.py"),
         run_name="__main__",

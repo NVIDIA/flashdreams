@@ -43,6 +43,14 @@ def _load_stats(side_dir: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def _load_dit_stats(side_dir: Path, side: str) -> dict[str, Any] | None:
+    """Read ``stats_dit_{native,vendor}.json`` if the DiT profiler ran on this side."""
+    path = side_dir / f"stats_dit_{side}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
 def _load_video(side_dir: Path) -> np.ndarray:
     """Decode the runner's mp4 to a ``[T, H, W, 3]`` uint8 array."""
     path = side_dir / f"{_RUNNER_NAME}.mp4"
@@ -65,7 +73,38 @@ def _format_per_chunk_ms(stats: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def _perf_table(native: dict[str, Any], vendor: dict[str, Any]) -> str:
+def _dit_median_post_warmup(
+    dit_stats: dict[str, Any] | None,
+    warmup_chunks: int,
+    inference_steps_per_chunk: int,
+) -> tuple[float | None, int]:
+    """Median DiT-forward ms over the post-warmup tail.
+
+    Returns:
+        ``(median_ms, n_kept)`` where ``median_ms`` is ``None`` if no
+        post-warmup samples remain.
+    """
+    if dit_stats is None:
+        return None, 0
+    steps = dit_stats.get("dit_per_step_ms") or []
+    discard = warmup_chunks * inference_steps_per_chunk
+    kept = steps[discard:]
+    if not kept:
+        return None, 0
+    sorted_kept = sorted(kept)
+    n = len(sorted_kept)
+    mid = sorted_kept[n // 2] if n % 2 else 0.5 * (sorted_kept[n // 2 - 1] + sorted_kept[n // 2])
+    return mid, n
+
+
+def _perf_table(
+    native: dict[str, Any],
+    vendor: dict[str, Any],
+    native_dit: dict[str, Any] | None,
+    vendor_dit: dict[str, Any] | None,
+    warmup_chunks: int,
+    inference_steps_per_chunk: int = 4,
+) -> str:
     """Build the perf markdown table comparing the two backends."""
     rows = [
         "| metric | native | vendor |",
@@ -89,6 +128,23 @@ def _perf_table(native: dict[str, Any], vendor: dict[str, Any]) -> str:
     rows.append(
         f"| per-chunk timing | {_format_per_chunk_ms(native)}"
         f" | {_format_per_chunk_ms(vendor)} |"
+    )
+
+    native_med, native_n = _dit_median_post_warmup(
+        native_dit, warmup_chunks, inference_steps_per_chunk
+    )
+    vendor_med, vendor_n = _dit_median_post_warmup(
+        vendor_dit, warmup_chunks, inference_steps_per_chunk
+    )
+    native_cell = (
+        f"{native_med:.1f} ms (n={native_n})" if native_med is not None else "n/a"
+    )
+    vendor_cell = (
+        f"{vendor_med:.1f} ms (n={vendor_n})" if vendor_med is not None else "n/a"
+    )
+    rows.append(
+        f"| DiT median (post-warmup, discard first {warmup_chunks} chunks) "
+        f"| {native_cell} | {vendor_cell} |"
     )
     return "\n".join(rows)
 
@@ -119,12 +175,15 @@ def _render_report(
     *,
     native_stats: dict[str, Any],
     vendor_stats: dict[str, Any],
+    native_dit: dict[str, Any] | None,
+    vendor_dit: dict[str, Any] | None,
     native_mp4: np.ndarray,
     vendor_mp4: np.ndarray,
     image_path: Path,
     pose: str,
     num_chunk: int,
     seed: int,
+    warmup_chunks: int,
 ) -> str:
     """Stitch the input summary, perf table, and parity block into one markdown blob."""
     lines = [
@@ -142,7 +201,9 @@ def _render_report(
         "",
         "## Perf",
         "",
-        _perf_table(native_stats, vendor_stats),
+        _perf_table(
+            native_stats, vendor_stats, native_dit, vendor_dit, warmup_chunks
+        ),
         "",
         "## Parity (native mp4 vs vendor mp4)",
         "",
@@ -166,18 +227,27 @@ def main() -> None:
     parser.add_argument("--pose", type=str, required=True)
     parser.add_argument("--num-chunk", type=int, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument(
+        "--warmup-chunks",
+        type=int,
+        default=0,
+        help="DiT samples from the first N chunks are dropped from the median.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     report = _render_report(
         native_stats=_load_stats(args.native_dir),
         vendor_stats=_load_stats(args.vendor_dir),
+        native_dit=_load_dit_stats(args.native_dir, "native"),
+        vendor_dit=_load_dit_stats(args.vendor_dir, "vendor"),
         native_mp4=_load_video(args.native_dir),
         vendor_mp4=_load_video(args.vendor_dir),
         image_path=args.image_path,
         pose=args.pose,
         num_chunk=args.num_chunk,
         seed=args.seed,
+        warmup_chunks=args.warmup_chunks,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report)

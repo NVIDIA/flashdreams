@@ -62,15 +62,26 @@ HF_MODELS_DIR="${HF_MODELS_DIR:-${HY_REPO_DIR}/hf_models}"
 CKPT_PATH="${CKPT_PATH:-${HF_MODELS_DIR}/wan_distilled_model/model.pt}"
 
 IMAGE_PATH="${IMAGE_PATH:-${REPO_ROOT}/data_local/cat_surf.jpg}"
-NUM_CHUNK="${NUM_CHUNK:-1}"
+# ``num_chunk=8`` gives 8 chunks * 4 denoising steps = 32 DiT forwards
+# per side, enough headroom to discard 5 warmup chunks (20 steps) and
+# still have 12 steady-state DiT samples for a stable median.
+NUM_CHUNK="${NUM_CHUNK:-8}"
 # Native pose. ``num_chunk * 4 - 1`` motion steps (the parser prepends
 # an identity for the input frame).
-POSE="${POSE:-w-3}"
+POSE="${POSE:-w-31}"
 SEED="${SEED:-0}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
 HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE:-1}"
 USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE:-1}"
+# DiT-only timer + vendor torch.compile + cudnn SDPA: Option A
+# methodology for the post-warmup median comparison.
+HY_DIT_PROFILE="${HY_DIT_PROFILE:-1}"
+HY_VENDOR_COMPILE="${HY_VENDOR_COMPILE:-1}"
+HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA:-1}"
+# Chunks at the start of the rollout to drop from the DiT median
+# (Inductor autotune + CUDA-graph capture land in the first few).
+WARMUP_CHUNKS="${WARMUP_CHUNKS:-5}"
 
 NATIVE_OUT="${OUTPUT_DIR}/native"
 VENDOR_OUT="${OUTPUT_DIR}/vendor"
@@ -108,12 +119,16 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
 rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
-echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}) -> ${VENDOR_OUT}"
+echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, COMPILE=${HY_VENDOR_COMPILE}, CUDNN_SDPA=${HY_VENDOR_CUDNN_SDPA}) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
 NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
+    HY_DIT_PROFILE="${HY_DIT_PROFILE}" \
+    HY_VENDOR_COMPILE="${HY_VENDOR_COMPILE}" \
+    HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA}" \
+    HY_DIT_OUTPUT_JSON="${VENDOR_OUT}/stats_dit_vendor.json" \
     bash "${SCRIPT_DIR}/run.sh"
 _vendor_elapsed_s=$(( $(date +%s) - _vendor_start_s ))
 
@@ -140,8 +155,10 @@ cat > "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" <<EOF
 EOF
 
 ## -------------------------------------------------------------- native leg
-echo "[bench] running NATIVE leg -> ${NATIVE_OUT} (HY_VENDOR_NOISE_MODE=${HY_VENDOR_NOISE_MODE})"
-( cd "${SCRIPT_DIR}" && HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE}" \
+echo "[bench] running NATIVE leg -> ${NATIVE_OUT} (HY_VENDOR_NOISE_MODE=${HY_VENDOR_NOISE_MODE}, DIT_PROFILE=${HY_DIT_PROFILE})"
+( cd "${SCRIPT_DIR}" && \
+    HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE}" \
+    HY_DIT_PROFILE="${HY_DIT_PROFILE}" \
     uv run flashdreams-run "${RUNNER_NAME}" \
     --image-path "${IMAGE_PATH}" \
     --ckpt-path "${CKPT_PATH}" \
@@ -160,6 +177,7 @@ echo "[bench] summarising -> ${OUTPUT_DIR}/bench.md"
     --pose "${POSE}" \
     --num-chunk "${NUM_CHUNK}" \
     --seed "${SEED}" \
+    --warmup-chunks "${WARMUP_CHUNKS}" \
     --output "${OUTPUT_DIR}/bench.md" )
 
 echo "[bench] done."
