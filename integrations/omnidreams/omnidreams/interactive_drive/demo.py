@@ -22,17 +22,15 @@ from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive._evdev import (
     EV_ABS,
-    EV_FF,
     EVDEV_EVENT_FORMAT,
     EVDEV_EVENT_SIZE,
-    FF_AUTOCENTER,
-    FF_GAIN,
     AxisRange,
     EvdevDevice,
     query_axis_range as _query_axis_range,
     read_evdev_name as _read_evdev_name,
     scan_evdev_devices as _scan_evdev_devices,
 )
+from omnidreams.interactive_drive._ffb import create_ffb_backend as _create_ffb_backend
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
@@ -101,6 +99,13 @@ class WheelProfile:
     invert_steering: bool = False
     ffb_enabled: bool = False
     ffb_gain: float = 0.5
+    # Which FFB backend ``WheelBridge`` instantiates (see
+    # :mod:`omnidreams.interactive_drive._ffb`). ``"autocenter"`` is the
+    # back-compat default for older YAMLs without the field;
+    # ``"constant_force"`` is required for Fanatec (their kernel driver
+    # does not implement FF_AUTOCENTER) and produces a finer-feel
+    # centering curve on Thrustmaster/Logitech too.
+    ffb_mode: str = "autocenter"
     threshold: float = 0.12
     is_default: bool = False
 
@@ -248,7 +253,7 @@ class WheelBridge:
         self._inverted_pedals = bool(profile.inverted_pedals)
         self._invert_steering = bool(profile.invert_steering)
         self._threshold = float(profile.threshold)
-        self._ffb = AutocenterFFB()
+        self._ffb = _create_ffb_backend(profile.ffb_mode)
         self._axis_ranges: dict[int, AxisRange] = {}
         self._raw_axes: dict[int, int] = {}
         self._state = WheelState()
@@ -343,7 +348,18 @@ class WheelBridge:
             self._state.target_speed_mps = target_speed
 
         self._control.set_drive(steer=steering, throttle=throttle, brake=brake)
-        self._ffb.update(abs(target_speed), gain=self._profile.ffb_gain)
+        # ConstantForceFFB needs the *raw* (pre-invert) steering value
+        # so its centering torque always points back toward the
+        # hardware's reported axis centre; AutocenterFFB ignores these
+        # but accepts them for backend-uniform signature.
+        steering_axis_range = self._axis_ranges[self._steering_axis]
+        self._ffb.update(
+            abs(target_speed),
+            gain=self._profile.ffb_gain,
+            steering_raw=self._raw_axes[self._steering_axis],
+            steering_center=steering_axis_range.center,
+            steering_span=steering_axis_range.span,
+        )
 
     def _normalize_steering(self, raw: int) -> float:
         axis_range = self._axis_ranges[self._steering_axis]
@@ -391,67 +407,6 @@ class WheelBridge:
             else:
                 speed = max(0.0, speed - 0.5 * dt)
         return max(0.0, min(36.0, speed))
-
-
-class AutocenterFFB:
-    def __init__(self) -> None:
-        self._fd: int | None = None
-        self._last_strength = -1
-        self._smoothed = 0.0
-
-    def init(self, device_path: Path, gain: float) -> None:
-        try:
-            self._fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
-            self._write_event(FF_AUTOCENTER, 0)
-            self._write_event(FF_GAIN, int(max(0.0, min(1.0, gain)) * 0xFFFF))
-            print(f"[demo] FFB autocenter enabled on {device_path}", flush=True)
-        except PermissionError:
-            print(
-                "[demo] FFB permission denied; add user to input group or adjust udev",
-                flush=True,
-            )
-            self._fd = None
-        except OSError as exc:
-            print(f"[demo] FFB unavailable on {device_path}: {exc}", flush=True)
-            self._fd = None
-
-    def update(self, speed_mps: float, *, gain: float) -> None:
-        if self._fd is None:
-            return
-        if speed_mps < 0.1:
-            target = 0.15
-        else:
-            norm = min(1.0, speed_mps / 14.0)
-            target = 0.35 + 0.65 * norm
-        self._smoothed += 0.12 * (target - self._smoothed)
-        strength = int(self._smoothed * max(0.0, min(1.0, gain)) * 0xFFFF)
-        strength = max(0, min(0xFFFF, strength))
-        if abs(strength - self._last_strength) > 500:
-            self._write_event(FF_AUTOCENTER, strength)
-            self._last_strength = strength
-
-    def cleanup(self) -> None:
-        if self._fd is None:
-            return
-        try:
-            self._write_event(FF_AUTOCENTER, 0)
-            os.close(self._fd)
-        except OSError:
-            pass
-        self._fd = None
-
-    def _write_event(self, code: int, value: int) -> None:
-        if self._fd is None:
-            return
-        now = time.time()
-        sec = int(now)
-        usec = int((now - sec) * 1_000_000)
-        try:
-            os.write(
-                self._fd, struct.pack(EVDEV_EVENT_FORMAT, sec, usec, EV_FF, code, value)
-            )
-        except OSError:
-            return
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -976,6 +931,7 @@ def _load_wheel_profiles(profiles_dir: Path) -> tuple[WheelProfile, ...]:
             str(key): int(value) for key, value in data.get("axis_map", {}).items()
         }
         pedal = data.get("pedal", {}) or {}
+        ffb = data.get("ffb", {}) or {}
         profiles.append(
             WheelProfile(
                 name=str(data.get("name", path.stem)),
@@ -988,8 +944,9 @@ def _load_wheel_profiles(profiles_dir: Path) -> tuple[WheelProfile, ...]:
                     pedal.get("inverted", data.get("inverted_pedals", True))
                 ),
                 invert_steering=bool(data.get("invert_steering", False)),
-                ffb_enabled=bool((data.get("ffb", {}) or {}).get("enabled", False)),
-                ffb_gain=float((data.get("ffb", {}) or {}).get("gain", 0.5)),
+                ffb_enabled=bool(ffb.get("enabled", False)),
+                ffb_gain=float(ffb.get("gain", 0.5)),
+                ffb_mode=str(ffb.get("mode", "autocenter")),
                 threshold=float(data.get("threshold", 0.12)),
                 is_default=bool(data.get("is_default", False)),
             )
@@ -1149,6 +1106,7 @@ def _apply_wheel_overrides(
         invert_steering=profile.invert_steering,
         ffb_enabled=profile.ffb_enabled,
         ffb_gain=profile.ffb_gain,
+        ffb_mode=profile.ffb_mode,
         threshold=profile.threshold,
         is_default=profile.is_default,
     )

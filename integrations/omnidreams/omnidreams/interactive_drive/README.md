@@ -270,10 +270,23 @@ The fastest way to set one up is the bundled calibration CLI:
 uv run --package flashdreams-omnidreams interactive-drive-configure-wheel
 ```
 
-It auto-detects your wheel, walks you through "centre the wheel" /
-"turn fully left" / "turn fully right" / "press / release each pedal",
-optionally pulses force-feedback for a sanity check, then writes
-`configs/wheels/<your-wheel>.yaml` next to the bundled package data.
+It auto-detects your wheel (movement-based when multiple joystick-like
+devices are present), walks you through "turn left / turn right / release
+pedal / press pedal" prompts, then probes force-feedback in two stages:
+
+1. **`FF_CONSTANT`** via `EVIOCSFF` — the modern path that works on
+   Fanatec / Simagic / Moza *and* Thrustmaster / Logitech. You'll feel
+   a brief left-then-right push if the driver accepts the effect.
+2. **`FF_AUTOCENTER`** via the in-kernel autocenter event — fallback for
+   drivers that don't implement constant-force effects.
+
+The configurator writes whichever the user actually felt to
+`configs/wheels/<your-wheel>.yaml`. On Fanatec hardware specifically,
+the constant-force path is mandatory: `hid-fanatecff` silently accepts
+`FF_AUTOCENTER` writes but produces no force, so the legacy single-mode
+configurator would have always saved `ffb.enabled: false` for Fanatec
+users with no obvious error.
+
 On the next `interactive-drive` launch the HUD picks the profile up
 automatically (`--wheel-profile auto`, the default).
 
@@ -284,7 +297,10 @@ entirely (keyboard-only driving works fine without a profile).
 
 If FFB writes fail with a permission error, add yourself to the `input`
 group (`sudo usermod -aG input $USER` + log out / back in) or install a
-udev rule for your device.
+udev rule for your device. Fanatec users additionally need the
+[`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff) out-of-tree
+driver if they're on a kernel that doesn't yet ship support for their
+wheel base.
 
 ### `--no-hud`: bare backend, local Vulkan window
 
