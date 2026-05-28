@@ -116,6 +116,12 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # path our native runner mirrors. Time it ourselves to synthesise the
 # vendor stats JSON.
 #
+# Vendor's memory-prefill KV pool grows per chunk + cuDNN attention
+# holds a workspace; together they OOM on 44 GiB at ``num_chunk>=8``
+# without the expandable allocator. ``expandable_segments`` defrags
+# the allocator in-process; cheap to leave on for both legs.
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 # Clear prior outputs so the ``find`` below only sees this run's fresh
 # upstream-pattern mp4 (``<pose>_<prompt>.mp4``) and doesn't trip on
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
