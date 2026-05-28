@@ -346,7 +346,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <p>For multi-GPU inference, use:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example_data_uuid<span class="w"> </span><span class="s2">&quot;239560dc-33d1-11ef-9720-00044bcbccac&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">20</span>
@@ -408,7 +408,6 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
 </div></section>
 <section id="performance-table">
 <h2>Performance table<a class="headerlink" href="#performance-table" title="Link to this heading">¶</a></h2>
-<p>(TODO: To be updated)</p>
 <p>Single-view latency on NVIDIA GB300 at <code class="docutils literal notranslate"><span class="pre">704</span> <span class="pre">x</span> <span class="pre">1280</span></code> resolution.</p>
 <div class="table-wrapper colwidths-given docutils container">
 <table class="docutils align-default">
@@ -429,46 +428,47 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
 </thead>
 <tbody>
 <tr class="row-even"><td><p>HDMap Encoder</p></td>
-<td><p>52 ms</p></td>
-<td><p>51 ms</p></td>
-<td><p>51 ms</p></td>
-<td><p>50 ms</p></td>
+<td><p>28 ms</p></td>
+<td><p>26 ms</p></td>
+<td><p>26 ms</p></td>
+<td><p>26 ms</p></td>
 </tr>
 <tr class="row-odd"><td><p>Diffusion DiT</p></td>
-<td><p>89 ms</p></td>
-<td><p>78 ms</p></td>
-<td><p>62 ms</p></td>
-<td><p>59 ms</p></td>
+<td><p>84 ms</p></td>
+<td><p>71 ms</p></td>
+<td><p>49 ms</p></td>
+<td><p>47 ms</p></td>
 </tr>
 <tr class="row-even"><td><p>VAE Decoder</p></td>
-<td><p>13 ms</p></td>
-<td><p>13 ms</p></td>
-<td><p>14 ms</p></td>
-<td><p>13 ms</p></td>
+<td><p>6 ms</p></td>
+<td><p>5 ms</p></td>
+<td><p>5 ms</p></td>
+<td><p>5 ms</p></td>
 </tr>
 <tr class="row-odd"><td><p>KV-cache Update</p></td>
-<td><p>40 ms</p></td>
-<td><p>36 ms</p></td>
-<td><p>34 ms</p></td>
 <td><p>42 ms</p></td>
+<td><p>34 ms</p></td>
+<td><p>23 ms</p></td>
+<td><p>22 ms</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Total</strong></p></td>
-<td><p><strong>154 ms</strong></p></td>
-<td><p><strong>143 ms</strong></p></td>
-<td><p><strong>127 ms</strong></p></td>
-<td><p><strong>121 ms</strong></p></td>
+<td><p><strong>118 ms</strong></p></td>
+<td><p><strong>102 ms</strong></p></td>
+<td><p><strong>80 ms</strong></p></td>
+<td><p><strong>78 ms</strong></p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Effective FPS</strong></p></td>
-<td><p><strong>52</strong></p></td>
-<td><p><strong>56</strong></p></td>
-<td><p><strong>63</strong></p></td>
-<td><p><strong>66</strong></p></td>
+<td><p><strong>68</strong></p></td>
+<td><p><strong>78</strong></p></td>
+<td><p><strong>100</strong></p></td>
+<td><p><strong>103</strong></p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><em>KV-cache Update is off the hot path and excluded from Total.</em></p>
-</section>
+<p class="model-footnote">
+   KV-cache Update is off the hot path and excluded from Total.
+</p></section>
 </section>
 
         </article>
