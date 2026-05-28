@@ -810,6 +810,40 @@ class Encoder3d(nn.Module):
         assert isinstance(conv, CausalConv3d)
         return conv.cache_step(act(norm(x)), state)
 
+    @torch.no_grad()
+    def normalize_state_for_body(self, state: Dict[int, torch.Tensor]) -> None:
+        """Pad every CausalConv3d's seed-shaped state entry up to ``CACHE_T`` frames.
+
+        After ``WanVAE.encode``'s 1-frame seed call, each ``CausalConv3d`` has
+        stored ``state[id(cc3d)]`` as the last-CACHE_T-frames slice of a 1-frame
+        input -- so the stored tensor has T=1 rather than T=CACHE_T. This
+        triggers a whole-graph recompile on the first body chunk (T=4) of the
+        NEXT AR step because Dynamo specialized on the AR0 body's T=1 prev
+        state and AR1 body's prev state is T=CACHE_T=2.
+
+        Prepending zeros to make every entry T=CACHE_T is bit-equivalent to the
+        ``F.pad`` zero-prepad ``CausalConv3d.forward`` would have done if
+        ``prev`` had been shorter than ``time_pad`` -- verified by tracing the
+        conv input in both code paths. ``Resample._upsample3d_step`` /
+        ``_downsample3d_step`` already store T=CACHE_T (the upsample's 1-frame
+        branch explicitly allocates ``x.new_zeros(..., CACHE_T, ...)``, the
+        downsample stores a fixed T=1 tail), so this only touches CausalConv3d
+        entries.
+        """
+        for module in self.modules():
+            if not isinstance(module, CausalConv3d):
+                continue
+            key = id(module)
+            if key not in state:
+                continue
+            prev = state[key]
+            if prev.shape[2] >= CACHE_T:
+                continue
+            pad = CACHE_T - prev.shape[2]
+            b, c, _, h, w = prev.shape
+            zeros = prev.new_zeros(b, c, pad, h, w)
+            state[key] = torch.cat([zeros, prev], dim=2)
+
 
 class Decoder3d(nn.Module):
     def __init__(
@@ -1170,6 +1204,12 @@ class WanVAE(nn.Module):
         if not state:
             outs.append(self.encoder(x[:, :, :1], state))
             x = x[:, :, 1:]
+            # Pad CausalConv3d states from T=1 (seed) to T=CACHE_T so the
+            # AR0 body chunk and every AR1+ body chunk see identical state
+            # shapes -- this kills the ~68 s whole-graph encoder recompile
+            # at AR1. ``normalize_state_for_body`` is an eager ``Encoder3d``
+            # helper; the ``torch.compile`` proxy forwards the call to it.
+            self.encoder.normalize_state_for_body(state)
         else:
             assert x.shape[2] % TEMPORAL_WINDOW == 0, (
                 f"Streaming encode after the first chunk requires T % "
