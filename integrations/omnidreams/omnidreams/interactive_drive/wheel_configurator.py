@@ -25,6 +25,7 @@ Entry point: ``interactive-drive-configure-wheel``.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import re
 import select
@@ -39,7 +40,9 @@ from omnidreams.interactive_drive._evdev import (
     EV_FF,
     EVDEV_EVENT_FORMAT,
     EVDEV_EVENT_SIZE,
+    EVIOCSFF,
     FF_AUTOCENTER,
+    FF_CONSTANT,
     FF_GAIN,
     AxisInfo,
     EvdevDevice,
@@ -212,9 +215,9 @@ def _run(args: argparse.Namespace) -> int:
         )
 
     if args.skip_ffb_test:
-        ffb_enabled, ffb_gain = False, 0.5
+        ffb_enabled, ffb_mode, ffb_gain = False, "autocenter", 0.5
     else:
-        ffb_enabled, ffb_gain = _calibrate_ffb(device.path)
+        ffb_enabled, ffb_mode, ffb_gain = _calibrate_ffb(device.path)
 
     profile_name = args.name or _slugify(device.name) or "custom-wheel"
     profile_name = _prompt_profile_name(profile_name)
@@ -242,6 +245,7 @@ def _run(args: argparse.Namespace) -> int:
         pedals_inverted=pedals_inverted,
         invert_steering=invert_steering,
         ffb_enabled=ffb_enabled,
+        ffb_mode=ffb_mode,
         ffb_gain=ffb_gain,
     )
 
@@ -492,72 +496,184 @@ def _calibrate_pedal(
     return pedal_axis, inverted
 
 
-def _calibrate_ffb(device_path: Path) -> tuple[bool, float]:
+def _calibrate_ffb(device_path: Path) -> tuple[bool, str, float]:
+    """Probe both FFB strategies and return ``(enabled, mode, gain)``.
+
+    Order matters: we try ``FF_CONSTANT`` first because it works on
+    *every* wheel base we support (Fanatec, Simagic, Moza, Thrustmaster,
+    Logitech). ``FF_AUTOCENTER`` is the fallback for drivers that
+    accept the in-kernel autocenter effect but do not implement
+    ``EVIOCSFF`` (older Logitech profiles, the in-kernel ``hid-tmff``).
+    Fanatec's ``hid-fanatecff`` does the *opposite*: ``FF_AUTOCENTER``
+    is silently accepted with no force produced, so without the
+    constant-force probe Fanatec users would always get
+    ``ffb.enabled: false`` here.
+    """
     print("\nStep 4 (optional): Force feedback")
     if not _confirm(
-        "  Send a brief autocenter pulse to test FFB? Keep hands clear of the wheel.",
-        default=True,
+        "  Run a brief FFB test? Keep hands clear of the wheel.", default=True
     ):
-        return False, 0.5
+        return False, "autocenter", 0.5
 
+    print(
+        "\n  Trying constant-force effect first "
+        "(works on Fanatec / Simagic / Moza and modern Thrustmaster)..."
+    )
+    constant_status = _pulse_constant_force(device_path)
+    if constant_status == "ok":
+        if _confirm(
+            "  Did the wheel push left and then right?", default=True
+        ):
+            gain = _prompt_gain(
+                "  Constant-force gain (0.0-3.0, default 1.0): ",
+                default=1.0,
+                lo=0.0,
+                hi=3.0,
+            )
+            return True, "constant_force", gain
+        print("  No constant-force response felt; trying autocenter mode.")
+    elif constant_status == "permission":
+        # Permission errors are global to the device, so the autocenter
+        # probe would just hit the same wall. Bail out early with a
+        # useful message.
+        return False, "autocenter", 0.5
+    else:
+        print(
+            "  Driver did not accept the constant-force effect upload; "
+            "trying autocenter mode."
+        )
+
+    print(
+        "\n  Trying autocenter effect "
+        "(works on Thrustmaster / Logitech via the in-kernel autocenter handler)..."
+    )
+    autocenter_status = _pulse_autocenter(device_path)
+    if autocenter_status == "ok":
+        if _confirm("  Did the wheel try to recentre itself?", default=True):
+            gain = _prompt_gain(
+                "  Autocenter gain (0.0-1.0, default 0.6): ",
+                default=0.6,
+                lo=0.0,
+                hi=1.0,
+            )
+            return True, "autocenter", gain
+        print("  No autocenter response either.")
+
+    print("  Setting ffb.enabled: false; you can hand-edit the YAML later.")
+    return False, "autocenter", 0.5
+
+
+def _pulse_constant_force(device_path: Path) -> str:
+    """Upload a ``FF_CONSTANT`` effect, pulse it left then right.
+
+    Returns ``"ok"`` if the kernel accepted the effect upload (whether
+    or not the user actually felt the wheel move), ``"permission"`` if
+    we couldn't even open the device, or ``"unsupported"`` if the
+    driver rejected ``EVIOCSFF``.
+    """
     try:
         fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
     except PermissionError:
         print(
             "  Permission denied opening the device for FFB. Add yourself to "
-            "the `input` group or adjust udev rules, then re-run.\n"
-            "  Skipping FFB; setting `ffb.enabled: false`."
+            "the `input` group or adjust udev rules, then re-run."
         )
-        return False, 0.5
+        return "permission"
     except OSError as exc:
-        print(f"  Could not open device for FFB ({exc}); setting `ffb.enabled: false`.")
-        return False, 0.5
+        print(f"  Could not open device for FFB ({exc}).")
+        return "unsupported"
 
     try:
-        _write_ff_event(fd, FF_GAIN, 0xFFFF)
-        print("  Pulsing autocenter at max strength for ~2 seconds...")
-        # Re-send the same strength every ~0.5 s in case the device's FFB
-        # state machine resets between writes (some kernels expire stale
-        # autocenter values automatically after ~1 s).
-        for _ in range(4):
-            _write_ff_event(fd, FF_AUTOCENTER, 0xFFFF)
-            time.sleep(0.5)
-        _write_ff_event(fd, FF_AUTOCENTER, 0)
+        effect_id = _upload_ff_constant(fd, effect_id=-1, level=1)
+        if effect_id < 0:
+            return "unsupported"
+        # Play the effect once; subsequent EVIOCSFF re-uploads update
+        # the level without needing another play event.
+        _send_ev_ff_event(fd, code=effect_id, value=1)
+        print("    pushing left for ~1 s...")
+        _upload_ff_constant(fd, effect_id=effect_id, level=0x7FFF)
+        time.sleep(1.0)
+        print("    pushing right for ~1 s...")
+        _upload_ff_constant(fd, effect_id=effect_id, level=-0x7FFF)
+        time.sleep(1.0)
+        _upload_ff_constant(fd, effect_id=effect_id, level=0)
+        _send_ev_ff_event(fd, code=effect_id, value=0)
+        return "ok"
     except OSError as exc:
-        print(f"  FFB write failed ({exc}); setting `ffb.enabled: false`.")
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        return False, 0.5
+        print(f"  FFB write failed ({exc}).")
+        return "unsupported"
     finally:
         try:
             os.close(fd)
         except OSError:
             pass
 
-    if not _confirm("  Did the wheel try to pull toward centre?", default=True):
-        print("  Setting `ffb.enabled: false`.")
-        return False, 0.5
 
-    while True:
+def _pulse_autocenter(device_path: Path) -> str:
+    """Pulse ``FF_AUTOCENTER`` at max strength for ~2 s.
+
+    Returns ``"ok"`` / ``"permission"`` / ``"unsupported"`` with the
+    same semantics as :func:`_pulse_constant_force`.
+    """
+    try:
+        fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
+    except PermissionError:
+        print(
+            "  Permission denied opening the device for FFB. Add yourself to "
+            "the `input` group or adjust udev rules, then re-run."
+        )
+        return "permission"
+    except OSError as exc:
+        print(f"  Could not open device for FFB ({exc}).")
+        return "unsupported"
+
+    try:
+        _send_ev_ff_event(fd, code=FF_GAIN, value=0xFFFF)
+        # Re-send the same strength every ~0.5 s in case the device's
+        # FFB state machine expires stale autocenter values (some
+        # kernels reset autocenter after ~1 s of no writes).
+        for _ in range(4):
+            _send_ev_ff_event(fd, code=FF_AUTOCENTER, value=0xFFFF)
+            time.sleep(0.5)
+        _send_ev_ff_event(fd, code=FF_AUTOCENTER, value=0)
+        return "ok"
+    except OSError as exc:
+        print(f"  FFB write failed ({exc}).")
+        return "unsupported"
+    finally:
         try:
-            raw = input("  FFB gain (0.0-1.0, default 0.6): ").strip()
-        except EOFError:
-            raw = ""
-        if not raw:
-            return True, 0.6
-        try:
-            gain = float(raw)
-        except ValueError:
-            print("    Please enter a number between 0.0 and 1.0.")
-            continue
-        if 0.0 <= gain <= 1.0:
-            return True, gain
-        print("    Out of range; pick a value between 0.0 and 1.0.")
+            os.close(fd)
+        except OSError:
+            pass
 
 
-def _write_ff_event(fd: int, code: int, value: int) -> None:
+# ``struct ff_effect`` size on 64-bit Linux; matches the kernel's
+# definition referenced by ``EVIOCSFF``. ``constant.level`` lives at
+# offset 16 (after the 2-byte alignment pad following replay.delay).
+_FF_EFFECT_STRUCT_SIZE = 48
+_FF_DIRECTION_EAST = 0x4000
+
+
+def _upload_ff_constant(fd: int, *, effect_id: int, level: int) -> int:
+    """``EVIOCSFF`` an ``ff_effect`` with the given constant level.
+
+    Pass ``effect_id=-1`` on the first call to let the kernel assign
+    an id; reuse the returned id for subsequent level updates so the
+    driver doesn't allocate a fresh effect every tick. Returns the
+    assigned id, or -1 if the upload was rejected.
+    """
+    buf = bytearray(_FF_EFFECT_STRUCT_SIZE)
+    struct.pack_into("Hh", buf, 0, FF_CONSTANT, effect_id)
+    struct.pack_into("H", buf, 4, _FF_DIRECTION_EAST)
+    struct.pack_into("h", buf, 16, max(-0x7FFF, min(0x7FFF, level)))
+    try:
+        fcntl.ioctl(fd, EVIOCSFF, buf)
+    except OSError:
+        return -1
+    return struct.unpack_from("Hh", buf, 0)[1]
+
+
+def _send_ev_ff_event(fd: int, *, code: int, value: int) -> None:
     now = time.time()
     sec = int(now)
     usec = int((now - sec) * 1_000_000)
@@ -565,6 +681,24 @@ def _write_ff_event(fd: int, code: int, value: int) -> None:
         fd,
         struct.pack(EVDEV_EVENT_FORMAT, sec, usec, EV_FF, code, value),
     )
+
+
+def _prompt_gain(prompt: str, *, default: float, lo: float, hi: float) -> float:
+    while True:
+        try:
+            raw = input(prompt).strip()
+        except EOFError:
+            return default
+        if not raw:
+            return default
+        try:
+            gain = float(raw)
+        except ValueError:
+            print(f"    Please enter a number between {lo} and {hi}.")
+            continue
+        if lo <= gain <= hi:
+            return gain
+        print(f"    Out of range; pick a value between {lo} and {hi}.")
 
 
 # ---------------------------------------------------------------------
@@ -658,6 +792,7 @@ def _write_profile_yaml(
     pedals_inverted: bool,
     invert_steering: bool,
     ffb_enabled: bool,
+    ffb_mode: str,
     ffb_gain: float,
     threshold: float = 0.12,
 ) -> None:
@@ -702,6 +837,7 @@ def _write_profile_yaml(
         f"invert_steering: {str(invert_steering).lower()}",
         "",
         "ffb:",
+        f"  mode: {ffb_mode}   # {_FFB_MODE_COMMENTS.get(ffb_mode, '')}".rstrip(),
         f"  enabled: {str(ffb_enabled).lower()}",
         f"  gain: {_format_float(ffb_gain)}",
         "",
@@ -709,6 +845,13 @@ def _write_profile_yaml(
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+_FFB_MODE_COMMENTS: dict[str, str] = {
+    "autocenter": "in-kernel FF_AUTOCENTER (Thrustmaster, Logitech)",
+    "constant_force": "EVIOCSFF FF_CONSTANT effect (Fanatec, Simagic, Moza, "
+    "Thrustmaster)",
+}
 
 
 def _yaml_quote(value: str) -> str:

@@ -24,8 +24,16 @@ EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)
 EV_ABS = 0x03
 EV_FF = 0x15
 
+FF_CONSTANT = 0x52
 FF_AUTOCENTER = 0x61
 FF_GAIN = 0x60
+
+# ``EVIOCSFF`` -- upload (or update) a ``struct ff_effect`` for playback.
+# Hand-coded so we don't depend on ``ioctl_opt`` / evdev for a single
+# constant. Layout: _IOC(_IOC_WRITE, 'E', 0x80, sizeof(struct ff_effect))
+# where sizeof(ff_effect) = 0x30 on 64-bit Linux and the kernel encodes
+# this as 0x40304580.
+EVIOCSFF = 0x40304580
 
 
 def EVIOCGABS(axis: int) -> int:  # noqa: N802 - mirrors the kernel macro name
