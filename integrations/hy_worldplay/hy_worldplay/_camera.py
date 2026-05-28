@@ -27,7 +27,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, RingAttention
+from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 from hy_worldplay._prope import prope_qkv
 from flashdreams.recipes.wan.transformer.impl.modules import (
@@ -177,7 +177,7 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
 
         # Independent attention op for the PRoPE branch keeps CP routing
         # symmetric across branches without sharing internal state.
-        self.attn_op_prope = RingAttention(qkv_format="bshd", backend="cudnn")
+        self.attn_op_prope = ContextParallelAttention(qkv_format="bshd", backend="cudnn")
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Route CP to both attention ops; the PRoPE branch follows the standard one."""

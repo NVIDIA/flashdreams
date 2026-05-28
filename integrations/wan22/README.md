@@ -19,7 +19,7 @@ wrapper on top.
 - `WAN22_TI2V_5B_DIT_DIFFUSERS_PATH` — diffusers safetensors URL.
 - `wan22_ti2v_5b_dit_state_dict_transform` — diffusers → flashdreams
   DiT key remap.
-- `WAN_CONFIGS` — `{recipe_name: pipeline_config}` registry dict.
+- `WAN_CONFIGS` — `{name: pipeline_config}` registry dict.
 
 ## Install
 

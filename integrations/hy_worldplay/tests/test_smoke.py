@@ -112,12 +112,12 @@ def test_runner_target_routes_to_runner() -> None:
     assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B._target is HyWorldPlayWanI2VRunner
 
 
-def test_pipeline_recipe_name_matches_runner_name() -> None:
-    """``recipe_name`` on the static pipeline must match the runner slug."""
-    assert PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.recipe_name == "hy-worldplay-wan-i2v-5b"
+def test_pipeline_name_matches_runner_name() -> None:
+    """The static pipeline's ``name`` must match the runner slug."""
+    assert PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.name == "hy-worldplay-wan-i2v-5b"
     assert (
         RUNNER_HY_WORLDPLAY_WAN_I2V_5B.runner_name
-        == PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.recipe_name
+        == PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.name
     )
 
 

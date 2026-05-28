@@ -115,7 +115,7 @@ def wan22_ti2v_5b_dit_state_dict_transform(
 
 
 PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
-    recipe_name="wan22-ti2v-5b",
+    name="wan22-ti2v-5b",
     enable_sync_and_profile=True,
     # The streaming I2V control encoder reuses the standard Wan
     # ``I2VCtrlEncoder``: AR step 0 encodes the first frame into latent
@@ -175,9 +175,9 @@ top of this pipeline.
 """
 
 WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {
-    PIPELINE_WAN22_TI2V_5B.recipe_name: PIPELINE_WAN22_TI2V_5B,
+    PIPELINE_WAN22_TI2V_5B.name: PIPELINE_WAN22_TI2V_5B,
 }
-"""All in-tree Wan pipeline configs, keyed by ``recipe_name``."""
+"""All in-tree Wan pipeline configs, keyed by ``name``."""
 
 
 __all__ = [

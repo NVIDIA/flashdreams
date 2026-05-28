@@ -52,7 +52,7 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
     catch.
     """
     pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
-    pipeline.recipe_name = "hy-worldplay-wan-i2v-5b"
+    pipeline.name = "hy-worldplay-wan-i2v-5b"
 
     # Distilled WAN-5B fixed-timestep schedule (upstream's ``few_step=True``
     # branch in ``pipeline_wan_w_mem_relative_rope.py``). The base recipe
@@ -131,7 +131,7 @@ Production target for the ``hy-worldplay-wan-i2v-5b`` runner."""
 
 
 RUNNER_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayWanI2VRunnerConfig(
-    runner_name=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.recipe_name,
+    runner_name=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.name,
     description=(
         "HY-WorldPlay WAN-5B I2V (Wan 2.2 TI2V backbone, action + camera "
         "trajectory conditioning, reconstituted-context memory)."

@@ -62,11 +62,24 @@ _PUBLIC_WAN_VAE_CHECKPOINT_PATHS = {
     "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
 }
 
-# Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. There is no
-# repacked single-file ``.pth`` upstream like Wan 2.1; the loader pulls
-# the diffusers safetensors shard directly.
+# Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
+# loader pulls the diffusers safetensors shard and remaps keys via
+# :func:`wan22_ti2v_5b_vae_state_dict_transform` (``encoder.conv_in``
+# / ``quant_conv`` / ``post_quant_conv`` etc. -> our internal layout).
 WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
+)
+
+# Alternative upstream single-file checkpoint. Top-level key prefixes
+# (``encoder.*`` / ``decoder.*`` / ``conv1`` / ``conv2``) line up with
+# our internal :mod:`_residual_vae` model shape, BUT the ``.pth`` does
+# not cover every parameter our ``WanVAE`` wrapper builds (some encoder
+# / decoder slots stay on meta and ``model.to(device)`` raises
+# ``NotImplementedError: Cannot copy out of meta tensor``). Kept as a
+# constant for callers who want to invest in a tighter audit + a
+# tailored loader; the diffusers path above is still the default.
+WAN22_TI2V_5B_VAE_PATH = (
+    "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = (
@@ -1503,13 +1516,11 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
 
 # Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -> flashdreams ``WanVAE``
-# key remap. The diffusers layout names the down/up stages
-# ``down_blocks`` / ``up_blocks``, packs the residual conv stack as
-# ``resnets.{j}`` with ``norm1 / conv1 / norm2 / conv2 / conv_shortcut``
-# (vs our ``residual.{0..6}`` Sequential + ``shortcut``), and uses
-# ``mid_block.resnets / attentions`` (vs our ``middle.{0,1,2}``). The
-# top-level ``quant_conv`` / ``post_quant_conv`` map to our ``conv1`` /
-# ``conv2``. Patterns are applied in dict order; the first match wins.
+# key remap. The production configs below use upstream's
+# ``Wan2.2_VAE.pth`` whose layout matches our model directly (no remap
+# needed); this dict + :func:`wan22_ti2v_5b_vae_state_dict_transform`
+# are kept in tree as an opt-in fallback for callers who'd rather
+# point at the diffusers safetensors shard.
 _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # Top-level quant convs.
     r"^quant_conv\.(.*)$": r"conv1.\1",
