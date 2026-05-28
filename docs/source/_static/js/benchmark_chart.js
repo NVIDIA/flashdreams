@@ -56,10 +56,10 @@ function parseBenchmarkMarkdown(markdownText, series) {
       .filter((cell) => cell.length > 0);
 
   const header = parseRow(tableLines[0]).map((h) => h.toLowerCase());
-  const deviceIdx = header.indexOf("device");
-  if (deviceIdx < 0) {
-    throw new Error('Header must include a "device" column.');
+  if (header.length === 0) {
+    throw new Error("Benchmark markdown header is empty.");
   }
+  const groupIdx = 0;
 
   const seriesIndices = series.map((s) => {
     const idx = header.indexOf(s.key);
@@ -71,7 +71,7 @@ function parseBenchmarkMarkdown(markdownText, series) {
 
   return tableLines.slice(2).map((line) => {
     const row = parseRow(line);
-    const parsed = { device: row[deviceIdx] };
+    const parsed = { device: row[groupIdx] };
     series.forEach((s, i) => {
       parsed[s.key] = Number(row[seriesIndices[i]]);
     });
