@@ -41,11 +41,21 @@ IMAGE_PATH="${IMAGE_PATH:-${REPO_DIR}/assets/img/test.png}"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_DIR}/outputs/parity}"
 
 # ---------------------------------------------------------------- clone + pin
-if [[ ! -d "${REPO_DIR}/.git" ]]; then
+# ``git clone`` refuses non-empty targets, but ``bench_batch.sh`` may
+# have already populated ``${REPO_DIR}/hf_models/`` (distilled
+# checkpoint download). Init + fetch + checkout in place when the
+# directory exists, preserving anything HF already dropped there.
+if [[ -d "${REPO_DIR}/.git" ]]; then
+    echo "[setup] repo already present at ${REPO_DIR}, skipping clone"
+elif [[ -d "${REPO_DIR}" ]]; then
+    echo "[setup] ${REPO_DIR} exists but is not a git repo; init + fetch in place"
+    git -C "${REPO_DIR}" init -q
+    git -C "${REPO_DIR}" remote add origin "${REPO_URL}"
+    git -C "${REPO_DIR}" fetch --depth=1 origin HEAD
+    git -C "${REPO_DIR}" checkout -f FETCH_HEAD
+else
     echo "[setup] cloning ${REPO_URL} -> ${REPO_DIR}"
     git clone "${REPO_URL}" "${REPO_DIR}"
-else
-    echo "[setup] repo already present at ${REPO_DIR}, skipping clone"
 fi
 
 cd "${REPO_DIR}"
@@ -60,8 +70,19 @@ if [[ "${PIN_COMMIT}" != "HEAD" ]]; then
     fi
 fi
 
+# Upstream's ``wan/generate.py`` ``torch.load(..., map_location=self.device)``
+# fits the entire 40 GiB distilled .pt onto the GPU all at once -- OOMs on
+# anything below ~48 GiB VRAM. Flip the load to CPU so the file lands in RAM
+# first and ``load_state_dict`` then moves tensors GPU-side one at a time
+# (peak GPU footprint = model size, not file size). Idempotent: re-runs
+# find the substring already gone and no-op.
+if grep -q "map_location=self.device" "${REPO_DIR}/wan/generate.py"; then
+    echo "[setup] patching wan/generate.py to load checkpoint to CPU first (avoid 40 GiB GPU OOM)"
+    sed -i 's|map_location=self.device|map_location="cpu"|' "${REPO_DIR}/wan/generate.py"
+fi
+
 # --------------------------------------------------------------- HF downloads
-# ``huggingface-cli download`` treats positional args after the repo id as
+# ``hf download`` treats positional args after the repo id as
 # *exact filenames*, not directory prefixes -- so passing
 # ``wan_transformer wan_distilled_model`` matches zero files and silently
 # exits 0 with nothing fetched (prints "Fetching 0 files: 0it [00:00]").
@@ -74,8 +95,13 @@ WAN_TRANSFORMER_CONFIG="${HF_MODELS_DIR}/wan_transformer/config.json"
 WAN_DISTILLED_CKPT="${HF_MODELS_DIR}/wan_distilled_model/model.pt"
 if [[ ! -f "${WAN_TRANSFORMER_CONFIG}" || ! -f "${WAN_DISTILLED_CKPT}" ]]; then
     echo "[setup] downloading ${HF_REPO} {wan_transformer/, wan_distilled_model/} -> ${HF_MODELS_DIR}"
-    uv run huggingface-cli download "${HF_REPO}" \
-        --include "wan_transformer/*" "wan_distilled_model/*" \
+    # ``hf download`` treats *any* positional after the repo id as an
+    # exact filename and silently ignores ``--include`` once one is
+    # set. Pass each glob via a *separate* ``--include`` flag so neither
+    # collapses into the positional slot.
+    uv run hf download "${HF_REPO}" \
+        --include "wan_transformer/*" \
+        --include "wan_distilled_model/*" \
         --local-dir "${HF_MODELS_DIR}"
 else
     echo "[setup] HY-WorldPlay WAN models already present in ${HF_MODELS_DIR}, skipping download"
@@ -88,23 +114,12 @@ fi
 # All subsequent ``uv run`` calls (from inside ${REPO_DIR}) walk up and
 # resolve to the same ``${SCRIPT_DIR}/.venv``.
 #
-# Phase 2b.6.2 close: the lightweight sync below covers the *native*
-# plugin path only. Vendor's ``wan/generate.py`` additionally requires
-# the four heavy deps that were dropped from ``pyproject.toml`` (their
-# release toll on the repo-root resolution was deemed too high once
-# parity closed). Re-install them on demand when re-baselining:
-#
-#   ( cd "${SCRIPT_DIR}" && \
-#       uv pip install \
-#           sageattention cloudpickle "accelerate>=0.30" \
-#           "transformers==4.57.6" \
-#           --override "transformers==4.57.6" )
-#
-# Skip the manual step if you're only re-running the native plugin
-# from this sub-venv (the default now that
-# ``HyWorldPlayWanI2VRunnerConfig.use_native_pipeline=True`` is on by
-# default). See ``integrations/hy_worldplay/README.md`` "Re-baselining
-# vendor" for the full procedure.
+# The lightweight sync below covers the *native* plugin path only.
+# Vendor's ``wan/generate.py`` additionally requires four heavy deps
+# (kept out of the sub-venv's ``pyproject.toml`` because their resolution
+# toll on the repo-root lock was deemed too high once parity closed).
+# This script ``uv pip install``s them on demand below unless
+# ``SKIP_HEAVY_DEPS=1`` is set.
 echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
