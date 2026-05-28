@@ -18,8 +18,9 @@
 from __future__ import annotations
 
 import torch
-from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
+
+from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 
 __all__ = [
     "hy_worldplay_distilled_state_dict_transform",

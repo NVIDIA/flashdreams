@@ -20,13 +20,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.config import (
     PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
     RUNNER_CONFIGS,
     RUNNER_HY_WORLDPLAY_WAN_I2V_5B,
 )
 from hy_worldplay.runner import DEFAULT_PROMPT, HyWorldPlayWanI2VRunnerConfig
+
+from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -150,11 +151,12 @@ def test_static_pipeline_is_fully_hy_swapped() -> None:
 
 def test_static_pipeline_swaps_scheduler_to_euler_distilled() -> None:
     """The static HY pipeline uses the 4-step Euler distilled grid, not UniPC."""
+    from wan22.config import PIPELINE_WAN22_TI2V_5B
+
     from flashdreams.infra.diffusion.scheduler import (
         FlowMatchEulerDiscreteSchedulerConfig,
         FlowMatchUniPCSchedulerConfig,
     )
-    from wan22.config import PIPELINE_WAN22_TI2V_5B
 
     # Base recipe stays on UniPC so non-HY callers are unaffected.
     assert isinstance(

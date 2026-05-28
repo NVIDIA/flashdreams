@@ -500,14 +500,14 @@ class WanDiTNetwork(nn.Module):
         # this is just a contiguity-preserving no-op there.
         if per_token_timestep:
             block_e_shape = batch_shape + (L, 6, self.dim)
-            head_e = torch.broadcast_to(
-                e, batch_shape + (L, self.dim)
-            ).unsqueeze(-2)  # [..., L, 1, D]
+            head_e = torch.broadcast_to(e, batch_shape + (L, self.dim)).unsqueeze(
+                -2
+            )  # [..., L, 1, D]
         else:
             block_e_shape = batch_shape + (6, self.dim)
-            head_e = torch.broadcast_to(
-                e, batch_shape + (self.dim,)
-            ).unsqueeze(-2)  # [..., 1, D]
+            head_e = torch.broadcast_to(e, batch_shape + (self.dim,)).unsqueeze(
+                -2
+            )  # [..., 1, D]
         block_e = torch.broadcast_to(e0, block_e_shape)
 
         # Transformer blocks

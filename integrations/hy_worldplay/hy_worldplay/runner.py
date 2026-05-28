@@ -23,10 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
+from torch import Tensor
+
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
-from torch import Tensor
 
 __all__ = [
     "DEFAULT_PROMPT",
@@ -289,7 +290,6 @@ class HyWorldPlayWanI2VRunner(
         """
         if config.ckpt_path is not None:
             from flashdreams.infra.config import derive_config
-
             from hy_worldplay._checkpoint import (
                 hy_worldplay_distilled_state_dict_transform,
             )
@@ -668,7 +668,6 @@ class HyWorldPlayWanI2VRunner(
         without the HY swap.
         """
         from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
-
         from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
 
         cfg = self.config

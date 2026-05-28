@@ -24,6 +24,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+from torch.distributed import ProcessGroup
+
 from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
@@ -31,9 +34,6 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     BlockCache,
     SelfAttention,
 )
-from torch import Tensor
-from torch.distributed import ProcessGroup
-
 from hy_worldplay._prope import prope_qkv
 
 

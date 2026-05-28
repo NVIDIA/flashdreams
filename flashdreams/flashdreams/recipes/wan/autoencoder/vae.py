@@ -35,6 +35,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+from torch import Tensor
+
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.compile import compile_module
@@ -49,7 +51,6 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
-from torch import Tensor
 
 _INTERNAL_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",

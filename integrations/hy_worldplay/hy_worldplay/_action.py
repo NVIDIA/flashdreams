@@ -23,6 +23,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+
 from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrl,
     I2VCtrlEncoder,
@@ -43,7 +45,6 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerCache,
     Wan21TransformerConfig,
 )
-from torch import Tensor
 
 _HY_STABILIZATION_TIMESTEP: int = 14
 """Near-clean AdaLN timestep applied to memory K/V during the

@@ -184,12 +184,13 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
 
 def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
     """``use_prope_blocks`` toggles ``_build_block`` between stock :class:`Block` and PRoPE."""
-    from flashdreams.recipes.wan.transformer.impl.network import Block
     from hy_worldplay._action import (
         HyWorldPlayWanDiTNetwork,
         HyWorldPlayWanDiTNetworkConfig,
     )
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
+
+    from flashdreams.recipes.wan.transformer.impl.network import Block
 
     # Tiny but valid network config -- mirrors what
     # :class:`Wan21Transformer` would otherwise build at setup time.

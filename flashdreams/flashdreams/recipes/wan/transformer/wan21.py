@@ -498,13 +498,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         # on non-masked tokens.
         timestep = timestep.to(per_token_mask.device)
         mask = per_token_mask.to(timestep.dtype)
-        first_frame_value = timestep.new_tensor(
-            self.config.first_frame_timestep_value
-        )
-        return (
-            timestep.unsqueeze(-1) * (1.0 - mask)
-            + first_frame_value * mask
-        )
+        first_frame_value = timestep.new_tensor(self.config.first_frame_timestep_value)
+        return timestep.unsqueeze(-1) * (1.0 - mask) + first_frame_value * mask
 
     def _stamp_image_latent(
         self,

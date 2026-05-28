@@ -105,6 +105,7 @@ def _wrap_pipeline_call(
 ) -> Callable[..., Any]:
     """Open a fresh ``EventProfiler`` for the chunk, then record ``diffuse`` on return."""
     import torch
+
     from flashdreams.infra.profiler import EventProfiler
 
     def timed_call(self: Any, *args: object, **kwargs: object) -> Any:

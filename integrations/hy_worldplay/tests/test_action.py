@@ -219,8 +219,9 @@ def test_patchify_override_is_declared_on_subclass() -> None:
     Re-using the inherited method (without the explicit override) would
     therefore corrupt the action conditioner.
     """
-    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
     from hy_worldplay._action import HyWorldPlayWan21Transformer
+
+    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
 
     assert (
         HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp
@@ -265,8 +266,9 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
     base ``predict_flow`` on a stand-in instance so the test stays CPU-fast.
     """
     import torch
-    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
+
+    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
 
     captured: dict[str, dict] = {}
 

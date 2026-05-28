@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import copy
 
+from wan22.config import PIPELINE_WAN22_TI2V_5B
+
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchEulerDiscreteSchedulerConfig,
 )
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-from wan22.config import PIPELINE_WAN22_TI2V_5B
-
 from hy_worldplay._action import (
     HyWorldPlayWan21TransformerConfig,
     HyWorldPlayWanCtrlEncoderConfig,
