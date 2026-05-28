@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Vendor-side DiT-only CUDA-event profiler + optional ``torch.compile`` + cudnn SDPA.
+"""Vendor-side DiT-only CUDA-event profiler + optional cuDNN SDPA backend.
 
-Installed at ``WanPipeline.__init__`` so each freshly-constructed
-pipeline gets a wrapper around its transformer ``forward``. Each
-forward call records a ``(start, end)`` CUDA-event pair; on
+The patch operates on the *class* method
+``WanTransformer3DModel.forward`` rather than wrapping an instance,
+because diffusers introspects ``WanPipeline.__init__``'s signature for
+component registration and a wrapped ``__init__`` makes it lose the
+component names (raises ``"expected ['args', 'kwargs'], but only set()
+were passed"``).
+
+Each forward call records a ``(start, end)`` CUDA-event pair; on
 ``atexit`` we sync and dump the millisecond timings to a JSON file
 matching the native side's ``stats_dit_native.json`` shape.
 
@@ -25,14 +30,19 @@ Env vars (all opt-in; module is a no-op when ``HY_DIT_PROFILE`` is
 unset):
 
 * ``HY_DIT_PROFILE=1`` -- enable the per-step timer + JSON dump.
-* ``HY_VENDOR_COMPILE=1`` -- additionally wrap the transformer with
-  ``torch.compile(mode="max-autotune-no-cudagraphs")`` (matches the
-  ``compile_network=True`` default on the native runner).
 * ``HY_VENDOR_CUDNN_SDPA=1`` -- enter
   :func:`torch.nn.attention.sdpa_kernel` with the cuDNN backend
   around each forward.
 * ``HY_DIT_OUTPUT_JSON`` -- absolute path for the JSON dump; defaults
   to ``./stats_dit_vendor.json`` next to the working dir.
+
+``torch.compile`` on vendor was attempted in an earlier draft but
+vendor's KV cache uses dynamic shapes per chunk (rolling window +
+memory-prefill resizing) that Inductor cannot trace cleanly. Native
+ships ``compile_network=True`` via the static pipeline config; for
+matched-stack measurement, prefer reporting the post-warmup median
+DiT-forward ms on both sides at fixed cuDNN SDPA -- compile parity is
+not in scope.
 """
 
 from __future__ import annotations
@@ -51,10 +61,10 @@ _install_done = False
 
 
 def install_dit_profile_patch() -> None:
-    """Wrap vendor's transformer forward with CUDA-event timing + optional compile / cudnn.
+    """Wrap vendor's ``WanTransformer3DModel.forward`` with CUDA-event timing.
 
-    No-op when ``HY_DIT_PROFILE`` is unset. Idempotent: safe to call
-    multiple times across patch installers.
+    No-op when ``HY_DIT_PROFILE`` is unset. Idempotent across patch
+    installers.
     """
     global _install_done
     if _install_done:
@@ -62,43 +72,27 @@ def install_dit_profile_patch() -> None:
     if os.environ.get("HY_DIT_PROFILE", "") != "1":
         return
 
-    import torch
+    try:
+        from wan.models.dits.arwan_w_action_w_mem_relative_rope import (
+            WanTransformer3DModel,
+        )
+    except ImportError as exc:
+        print(
+            f"[dit_profile] cannot import vendor WanTransformer3DModel "
+            f"({exc}); skipping vendor instrumentation.",
+            flush=True,
+        )
+        return
 
-    from wan.inference import pipeline_wan_w_mem_relative_rope as _mod
-
-    original_init = _mod.WanPipeline.__init__
-    do_compile = os.environ.get("HY_VENDOR_COMPILE", "") == "1"
     do_cudnn = os.environ.get("HY_VENDOR_CUDNN_SDPA", "") == "1"
-
-    def _patched_init(self: object, *args: object, **kwargs: object) -> None:
-        original_init(self, *args, **kwargs)
-        transformer = getattr(self, "transformer", None)
-        if transformer is None:
-            print(
-                "[dit_profile] WanPipeline.__init__ produced no .transformer; "
-                "skipping vendor instrumentation.",
-                flush=True,
-            )
-            return
-
-        if do_compile:
-            try:
-                self.transformer = torch.compile(
-                    transformer, mode="max-autotune-no-cudagraphs"
-                )
-                transformer = self.transformer
-                print("[dit_profile] vendor transformer wrapped in torch.compile.", flush=True)
-            except Exception as exc:  # noqa: BLE001 (best-effort)
-                print(
-                    f"[dit_profile] torch.compile on vendor transformer failed "
-                    f"({type(exc).__name__}: {exc}); continuing without compile.",
-                    flush=True,
-                )
-
-        original_forward = transformer.forward
-        transformer.forward = _wrap_forward(original_forward, do_cudnn)
-
-    _mod.WanPipeline.__init__ = _patched_init
+    WanTransformer3DModel.forward = _wrap_forward(
+        WanTransformer3DModel.forward, do_cudnn
+    )
+    print(
+        f"[dit_profile] vendor DiT timer installed "
+        f"(cuDNN SDPA={'on' if do_cudnn else 'off'}).",
+        flush=True,
+    )
     atexit.register(_dump_records)
     _install_done = True
 
@@ -106,29 +100,29 @@ def install_dit_profile_patch() -> None:
 def _wrap_forward(
     forward_callable: Callable[..., Any], do_cudnn: bool
 ) -> Callable[..., Any]:
-    """Return a CUDA-event-timed wrapper around ``forward_callable``."""
+    """Return a CUDA-event-timed wrapper around the class-bound ``forward``."""
     import torch
 
     if do_cudnn:
         from torch.nn.attention import SDPBackend, sdpa_kernel
 
-        def timed_with_cudnn(*args: object, **kwargs: object) -> Any:
+        def timed_with_cudnn(self: Any, *args: object, **kwargs: object) -> Any:
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
             start.record()
             with sdpa_kernel([SDPBackend.CUDNN_ATTENTION]):
-                out = forward_callable(*args, **kwargs)
+                out = forward_callable(self, *args, **kwargs)
             end.record()
             _records.append((start, end))
             return out
 
         return timed_with_cudnn
 
-    def timed_default(*args: object, **kwargs: object) -> Any:
+    def timed_default(self: Any, *args: object, **kwargs: object) -> Any:
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
         start.record()
-        out = forward_callable(*args, **kwargs)
+        out = forward_callable(self, *args, **kwargs)
         end.record()
         _records.append((start, end))
         return out
@@ -151,7 +145,7 @@ def _dump_records() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "backend": "vendor",
-        "compile_enabled": os.environ.get("HY_VENDOR_COMPILE", "") == "1",
+        "compile_enabled": False,
         "cudnn_sdpa_enabled": os.environ.get("HY_VENDOR_CUDNN_SDPA", "") == "1",
         "dit_per_step_ms": [round(v, 3) for v in times_ms],
         "n_steps": len(times_ms),

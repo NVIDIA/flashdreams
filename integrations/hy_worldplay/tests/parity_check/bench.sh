@@ -74,10 +74,12 @@ PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek ar
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
 HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE:-1}"
 USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE:-1}"
-# DiT-only timer + vendor torch.compile + cudnn SDPA: Option A
-# methodology for the post-warmup median comparison.
+# DiT-only timer + matched cuDNN SDPA on vendor: Option A
+# methodology for the post-warmup median comparison. Vendor
+# ``torch.compile`` was dropped from this matrix -- vendor's KV cache
+# uses dynamic shapes per chunk that Inductor can't trace cleanly.
+# Native ships ``compile_network=True`` regardless.
 HY_DIT_PROFILE="${HY_DIT_PROFILE:-1}"
-HY_VENDOR_COMPILE="${HY_VENDOR_COMPILE:-1}"
 HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA:-1}"
 # Chunks at the start of the rollout to drop from the DiT median
 # (Inductor autotune + CUDA-graph capture land in the first few).
@@ -119,14 +121,13 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
 rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
-echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, COMPILE=${HY_VENDOR_COMPILE}, CUDNN_SDPA=${HY_VENDOR_CUDNN_SDPA}) -> ${VENDOR_OUT}"
+echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, CUDNN_SDPA=${HY_VENDOR_CUDNN_SDPA}) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
 NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
     HY_DIT_PROFILE="${HY_DIT_PROFILE}" \
-    HY_VENDOR_COMPILE="${HY_VENDOR_COMPILE}" \
     HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA}" \
     HY_DIT_OUTPUT_JSON="${VENDOR_OUT}/stats_dit_vendor.json" \
     bash "${SCRIPT_DIR}/run.sh"
