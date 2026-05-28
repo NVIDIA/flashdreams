@@ -62,19 +62,23 @@ HF_MODELS_DIR="${HF_MODELS_DIR:-${HY_REPO_DIR}/hf_models}"
 CKPT_PATH="${CKPT_PATH:-${HF_MODELS_DIR}/wan_distilled_model/model.pt}"
 
 IMAGE_PATH="${IMAGE_PATH:-${REPO_ROOT}/data_local/cat_surf.jpg}"
-# ``num_chunk=4`` is the largest setting that vendor fits in 44 GiB
-# of VRAM: the OOM scales with accumulated KV sequence length, not
-# total chunk count, and crosses the 44 GiB ceiling around
-# ``s23 ~ 14000`` (chunk index >= 5). 4 chunks gives 16 DiT forwards.
-# Default ``WARMUP_CHUNKS=2`` (chunks 0-1 are Inductor autotune + the
-# steepest filling phase of the KV cache) leaves 8 DiT samples for the
-# post-warmup median -- short of the manager's "discard first 5"
-# spec, but on a larger GPU the user can bump ``NUM_CHUNK`` /
-# ``WARMUP_CHUNKS`` back to 8 / 5.
-NUM_CHUNK="${NUM_CHUNK:-4}"
+# ``num_chunk=2`` is the largest setting that fits both legs in 44
+# GiB of VRAM on a single RTX 6000 Ada:
+#   * Vendor's compiled-block cache + accumulated KV pool cross 44
+#     GiB by chunk index ~5 (``s23 ~ 14000`` in the Inductor OOM
+#     trace) -- so vendor caps at ``num_chunk<=4``.
+#   * Native's VAE decoder CUDA-graph private pool (~3 GiB) plus
+#     the rolling KV / memory KV growth crosses 44 GiB at
+#     ``num_chunk=4`` (3.44 GiB decode-spike allocation OOMs against
+#     ~6 GiB of fragmented reserved-unallocated memory).
+# 2 chunks * 4 denoising steps = 8 DiT forwards per side. Default
+# ``WARMUP_CHUNKS=0`` keeps every sample (no warmup discard at this
+# size). On a >=80 GiB GPU bump ``NUM_CHUNK`` to 8 and
+# ``WARMUP_CHUNKS`` to 5 to match the manager's original spec.
+NUM_CHUNK="${NUM_CHUNK:-2}"
 # Native pose. ``num_chunk * 4 - 1`` motion steps (the parser prepends
 # an identity for the input frame).
-POSE="${POSE:-w-15}"
+POSE="${POSE:-w-7}"
 SEED="${SEED:-0}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
@@ -89,10 +93,10 @@ HY_DIT_PROFILE="${HY_DIT_PROFILE:-1}"
 HY_VENDOR_CUDNN_SDPA="${HY_VENDOR_CUDNN_SDPA:-1}"
 # Chunks at the start of the rollout to drop from the DiT median
 # (Inductor autotune + CUDA-graph capture land in the first few).
-# Default 2 because vendor's VRAM ceiling caps ``NUM_CHUNK`` at 4 on
-# 44 GiB; bump to 5 (matching the manager's spec) on larger GPUs where
-# you've also bumped ``NUM_CHUNK`` to 8+.
-WARMUP_CHUNKS="${WARMUP_CHUNKS:-2}"
+# Default 0 because the 44 GiB VRAM ceiling caps ``NUM_CHUNK`` at 2,
+# leaving no chunks to spare for warmup. Set to 5 (per manager's
+# spec) when bumping ``NUM_CHUNK`` to 8 on a >=80 GiB GPU.
+WARMUP_CHUNKS="${WARMUP_CHUNKS:-0}"
 
 NATIVE_OUT="${OUTPUT_DIR}/native"
 VENDOR_OUT="${OUTPUT_DIR}/vendor"

@@ -35,12 +35,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 IMAGES_DIR="${IMAGES_DIR:-${REPO_ROOT}/data_local}"
-# Match bench.sh's VRAM-constrained defaults (vendor OOMs on 44 GiB
-# at num_chunk>=5). 4 chunks * 4 denoising = 16 DiT forwards; with
-# the default ``WARMUP_CHUNKS=2`` in bench.sh, 8 DiT samples remain
-# post-warmup. Bump on larger GPUs.
-NUM_CHUNK="${NUM_CHUNK:-4}"
-POSE="${POSE:-w-15}"
+# Match bench.sh's VRAM-constrained defaults: ``num_chunk=2`` is the
+# largest that fits both legs in 44 GiB on RTX 6000 Ada. 8 DiT
+# forwards per side; on a >=80 GiB GPU bump to 8 with WARMUP_CHUNKS=5.
+NUM_CHUNK="${NUM_CHUNK:-2}"
+POSE="${POSE:-w-7}"
 SEED="${SEED:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench_pairs}"
 
