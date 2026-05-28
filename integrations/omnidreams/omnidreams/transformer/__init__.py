@@ -221,21 +221,22 @@ class CosmosTransformerConfig(TransformerConfig):
     native_dit_attention_backend: str = "auto"
     """Optimized native attention backend.
 
-    ``auto`` uses the FP8 Sparge/SageAttention-3 hybrid when both native
-    backends are available; otherwise it selects the best built backend.
+    ``auto`` selects the current default, which resolves to the portable cuDNN
+    FP8 SDPA path. Set ``sparge``, ``sage3``, or ``sage3_fp8`` explicitly to
+    opt into Sparge/SageAttention-3 experiments.
     """
 
     native_dit_sparge_topk: float | None = None
     """Optional Sparge self-attention top-k ratio.
 
-    ``None`` uses ``0.25`` for both the FP8 ``auto`` hybrid schedule and pure
-    Sparge.
+    ``None`` uses ``0.25`` for Sparge and Sparge/SageAttention-3 hybrid runs.
     """
 
     native_dit_sparge_hybrid_period: int | None = None
     """Optional Sparge/SageAttention-3 hybrid period.
 
-    ``None`` uses period ``2`` for FP8 ``auto`` and ``0`` otherwise.
+    ``None`` uses ``0``. Set a value greater than ``1`` with
+    ``native_dit_attention_backend="sparge"`` to enable the hybrid schedule.
     """
 
     native_dit_sparge_hybrid_phase: int | None = None

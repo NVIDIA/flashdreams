@@ -604,6 +604,60 @@ def test_optimized_dit_shape_ops_preserves_configured_dtype() -> None:
 
 
 @pytest.mark.ci_cpu
+def test_cosmos_transformer_config_defaults_to_auto_native_attention() -> None:
+    from omnidreams.transformer import CosmosTransformerConfig
+
+    config = CosmosTransformerConfig()
+
+    assert config.native_dit_backend == "fp8_kvcache_cudnn"
+    assert config.native_dit_attention_backend == "auto"
+
+
+@pytest.mark.ci_cpu
+def test_optimized_dit_default_attention_backend_uses_cudnn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage3_status",
+        lambda self, device=None: (True, ""),
+    )
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sparge_status",
+        lambda self, device=None: (True, ""),
+    )
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=28,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+    )
+
+    executor = optimized_dit.OptimizedDiTExecutor(transformer, extension)
+    executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+    assert executor._requested_attention_backend == "auto"
+    assert executor._attention_backend == "cudnn"
+    assert executor._sparge_hybrid_period == 0
+
+
+@pytest.mark.ci_cpu
 def test_optimized_dit_sparge_period_one_is_pure_sparge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -643,7 +697,7 @@ def test_optimized_dit_sparge_period_one_is_pure_sparge(
         transformer,
         extension,
         dit_backend="fp8_kvcache_cudnn",
-        attention_backend="auto",
+        attention_backend="sparge",
         sparge_hybrid_period=1,
     )
     executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
@@ -661,13 +715,13 @@ def test_optimized_dit_sparge_period_one_is_pure_sparge(
     )
     auto_executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
 
-    assert auto_executor._attention_backend == "sparge"
+    assert auto_executor._attention_backend == "cudnn"
     assert auto_executor._sparge_hybrid_period == 0
     assert auto_executor._sparge_topk == optimized_dit._DEFAULT_SPARGE_TOPK
 
 
 @pytest.mark.ci_cpu
-def test_optimized_dit_hybrid_sends_fp8_only_default_cache_config(
+def test_optimized_dit_explicit_sparge_hybrid_sends_fp8_only_cache_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     optimized_dit = native.load_python_module("optimized_dit")
@@ -720,7 +774,8 @@ def test_optimized_dit_hybrid_sends_fp8_only_default_cache_config(
         transformer,
         extension,
         dit_backend="fp8_kvcache_cudnn",
-        attention_backend="auto",
+        attention_backend="sparge",
+        sparge_hybrid_period=optimized_dit._DEFAULT_SPARGE_HYBRID_PERIOD,
     )
     monkeypatch.setattr(executor, "_release_network_after_fp8_snapshot", lambda: None)
 

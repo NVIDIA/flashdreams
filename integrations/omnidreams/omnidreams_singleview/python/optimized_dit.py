@@ -56,7 +56,6 @@ from einops import rearrange
 from omnidreams.transformer import (
     CosmosTransformer,
     CosmosTransformerCache,
-    CosmosTransformerConfig,
 )
 from omnidreams.transformer.impl.network import CosmosDiTNetworkCache
 from torch import Tensor
@@ -853,14 +852,7 @@ class OptimizedDiTExecutor:
         return True, ""
 
     def _resolve_sparge_options(self) -> tuple[float, int, int]:
-        hybrid_default = (
-            self._uses_fp8_dit and self._requested_attention_backend == "auto"
-        )
-        period = (
-            _DEFAULT_SPARGE_HYBRID_PERIOD
-            if self._requested_sparge_hybrid_period is None and hybrid_default
-            else int(self._requested_sparge_hybrid_period or 0)
-        )
+        period = int(self._requested_sparge_hybrid_period or 0)
         if 0 < period <= 1:
             period = 0
         topk = (
@@ -889,24 +881,13 @@ class OptimizedDiTExecutor:
                 f"'sparge', 'sage3', or 'sage3_fp8' (got {requested!r})"
             )
 
+        if requested == "auto":
+            return "cudnn", False
+
         sage3_available, sage3_reason = self._sage3_status(device)
         sparge_available, sparge_reason = self._sparge_status(device)
         head_dim = self.config.network.model_channels // self.config.network.num_heads
         sparge_supported = head_dim == 128
-        if requested == "auto":
-            if self._uses_fp8_dit and sparge_hybrid_period > 0:
-                if sage3_available and sparge_available and sparge_supported:
-                    return "sparge", True
-                if sage3_available:
-                    return "sage3_fp8", False
-                if sparge_available and sparge_supported:
-                    return "sparge", False
-                return "cudnn", False
-            if sparge_available and sparge_supported:
-                return "sparge", False
-            if sage3_available:
-                return ("sage3_fp8" if self._uses_fp8_dit else "sage3"), False
-            return "cudnn", False
 
         if requested == "sage3_fp8" and not self._uses_fp8_dit:
             raise ValueError(
@@ -916,7 +897,8 @@ class OptimizedDiTExecutor:
         if requested == "sage3" and self._uses_fp8_dit:
             raise ValueError(
                 "--native-attention-backend=sage3 is not supported with "
-                "the fp8 DiT backend; use 'sage3_fp8' or 'auto' instead."
+                "the fp8 DiT backend; use 'sage3_fp8' or 'auto' for the "
+                "default cuDNN path instead."
             )
         if requested in {"sage3", "sage3_fp8"} and not sage3_available:
             raise ValueError(
@@ -952,15 +934,11 @@ class OptimizedDiTExecutor:
         sparge_topk, sparge_hybrid_period, sparge_hybrid_phase = (
             self._resolve_sparge_options()
         )
-        attention_backend, sparge_hybrid_enabled = self._resolve_attention_backend(
+        attention_backend, _ = self._resolve_attention_backend(
             self._requested_attention_backend,
             sparge_hybrid_period=sparge_hybrid_period,
             device=device_key,
         )
-        if self._requested_attention_backend == "auto" and not sparge_hybrid_enabled:
-            sparge_hybrid_period = 0
-            if self._requested_sparge_topk is None and attention_backend == "sparge":
-                sparge_topk = _DEFAULT_SPARGE_TOPK
         if sparge_hybrid_period and (
             attention_backend != "sparge" or not self._uses_fp8_dit
         ):
