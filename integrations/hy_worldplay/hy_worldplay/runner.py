@@ -25,12 +25,15 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 __all__ = [
     "DEFAULT_PROMPT",
+    "EXAMPLE_DATA_BASE_URL",
+    "EXAMPLE_DATA_DIR_LOCAL",
     "HyWorldPlayWanI2VRunner",
     "HyWorldPlayWanI2VRunnerConfig",
     "preprocess_first_frame",
@@ -45,6 +48,21 @@ DEFAULT_PROMPT = (
 identical -- including no trailing period -- so UMT5 tokenization
 matches the reference output (trailing ``.`` adds an extra token and
 shifts conditioning by ~5/255)."""
+
+
+# Repo root = ``<this file>.parents[3]`` (``flashdreams/integrations/hy_worldplay/hy_worldplay/runner.py``).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+EXAMPLE_DATA_BASE_URL = (
+    "https://raw.githubusercontent.com/Tencent-Hunyuan/HY-WorldPlay/main/assets"
+)
+"""HTTP base URL where upstream's sample first-frame image / pose JSON live."""
+
+EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/hy_worldplay"
+"""Local cache root for the downloaded sample inputs."""
+
+_EXAMPLE_IMAGE_FILENAME = "test.png"
+"""Upstream's default ``--image_path`` fixture (704x1280)."""
 
 
 def preprocess_first_frame(
@@ -192,7 +210,17 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     non-empty line is used."""
 
     image_path: Path | None = None
-    """First-frame RGB image. Required (HY-WorldPlay WAN-5B is I2V-only)."""
+    """First-frame RGB image. Required (HY-WorldPlay WAN-5B is I2V-only)
+    unless :attr:`example_data` is ``True``, in which case the runner
+    lazy-downloads upstream's ``assets/img/test.png`` fixture from the
+    HY-WorldPlay GitHub repo at run time and uses that as the default."""
+
+    example_data: bool = False
+    """When ``True``, lazy-download upstream's bundled sample
+    first-frame image into
+    ``assets/example_data/hy_worldplay/`` (rank-0 only) and fill
+    :attr:`image_path` from it when unset. Use for the README demo;
+    pass ``--image-path`` explicitly for production runs."""
 
     pose: str = "w-15"
     """Camera trajectory as a pose-string (e.g. ``"w-15"``,
@@ -349,10 +377,14 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
                     "CUDAGraphWrapper for diagnostic dumps."
                 )
 
+        if cfg.image_path is None and cfg.example_data:
+            cfg.image_path = self._fetch_example_image()
         if cfg.image_path is None:
             raise ValueError(
                 "HY-WorldPlay WAN-5B is I2V only -- pass "
-                "``--image-path <path-to-jpg>`` to provide the first frame."
+                "``--image-path <path-to-jpg>`` to provide the first frame, "
+                "or set ``--example-data`` to lazy-download upstream's "
+                "``assets/img/test.png`` fixture."
             )
         if not cfg.image_path.exists():
             raise FileNotFoundError(f"image_path {cfg.image_path} does not exist")
@@ -471,6 +503,24 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
                 f"[{cfg.runner_name}] wrote {len(dit_per_step_ms)} native "
                 f"DiT step ms -> {dit_path.resolve()}"
             )
+
+    def _fetch_example_image(self) -> Path:
+        """Lazy-download upstream's bundled ``assets/img/test.png`` on rank 0.
+
+        Mirrors :func:`lingbot.runner._ensure_example_data_downloaded`'s
+        rank-0-download + barrier-all-ranks pattern; the cached file is
+        reused across rollouts.
+        """
+        cache_dir = EXAMPLE_DATA_DIR_LOCAL
+        if self.is_rank_zero:
+            download_to_cache(
+                f"{EXAMPLE_DATA_BASE_URL}/img/{_EXAMPLE_IMAGE_FILENAME}",
+                cache_dir=cache_dir,
+                filename=_EXAMPLE_IMAGE_FILENAME,
+            )
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+        return cache_dir / _EXAMPLE_IMAGE_FILENAME
 
     def _bind_action_labels(self) -> None:
         """Parse the pose string and bind per-rollout action labels on the encoder."""
