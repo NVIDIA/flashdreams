@@ -35,10 +35,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 IMAGES_DIR="${IMAGES_DIR:-${REPO_ROOT}/data_local}"
-# Match bench.sh: 8 chunks (32 DiT forwards) gives enough samples for
-# a stable post-warmup median after discarding the first 5 chunks.
-NUM_CHUNK="${NUM_CHUNK:-8}"
-POSE="${POSE:-w-31}"
+# Match bench.sh's VRAM-constrained defaults (vendor OOMs on 44 GiB
+# at num_chunk>=7). 6 chunks * 4 denoising = 24 DiT forwards; discard
+# first 5 chunks = 4 DiT samples post-warmup. Bump on larger GPUs.
+NUM_CHUNK="${NUM_CHUNK:-6}"
+POSE="${POSE:-w-23}"
 SEED="${SEED:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench_pairs}"
 

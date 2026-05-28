@@ -62,13 +62,17 @@ HF_MODELS_DIR="${HF_MODELS_DIR:-${HY_REPO_DIR}/hf_models}"
 CKPT_PATH="${CKPT_PATH:-${HF_MODELS_DIR}/wan_distilled_model/model.pt}"
 
 IMAGE_PATH="${IMAGE_PATH:-${REPO_ROOT}/data_local/cat_surf.jpg}"
-# ``num_chunk=8`` gives 8 chunks * 4 denoising steps = 32 DiT forwards
-# per side, enough headroom to discard 5 warmup chunks (20 steps) and
-# still have 12 steady-state DiT samples for a stable median.
-NUM_CHUNK="${NUM_CHUNK:-8}"
+# ``num_chunk=6`` gives 6 chunks * 4 denoising steps = 24 DiT forwards
+# per side. After discarding the first 5 chunks (20 forwards) per
+# manager's "exclude first 5 AR steps" spec, 4 DiT samples remain --
+# the minimum for a "median" statistic but the largest we can fit:
+# vendor OOMs on 44 GiB at ``num_chunk>=7`` (the compiled-block cache
+# + KV memory pool exceed VRAM there). For more samples on a larger
+# GPU, bump ``NUM_CHUNK`` and ``POSE``.
+NUM_CHUNK="${NUM_CHUNK:-6}"
 # Native pose. ``num_chunk * 4 - 1`` motion steps (the parser prepends
 # an identity for the input frame).
-POSE="${POSE:-w-31}"
+POSE="${POSE:-w-23}"
 SEED="${SEED:-0}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
