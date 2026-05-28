@@ -22,8 +22,8 @@ FlashDreams
      #furo-main-content > section > h1 { display: none; }
    </style>
    <div class="homepage-logo-wrap">
-     <img class="only-light" src="_static/flashdreams-logo-horizontal.png" alt="FlashDreams">
-     <img class="only-dark" src="_static/flashdreams-logo-horizontal-light.png" alt="FlashDreams">
+     <img class="only-light" src="_static/horizontal-light.svg" alt="FlashDreams">
+     <img class="only-dark" src="_static/horizontal-dark.svg" alt="FlashDreams">
    </div>
 
 Overview

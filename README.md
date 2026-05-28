@@ -5,8 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/flashdreams-logo-horizontal-light.png">
-    <img alt="FlashDreams" src="assets/logo/flashdreams-logo-horizontal.png" width="600">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/horizontal-dark.svg">
+    <img alt="FlashDreams" src="assets/logo/horizontal-light.svg" width="600">
   </picture>
 </p>
 

@@ -80,7 +80,7 @@ async def test_request_session_uses_lingbot_aligned_viewer_shell() -> None:
         assert response.status == 200
         assert 'class="brandOverlay"' in body
         assert "FlashDreams" in body
-        assert "/assets/logo/flashdreams-logo-horizontal.png" in body
+        assert "/assets/logo/horizontal-light.svg" in body
         assert 'class="statusCard overlayPanel"' in body
         assert 'class="controlCard overlayPanel"' in body
         assert 'class="logCard overlayPanel"' in body
@@ -116,9 +116,9 @@ async def test_shared_flashdreams_brand_asset_is_served() -> None:
     manager = FakeSessionManager()
     client = await _build_client(manager)
     try:
-        response = await client.get("/assets/logo/flashdreams-logo-horizontal.png")
+        response = await client.get("/assets/logo/horizontal-light.svg")
         assert response.status == 200
-        assert response.content_type == "image/png"
+        assert response.content_type == "image/svg+xml"
     finally:
         await client.close()
 
