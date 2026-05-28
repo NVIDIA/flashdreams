@@ -206,13 +206,15 @@ def _render_report(
         _perf_table(native_stats, vendor_stats, warmup_chunks),
         "",
         (
-            "Native stats come from flashdreams's built-in "
-            "``StreamInferencePipeline`` profiler (``enable_sync_and_profile=True``); "
-            "each AR step contributes one row to ``stats_<runner>.json`` with "
-            "encode / diffuse / decode / finalize / total_ms keys. Vendor's "
-            "``wan/generate.py`` doesn't emit a structured stats JSON, so the "
-            "vendor side only has a wall-clock total; per-stage breakdown on "
-            "the vendor side is a follow-up."
+            "Both sides report per-AR-step encode / diffuse / decode / "
+            "finalize / total_ms / mem_*_gib via flashdreams's "
+            "``EventProfiler``. Native goes through the built-in "
+            "``StreamInferencePipeline`` profiler "
+            "(``enable_sync_and_profile=True``); vendor uses the "
+            "monkey-patched ``WanPipeline`` wrapper in "
+            "``vendor_profile_patch.py`` (no ``encode`` stage on vendor "
+            "since upstream's chunk loop excludes the one-time first-frame "
+            "encode that runs at ``WanRunner.__init__``)."
         ),
         "",
         "## Parity (native mp4 vs vendor mp4)",

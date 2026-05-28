@@ -135,13 +135,15 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
 rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
-echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}) -> ${VENDOR_OUT}"
+echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, HY_VENDOR_PROFILE=1) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
 PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
     NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
+    HY_VENDOR_PROFILE=1 \
+    HY_VENDOR_STATS_JSON="${VENDOR_OUT}/stats_${RUNNER_NAME}.json" \
     bash "${SCRIPT_DIR}/run.sh"
 _vendor_elapsed_s=$(( $(date +%s) - _vendor_start_s ))
 
@@ -155,9 +157,12 @@ if [[ -z "${_vendor_mp4}" ]]; then
 fi
 mv "${_vendor_mp4}" "${VENDOR_OUT}/${RUNNER_NAME}.mp4"
 
-# Synthesised stats JSON: wall-clock elapsed only, no per-chunk timing
-# (upstream's ``predict`` is opaque to this harness).
-cat > "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" <<EOF
+# ``vendor_profile_patch.py`` writes the per-AR-step stats list via
+# its ``atexit`` hook (HY_VENDOR_STATS_JSON above); fall back to a
+# wall-clock-only synthesised JSON only if that didn't fire.
+if [[ ! -f "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" ]]; then
+    echo "[bench] vendor_profile_patch produced no stats JSON; synthesising wall-clock fallback"
+    cat > "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" <<EOF
 {
   "runner_name": "${RUNNER_NAME}",
   "backend": "vendor",
@@ -166,6 +171,7 @@ cat > "${VENDOR_OUT}/stats_${RUNNER_NAME}.json" <<EOF
   "elapsed_s": ${_vendor_elapsed_s}
 }
 EOF
+fi
 
 ## -------------------------------------------------------------- native leg
 echo "[bench] running NATIVE leg -> ${NATIVE_OUT} (HY_VENDOR_NOISE_MODE=${HY_VENDOR_NOISE_MODE})"
