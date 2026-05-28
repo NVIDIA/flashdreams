@@ -86,23 +86,24 @@ Written under `HY-WorldPlay/outputs/parity/` by default:
 - `<pose>_<sanitized_prompt>.mp4` — generated video (16 fps)
 - `err.txt` — error log (only created on failures)
 
-To compare against the `flashdreams` plugin output, run the same
-inputs through the wrapper. Stay inside this directory so `uv run`
-resolves to this sub-venv (which has both the upstream deps *and*
-the `hy_worldplay` workspace member installed):
+To compare against the native `flashdreams` plugin output, run the
+same inputs through the plugin. Stay inside this directory so `uv run`
+resolves to this sub-venv (which has the `hy_worldplay` workspace
+member installed alongside the upstream deps):
 
 ```bash
 uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --image-path "${IMAGE_PATH}" \
-    --ar-model-path HY-WorldPlay/hf_models/wan_transformer \
     --ckpt-path HY-WorldPlay/hf_models/wan_distilled_model/model.pt \
-    --hy-worldplay-repo-root HY-WorldPlay \
     --num-chunk 1 --pose 'w-4' \
-    --seed 0 --output-dir outputs/wrapper
+    --seed 0 --output-dir outputs/plugin
 ```
 
-Or invoke the same sub-venv from elsewhere in the repo via
-`uv run --project integrations/hy_worldplay/tests/parity_check ...`.
+For the matched-input, side-by-side perf + parity workflow used at
+PR review time, use `bench.sh` instead — it drives upstream's
+`wan/generate.py` via `run.sh` *and* the native plugin in one shot,
+then emits a `bench.md` summary. See the parent
+[`README.md`](../../README.md) "PR perf + visual sample" section.
 
 The two MP4s should be equivalent (same checkpoint, same pipeline,
 same RNG seed). They are **not** bit-for-bit identical because the
@@ -155,9 +156,9 @@ Two prerequisites for this bar:
    upstream's `wan/generate.py` `--input` argparse default.** An early
    version had a trailing `.` that shifted the UMT5 tokenisation by
    one token and added ~2 of drift on its own. Now guarded by
-   `tests/test_smoke.py::test_default_prompt_byte_matches_upstream`
-   and its negative-prompt twin, so a regression fails CPU-only
-   pytest before it ever reaches a GPU run.
+   `tests/test_smoke.py::test_default_prompt_byte_matches_upstream`,
+   so a regression fails CPU-only pytest before it ever reaches a GPU
+   run.
 
 True bit-for-bit parity would require eliminating the two-venv split
 entirely (see the phase-1.5 plan in

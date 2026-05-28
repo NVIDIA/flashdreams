@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GPU smoke tests for the native-pipeline path (phase 2b.1).
+"""GPU smoke tests for the native-pipeline path.
 
 Skipped on environments without CUDA or without a fixture image
 (``HY_WORLDPLAY_FIXTURE_IMAGE``). Run locally via::
@@ -23,10 +23,10 @@ Skipped on environments without CUDA or without a fixture image
 
 The native pipeline pulls the base Wan 2.2 TI2V-5B weights from
 ``Wan-AI/Wan2.2-TI2V-5B-Diffusers`` via Hugging Face (set ``HF_TOKEN``
-once); no upstream HY-WorldPlay tree / distilled checkpoint is needed
-at 2b.1 because action / camera / memory conditioning is not yet
-wired. CI hooks should set the env var before invoking pytest with
-the ``ci_gpu`` marker.
+once). Without ``ckpt_path``, HY conditioners stay zero-init identity;
+set it to HY-WorldPlay's distilled ``model.pt`` to exercise the full
+distilled stack. CI hooks should set the env var before invoking pytest
+with the ``ci_gpu`` marker.
 """
 
 from __future__ import annotations
@@ -60,16 +60,12 @@ def _fixture_image_or_skip() -> Path:
 
 
 def test_native_pipeline_end_to_end_single_chunk(tmp_path: Path) -> None:
-    """End-to-end: ``use_native_pipeline=True`` produces a valid mp4 for
-    ``num_chunk=1`` on a single GPU.
+    """End-to-end: the static HY pipeline produces a valid mp4 for ``num_chunk=1`` on a single GPU.
 
-    Phase 2b.1 is *not* parity-bar-gated -- the missing
-    action / camera / memory conditioners and the
-    UniPC-vs-Euler scheduler mismatch guarantee output drift vs the
-    vendor-wrapper baseline. This test only asserts the native rollout
-    reaches the persistence step without raising and the resulting mp4
-    is non-empty. Numeric parity comes back online at sub-PR 2b.5
-    after all conditioners + scheduler swap have landed.
+    Asserts the native rollout reaches the persistence step without
+    raising and the resulting mp4 is non-empty. With ``ckpt_path``
+    unset, HY conditioners stay zero-init identity so this is parity-
+    safe against the base Wan 2.2 TI2V-5B output.
     """
     import torch
 
@@ -78,14 +74,17 @@ def test_native_pipeline_end_to_end_single_chunk(tmp_path: Path) -> None:
 
     image = _fixture_image_or_skip()
 
-    from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
+    from dataclasses import replace
 
-    cfg = HyWorldPlayWanI2VRunnerConfig(
-        runner_name="hy-worldplay-wan-i2v-5b",
-        use_native_pipeline=True,
+    from hy_worldplay.config import RUNNER_HY_WORLDPLAY_WAN_I2V_5B
+
+    cfg = replace(
+        RUNNER_HY_WORLDPLAY_WAN_I2V_5B,
         image_path=image,
         num_chunk=1,
-        pose="w-4",
+        # ``num_chunk * 4 - 1 = 3`` motions; the pose parser prepends an
+        # identity pose for the input frame, so the total is 4 latents.
+        pose="w-3",
         output_dir=tmp_path,
     )
     cfg.setup().run()

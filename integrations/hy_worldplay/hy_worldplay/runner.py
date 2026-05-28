@@ -13,26 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HY-WorldPlay WAN-5B I2V runner config and vendor-wrapper driver."""
+"""HY-WorldPlay WAN-5B I2V runner config and driver."""
 
 from __future__ import annotations
 
-import copy
-import importlib
-import os
-import sys
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
-from flashdreams.infra.pipeline import StreamInferencePipelineConfig
-from flashdreams.infra.runner import RunnerConfig
-from hy_worldplay._vendor_pipeline import _NoopPipelineConfig
+import torch
+from torch import Tensor
+
+from flashdreams.infra.profiler import EventProfiler
+from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 __all__ = [
+    "DEFAULT_PROMPT",
     "HyWorldPlayWanI2VRunner",
     "HyWorldPlayWanI2VRunnerConfig",
+    "preprocess_first_frame",
 ]
 
 
@@ -45,81 +46,132 @@ identical -- including no trailing period -- so UMT5 tokenization
 matches the reference output (trailing ``.`` adds an extra token and
 shifts conditioning by ~5/255)."""
 
-DEFAULT_NEGATIVE_PROMPT = (
-    "色调艳丽,过曝,静态,细节模糊不清,字幕,风格,作品,画作,画面,静止,整体发灰,"
-    "最差质量,低质量,JPEG压缩残留,丑陋的,残缺的,多余的手指,画得不好的手部,"
-    "画得不好的脸部,畸形的,毁容的,形态畸形的肢体,手指融合,静止不动的画面,"
-    "杂乱的背景,三条腿,背景人很多,倒着走"
-)
-"""Upstream ``wan/generate.py`` negative-prompt default, verbatim."""
 
+def preprocess_first_frame(
+    image_path: Path,
+    pixel_height: int,
+    pixel_width: int,
+) -> Tensor:
+    """Load and resize the first-frame image to ``WanI2VCtrlEncoder``'s input shape.
 
-def _ensure_upstream_importable(repo_root: Path) -> None:
-    """Add the cloned HY-WorldPlay tree to ``sys.path``.
+    Aspect-ratio policy is fit + centre-crop, matching upstream's
+    ``hyvideo/utils/image.py`` so native and vendor see the same
+    conditioning frame for matching pixel sizes.
 
-    Upstream's ``wan/`` package imports siblings (``hyvideo``,
-    ``models``, ``distributed``, ``inference``) by bare name, so both
-    the repo root and ``<repo_root>/wan`` are prepended -- matching
-    what upstream's ``run.sh`` does via ``PYTHONPATH``.
+    Returns:
+        ``[1, 1, 3, H, W]`` float32 tensor in ``[-1, 1]``. The leading
+        ``1`` is the pipeline's ``batch_shape``; the next ``1`` is the
+        single-time-step dimension required by
+        :meth:`WanInferencePipeline.initialize_cache`.
     """
-    if not repo_root.exists():
-        raise FileNotFoundError(
-            f"HY-WorldPlay tree not found at {repo_root}. "
-            "Set ``hy_worldplay_repo_root`` to the cloned upstream repo "
-            "(or run ``tests/parity_check/run.sh`` once to clone it "
-            "under the parity-check directory and pass that path)."
-        )
-    for p in (repo_root, repo_root / "wan"):
-        sp = str(p.resolve())
-        if sp not in sys.path:
-            sys.path.insert(0, sp)
+    from PIL import Image
+
+    img = Image.open(image_path).convert("RGB")
+    src_w, src_h = img.size
+    target_h, target_w = pixel_height, pixel_width
+
+    # Scale-to-fill (the longer side hits the target; the shorter side
+    # overflows and is centre-cropped). Mirrors upstream's resize policy.
+    scale = max(target_h / src_h, target_w / src_w)
+    new_h = int(round(src_h * scale))
+    new_w = int(round(src_w * scale))
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+
+    left = (new_w - target_w) // 2
+    top = (new_h - target_h) // 2
+    img = img.crop((left, top, left + target_w, top + target_h))
+
+    arr = torch.from_numpy(_pil_to_numpy(img)).float()  # [H, W, 3] in [0, 255]
+    arr = arr.permute(2, 0, 1) / 127.5 - 1.0  # [3, H, W] in [-1, 1]
+    return arr.unsqueeze(0).unsqueeze(0)  # [1, 1, 3, H, W]
+
+
+def _pil_to_numpy(img: object) -> object:
+    """Convert a PIL image to a numpy array, importing numpy lazily.
+
+    The lazy import keeps numpy off the module surface so CPU smoke
+    sub-venvs without pillow / numpy can still import the module.
+    """
+    import numpy as np
+
+    return np.asarray(img)
+
+
+def _resolve_prompt(value: str | Path) -> str:
+    """Read an inline prompt or the first non-empty line of a prompt file."""
+    if isinstance(value, Path):
+        lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
+        assert lines, f"prompt file {value} has no non-empty lines"
+        return lines[0]
+    assert value, "--prompt must be a non-empty string or a path to a .txt file"
+    return value
+
+
+def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
+    """Persist a decoded video tensor as mp4.
+
+    Expects ``video`` shape ``[*batch, T, C, H, W]`` in ``[-1, 1]``.
+    Drops the leading batch axis (size 1), converts to ``[T, H, W, C]``
+    float32 in ``[0, 1]``, and hands the frame list to
+    ``diffusers.utils.export_to_video``.
+
+    Note:
+        Frames must be float in ``[0, 1]``: ``export_to_video``
+        internally multiplies ndarray frames by 255 before
+        ``.astype(np.uint8)``, so passing uint8 ``[0, 255]`` overflows
+        and produces visibly shifted RGB means (~40 units per channel
+        for typical pixel values).
+    """
+    import numpy as np
+    from diffusers.utils import export_to_video
+
+    if video.dim() > 4:
+        # Squeeze leading batch axes one at a time (asserting size 1)
+        # so the error message is precise if a future batch > 1 config
+        # sneaks through.
+        while video.dim() > 4:
+            assert video.shape[0] == 1, (
+                f"_write_mp4 expects batch_size=1; got leading shape {video.shape[0]}."
+            )
+            video = video.squeeze(0)
+    # video is now [T, C, H, W] in [-1, 1]; map to [0, 1] float32 for
+    # diffusers' export_to_video contract on ndarray frames.
+    arr = ((video.clamp(-1.0, 1.0) + 1.0) * 0.5).to(torch.float32)
+    arr_thwc = arr.permute(0, 2, 3, 1).cpu().numpy()  # [T, H, W, C]
+    frames: list[np.ndarray] = list(arr_thwc)
+    export_to_video(frames, str(out_path), fps=fps)
 
 
 @dataclass(kw_only=True)
 class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
-    """User-facing config for the HY-WorldPlay WAN-5B I2V runner.
-
-    Mirrors upstream's ``wan/generate.py`` argparse surface so users
-    can map between the CLIs one-to-one.
-    """
+    """User-facing config for the HY-WorldPlay WAN-5B I2V runner."""
 
     _target: type = field(default_factory=lambda: HyWorldPlayWanI2VRunner)
-
-    pipeline: StreamInferencePipelineConfig = field(
-        default_factory=_NoopPipelineConfig,
-    )
-    """Inert stand-in when ``use_native_pipeline=False`` -- the
-    vendor wrapper drives upstream's ``WanRunner`` directly and has
-    no flashdreams pipeline to construct."""
 
     prompt: str | Path = DEFAULT_PROMPT
     """Inline text prompt, or a path to a ``.txt`` file whose first
     non-empty line is used."""
 
-    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
-    """Negative prompt forwarded to the pipeline."""
-
     image_path: Path | None = None
     """First-frame RGB image. Required (HY-WorldPlay WAN-5B is I2V-only)."""
 
-    pose: str = "w-16"
-    """Camera trajectory as a pose-string (e.g. ``"w-16"``,
+    pose: str = "w-15"
+    """Camera trajectory as a pose-string (e.g. ``"w-15"``,
     ``"w-3, right-1, d-4"``) or the path to a JSON file produced by
-    upstream's ``hyvideo/generate_custom_trajectory.py``. Total latent
-    count must equal ``num_chunk * 4``."""
+    upstream's ``hyvideo/generate_custom_trajectory.py``. The parser
+    prepends an identity pose for the input frame, so ``w-N`` produces
+    ``N + 1`` latents; pick ``N == num_chunk * 4 - 1`` to match the
+    rollout's latent budget."""
 
     num_chunk: int = 4
     """Autoregressive chunks to roll out; each chunk emits 4 latents
     (~16 decoded frames)."""
 
     num_frames: int = 961
-    """Latent budget upstream's pipeline reserves for the longest
-    rollout."""
-
-    num_inference_steps: int = 50
-    """Diffusion denoising steps per chunk. The distilled
-    ``wan_distilled_model`` checkpoint targets 4; override when using
-    non-distilled weights."""
+    """Latent budget reserved for the longest vendor-aligned rollout.
+    Only consumed by the ``HY_VENDOR_NOISE_MODE=1`` diagnostic, which
+    pre-draws noise at the same shape vendor's ``prepare_latents`` would
+    use; non-diagnostic runs ignore this field."""
 
     pixel_height: int = 704
     """Output video pixel height."""
@@ -130,96 +182,27 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
-    use_memory: bool = True
-    """Enable reconstituted-context memory. Set ``False`` for ablation."""
-
     context_window_length: int = 16
-    """Past chunks retained by the memory module."""
+    """Frame-count threshold below which the FOV-overlap memory selector
+    is bypassed (AR steps with fewer accumulated frames emit
+    ``memory_frame_indices=None``)."""
 
     seed: int = 0
     """RNG seed. Offset by ``RANK`` under torchrun when
-    :attr:`RunnerConfig.offset_seed_by_global_rank` is set, so each
-    rank draws a distinct deterministic stream."""
-
-    model_id: str = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
-    """HuggingFace ID for the base Wan 2.2 backbone (VAE + scheduler +
-    pipeline scaffolding)."""
-
-    ar_model_path: Path | None = None
-    """Local directory containing HY-WorldPlay's ``wan_transformer/``
-    (``config.json`` + safetensors). Required."""
+    :attr:`RunnerConfig.offset_seed_by_global_rank` is set."""
 
     ckpt_path: Path | None = None
-    """Path to HY-WorldPlay's ``wan_distilled_model/model.pt`` (or any
-    compatible action-conditioned ``.pt``). Required."""
-
-    hy_worldplay_repo_root: Path | None = None
-    """Cloned upstream https://github.com/Tencent-Hunyuan/HY-WorldPlay
-    tree. Required in vendor-wrapper mode (the upstream ``wan/``
-    package imports siblings by bare name and needs to be on
-    ``sys.path``); unused on the native path."""
-
-    use_native_pipeline: bool = True
-    """Route inference through the in-tree
-    :data:`flashdreams.recipes.wan.PIPELINE_WAN22_TI2V_5B`.
-
-    When ``True`` (default), ``__post_init__`` swaps ``_target`` to
-    :class:`HyWorldPlayWanI2VNativeRunner` and replaces the inert
-    ``pipeline`` slot with a fresh deepcopy of
-    ``PIPELINE_WAN22_TI2V_5B`` (with the scheduler swapped to the
-    distilled 4-step Euler grid). Action / camera / memory conditioning
-    layer on via the sibling flags below.
-
-    Set ``False`` to fall back to the vendor wrapper, which bit-matches
-    upstream's ``use_kv_cache=False`` default but pulls vendor's heavy
-    deps (sageattention, cloudpickle, accelerate, transformers==4.57.6)
-    at runtime."""
-
-    use_action_conditioning: bool = False
-    """Route per-AR-step :attr:`pose` through HY-WorldPlay's 81-class
-    discrete action conditioner (``trans * 9 + rotate``, summed into
-    the AdaLN time embedding).
-
-    Only honoured with ``use_native_pipeline=True``. The encoder and
-    transformer slots swap to the HY subclasses
-    (:class:`HyWorldPlayWanCtrlEncoder`,
-    :class:`HyWorldPlayWan21Transformer`, :class:`HyWorldPlayWanDiTNetwork`).
-    With zero-init weights the conditioner is a strict identity, so
-    flipping this on without HY-WorldPlay's distilled checkpoint is
-    parity-safe."""
-
-    use_camera_conditioning: bool = False
-    """Route the camera trajectory through PRoPE dual-branch
-    self-attention.
-
-    Only honoured with ``use_native_pipeline=True``. Triggers the same
-    encoder / transformer / network swap as
-    :attr:`use_action_conditioning` (both conditioners share the
-    :class:`HyWorldPlayCtrl` payload) and flips
-    :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` on so each
-    block runs :class:`hy_worldplay._camera.HyWorldPlayPRoPEBlock`. The
-    PRoPE branch's ``o_prope`` projection is zero-init, so flipping
-    this on without the distilled checkpoint is parity-safe."""
-
-    use_memory_selection: bool = False
-    """Emit per-AR-step ``memory_frame_indices`` on the
-    :class:`HyWorldPlayCtrl` payload (FOV-overlap selection over the
-    bound viewmat history).
-
-    Requires both ``use_native_pipeline`` and
-    ``use_camera_conditioning`` (the FOV scorer consumes the bound
-    per-rollout viewmats). When set, the encoder is armed via
-    :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config` and emits a
-    sorted, deduplicated index list whenever
-    ``current_frame_idx >= context_window_length``. The KV-prefill
-    executor consumes these indices and prepends the selected K/V
-    history to each block's attention."""
+    """Optional path to HY-WorldPlay's distilled
+    ``wan_distilled_model/model.pt``. When set, the runner reroutes the
+    transformer's ``checkpoint_path`` + ``state_dict_transform`` to load
+    the distilled weights at construction time. When ``None``, the
+    pipeline loads the base Wan 2.2 TI2V-5B safetensors and HY's
+    conditioners stay zero-init (strict identity, parity-safe)."""
 
     memory_frames: int = 16
     """Total memory-frame budget per AR step (temporal context +
     FOV-selected). Matches upstream's
-    ``select_mem_frames_wan(..., memory_frames=16)``. Only used when
-    :attr:`use_memory_selection` is set."""
+    ``select_mem_frames_wan(..., memory_frames=16)``."""
 
     temporal_context_size: int = 12
     """Recent-frames portion of the memory budget, kept unconditionally
@@ -243,373 +226,427 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     """Radius of the Monte-Carlo sphere; matches upstream's
     ``generate_points_in_sphere(50_000, 8.0)``."""
 
-    def __post_init__(self) -> None:
-        """Swap ``_target`` and ``pipeline`` for the native preset.
 
-        No-op when ``use_native_pipeline=False``. User-supplied
-        ``pipeline=`` / ``_target=`` overrides are detected by identity
-        (non-:class:`_NoopPipelineConfig` / non-:class:`HyWorldPlayWanI2VRunner`)
-        and left untouched.
+class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInferencePipeline]):
+    """Drive :data:`PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` end-to-end for the I2V case.
 
-        ``PIPELINE_WAN22_TI2V_5B`` is a module-level singleton; the
-        deepcopy isolates per-run mutations (scheduler swap, action /
-        camera / memory swaps below) to this config instance. The base
-        recipe's UniPC scheduler is replaced with the distilled
-        4-step Euler grid; the base recipe keeps UniPC so non-HY
-        callers are unaffected.
+    Inherits the standard :class:`Runner` machinery (torchrun bootstrap,
+    distributed init, per-rank seed offset, ``pipeline.setup()`` +
+    ``.to(device).eval()``) and supplies a single :meth:`run` method
+    that resolves the prompt and first frame, calls
+    ``pipeline.initialize_cache``, drives the AR loop with ``generate``
+    + ``finalize``, and writes an mp4 on rank 0.
 
-        Raises ``ValueError`` when ``use_memory_selection`` is set
-        without ``use_camera_conditioning`` (the FOV-overlap scorer
-        needs the bound viewmat history that camera conditioning
-        installs).
-        """
-        if not self.use_native_pipeline:
-            return
-        if isinstance(self.pipeline, _NoopPipelineConfig):
-            from flashdreams.infra.diffusion.scheduler import (
-                FlowMatchEulerDiscreteSchedulerConfig,
-            )
-            from flashdreams.recipes.wan import PIPELINE_WAN22_TI2V_5B
-
-            self.pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
-            # Distilled WAN-5B fixed-timestep schedule (upstream's
-            # ``few_step=True`` branch in
-            # ``pipeline_wan_w_mem_relative_rope.py``).
-            self.pipeline.diffusion_model.scheduler = (
-                FlowMatchEulerDiscreteSchedulerConfig(
-                    num_inference_steps=4,
-                    fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
-                )
-            )
-
-        # Action + camera share one subclass tree (encoder + transformer
-        # + network); either flag triggers the swap. Camera additionally
-        # flips on the PRoPE block path.
-        if self.use_action_conditioning or self.use_camera_conditioning:
-            self._swap_in_action_conditioning_configs()
-            if self.ckpt_path is not None:
-                self._route_distilled_checkpoint()
-        if self.use_camera_conditioning:
-            self._enable_prope_blocks_on_network()
-        if self.use_memory_selection and not self.use_camera_conditioning:
-            raise ValueError(
-                "use_memory_selection=True requires "
-                "use_camera_conditioning=True so the per-rollout viewmats "
-                "history is parsed and bound on the encoder. Set both "
-                "flags together when running the native pipeline."
-            )
-
-        if self._target is HyWorldPlayWanI2VRunner:
-            # Lazy import: the native runner pulls in torch + diffusers
-            # + the Wan pipeline. Eager import would break the CPU-only
-            # smoke tests in vendor-wrapper mode.
-            from hy_worldplay._native_runner import HyWorldPlayWanI2VNativeRunner
-
-            self._target = HyWorldPlayWanI2VNativeRunner
-
-    def _swap_in_action_conditioning_configs(self) -> None:
-        """Swap the deep-copied pipeline's I2V encoder + transformer for the HY variants.
-
-        Idempotent: user-supplied overrides (any non-stock subclass of
-        ``WanI2VCtrlEncoderConfig`` / ``Wan21TransformerConfig``) are
-        left in place. Action and camera conditioning share the same
-        subclass tree because the per-AR-step ``viewmats`` / ``Ks``
-        slices ride on the same :class:`HyWorldPlayCtrl` payload as
-        the action labels.
-        """
-        from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
-        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-        from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
-
-        from hy_worldplay._action import (
-            HyWorldPlayWan21TransformerConfig,
-            HyWorldPlayWanCtrlEncoderConfig,
-            HyWorldPlayWanDiTNetworkConfig,
-        )
-
-        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
-            "_swap_in_action_conditioning_configs expected a "
-            f"WanInferencePipelineConfig after the deepcopy; got {type(self.pipeline).__name__}"
-        )
-
-        if (
-            isinstance(self.pipeline.encoder, WanI2VCtrlEncoderConfig)
-            and type(self.pipeline.encoder) is WanI2VCtrlEncoderConfig
-        ):
-            self.pipeline.encoder = HyWorldPlayWanCtrlEncoderConfig(
-                encoder=self.pipeline.encoder.encoder,
-            )
-        transformer_cfg = self.pipeline.diffusion_model.transformer
-        if (
-            isinstance(transformer_cfg, Wan21TransformerConfig)
-            and type(transformer_cfg) is Wan21TransformerConfig
-        ):
-            # Mirror every Wan 2.1 knob field-by-field so additions to
-            # ``Wan21TransformerConfig`` don't silently drop on the swap.
-            self.pipeline.diffusion_model.transformer = (
-                HyWorldPlayWan21TransformerConfig(
-                    network=HyWorldPlayWanDiTNetworkConfig(
-                        patch_size=transformer_cfg.network.patch_size,
-                        text_len=transformer_cfg.network.text_len,
-                        in_dim=transformer_cfg.network.in_dim,
-                        dim=transformer_cfg.network.dim,
-                        ffn_dim=transformer_cfg.network.ffn_dim,
-                        freq_dim=transformer_cfg.network.freq_dim,
-                        text_dim=transformer_cfg.network.text_dim,
-                        out_dim=transformer_cfg.network.out_dim,
-                        num_heads=transformer_cfg.network.num_heads,
-                        num_layers=transformer_cfg.network.num_layers,
-                        cross_attn_norm=transformer_cfg.network.cross_attn_norm,
-                        cross_attn_enable_img=(
-                            transformer_cfg.network.cross_attn_enable_img
-                        ),
-                        eps=transformer_cfg.network.eps,
-                        concat_padding_mask=(
-                            transformer_cfg.network.concat_padding_mask
-                        ),
-                        patch_embedding_type=(
-                            transformer_cfg.network.patch_embedding_type
-                        ),
-                        apply_rope_before_kvcache=(
-                            transformer_cfg.network.apply_rope_before_kvcache
-                        ),
-                    ),
-                    dtype=transformer_cfg.dtype,
-                    checkpoint_path=transformer_cfg.checkpoint_path,
-                    state_dict_transform=transformer_cfg.state_dict_transform,
-                    batch_shape=transformer_cfg.batch_shape,
-                    # HY-WorldPlay autoregressive WAN-5B uses 4-latent
-                    # chunks (upstream's ``pred_latent_size=4``); not
-                    # the base recipe's 21. Mismatched ``len_t`` gives
-                    # different total frame counts and RoPE positions.
-                    len_t=4,
-                    # Distilled WAN-5B bakes CFG into the checkpoint
-                    # and runs a single conditional forward per step;
-                    # ``guidance_scale=1.0`` skips the uncond branch +
-                    # combine. (Base TI2V-5B stays at 5.0 for the
-                    # non-distilled model.)
-                    guidance_scale=1.0,
-                    # Match the rolling KV window to a single chunk.
-                    window_size_t=4,
-                    sink_size_t=transformer_cfg.sink_size_t,
-                    h_extrapolation_ratio=transformer_cfg.h_extrapolation_ratio,
-                    w_extrapolation_ratio=transformer_cfg.w_extrapolation_ratio,
-                    compile_network=transformer_cfg.compile_network,
-                    use_cuda_graph=transformer_cfg.use_cuda_graph,
-                    cuda_graph_warmup_iters=(
-                        transformer_cfg.cuda_graph_warmup_iters
-                    ),
-                    stamp_image_latent=transformer_cfg.stamp_image_latent,
-                    concat_image_mask_to_latent=(
-                        transformer_cfg.concat_image_mask_to_latent
-                    ),
-                    ti2v_first_frame_per_token_timestep=(
-                        transformer_cfg.ti2v_first_frame_per_token_timestep
-                    ),
-                    # Upstream's HY pipeline runs the first-frame
-                    # context at the stabilisation sigma
-                    # ``stabilization_level - 1 = 14`` (vendor
-                    # ``pipeline_wan_w_mem_relative_rope.py`` lines
-                    # 680, 892); the distilled checkpoint's AdaLN
-                    # table at the first frame is fitted to it.
-                    first_frame_timestep_value=14.0,
-                )
-            )
-
-    def _enable_prope_blocks_on_network(self) -> None:
-        """Flip ``use_prope_blocks`` on the (already-swapped) HY DiT config.
-
-        Requires :meth:`_swap_in_action_conditioning_configs` to have
-        run first --
-        :attr:`HyWorldPlayWanDiTNetworkConfig.use_prope_blocks` only
-        exists on the HY subclass. Block construction lands later in
-        :meth:`HyWorldPlayWanDiTNetwork._build_block`.
-        """
-        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-
-        from hy_worldplay._action import HyWorldPlayWanDiTNetworkConfig
-
-        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
-            "_enable_prope_blocks_on_network expected a "
-            f"WanInferencePipelineConfig after the deepcopy; got "
-            f"{type(self.pipeline).__name__}"
-        )
-        network_cfg = self.pipeline.diffusion_model.transformer.network
-        assert isinstance(network_cfg, HyWorldPlayWanDiTNetworkConfig), (
-            "use_camera_conditioning=True requires the network slot to be a "
-            "HyWorldPlayWanDiTNetworkConfig; ensure _swap_in_action_conditioning_configs "
-            f"ran before this method (got {type(network_cfg).__name__})."
-        )
-        network_cfg.use_prope_blocks = True
-
-    def _route_distilled_checkpoint(self) -> None:
-        """Point the (already-swapped) transformer config at the distilled ``.pt``.
-
-        Sets ``checkpoint_path`` to ``str(self.ckpt_path)`` and swaps
-        ``state_dict_transform`` to
-        :func:`hy_worldplay_distilled_state_dict_transform`, which
-        unwraps upstream's ``generator`` / ``_fsdp_wrapped_module.``
-        envelope and adds the ``action_embedder`` / ``to_out_prope``
-        rewrites on top of the base 5B remap. The distilled file is a
-        superset of the base safetensors (same 3072-dim trunk +
-        HY-specific keys), so one load covers both.
-        """
-        from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
-
-        from hy_worldplay._action import HyWorldPlayWan21TransformerConfig
-        from hy_worldplay._checkpoint import (
-            hy_worldplay_distilled_state_dict_transform,
-        )
-
-        assert isinstance(self.pipeline, WanInferencePipelineConfig), (
-            "_route_distilled_checkpoint expected a "
-            f"WanInferencePipelineConfig after the deepcopy; got "
-            f"{type(self.pipeline).__name__}"
-        )
-        transformer_cfg = self.pipeline.diffusion_model.transformer
-        assert isinstance(transformer_cfg, HyWorldPlayWan21TransformerConfig), (
-            "_route_distilled_checkpoint requires the transformer slot "
-            "to be a HyWorldPlayWan21TransformerConfig; ensure "
-            "_swap_in_action_conditioning_configs ran first (got "
-            f"{type(transformer_cfg).__name__})."
-        )
-        assert self.ckpt_path is not None, (
-            "_route_distilled_checkpoint should only be invoked when "
-            "ckpt_path is supplied; the gate in __post_init__ failed."
-        )
-
-        transformer_cfg.checkpoint_path = str(self.ckpt_path)
-        transformer_cfg.state_dict_transform = (
-            hy_worldplay_distilled_state_dict_transform
-        )
-
-
-class HyWorldPlayWanI2VRunner:
-    """Vendor-wrapper driver: delegates inference to upstream's :class:`wan.generate.WanRunner`.
-
-    Plain class -- not a :class:`flashdreams.infra.runner.Runner`
-    subclass -- because distributed setup is deferred to
-    ``WanRunner``. :class:`HyWorldPlayWanI2VRunnerConfig` pins its
-    ``pipeline`` slot to a :class:`_NoopPipelineConfig` so the
-    framework contract is satisfied without
-    :meth:`StreamInferencePipeline.__init__` running.
+    The fully-swapped HY encoder / transformer / DiT network (with PRoPE
+    blocks) is wired statically in :mod:`hy_worldplay.config`; this
+    runner binds the per-rollout payloads (action labels, viewmats +
+    intrinsics, memory-selection knobs) on the encoder before the AR
+    loop starts. When :attr:`HyWorldPlayWanI2VRunnerConfig.ckpt_path` is
+    supplied, ``__init__`` routes the transformer's checkpoint slot at
+    HY's distilled ``.pt`` and the matching state-dict transform before
+    the base ``Runner.__init__`` builds the pipeline; ``None`` keeps the
+    base diffusers checkpoint (HY conditioners stay zero-init identity).
     """
 
     config: HyWorldPlayWanI2VRunnerConfig
 
     def __init__(self, config: HyWorldPlayWanI2VRunnerConfig) -> None:
-        self.config = config
+        """Route the distilled checkpoint into the pipeline, then defer to :class:`Runner`.
 
-        # Validate *before* importing any heavy optional deps so the
-        # CPU-only smoke tests can exercise these branches without
-        # torch or the upstream tree installed.
-        if config.ar_model_path is None or config.ckpt_path is None:
-            raise ValueError(
-                "Both --ar-model-path and --ckpt-path are required. "
-                "See the integration README for HuggingFace download "
-                "instructions (``huggingface-cli download "
-                "tencent/HY-WorldPlay wan_transformer wan_distilled_model``)."
-            )
-        if config.hy_worldplay_repo_root is None:
-            raise ValueError(
-                "--hy-worldplay-repo-root must point at the cloned "
-                "upstream HY-WorldPlay tree (or run "
-                "``tests/parity_check/run.sh`` once to provision one)."
+        When ``config.ckpt_path`` is set, derives a copy of the runner
+        config with the transformer's ``checkpoint_path`` +
+        ``state_dict_transform`` rewritten to load HY's distilled
+        ``.pt`` (instead of the base Wan 2.2 TI2V-5B safetensors)
+        before the base ``__init__`` builds the pipeline.
+        """
+        if config.ckpt_path is not None:
+            from flashdreams.infra.config import derive_config
+
+            from hy_worldplay._checkpoint import (
+                hy_worldplay_distilled_state_dict_transform,
             )
 
-        # Put the upstream tree on ``sys.path`` *before* importing
-        # ``wan.generate``; that module imports ``inference.helper`` /
-        # ``models.utils`` / ``distributed.parallel_state`` by bare name.
-        _ensure_upstream_importable(config.hy_worldplay_repo_root)
-
-        import torch
-
-        self.rank = int(os.environ.get("RANK", "0"))
-        self.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-        self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
-        self.is_rank_zero = self.rank == 0
-
-        wan_generate = importlib.import_module("wan.generate")
-        upstream_runner_cls = wan_generate.WanRunner
-
-        if torch.cuda.is_available():
-            torch.cuda.set_device(self.local_rank)
-
-        self._upstream = upstream_runner_cls(
-            model_id=config.model_id,
-            ckpt_path=str(config.ckpt_path),
-            ar_model_path=str(config.ar_model_path),
-        )
-
-    def _resolve_prompt(self) -> str:
-        value = self.config.prompt
-        if isinstance(value, Path):
-            lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
-            assert lines, f"prompt file {value} has no non-empty lines"
-            return lines[0]
-        assert value, "--prompt must be a non-empty string or a path to a .txt file"
-        return value
+            config = derive_config(
+                config,
+                pipeline=dict(
+                    diffusion_model=dict(
+                        transformer=dict(
+                            checkpoint_path=str(config.ckpt_path),
+                            state_dict_transform=(
+                                hy_worldplay_distilled_state_dict_transform
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        super().__init__(config)
 
     def run(self) -> None:
-        """Drive a single autoregressive rollout and persist outputs.
+        """Roll one autoregressive sequence and persist the mp4 on rank 0."""
+        import os
 
-        Mirrors upstream's ``wan/generate.py`` ``__main__``: builds
-        the argparse-style ``input_dict``, calls
-        ``self._upstream.predict``, and writes the video on rank-zero
-        only.
-        """
-        config = self.config
-        if config.image_path is None:
+        from loguru import logger
+
+        cfg = self.config
+        # ``HY_DEBUG_DISABLE_CUDA_GRAPH=1`` disables the per-network
+        # CUDAGraphWrapper so env-var-gated tensor dumps in
+        # :mod:`_debug_dump` (file I/O + host-synchronous ``.item()``
+        # calls) don't crash CUDA stream capture with
+        # ``cudaErrorStreamCaptureInvalidated``.
+        if os.environ.get("HY_DEBUG_DISABLE_CUDA_GRAPH", "") == "1":
+            # CUDA-graph state lives on the inner ``Wan21Transformer``,
+            # not on the :class:`DiffusionModel` wrapper (scheduler +
+            # transformer) exposed via ``self.pipeline.diffusion_model``;
+            # reach through one level so the disable actually takes
+            # effect.
+            diffusion_model = getattr(self.pipeline, "diffusion_model", None)
+            wan_transformer = getattr(diffusion_model, "transformer", None)
+            if wan_transformer is not None and hasattr(wan_transformer, "network"):
+                wan_transformer._use_cuda_graph = False
+                wan_transformer._network_call = wan_transformer.network
+                wan_transformer._network_call_uncond = wan_transformer.network
+                logger.info(
+                    "HY_DEBUG_DISABLE_CUDA_GRAPH=1: bypassing the per-network "
+                    "CUDAGraphWrapper for diagnostic dumps."
+                )
+
+        if cfg.image_path is None:
             raise ValueError(
                 "HY-WorldPlay WAN-5B is I2V only -- pass "
                 "``--image-path <path-to-jpg>`` to provide the first frame."
             )
-        if not config.image_path.exists():
-            raise FileNotFoundError(f"image_path {config.image_path} does not exist")
+        if not cfg.image_path.exists():
+            raise FileNotFoundError(f"image_path {cfg.image_path} does not exist")
 
-        prompt = self._resolve_prompt()
+        first_param = next(self.pipeline.parameters())
+        device = first_param.device
+        # The VAE encoder runs in the pipeline's parameter dtype (bf16 /
+        # fp16 in production, fp32 in the CPU smoke); the float32 tensor
+        # produced by ``preprocess_first_frame`` would fail the
+        # ``F.conv3d`` dtype check in the residual VAE's first
+        # ``CausalConv3d``. Cast here so the cast-once cost stays in
+        # the runner rather than the per-AR-step encode path.
+        image = preprocess_first_frame(
+            cfg.image_path, cfg.pixel_height, cfg.pixel_width
+        ).to(device=device, dtype=first_param.dtype)
+        prompt = _resolve_prompt(cfg.prompt)
 
-        seed = config.seed
-        if config.offset_seed_by_global_rank and self.rank != 0:
-            seed = seed + self.rank
+        cache = self.pipeline.initialize_cache(
+            text=[prompt],
+            image=image,
+            height=None,  # derived from image
+            width=None,
+        )
 
-        input_dict: dict[str, Any] = {
-            "prompt": prompt,
-            "negative_prompt": config.negative_prompt,
-            "num_frames": config.num_frames,
-            "num_inference_steps": config.num_inference_steps,
-            "guidance_scale": 1,
-            "height": config.pixel_height,
-            "width": config.pixel_width,
-            "image_path": str(config.image_path),
-            "use_memory": config.use_memory,
-            "context_window_length": config.context_window_length,
-            "seed": seed,
-            "pose": config.pose,
-            "num_chunk": config.num_chunk,
-        }
+        # The pipeline is statically HY-swapped (see
+        # :mod:`hy_worldplay.config`), so the per-rollout payloads are
+        # always bound: action labels for the AdaLN add, viewmats +
+        # intrinsics for the PRoPE branch, and the memory-selection
+        # knobs for the FOV-overlap scorer. With zero-init weights (no
+        # ``ckpt_path``) each conditioner is a strict identity, so this
+        # is still parity-safe against the base Wan 2.2 TI2V-5B output.
+        self._bind_action_labels()
+        self._bind_camera_data()
+        self._bind_memory_config(device=device)
 
+        vendor_noise_ctx = self._maybe_vendor_aligned_noise_ctx(
+            device=device, dtype=first_param.dtype
+        )
+
+        chunks: list[Tensor] = []
+        # Per-chunk CUDA-event timing for the bench summary; skipped on
+        # CPU (e.g. the smoke tests) since ``EventProfiler`` needs
+        # ``torch.cuda``.
+        profiler = EventProfiler() if torch.cuda.is_available() else None
+        # Reset the allocator high-water mark *after* setup + cache init
+        # so the reported peak reflects the AR rollout itself, not the
+        # one-time model / VAE load.
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
-        result = self._upstream.predict(input_dict)
+        with vendor_noise_ctx:
+            for ar_idx in range(cfg.num_chunk):
+                chunk = self.pipeline.generate(ar_idx, cache)
+                chunks.append(chunk)
+                if ar_idx < cfg.num_chunk - 1:
+                    self.pipeline.finalize(ar_idx, cache)
+                if profiler is not None:
+                    profiler.record(f"chunk_{ar_idx}")
         elapsed = time.time() - start_time
+        per_chunk_ms = profiler.sync_and_summarize() if profiler is not None else {}
+        peak_gpu_mem_gib = (
+            torch.cuda.max_memory_allocated() / (1024**3)
+            if torch.cuda.is_available()
+            else None
+        )
 
         if not self.is_rank_zero:
             return
 
-        import numpy as np
-        from diffusers.utils import export_to_video
+        video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
+        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
+        _write_mp4(video, out_path, fps=cfg.fps)
+        logger.info(
+            f"[{cfg.runner_name}] wrote video "
+            f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"
+        )
+
+        if per_chunk_ms:
+            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
+            stats_payload: dict[str, object] = {
+                "runner_name": cfg.runner_name,
+                "num_chunk": cfg.num_chunk,
+                "pose": cfg.pose,
+                "elapsed_s": round(elapsed, 3),
+                "per_chunk_ms": {k: round(v, 3) for k, v in per_chunk_ms.items()},
+            }
+            if peak_gpu_mem_gib is not None:
+                stats_payload["peak_gpu_mem_gib"] = round(peak_gpu_mem_gib, 3)
+            stats_path.write_text(json.dumps(stats_payload, indent=2))
+            logger.info(
+                f"[{cfg.runner_name}] wrote per-chunk stats -> "
+                f"{stats_path.resolve()}"
+            )
+
+    def _bind_action_labels(self) -> None:
+        """Parse the pose string and bind per-rollout action labels on the encoder."""
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._pose import parse_pose_action_labels
+
+        encoder, n_latents = self._resolve_encoder_and_n_latents()
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        labels = parse_pose_action_labels(self.config.pose, n_latents)
+        encoder.set_action_labels(labels)
+
+    def _bind_camera_data(self) -> None:
+        """Parse the pose string and bind per-rollout viewmats + intrinsics on the encoder.
+
+        :func:`parse_pose_data` returns both the per-latent W2C / K and
+        the action labels; this method only consumes the camera tensors.
+        """
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._pose import parse_pose_data
+
+        encoder, n_latents = self._resolve_encoder_and_n_latents()
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        viewmats, Ks, _ = parse_pose_data(self.config.pose, n_latents)
+        # Cast to the pipeline dtype so PRoPE math + cudnn attention
+        # don't kick the network into fp64. ``parse_pose_data`` emits
+        # ``[n_latents, 4, 4]`` / ``[n_latents, 3, 3]`` without a batch
+        # axis; :func:`hy_worldplay._prope.prope_qkv`
+        # requires ``[batch=1, cameras, 4, 4]``, so an ``unsqueeze(0)``
+        # here lifts both the per-step slice and the per-rollout buffer
+        # to the rank PRoPE expects.
+        target_dtype = next(self.pipeline.parameters()).dtype
+        encoder.set_camera_data(
+            viewmats.to(dtype=target_dtype).unsqueeze(0),
+            Ks.to(dtype=target_dtype).unsqueeze(0),
+        )
+
+    def _bind_memory_config(self, *, device: torch.device) -> None:
+        """Arm reconstituted-context memory selection on the encoder.
+
+        Builds the Monte-Carlo point cloud once (size + radius mirror
+        upstream's ``generate_points_in_sphere`` call) and hands it
+        plus the rest of the selection knobs to
+        :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config`; the
+        encoder then computes per-AR-step ``memory_frame_indices`` on
+        demand.
+        """
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+        from hy_worldplay._memory import generate_points_in_sphere
+
+        cfg = self.config
+        encoder, _ = self._resolve_encoder_and_n_latents()
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
+        points_local = generate_points_in_sphere(
+            cfg.memory_points_count,
+            cfg.memory_points_radius,
+            device=device,
+        )
+        encoder.set_memory_config(
+            points_local=points_local,
+            context_window_length=cfg.context_window_length,
+            memory_frames=cfg.memory_frames,
+            temporal_context_size=cfg.temporal_context_size,
+            pred_latent_size=cfg.memory_pred_latent_size,
+            fov_h_deg=cfg.memory_fov_h_deg,
+            fov_v_deg=cfg.memory_fov_v_deg,
+            device=device,
+        )
+
+    def _maybe_vendor_aligned_noise_ctx(
+        self,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> object:
+        """Build a context manager that overrides the diffusion noise per chunk.
+
+        When ``HY_VENDOR_NOISE_MODE=1`` the runner pre-draws the full
+        multi-chunk noise tensor with the same shape and seed as
+        vendor's ``prepare_latents`` (a single
+        ``randn([1, 48, T, H_lat, W_lat])`` over all chunks) and
+        patchifies a per-AR-step slice. Inside the chunk loop the
+        returned context manager monkey-patches ``torch.randn`` to
+        return the pre-computed slice whenever the request matches the
+        diffusion model's ``latent_shape``; all other randn calls fall
+        through to the original implementation.
+
+        Returns ``nullcontext()`` when the env var is unset, leaving
+        the pipeline to draw noise from its private ``torch.Generator``.
+        """
+        import contextlib
+        import math
+        import os
+        from unittest.mock import patch as _mock_patch
+
+        from einops import rearrange
         from loguru import logger
 
-        video = result["video"]
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        out_path = config.output_dir / f"{config.runner_name}.mp4"
-        # ``export_to_video`` iterates with ``len()`` + index access,
-        # so split the upstream ``(T, H, W, 3)`` tensor into a list of
-        # per-frame ndarrays.
-        frames: list[np.ndarray] = list(np.asarray(video[0]))
-        export_to_video(frames, str(out_path), fps=config.fps)
-        logger.info(
-            f"[{config.runner_name}] wrote video "
-            f"({np.asarray(video).shape}) -> {out_path.resolve()} "
-            f"in {elapsed:.2f}s"
+        if os.environ.get("HY_VENDOR_NOISE_MODE", "") != "1":
+            return contextlib.nullcontext()
+
+        cfg = self.config
+        diffusion_model = self.pipeline.diffusion_model
+        transformer = diffusion_model.transformer
+        transformer_cfg = transformer.config
+
+        len_t = transformer_cfg.len_t
+        kt, kh, kw = transformer_cfg.network.patch_size
+        # 16x spatial compression for the WAN-5B residual VAE.
+        h_lat = cfg.pixel_height // 16
+        w_lat = cfg.pixel_width // 16
+        # Vendor's prepare_latents draws the full ``num_latent_frames``
+        # of noise in one randn call, independent of how many chunks
+        # the rollout actually consumes. Replicate the full tensor here
+        # so the RNG stream lines up bit-for-bit; a smaller
+        # ``randn(num_chunk * len_t, ...)`` would put each subsequent
+        # channel slice at a different flat-memory offset and break
+        # parity. ``num_latent_frames = (num_frames - 1) // 4 + 1``
+        # reflects the WAN-5B residual VAE's 4x temporal compression.
+        vendor_full_t = (cfg.num_frames - 1) // 4 + 1
+        unpatched_shape = (
+            1,
+            transformer_cfg.network.in_dim,
+            vendor_full_t,
+            h_lat,
+            w_lat,
         )
+        target_shape = tuple(transformer.latent_shape)
+        target_numel = math.prod(target_shape)
+        # The patched per-chunk noise must reshape into the patchified
+        # latent shape.
+        per_chunk_numel = (
+            transformer_cfg.network.in_dim * len_t * h_lat * w_lat
+        )
+        assert per_chunk_numel == target_numel, (
+            f"vendor-aligned noise per-chunk numel ({per_chunk_numel}) "
+            f"!= native latent_shape numel ({target_numel}); shapes are "
+            f"unpatched={unpatched_shape}, target={target_shape}."
+        )
+
+        seed = cfg.seed
+        if cfg.offset_seed_by_global_rank and self.global_rank != 0:
+            seed = seed + self.global_rank
+
+        # Draw the full noise tensor in fp32 to mirror vendor's
+        # ``randn_tensor(..., dtype=torch.float32)`` then cast to the
+        # diffusion model's dtype. ``torch.manual_seed`` matches
+        # vendor's global-RNG seed at the top of ``predict``.
+        torch.manual_seed(seed)
+        big_noise_fp32 = torch.randn(
+            unpatched_shape,
+            dtype=torch.float32,
+            device=device,
+        )
+
+        # Patchify per chunk to match the format
+        # ``DiffusionModel.generate`` would otherwise draw directly via
+        # ``randn(latent_shape)``. Vendor's patch embedding applies the
+        # same ``... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)``
+        # rearrange, so replicating it on the unpatched slice keeps
+        # per-position bit values aligned between native and vendor.
+        chunk_noise_queue: list[Tensor] = []
+        for ar_idx in range(cfg.num_chunk):
+            chunk_slice = big_noise_fp32[
+                :, :, ar_idx * len_t : (ar_idx + 1) * len_t, :, :
+            ]
+            # Permute [B, C, T, H, W] -> [B, T, C, H, W] so the patchify
+            # pattern's ``(t kt) c`` axes line up with the input order.
+            chunk_slice = chunk_slice.permute(0, 2, 1, 3, 4).contiguous()
+            patched = rearrange(
+                chunk_slice,
+                "b (t kt) c (h kh) (w kw) -> b (t h w) (c kt kh kw)",
+                kt=kt,
+                kh=kh,
+                kw=kw,
+            )
+            # Drop the batch axis when the transformer's batch_shape is
+            # empty; native's ``latent_shape = (L, D)`` in that case and
+            # the reshape below would otherwise complain.
+            if not transformer_cfg.batch_shape:
+                patched = patched.squeeze(0)
+            chunk_noise_queue.append(patched.to(dtype=dtype))
+
+        orig_randn = torch.randn
+
+        def patched_randn(*args: object, **kwargs: object) -> Tensor:
+            shape_arg: tuple[int, ...] | None = None
+            if args:
+                first = args[0]
+                if isinstance(first, (tuple, list, torch.Size)):
+                    shape_arg = tuple(int(x) for x in first)
+                elif isinstance(first, int):
+                    shape_arg = tuple(int(x) for x in args)
+            else:
+                size = kwargs.get("size", None)
+                if isinstance(size, (tuple, list, torch.Size)):
+                    shape_arg = tuple(int(x) for x in size)
+
+            if (
+                shape_arg is not None
+                and shape_arg == target_shape
+                and chunk_noise_queue
+            ):
+                noise = chunk_noise_queue.pop(0)
+                kwarg_device = kwargs.get("device", noise.device)
+                kwarg_dtype = kwargs.get("dtype", noise.dtype)
+                return noise.to(device=kwarg_device, dtype=kwarg_dtype)
+            return orig_randn(*args, **kwargs)
+
+        logger.info(
+            f"HY_VENDOR_NOISE_MODE=1: pre-drew "
+            f"randn({list(unpatched_shape)}) at seed={seed} and queued "
+            f"{cfg.num_chunk} patchified per-chunk slices matching "
+            f"latent_shape={target_shape}."
+        )
+        return _mock_patch.object(torch, "randn", patched_randn)
+
+    def _resolve_encoder_and_n_latents(self) -> tuple[object, int]:
+        """Return ``(encoder, n_latents)`` after asserting the static HY swap took.
+
+        The HY encoder / transformer are wired into
+        :data:`PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` at module import, so a
+        failure here means a caller built their own pipeline config
+        without the HY swap.
+        """
+        from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+
+        from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
+
+        cfg = self.config
+        encoder = self.pipeline.encoder
+        assert isinstance(encoder, HyWorldPlayWanCtrlEncoder), (
+            f"expected HyWorldPlayWanCtrlEncoder; got {type(encoder).__name__}. "
+            "Build the runner config via hy_worldplay.config so the static "
+            "HY pipeline swap is in place."
+        )
+        transformer_cfg = self.pipeline.diffusion_model.transformer.config
+        assert isinstance(transformer_cfg, Wan21TransformerConfig), (
+            f"expected Wan21TransformerConfig (or subclass) on the diffusion "
+            f"model; got {type(transformer_cfg).__name__}."
+        )
+        n_latents = cfg.num_chunk * transformer_cfg.len_t
+        return encoder, n_latents
