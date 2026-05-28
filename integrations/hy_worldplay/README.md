@@ -78,12 +78,16 @@ That gives you:
 
 ```bash
 uv run flashdreams-run hy-worldplay-wan-i2v-5b \
-    --image-path ./assets/img/test.png \
+    --example-data \
     --ckpt-path /path/to/models/wan_distilled_model/model.pt \
     --num-chunk 1 \
     --pose "w-3" \
     --output-dir outputs
 ```
+
+`--example-data` lazy-downloads upstream's `assets/img/test.png`
+into `data_local/hy_worldplay/` (gitignored) and uses it as the
+first frame. Pass `--image-path <path>` instead for a custom input.
 
 `--ckpt-path` is optional. Without it the pipeline loads the base
 Wan 2.2 TI2V-5B safetensors and HY's conditioners stay zero-init
@@ -148,7 +152,7 @@ from hy_worldplay.config import RUNNER_HY_WORLDPLAY_WAN_I2V_5B
 
 cfg = replace(
     RUNNER_HY_WORLDPLAY_WAN_I2V_5B,
-    image_path=Path("./assets/img/test.png"),
+    image_path=Path("./data_local/hy_worldplay/test.png"),
     ckpt_path=Path("/path/to/models/wan_distilled_model/model.pt"),
     num_chunk=1,
     pose="w-3",

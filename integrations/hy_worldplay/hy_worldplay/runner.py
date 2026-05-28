@@ -57,8 +57,8 @@ EXAMPLE_DATA_BASE_URL = (
 )
 """HTTP base URL where upstream's sample first-frame image / pose JSON live."""
 
-EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/hy_worldplay"
-"""Local cache root for the downloaded sample inputs."""
+EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "data_local/hy_worldplay"
+"""Local cache root for the downloaded sample inputs (gitignored)."""
 
 _EXAMPLE_IMAGE_FILENAME = "test.png"
 """Upstream's default ``--image_path`` fixture (704x1280)."""
@@ -177,10 +177,10 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
     example_data: bool = False
     """When ``True``, lazy-download upstream's bundled sample
-    first-frame image into
-    ``assets/example_data/hy_worldplay/`` (rank-0 only) and fill
-    :attr:`image_path` from it when unset. Use for the README demo;
-    pass ``--image-path`` explicitly for production runs."""
+    first-frame image into ``data_local/hy_worldplay/`` (rank-0 only,
+    gitignored) and fill :attr:`image_path` from it when unset. Use
+    for the README demo; pass ``--image-path`` explicitly for
+    production runs."""
 
     pose: str = "w-15"
     """Camera trajectory as a pose-string (e.g. ``"w-15"``,
