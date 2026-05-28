@@ -31,7 +31,6 @@ ROOT = Path(__file__).resolve().parents[1]
 THIRDPARTY_DIR = ROOT / "3rdparty"
 CUTLASS_DIR = THIRDPARTY_DIR / "cutlass"
 SAGE_ATTENTION_DIR = THIRDPARTY_DIR / "SageAttention"
-SPARGE_ATTN_DIR = THIRDPARTY_DIR / "SpargeAttn"
 SYNC_THIRDPARTY_PATH = ROOT / "tools" / "sync_thirdparty.py"
 STAMP_NAME = ".flashdreams_source.json"
 
