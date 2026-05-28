@@ -105,6 +105,7 @@ class WorldModelManifest:
     light_vae: bool = True
     encode_with_pixel_shuffle: bool = False
     local_attn_size: int = 6
+    skip_finalize_kv_cache: bool = False
     sink_size: int = 0
     denoising_steps: list[int] = field(default_factory=lambda: [1000, 500])
     upsampling_enabled: bool = False
@@ -148,6 +149,7 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         light_vae=bool(data.get("light_vae", True)),
         encode_with_pixel_shuffle=bool(data.get("encode_with_pixel_shuffle", False)),
         local_attn_size=int(data.get("local_attn_size", 6)),
+        skip_finalize_kv_cache=bool(data.get("skip_finalize_kv_cache", False)),
         sink_size=int(data.get("sink_size", 0)),
         denoising_steps=[int(x) for x in data.get("denoising_steps", [1000, 500])],
         upsampling_enabled=bool(data.get("upsampling_enabled", False)),

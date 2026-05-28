@@ -17,6 +17,7 @@ compile_net: false
 light_vae: true
 encode_with_pixel_shuffle: false
 local_attn_size: 6
+skip_finalize_kv_cache: false
 sink_size: 0
 denoising_steps: [1000, 500]
 upsampling_enabled: false
