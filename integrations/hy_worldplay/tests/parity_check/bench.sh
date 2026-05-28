@@ -125,11 +125,14 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # path our native runner mirrors. Time it ourselves to synthesise the
 # vendor stats JSON.
 #
-# Vendor's memory-prefill KV pool grows per chunk + cuDNN attention
-# holds a workspace; together they OOM on 44 GiB at ``num_chunk>=8``
-# without the expandable allocator. ``expandable_segments`` defrags
-# the allocator in-process; cheap to leave on for both legs.
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+# Note: ``PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`` is set
+# only on the vendor invocation below -- expandable segments remap
+# virtual memory, which is incompatible with the native pipeline's
+# ``CUDAGraphWrapper`` (graph-captured pointers fault with
+# ``cudaErrorIllegalAddress`` on subsequent calls). The vendor leg
+# uses neither CUDA graphs nor ``compile_network=True``-style whole-
+# module capture, so the expandable allocator is safe there and
+# slightly defrags the KV-cache pool.
 
 # Clear prior outputs so the ``find`` below only sees this run's fresh
 # upstream-pattern mp4 (``<pose>_<prompt>.mp4``) and doesn't trip on
@@ -138,7 +141,8 @@ rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
 echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, CUDNN_SDPA=${HY_VENDOR_CUDNN_SDPA}) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
-NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
+PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
+    NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
