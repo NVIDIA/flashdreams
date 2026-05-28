@@ -423,7 +423,12 @@ __device__ __inline__ void binRasterImpl(void)
                     addr += (allocBase + overIndex) << CR_BIN_SEG_LOG2;
                     s_outOfs[thrInBlock] = addr;
                 }
-                s_outTotal[thrInBlock] += total;
+                // Split the compound assignment to avoid a C++20 deprecation
+                // warning about ``op=`` on a ``volatile`` lvalue
+                // (nvcc warning #3012-D). Semantics are unchanged: one
+                // volatile load followed by one volatile store.
+                S32 prevTotal = s_outTotal[thrInBlock];
+                s_outTotal[thrInBlock] = prevTotal + total;
             }
 
             // these triangles are now done
