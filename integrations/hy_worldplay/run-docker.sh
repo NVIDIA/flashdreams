@@ -28,7 +28,7 @@
 #
 #   IMAGE_PATH=/devwork/flashdreams/cat_surf.jpg \
 #   PROMPT="First-person view of a cat surfing..." \
-#   NUM_CHUNK=8 POSE='w-32' \
+#   NUM_CHUNK=8 POSE='w-31' \
 #       ./integrations/hy_worldplay/run-docker.sh
 #
 #   NUM_GPU=4 ./integrations/hy_worldplay/run-docker.sh   # multi-GPU via torchrun
@@ -44,7 +44,10 @@
 #                      to the upstream test image once provisioning is done.
 #   PROMPT             Inference text prompt.
 #   NUM_CHUNK          Autoregressive chunk count (1 chunk ~= 1 s @ 16 fps).
-#   POSE               Camera pose trajectory string (e.g. ``w-4`` / ``w-32``).
+#   POSE               Camera pose trajectory string. The parser prepends
+#                      an identity pose for the input frame, so ``w-N``
+#                      produces ``N + 1`` latents; pick ``N == num_chunk * 4 - 1``
+#                      (e.g. ``w-3`` for ``num_chunk=1``, ``w-31`` for ``num_chunk=8``).
 #   SEED               RNG seed.
 #   OUTPUT_SUBDIR      Subdirectory under ``outputs/`` for the rendered
 #                      .mp4 + per-chunk stats. Defaults to a timestamped
@@ -71,7 +74,7 @@ HF_MODELS_REL="${HY_TREE_REL}/hf_models"
 
 NUM_GPU="${NUM_GPU:-1}"
 NUM_CHUNK="${NUM_CHUNK:-1}"
-POSE="${POSE:-w-4}"
+POSE="${POSE:-w-3}"
 SEED="${SEED:-42}"
 PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek architecture and marble structures}"
 IMAGE_PATH="${IMAGE_PATH:-${REPO_HOST_PATH}/${HY_TREE_REL}/assets/img/test.png}"
@@ -201,9 +204,7 @@ if [[ "${HY_NUM_GPU}" -le 1 ]]; then
     uv run --project "${PARITY}" flashdreams-run hy-worldplay-wan-i2v-5b \
         --image-path "${HY_IMAGE_PATH}" \
         --prompt "${HY_PROMPT}" \
-        --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
         --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
-        --hy-worldplay-repo-root "${PARITY}/HY-WorldPlay" \
         --num-chunk "${HY_NUM_CHUNK}" \
         --pose "${HY_POSE}" \
         --seed "${HY_SEED}" \
@@ -215,9 +216,7 @@ else
         flashdreams-run hy-worldplay-wan-i2v-5b \
         --image-path "${HY_IMAGE_PATH}" \
         --prompt "${HY_PROMPT}" \
-        --ar-model-path "${PARITY}/HY-WorldPlay/hf_models/wan_transformer" \
         --ckpt-path "${PARITY}/HY-WorldPlay/hf_models/wan_distilled_model/model.pt" \
-        --hy-worldplay-repo-root "${PARITY}/HY-WorldPlay" \
         --num-chunk "${HY_NUM_CHUNK}" \
         --pose "${HY_POSE}" \
         --seed "${HY_SEED}" \
