@@ -390,6 +390,14 @@ class SlangPyHudPresenter:
         self._camera_texture_size: tuple[int, int] | None = None
         self._camera_fit_texture: Any | None = None
         self._camera_fit_size: tuple[int, int] | None = None
+        # Pre-allocated RGBA staging buffer used by the GPU camera
+        # upload. See :meth:`_ensure_camera_texture_uploaded` for the
+        # rationale; in short, we reuse one ``(src_h, src_w, 4)``
+        # numpy buffer with the alpha channel pre-filled to 255 so
+        # the per-tick work is a single RGB slice copy instead of
+        # an alpha alloc + ``np.concatenate`` + redundant
+        # ``ascontiguousarray``.
+        self._camera_rgba_staging: np.ndarray | None = None
 
         # Numpy-backed RGBA canvas: PIL writes into the same buffer
         # slangpy uploads to per frame. See :func:`_allocate_canvas`.
@@ -755,17 +763,37 @@ class SlangPyHudPresenter:
             )
             self._camera_texture_size = (src_w, src_h)
             self._latest_camera_rgba = None
-        if self._latest_camera_rgba is None:
-            # PIL Image.convert("RGBA") allocates a fresh RGBA buffer
-            # (no zero-copy path from RGB to RGBA in PIL); the
-            # alternative ``np.dstack`` + alpha=255 is the same cost
-            # but stays in numpy land so we can hand the buffer
-            # straight to ``copy_from_numpy``.
-            rgb_view = np.asarray(self._latest_camera_pil)
-            alpha = np.full((src_h, src_w, 1), 255, dtype=np.uint8)
-            self._latest_camera_rgba = np.ascontiguousarray(
-                np.concatenate([rgb_view, alpha], axis=2)
+            # Drop the staging buffer too -- it follows source-size.
+            self._camera_rgba_staging = None
+        # Re-use a single RGBA staging buffer per source size with
+        # the alpha channel pre-filled. The previous incarnation ran
+        # ``np.full(..., 255)`` + ``np.concatenate([rgb, alpha], 2)``
+        # + a (no-op since concatenate is already C-contiguous)
+        # ``np.ascontiguousarray`` on every GPU-camera tick: that's
+        # an alpha allocation, a fresh RGBA allocation, and two
+        # memory passes for what only needs to be one RGB slice
+        # copy into a long-lived buffer.
+        if (
+            self._camera_rgba_staging is None
+            or self._camera_rgba_staging.shape[:2] != (src_h, src_w)
+        ):
+            self._camera_rgba_staging = np.empty(
+                (src_h, src_w, 4), dtype=np.uint8
             )
+            # One-time alpha fill -- the GPU camera path only ever
+            # writes the RGB slice from here on, so alpha stays 255.
+            self._camera_rgba_staging[..., 3] = 255
+            # Force the RGB refill below since the buffer is fresh.
+            self._latest_camera_rgba = None
+        if self._latest_camera_rgba is None:
+            # Single RGB copy into the pre-allocated, alpha-padded
+            # staging buffer. ``np.asarray(pil)`` is zero-copy over
+            # the PIL Image's buffer (which itself wraps the
+            # world-model's numpy frame), so the only actual data
+            # movement is this one strided uint8 copy of the RGB
+            # bytes into the staging buffer's first three channels.
+            self._camera_rgba_staging[..., :3] = np.asarray(self._latest_camera_pil)
+            self._latest_camera_rgba = self._camera_rgba_staging
         self._camera_texture.copy_from_numpy(self._latest_camera_rgba)
         return True
 
