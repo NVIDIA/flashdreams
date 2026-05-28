@@ -57,6 +57,21 @@ windowing runtime); server users running only `omnidreams.webrtc` or
 `omnidreams-prepare` for explicit staging of arbitrary scene UUIDs
 or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
 
+## Native DiT defaults
+
+OmniDreams native DiT acceleration remains gated by the pipeline config's
+`native_dit_acceleration` policy (`disabled`, `auto`, or `required`). When that
+native path is enabled, the default compute profile is the FP8 KV-cache backend
+with cuDNN attention:
+
+- `native_dit_backend="fp8_kvcache_cudnn"`
+- `native_dit_attention_backend="auto"` (currently resolves to cuDNN)
+
+Set `native_dit_attention_backend="sparge"`, `"sage3"`, or `"sage3_fp8"`
+explicitly to opt into Sparge/SageAttention-3 experiments. Use
+`native_dit_sparge_hybrid_period > 1` with `"sparge"` to enable the FP8
+Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
+
 ## Run WebRTC server
 
 From the workspace root, run:
