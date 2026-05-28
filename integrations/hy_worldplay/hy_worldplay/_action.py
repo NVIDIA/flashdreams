@@ -23,8 +23,6 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-
 from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrl,
     I2VCtrlEncoder,
@@ -45,6 +43,7 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerCache,
     Wan21TransformerConfig,
 )
+from torch import Tensor
 
 _HY_STABILIZATION_TIMESTEP: int = 14
 """Near-clean AdaLN timestep applied to memory K/V during the
@@ -73,11 +72,7 @@ def _fp32_sequential(seq: nn.Sequential, x: Tensor) -> Tensor:
     for module in seq:
         if isinstance(module, nn.Linear):
             weight = module.weight.to(torch.float32)
-            bias = (
-                module.bias.to(torch.float32)
-                if module.bias is not None
-                else None
-            )
+            bias = module.bias.to(torch.float32) if module.bias is not None else None
             out = F.linear(out, weight, bias)
         else:
             out = module(out)
@@ -192,8 +187,7 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             )
         if Ks.ndim < 3 or Ks.shape[-2:] != (3, 3):
             raise ValueError(
-                f"Ks must have trailing shape (n_latents, 3, 3); "
-                f"got {tuple(Ks.shape)}."
+                f"Ks must have trailing shape (n_latents, 3, 3); got {tuple(Ks.shape)}."
             )
         if viewmats.shape[:-2] != Ks.shape[:-2]:
             raise ValueError(
@@ -254,8 +248,7 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             )
         if points_local.ndim != 2 or points_local.shape[-1] != 3:
             raise ValueError(
-                f"points_local must have shape (N, 3); got "
-                f"{tuple(points_local.shape)}."
+                f"points_local must have shape (N, 3); got {tuple(points_local.shape)}."
             )
         self._memory_config = _MemoryConfig(
             points_local=points_local,
@@ -330,9 +323,7 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             self._viewmats.to(device=device) if self._viewmats is not None else None
         )
         rollout_Ks: Tensor | None = (
-            self._intrinsics.to(device=device)
-            if self._intrinsics is not None
-            else None
+            self._intrinsics.to(device=device) if self._intrinsics is not None else None
         )
         rollout_action: Tensor | None = (
             self._action_labels.to(device=device)
@@ -847,9 +838,7 @@ class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
                     continue
                 block_cache.reset_current_chunk()
                 block_cache.self_attn._prev_chunk_idx = autoregressive_index - 1
-                block_cache.prope_self_attn._prev_chunk_idx = (
-                    autoregressive_index - 1
-                )
+                block_cache.prope_self_attn._prev_chunk_idx = autoregressive_index - 1
 
 
 @dataclass(kw_only=True)
@@ -930,9 +919,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         from hy_worldplay import _debug_dump
 
         ar_idx = (
-            cache.autoregressive_index
-            if hasattr(cache, "autoregressive_index")
-            else -1
+            cache.autoregressive_index if hasattr(cache, "autoregressive_index") else -1
         )
         is_first_step = (
             isinstance(cache, HyWorldPlayWan21TransformerCache)
@@ -983,10 +970,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         if isinstance(input, HyWorldPlayCtrl):
             if input.action is not None and "action" not in network_extra_kwargs:
                 network_extra_kwargs["action"] = input.action
-            if (
-                input.viewmats is not None
-                and "viewmats" not in network_extra_kwargs
-            ):
+            if input.viewmats is not None and "viewmats" not in network_extra_kwargs:
                 network_extra_kwargs["viewmats"] = input.viewmats
             if input.Ks is not None and "Ks" not in network_extra_kwargs:
                 network_extra_kwargs["Ks"] = input.Ks
@@ -1148,9 +1132,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         # grid inside ``_build_collapsed_rope_freqs``.
         rope_freqs = self._build_collapsed_rope_freqs(
             cache=cache,
-            t_positions=torch.arange(
-                K, dtype=torch.float32, device=memory_x.device
-            ),
+            t_positions=torch.arange(K, dtype=torch.float32, device=memory_x.device),
         )
 
         # Clean-context timestep applied to memory positions; matches
@@ -1281,9 +1263,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         # viewmats / Ks are float matrices with the frame at -3.
         if rollout.dtype in (torch.int32, torch.int64):
             if rollout.shape[-1] == 0:
-                raise ValueError(
-                    f"rollout {kind} buffer has zero-length frame axis"
-                )
+                raise ValueError(f"rollout {kind} buffer has zero-length frame axis")
             return rollout.index_select(-1, selected)
         if rollout.ndim < 3 or rollout.shape[-3] == 0:
             raise ValueError(

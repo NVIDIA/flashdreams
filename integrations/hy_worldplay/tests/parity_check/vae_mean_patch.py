@@ -32,9 +32,7 @@ def install_vae_mean_patch() -> None:
             "the patch targets diffusers' DiagonalGaussianDistribution."
         ) from exc
 
-    def _mean_only_sample(
-        self: Any, generator: Any = None
-    ) -> Any:
+    def _mean_only_sample(self: Any, generator: Any = None) -> Any:
         return self.mean
 
     DiagonalGaussianDistribution.sample = _mean_only_sample  # type: ignore[method-assign]

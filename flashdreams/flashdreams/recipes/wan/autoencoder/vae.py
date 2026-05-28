@@ -35,8 +35,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from torch import Tensor
-
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.compile import compile_module
@@ -51,6 +49,7 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
+from torch import Tensor
 
 _INTERNAL_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
@@ -66,9 +65,7 @@ _PUBLIC_WAN_VAE_CHECKPOINT_PATHS = {
 # loader pulls the diffusers safetensors shard and remaps keys via
 # :func:`wan22_ti2v_5b_vae_state_dict_transform` (``encoder.conv_in``
 # / ``quant_conv`` / ``post_quant_conv`` etc. -> our internal layout).
-WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = (
-    "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
-)
+WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
 
 # Alternative upstream single-file checkpoint. Top-level key prefixes
 # (``encoder.*`` / ``decoder.*`` / ``conv1`` / ``conv2``) line up with
@@ -620,9 +617,7 @@ class ResidualDownBlock(nn.Module):
         else:
             self.downsampler = None
 
-    def forward(
-        self, x: torch.Tensor, state: Dict[int, torch.Tensor]
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, state: Dict[int, torch.Tensor]) -> torch.Tensor:
         # Snapshot input for the avg shortcut before mutating ``x``.
         x_shortcut = x
         for resnet in self.resnets:
@@ -1019,9 +1014,7 @@ class WanVAE(nn.Module):
         # Effective spatial compression: 3 stage downsamples in the
         # encoder body (8x) multiplied by the outer patchify factor
         # (1 for Wan 2.1, 2 for Wan 2.2 5B = 16x total).
-        self._spatial_compression_ratio = (
-            self.SPATIAL_COMPRESSION_RATIO * patch_size
-        )
+        self._spatial_compression_ratio = self.SPATIAL_COMPRESSION_RATIO * patch_size
 
         # The encoder's pre-VAE in_channels absorb the patchify factor:
         # video has 3 channels, patchify packs each ``patch_size`` x
@@ -1213,9 +1206,7 @@ class WanVAE(nn.Module):
         if self._use_cuda_graph:
             assert self._decoder_wrapper is not None
             decoder = (
-                self._decoder_wrapper.drain
-                if is_first_chunk
-                else self._decoder_call
+                self._decoder_wrapper.drain if is_first_chunk else self._decoder_call
             )
         else:
             decoder = self.decoder
@@ -1282,9 +1273,7 @@ class WanVAEEncoderConfig(EncoderConfig):
     ``z_dim`` entries."""
     latent_std: tuple[float, ...] = _WAN21_LATENT_STD
     """Per-channel latent std used for normalisation."""
-    state_dict_transform: Callable[
-        [dict[str, Tensor]], dict[str, Tensor]
-    ] | None = None
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
     """Optional pre-``load_state_dict`` key remap (e.g. diffusers ->
     flashdreams layout). See :func:`wan22_ti2v_5b_vae_state_dict_transform`
     for the Wan 2.2 TI2V 5B remap."""
@@ -1414,9 +1403,7 @@ class WanVAEDecoderConfig(DecoderConfig):
     is_residual: bool = WanVAE.IS_RESIDUAL
     latent_mean: tuple[float, ...] = _WAN21_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN21_LATENT_STD
-    state_dict_transform: Callable[
-        [dict[str, Tensor]], dict[str, Tensor]
-    ] | None = None
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
     """Optional pre-``load_state_dict`` key remap. See
     :func:`wan22_ti2v_5b_vae_state_dict_transform` for the Wan 2.2 TI2V
     5B diffusers -> flashdreams remap."""
@@ -1661,9 +1648,9 @@ class Wan22TI2V5BVAEEncoderConfig(WanVAEEncoderConfig):
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[
-        [dict[str, Tensor]], dict[str, Tensor]
-    ] | None = wan22_ti2v_5b_vae_state_dict_transform
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
+        wan22_ti2v_5b_vae_state_dict_transform
+    )
 
 
 @dataclass(kw_only=True)
@@ -1682,6 +1669,6 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[
-        [dict[str, Tensor]], dict[str, Tensor]
-    ] | None = wan22_ti2v_5b_vae_state_dict_transform
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
+        wan22_ti2v_5b_vae_state_dict_transform
+    )

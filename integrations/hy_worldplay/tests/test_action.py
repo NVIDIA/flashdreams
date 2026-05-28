@@ -205,7 +205,6 @@ def test_compute_action_embedding_rejects_indivisible_L() -> None:
 def test_hy_ctrl_action_field_default_none() -> None:
     """The extension field defaults to ``None`` so legacy I2V callsites keep working."""
     import torch
-
     from hy_worldplay._action import HyWorldPlayCtrl
 
     ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 4), mask=torch.zeros(1, 4))
@@ -221,7 +220,6 @@ def test_patchify_override_is_declared_on_subclass() -> None:
     therefore corrupt the action conditioner.
     """
     from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
-
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
     assert (
@@ -241,7 +239,6 @@ def test_patchify_idempotent_on_patchified_ctrl() -> None:
     transformer + compile + CUDA-graph stack.
     """
     import torch
-
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
     action = torch.tensor([3, 5, 9, 1], dtype=torch.long)
@@ -268,9 +265,7 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
     base ``predict_flow`` on a stand-in instance so the test stays CPU-fast.
     """
     import torch
-
     from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
-
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
     captured: dict[str, dict] = {}

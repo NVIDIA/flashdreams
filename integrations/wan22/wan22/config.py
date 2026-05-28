@@ -36,7 +36,6 @@ runners (``flashdreams-run`` slugs, plugin integrations such as
 from __future__ import annotations
 
 import torch
-
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (

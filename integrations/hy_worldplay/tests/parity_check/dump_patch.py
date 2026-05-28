@@ -308,7 +308,9 @@ def _make_patched_transformer_forward(original_forward):
                 dump(
                     "predict_flow.entry",
                     None,
-                    timestep_shape=list(timestep.shape) if timestep is not None else None,
+                    timestep_shape=list(timestep.shape)
+                    if timestep is not None
+                    else None,
                     is_cache=bool(is_cache),
                     current_start=int(current_start),
                     current_end=int(current_end),

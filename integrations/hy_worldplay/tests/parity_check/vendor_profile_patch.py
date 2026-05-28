@@ -105,7 +105,6 @@ def _wrap_pipeline_call(
 ) -> Callable[..., Any]:
     """Open a fresh ``EventProfiler`` for the chunk, then record ``diffuse`` on return."""
     import torch
-
     from flashdreams.infra.profiler import EventProfiler
 
     def timed_call(self: Any, *args: object, **kwargs: object) -> Any:
@@ -145,18 +144,12 @@ def _wrap_decode_next_latent(
             stats["total_ms_wo_finalize"] = round(total_ms, 3)
             if torch.cuda.is_available():
                 gib = 1024**3
-                stats["mem_alloc_gib"] = round(
-                    torch.cuda.memory_allocated() / gib, 3
-                )
-                stats["mem_reserved_gib"] = round(
-                    torch.cuda.memory_reserved() / gib, 3
-                )
+                stats["mem_alloc_gib"] = round(torch.cuda.memory_allocated() / gib, 3)
+                stats["mem_reserved_gib"] = round(torch.cuda.memory_reserved() / gib, 3)
                 stats["mem_peak_gib"] = round(
                     torch.cuda.max_memory_allocated() / gib, 3
                 )
-            _records.append(
-                {"autoregressive_index": _current_chunk_idx, **stats}
-            )
+            _records.append({"autoregressive_index": _current_chunk_idx, **stats})
         return result
 
     return timed_decode
@@ -167,9 +160,7 @@ def _dump_records() -> None:
     if not _records:
         return
     out_path = Path(
-        os.environ.get(
-            "HY_VENDOR_STATS_JSON", f"stats_{_RUNNER_NAME}.json"
-        )
+        os.environ.get("HY_VENDOR_STATS_JSON", f"stats_{_RUNNER_NAME}.json")
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(_records, indent=2))

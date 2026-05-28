@@ -268,9 +268,9 @@ def parse_pose_data(
         else:
             trans_angles_deg = np.zeros(3)
 
-        rot_angles_deg = _ScipyRotation.from_matrix(
-            relative_c2w[i, :3, :3]
-        ).as_euler("xyz", degrees=True)
+        rot_angles_deg = _ScipyRotation.from_matrix(relative_c2w[i, :3, :3]).as_euler(
+            "xyz", degrees=True
+        )
 
         if move_norm > _MOVE_NORM_THRESHOLD:
             yaw_calm = abs(rot_angles_deg[1]) < 5e-2 and abs(rot_angles_deg[0]) < 5e-2
@@ -311,7 +311,5 @@ def parse_pose_action_labels(
     third_person: bool = False,
 ) -> Tensor:
     """Return only the per-latent action labels from :func:`parse_pose_data`."""
-    _, _, action = parse_pose_data(
-        pose_data, n_latents, third_person=third_person
-    )
+    _, _, action = parse_pose_data(pose_data, n_latents, third_person=third_person)
     return action

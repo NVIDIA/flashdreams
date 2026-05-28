@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-
 from hy_worldplay._checkpoint import hy_worldplay_distilled_state_dict_transform
 
 pytestmark = pytest.mark.ci_cpu
@@ -60,9 +59,9 @@ def _make_synthetic_distilled_state_dict() -> dict[str, dict[str, torch.Tensor]]
         for k, v in base_keys.items()
         if k.startswith("model.blocks.0.")
     }
-    fsdp_keys.update({
-        k: v for k, v in base_keys.items() if not k.startswith("model.blocks.0.")
-    })
+    fsdp_keys.update(
+        {k: v for k, v in base_keys.items() if not k.startswith("model.blocks.0.")}
+    )
     return {"generator": base_keys, "generator_ema": fsdp_keys}
 
 

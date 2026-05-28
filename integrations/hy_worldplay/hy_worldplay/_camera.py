@@ -24,17 +24,17 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-from torch.distributed import ProcessGroup
-
 from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
-from hy_worldplay._prope import prope_qkv
 from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,
     SelfAttention,
 )
+from torch import Tensor
+from torch.distributed import ProcessGroup
+
+from hy_worldplay._prope import prope_qkv
 
 
 def _fp32_layer_norm(x: Tensor, norm: nn.LayerNorm) -> Tensor:
@@ -55,6 +55,7 @@ def _fp32_layer_norm(x: Tensor, norm: nn.LayerNorm) -> Tensor:
         bias,
         norm.eps,
     )
+
 
 __all__ = [
     "HyWorldPlayMemoryKVCache",
@@ -177,7 +178,9 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
 
         # Independent attention op for the PRoPE branch keeps CP routing
         # symmetric across branches without sharing internal state.
-        self.attn_op_prope = ContextParallelAttention(qkv_format="bshd", backend="cudnn")
+        self.attn_op_prope = ContextParallelAttention(
+            qkv_format="bshd", backend="cudnn"
+        )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Route CP to both attention ops; the PRoPE branch follows the standard one."""
@@ -318,12 +321,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             if _debug_dump.enabled():
                 _debug_dump.dump("attn.memory_k_rope_prepend", memory_kv_cache.k_rope)
                 _debug_dump.dump("attn.memory_v_rope_prepend", memory_kv_cache.v_rope)
-            cached_k = torch.cat(
-                [memory_kv_cache.k_rope, cached_k], dim=-3
-            )
-            cached_v = torch.cat(
-                [memory_kv_cache.v_rope, cached_v], dim=-3
-            )
+            cached_k = torch.cat([memory_kv_cache.k_rope, cached_k], dim=-3)
+            cached_v = torch.cat([memory_kv_cache.v_rope, cached_v], dim=-3)
         if _debug_dump.enabled():
             _debug_dump.dump("attn.cached_k_final", cached_k)
             _debug_dump.dump("attn.cached_v_final", cached_v)
@@ -426,9 +425,7 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         # RoPE-branch K write (V is always raw).
         k_for_rope = k_raw
         if rope_freqs is not None and self.apply_rope_before_kvcache:
-            k_for_rope = apply_rope_freqs(
-                k_for_rope, rope_freqs, interleaved=True
-            )
+            k_for_rope = apply_rope_freqs(k_for_rope, rope_freqs, interleaved=True)
         memory_kv_cache.write_rope(k_for_rope, v_raw)
 
         # PRoPE branch: transpose to ``[batch, num_heads, seqlen,
@@ -509,9 +506,7 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
     prope_self_attn: BlockKVCache = None  # type: ignore[assignment]
     """PRoPE-branch KV cache (current-chunk K / V, dual of ``self_attn``)."""
 
-    memory: HyWorldPlayMemoryKVCache = field(
-        default_factory=HyWorldPlayMemoryKVCache
-    )
+    memory: HyWorldPlayMemoryKVCache = field(default_factory=HyWorldPlayMemoryKVCache)
     """Reconstituted-context memory cache. Empty on chunk 0; repopulated
     at the start of every chunk past the first by the prefill executor."""
 
@@ -665,17 +660,16 @@ class HyWorldPlayPRoPEBlock(Block):
         # the modulation table, norm + scale + shift, residual gates, and
         # FFN residual in float32 before casting back at each boundary.
         e_chunks = [
-            c.squeeze(-2)
-            for c in (self.modulation + e).float().chunk(6, dim=-2)
+            c.squeeze(-2) for c in (self.modulation + e).float().chunk(6, dim=-2)
         ]
 
         # norm1 has no affine params (elementwise_affine=False) so a
         # direct ``norm1(x.float())`` would also work; route through the
         # helper for symmetry with the norm3 / norm2 call sites that
         # *do* need the weight cast.
-        y = (
-            _fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]
-        ).type_as(x)
+        y = (_fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]).type_as(
+            x
+        )
         y = self.self_attn.forward_dual_branch(
             y,
             kv_cache=cache.self_attn,
@@ -694,9 +688,9 @@ class HyWorldPlayPRoPEBlock(Block):
             _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,
         )
-        y = (
-            _fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]
-        ).type_as(x)
+        y = (_fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]).type_as(
+            x
+        )
         y = self.ffn(y)
         x = (x.float() + y.float() * e_chunks[5]).type_as(x)
         return x
@@ -749,13 +743,12 @@ class HyWorldPlayPRoPEBlock(Block):
         # match, the memory K / V cache would carry per-block bf16
         # rounding drift that the next chunk's forward attends over.
         e_chunks = [
-            c.squeeze(-2)
-            for c in (self.modulation + e).float().chunk(6, dim=-2)
+            c.squeeze(-2) for c in (self.modulation + e).float().chunk(6, dim=-2)
         ]
 
-        y = (
-            _fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]
-        ).type_as(x)
+        y = (_fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]).type_as(
+            x
+        )
         y = self.self_attn.prefill_memory_kv(
             y,
             rope_freqs=rope_freqs,
@@ -769,10 +762,9 @@ class HyWorldPlayPRoPEBlock(Block):
             _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,
         )
-        y = (
-            _fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]
-        ).type_as(x)
+        y = (_fp32_layer_norm(x, self.norm2) * (1 + e_chunks[4]) + e_chunks[3]).type_as(
+            x
+        )
         y = self.ffn(y)
         x = (x.float() + y.float() * e_chunks[5]).type_as(x)
         return x
-

@@ -162,12 +162,10 @@ def test_prope_block_forward_requires_viewmats() -> None:
 
 def test_prope_self_attention_rejects_context_parallel() -> None:
     """``forward_dual_branch`` must raise ``NotImplementedError`` when CP > 1."""
-    from torch.distributed import ProcessGroup  # noqa: F401  (typing-only)
     from hy_worldplay._camera import HyWorldPlayPRoPESelfAttention
+    from torch.distributed import ProcessGroup  # noqa: F401  (typing-only)
 
-    attn = HyWorldPlayPRoPESelfAttention(
-        query_dim=64, n_heads=2, head_dim=32
-    )
+    attn = HyWorldPlayPRoPESelfAttention(query_dim=64, n_heads=2, head_dim=32)
 
     # Stub ``is_context_parallel_enabled`` so we can hit the gate
     # without setting up a distributed mesh.
@@ -187,7 +185,6 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
 def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
     """``use_prope_blocks`` toggles ``_build_block`` between stock :class:`Block` and PRoPE."""
     from flashdreams.recipes.wan.transformer.impl.network import Block
-
     from hy_worldplay._action import (
         HyWorldPlayWanDiTNetwork,
         HyWorldPlayWanDiTNetworkConfig,

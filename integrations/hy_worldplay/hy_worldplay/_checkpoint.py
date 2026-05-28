@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import torch
-
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
 
@@ -83,9 +82,7 @@ def hy_worldplay_distilled_state_dict_transform(
     # so it gets a global string replace rather than a prefix strip.
     stripped: dict[str, torch.Tensor] = {}
     for key, value in state_dict.items():
-        new_key = key.removeprefix("model.").replace(
-            "_fsdp_wrapped_module.", ""
-        )
+        new_key = key.removeprefix("model.").replace("_fsdp_wrapped_module.", "")
         stripped[new_key] = value
 
     # 3. Apply the base 5B diffusers -> WanDiTNetwork remap. Covers

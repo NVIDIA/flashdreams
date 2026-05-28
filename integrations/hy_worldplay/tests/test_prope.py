@@ -66,9 +66,7 @@ def _make_random_viewmats(batch: int, cameras: int, *, seed: int = 0) -> torch.T
     return torch.from_numpy(out).to(torch.float64)
 
 
-def _make_random_intrinsics(
-    batch: int, cameras: int, *, seed: int = 1
-) -> torch.Tensor:
+def _make_random_intrinsics(batch: int, cameras: int, *, seed: int = 1) -> torch.Tensor:
     """Build a stack of plausible camera intrinsics."""
     rng = np.random.default_rng(seed)
     out = np.zeros((batch, cameras, 3, 3), dtype=np.float64)
@@ -78,9 +76,7 @@ def _make_random_intrinsics(
             fy = 1.0 + float(rng.uniform(-0.1, 0.1))
             cx = 0.5 + float(rng.uniform(-0.05, 0.05))
             cy = 0.5 + float(rng.uniform(-0.05, 0.05))
-            out[b, c] = np.array(
-                [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]]
-            )
+            out[b, c] = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
     return torch.from_numpy(out).to(torch.float64)
 
 
@@ -124,9 +120,7 @@ def _numpy_prope_reference(
         Rinv = viewmats[..., :3, :3].transpose(0, 1, 3, 2)
         SE3_inv = np.zeros_like(viewmats)
         SE3_inv[..., :3, :3] = Rinv
-        SE3_inv[..., :3, 3] = -np.einsum(
-            "...ij,...j->...i", Rinv, viewmats[..., :3, 3]
-        )
+        SE3_inv[..., :3, 3] = -np.einsum("...ij,...j->...i", Rinv, viewmats[..., :3, 3])
         SE3_inv[..., 3, 3] = 1.0
         P_inv = np.einsum("...ij,...jk->...ik", SE3_inv, lift_inv)
     else:
@@ -134,9 +128,7 @@ def _numpy_prope_reference(
         Rinv = viewmats[..., :3, :3].transpose(0, 1, 3, 2)
         P_inv = np.zeros_like(viewmats)
         P_inv[..., :3, :3] = Rinv
-        P_inv[..., :3, 3] = -np.einsum(
-            "...ij,...j->...i", Rinv, viewmats[..., :3, 3]
-        )
+        P_inv[..., :3, 3] = -np.einsum("...ij,...j->...i", Rinv, viewmats[..., :3, 3])
         P_inv[..., 3, 3] = 1.0
 
     P_T = P.transpose(0, 1, 3, 2)
@@ -168,9 +160,7 @@ def test_prope_qkv_matches_numpy_reference_with_intrinsics() -> None:
     viewmats = _make_random_viewmats(batch, cameras)
     Ks = _make_random_intrinsics(batch, cameras)
 
-    q_p, k_p, v_p, apply_fn_o = prope_qkv(
-        q, k, v, viewmats=viewmats, Ks=Ks
-    )
+    q_p, k_p, v_p, apply_fn_o = prope_qkv(q, k, v, viewmats=viewmats, Ks=Ks)
 
     q_ref, k_ref, v_ref, P_ref = _numpy_prope_reference(
         q.numpy(), k.numpy(), v.numpy(), viewmats.numpy(), Ks.numpy()
@@ -224,11 +214,11 @@ def test_prope_qkv_identity_viewmats_is_pass_through() -> None:
     q = torch.randn(batch, num_heads, seqlen, head_dim, dtype=torch.float64)
     k = torch.randn_like(q)
     v = torch.randn_like(q)
-    viewmats = torch.eye(4, dtype=torch.float64).expand(batch, cameras, 4, 4).contiguous()
-
-    q_p, k_p, v_p, apply_fn_o = prope_qkv(
-        q, k, v, viewmats=viewmats, Ks=None
+    viewmats = (
+        torch.eye(4, dtype=torch.float64).expand(batch, cameras, 4, 4).contiguous()
     )
+
+    q_p, k_p, v_p, apply_fn_o = prope_qkv(q, k, v, viewmats=viewmats, Ks=None)
     torch.testing.assert_close(q_p, q, atol=1e-12, rtol=1e-12)
     torch.testing.assert_close(k_p, k, atol=1e-12, rtol=1e-12)
     torch.testing.assert_close(v_p, v, atol=1e-12, rtol=1e-12)

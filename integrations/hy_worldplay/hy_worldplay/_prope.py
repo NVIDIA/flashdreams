@@ -156,9 +156,7 @@ def build_prope_apply_fns(
         # both P (for the output projection / query) and P_inv (for K/V)
         # so the einsum at attention time evaluates the upstream
         # PRoPE formula bit-for-bit.
-        P = torch.einsum(
-            "...ij,...jk->...ik", _lift_K(Ks_norm), viewmats
-        )
+        P = torch.einsum("...ij,...jk->...ik", _lift_K(Ks_norm), viewmats)
         P_T = P.transpose(-1, -2).to(dtype=viewmats.dtype)
         P_inv = torch.einsum(
             "...ij,...jk->...ik",
@@ -209,8 +207,7 @@ def _apply_tiled_projmat(
         f"got {tuple(matrix.shape)}."
     )
     assert feat_dim % D == 0, (
-        f"head_dim ({feat_dim}) must be divisible by {D} for the "
-        f"block-diagonal tiling."
+        f"head_dim ({feat_dim}) must be divisible by {D} for the block-diagonal tiling."
     )
     return torch.einsum(
         "bcij,bncpkj->bncpki",
@@ -240,9 +237,7 @@ def _lift_K(Ks: Tensor) -> Tensor:
     bit-identical to upstream at fp32 / bf16).
     """
     assert Ks.shape[-2:] == (3, 3)
-    out = torch.zeros(
-        Ks.shape[:-2] + (4, 4), device=Ks.device, dtype=Ks.dtype
-    )
+    out = torch.zeros(Ks.shape[:-2] + (4, 4), device=Ks.device, dtype=Ks.dtype)
     out[..., :3, :3] = Ks
     out[..., 3, 3] = 1.0
     return out

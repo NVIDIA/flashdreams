@@ -166,7 +166,9 @@ def dump(name: str, tensor: Tensor | None, **extra: Any) -> None:
             # Best-effort fallback: stringify the non-JSON-clean payload
             # rather than failing the run for a diagnostic write.
             record["__json_error"] = str(e)
-            record["__repr"] = repr({k: v for k, v in record.items() if k != "tensor"})[:500]
+            record["__repr"] = repr({k: v for k, v in record.items() if k != "tensor"})[
+                :500
+            ]
             line = json.dumps({"name": name, "__error": str(e)})
 
         try:

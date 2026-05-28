@@ -78,8 +78,7 @@ def test_select_memory_frame_indices_invariants() -> None:
     # is kept unconditionally.
     for i in range(4, 16):
         assert i in indices, (
-            f"temporal context frame {i} must be in selected indices; "
-            f"got {indices}"
+            f"temporal context frame {i} must be in selected indices; got {indices}"
         )
 
 
@@ -320,9 +319,7 @@ def test_encoder_compute_memory_indices_gates_on_history() -> None:
 
     # AR step 0 / no history -> None.
     assert (
-        encoder._compute_memory_indices(
-            autoregressive_index=0, current_frame_idx=0
-        )
+        encoder._compute_memory_indices(autoregressive_index=0, current_frame_idx=0)
         is None
     )
 
@@ -357,9 +354,7 @@ def test_encoder_compute_memory_indices_disabled_uses_all_history() -> None:
     # all-history fall-back still emits indices for chunk-1+.
 
     assert (
-        encoder._compute_memory_indices(
-            autoregressive_index=0, current_frame_idx=0
-        )
+        encoder._compute_memory_indices(autoregressive_index=0, current_frame_idx=0)
         is None
     )
     indices = encoder._compute_memory_indices(
@@ -381,9 +376,7 @@ def test_encoder_compute_memory_indices_no_camera_returns_none() -> None:
     assert encoder._viewmats is None
 
     assert (
-        encoder._compute_memory_indices(
-            autoregressive_index=4, current_frame_idx=16
-        )
+        encoder._compute_memory_indices(autoregressive_index=4, current_frame_idx=16)
         is None
     )
 

@@ -37,9 +37,7 @@ def _sdpa_replacement(
         raise NotImplementedError(
             f"sdpa_patch only supports tensor_layout='HND'; got {tensor_layout!r}."
         )
-    return F.scaled_dot_product_attention(
-        q, k, v, dropout_p=0.0, is_causal=is_causal
-    )
+    return F.scaled_dot_product_attention(q, k, v, dropout_p=0.0, is_causal=is_causal)
 
 
 def install_sdpa_patch() -> None:

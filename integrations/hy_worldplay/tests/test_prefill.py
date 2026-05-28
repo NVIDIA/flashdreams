@@ -304,10 +304,10 @@ def test_transformer_cache_history_defaults_to_empty() -> None:
     chunk 0 (when the history is empty); a non-zero default would have
     the executor slice a non-existent buffer.
     """
-    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
         WanDiTNetworkCache,
     )
+    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
     fake_rope = type("R", (), {})()  # not exercised here
     cache = HyWorldPlayWan21TransformerCache(
@@ -337,7 +337,9 @@ def test_append_clean_latent_grows_history_and_detaches() -> None:
     history = transformer._append_clean_latent_to_history(None, chunk0)
     assert history is not None
     assert history.shape == (1, 4, 16)
-    assert history.requires_grad is False, "history must be detached from the grad graph"
+    assert history.requires_grad is False, (
+        "history must be detached from the grad graph"
+    )
 
     chunk1 = torch.randn(1, 4, 16, requires_grad=True)
     history = transformer._append_clean_latent_to_history(history, chunk1)
@@ -458,7 +460,9 @@ def test_index_rollout_buffer_falls_back_to_per_step_when_rollout_is_none() -> N
         selected=torch.tensor([0, 1]),
         kind="viewmats",
     )
-    assert sliced is per_step, "fallback must pass through the per-step tensor unchanged"
+    assert sliced is per_step, (
+        "fallback must pass through the per-step tensor unchanged"
+    )
 
 
 def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
@@ -471,12 +475,12 @@ def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
     scheduler step), so ``_n_cached`` doesn't flip mid-chunk and
     relying on it would re-run the prefill on every scheduler step.
     """
+    from flashdreams.recipes.wan.transformer.impl.network import (
+        WanDiTNetworkCache,
+    )
     from hy_worldplay._action import (
         HyWorldPlayWan21Transformer,
         HyWorldPlayWan21TransformerCache,
-    )
-    from flashdreams.recipes.wan.transformer.impl.network import (
-        WanDiTNetworkCache,
     )
 
     transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
@@ -508,10 +512,10 @@ def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:
     the rolling cache should only ever contain the current chunk's
     tokens, so ``start`` clears the previous chunk's residue.
     """
-    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
         WanDiTNetworkCache,
     )
+    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
     _, block_cache = _make_block_cache()
 
@@ -549,10 +553,10 @@ def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
     A wipe here is a no-op today, but would break any future caller
     that pre-stamps initial K / V before chunk 0.
     """
-    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
     from flashdreams.recipes.wan.transformer.impl.network import (
         WanDiTNetworkCache,
     )
+    from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
     _, block_cache = _make_block_cache()
 
@@ -651,8 +655,8 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
 
     # Stub the parent's forward so we don't have to spin up a VAE --
     # this test only exercises the action / viewmats / Ks attach paths.
-    from hy_worldplay._action import HyWorldPlayCtrl
     from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
+    from hy_worldplay._action import HyWorldPlayCtrl
 
     # 16 latent frames total (= 4 chunks of len_t=4) so we can test
     # both the per-AR-step slice and the rollout pass-through.
@@ -709,11 +713,11 @@ def test_encoder_omits_rollout_buffers_when_unbound() -> None:
     ``_index_rollout_buffer`` then takes its safe per-step fallback
     for the unbound camera conditioner.
     """
+    from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
     from hy_worldplay._action import (
         HyWorldPlayWanCtrlEncoder,
         HyWorldPlayWanCtrlEncoderConfig,
     )
-    from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 
     cfg = HyWorldPlayWanCtrlEncoderConfig()
     encoder = HyWorldPlayWanCtrlEncoder(cfg)

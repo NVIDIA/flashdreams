@@ -20,7 +20,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from flashdreams.infra.runner import RunnerConfig
 from hy_worldplay.config import (
     PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
@@ -194,9 +193,7 @@ def test_runner_uses_base_checkpoint_without_ckpt_path() -> None:
 
     transformer = PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.diffusion_model.transformer
     assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
-    assert (
-        transformer.state_dict_transform is wan22_ti2v_5b_dit_state_dict_transform
-    )
+    assert transformer.state_dict_transform is wan22_ti2v_5b_dit_state_dict_transform
     assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B.ckpt_path is None
 
 

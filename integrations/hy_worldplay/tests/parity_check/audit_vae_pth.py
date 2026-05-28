@@ -85,9 +85,7 @@ def main() -> None:
     pth_keys = _dump_pth_keys()
 
     out_path = Path("Wan2.2_VAE.pth.keys.txt")
-    out_path.write_text(
-        "\n".join(f"{k} {pth_keys[k]}" for k in sorted(pth_keys))
-    )
+    out_path.write_text("\n".join(f"{k} {pth_keys[k]}" for k in sorted(pth_keys)))
     print(f"[audit] wrote {out_path} ({len(pth_keys)} keys)")
 
     # Quick top-level layout summary so we can decide simplification potential.

@@ -23,11 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
-from torch import Tensor
-
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
+from torch import Tensor
 
 __all__ = [
     "DEFAULT_PROMPT",
@@ -254,7 +253,9 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     ``generate_points_in_sphere(50_000, 8.0)``."""
 
 
-class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInferencePipeline]):
+class HyWorldPlayWanI2VRunner(
+    Runner[HyWorldPlayWanI2VRunnerConfig, WanInferencePipeline]
+):
     """Drive :data:`PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` end-to-end for the I2V case.
 
     Inherits the standard :class:`Runner` machinery (torchrun bootstrap,
@@ -424,8 +425,7 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
             stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
             stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats -> "
-                f"{stats_path.resolve()}"
+                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
 
     def _fetch_example_image(self) -> Path:
@@ -575,9 +575,7 @@ class HyWorldPlayWanI2VRunner(Runner[HyWorldPlayWanI2VRunnerConfig, WanInference
         target_numel = math.prod(target_shape)
         # The patched per-chunk noise must reshape into the patchified
         # latent shape.
-        per_chunk_numel = (
-            transformer_cfg.network.in_dim * len_t * h_lat * w_lat
-        )
+        per_chunk_numel = transformer_cfg.network.in_dim * len_t * h_lat * w_lat
         assert per_chunk_numel == target_numel, (
             f"vendor-aligned noise per-chunk numel ({per_chunk_numel}) "
             f"!= native latent_shape numel ({target_numel}); shapes are "

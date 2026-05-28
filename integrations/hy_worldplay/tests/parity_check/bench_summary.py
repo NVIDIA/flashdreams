@@ -55,7 +55,11 @@ def _median(values: list[float]) -> float | None:
         return None
     sorted_vals = sorted(values)
     n = len(sorted_vals)
-    return sorted_vals[n // 2] if n % 2 else 0.5 * (sorted_vals[n // 2 - 1] + sorted_vals[n // 2])
+    return (
+        sorted_vals[n // 2]
+        if n % 2
+        else 0.5 * (sorted_vals[n // 2 - 1] + sorted_vals[n // 2])
+    )
 
 
 def _stage_median_post_warmup(
@@ -77,9 +81,7 @@ def _stage_median_post_warmup(
     return _median(kept_floats), len(kept_floats)
 
 
-def _format_per_chunk_stage(
-    stats: list[dict[str, Any]] | None, stage_key: str
-) -> str:
+def _format_per_chunk_stage(stats: list[dict[str, Any]] | None, stage_key: str) -> str:
     """Render per-AR-step ``{stage_key}_ms`` as ``c0=12.3ms, c1=18.4ms``."""
     if not isinstance(stats, list):
         return "n/a"
@@ -196,10 +198,7 @@ def _render_report(
         f"- pose: `{pose}` (`num_chunk={num_chunk}`)",
         f"- seed: `{seed}`",
         f"- warmup chunks discarded: `{warmup_chunks}`",
-        (
-            f"- native frames: `{native_mp4.shape}`, "
-            f"vendor frames: `{vendor_mp4.shape}`"
-        ),
+        (f"- native frames: `{native_mp4.shape}`, vendor frames: `{vendor_mp4.shape}`"),
         "",
         "## Perf",
         "",
