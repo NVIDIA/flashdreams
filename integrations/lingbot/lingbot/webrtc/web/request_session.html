@@ -51,14 +51,20 @@ limitations under the License.
 
       <section id="sceneCard" class="sceneCard overlayPanel" aria-label="Initial Scene">
         <span class="panelLabel">Initial Scene</span>
-        <label class="uploadControl">
-          <input id="firstFrameInput" type="file" accept="image/*">
-          <span id="firstFrameName">Choose Image</span>
-        </label>
-        <label class="urlControl">
-          <span>Image URL</span>
-          <input id="firstFrameUrlInput" type="url" inputmode="url" autocomplete="off">
-        </label>
+        <div class="firstFrameSourceRow">
+          <label class="uploadControl">
+            <input id="firstFrameInput" type="file" accept="image/*">
+            <span id="firstFrameName">Choose Image</span>
+          </label>
+          <div class="urlControl">
+            <label for="firstFrameUrlInput">Image URL</label>
+            <div class="urlInputRow">
+              <input id="firstFrameUrlInput" type="url" inputmode="url" autocomplete="off">
+              <button id="firstFrameUrlUpdateButton" class="urlUpdateButton" type="button">Update</button>
+            </div>
+            <span id="firstFrameUrlStatus" class="fieldStatus" role="status" hidden></span>
+          </div>
+        </div>
         <label class="promptControl">
           <span>Prompt</span>
           <textarea id="promptInput" rows="4" maxlength="2000"></textarea>
