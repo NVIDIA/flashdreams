@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
    reference-docs side covers:
 
        api/*                  — autodoc reference
-       documentation/*        — Documentation tab umbrella
+       documentation          — Documentation tab umbrella (flat hub page)
        developer_guides/*     — developer guides
        community/contributing — included from repo-root CONTRIBUTING.md;
                                 multi-section reference content that
@@ -47,7 +47,7 @@ SPDX-License-Identifier: Apache-2.0
    quickstart, per-model pages) renders in the marketing layout.
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
-                          or pagename.startswith('documentation/')
+                          or pagename == 'documentation'
                           or pagename.startswith('developer_guides/')
                           or pagename == 'community/contributing' %}
 

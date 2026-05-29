@@ -66,7 +66,7 @@ CUDA graph after warmup, collapsing Python and launch overhead in the
 hot loop.
 
 The library is Apache-2.0 and developed in the open. The internals are
-covered in the :doc:`documentation <documentation/index>`.
+covered in the :doc:`documentation <documentation>`.
 
 Performance
 -----------
@@ -239,6 +239,6 @@ invocation, the checkpoint source, and the per-recipe knobs.
    :maxdepth: 1
 
    Get Started <quickstart/index>
-   Documentation <documentation/index>
+   Documentation <documentation>
    benchmarks/index
    community/index

@@ -109,7 +109,7 @@ html_theme_options = {
         "quickstart/*": [],
         "developer_guides/*": ["page-toc"],
         "models/*": [],
-        "documentation/*": ["page-toc"],
+        "documentation": ["page-toc"],
         "api/*": ["page-toc"],
     },
     "pygments_light_style": "tango",
@@ -193,7 +193,7 @@ html_sidebars = {
     "quickstart/*": [],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],
-    "documentation/*": ["sidebar-nav-bs"],
+    "documentation": [],
     "api/*": ["sidebar-nav-bs"],
 }
 
