@@ -815,6 +815,7 @@ dependencies = [
     { name = "mediapy" },
     { name = "nvidia-cudnn-frontend" },
     { name = "opencv-python-headless" },
+    { name = "pynvvideocodec" },
     { name = "shapely" },
 ]
 
@@ -834,6 +835,7 @@ requires-dist = [
     { name = "mediapy", specifier = ">=1.1" },
     { name = "nvidia-cudnn-frontend", specifier = "==1.22.1" },
     { name = "opencv-python-headless" },
+    { name = "pynvvideocodec" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'" },
     { name = "shapely" },

@@ -21,9 +21,11 @@ from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
     OmnidreamsStepResult,
     OmnidreamsWebRTCSessionManager,
+    _RawChunkOutput,
 )
 
 from flashdreams.serving.webrtc.controls import CameraPoseIntegrator
+from flashdreams.serving.webrtc.encode import EncodedVideoPacket
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -101,6 +103,27 @@ class _FakeWrapper:
         self.finalized.append(finalization_state)
 
 
+class _FakeVideoEncoder:
+    """Fake encoder that returns a single dummy packet per chunk."""
+
+    backend = "fake"
+
+    def encode_chunk(
+        self, video_chunk: torch.Tensor, *, force_keyframe: bool = False
+    ) -> SimpleNamespace:
+        num_frames = video_chunk.shape[2]
+        return SimpleNamespace(
+            packets=[EncodedVideoPacket(payload=b"\x00\x00\x00\x01\x65", keyframe=force_keyframe)],
+            backend=self.backend,
+            encode_ms=0.1,
+            num_input_frames=num_frames,
+            num_keyframes=1 if force_keyframe else 0,
+        )
+
+    def close(self) -> None:
+        pass
+
+
 def _build_fake_runtime() -> tuple[OmnidreamsInferenceRuntime, _FakeWrapper]:
     runtime = OmnidreamsInferenceRuntime(
         config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
@@ -113,6 +136,7 @@ def _build_fake_runtime() -> tuple[OmnidreamsInferenceRuntime, _FakeWrapper]:
     runtime._camera_to_rig = torch.eye(4)
     runtime._device = torch.device("cpu")
     runtime._next_timestamp_us = 1000
+    runtime._video_encoder = _FakeVideoEncoder()  # ty:ignore[invalid-assignment]
     runtime.pose_integrator = CameraPoseIntegrator()
     runtime.pose_integrator.reset()
     return runtime, wrapper
@@ -147,23 +171,25 @@ def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
     runtime, wrapper = _build_fake_runtime()
     runtime.config.debug_serve_hdmaps = True
 
-    result0 = runtime._generate_one_chunk_sync(
+    raw0 = runtime._generate_one_chunk_sync(
         segments=[(0.0, 2 / 30, frozenset({"w"}))],
         frame_times=[1 / 30, 2 / 30],
     )
-    result1 = runtime._generate_one_chunk_sync(
+    result0 = runtime._encode_raw_output_sync(raw0)
+    raw1 = runtime._generate_one_chunk_sync(
         segments=[(2 / 30, 5 / 30, frozenset({"d"}))],
         frame_times=[3 / 30, 4 / 30, 5 / 30],
     )
+    result1 = runtime._encode_raw_output_sync(raw1)
 
     assert result0.chunk_index == 0
     assert result0.num_frames == 2
-    assert result0.video_chunk.shape == (1, 1, 2, 3, 4, 5)
-    assert result0.video_chunk.unique().tolist() == [31]
+    assert result0.encoder_backend == "fake"
+    assert len(result0.encoded_packets) >= 1
     assert result1.chunk_index == 1
     assert result1.num_frames == 3
-    assert result1.video_chunk.shape == (1, 1, 3, 3, 4, 5)
-    assert result1.video_chunk.unique().tolist() == [47]
+    assert result1.encoder_backend == "fake"
+    assert len(result1.encoded_packets) >= 1
     assert wrapper.skip_video_generation_flags == [True, True]
     assert wrapper.finalized == []
 
@@ -374,6 +400,11 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         warmup_chunks=0,
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
+        video_encoder_bitrate=10_000_000,
+        video_encoder_gpu_id=0,
+        video_queue_max_size=512,
+        keyframe_interval_chunks=30,
+        no_nvenc=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
@@ -384,6 +415,8 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
     assert cfg.video_height == 360
     assert cfg.video_width == 640
     assert cfg.debug_serve_hdmaps is True
+    assert cfg.video_encoder_bitrate == 10_000_000
+    assert cfg.keyframe_interval_chunks == 30
 
 
 def test_parse_args_omits_scene_dir_by_default(
@@ -471,6 +504,11 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
         warmup_chunks=0,
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
+        video_encoder_bitrate=10_000_000,
+        video_encoder_gpu_id=0,
+        video_queue_max_size=512,
+        keyframe_interval_chunks=30,
+        no_nvenc=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args)
@@ -554,21 +592,45 @@ async def test_loopback_warmup_drives_session_generation(
         def peek_next_chunk_num_frames(self) -> int:
             return 1
 
+        async def _run_chunk_inference(
+            self,
+            *,
+            segments: list[tuple[float, float, frozenset[str]]],
+            frame_times: list[float],
+        ) -> _RawChunkOutput:
+            del frame_times
+            chunk_index = len(self.generated_segments)
+            self.generated_segments.append(segments)
+            return _RawChunkOutput(
+                video_chunk=torch.zeros(1, 1, 1, 3, 4, 4),
+                chunk_index=chunk_index,
+                num_frames=1,
+                force_keyframe=False,
+            )
+
+        async def _run_chunk_encode(
+            self, raw: _RawChunkOutput
+        ) -> OmnidreamsStepResult:
+            return OmnidreamsStepResult(
+                chunk_index=raw.chunk_index,
+                num_frames=raw.num_frames,
+                encoded_packets=[EncodedVideoPacket(payload=b"\x00\x00\x00\x01\x65")],
+                encoder_backend="fake",
+                encode_ms=0.1,
+                keyframes=0,
+                stats=None,
+            )
+
         async def generate_chunk(
             self,
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
         ) -> OmnidreamsStepResult:
-            del frame_times
-            chunk_index = len(self.generated_segments)
-            self.generated_segments.append(segments)
-            return OmnidreamsStepResult(
-                chunk_index=chunk_index,
-                num_frames=1,
-                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+            raw = await self._run_chunk_inference(
+                segments=segments, frame_times=frame_times
             )
+            return await self._run_chunk_encode(raw)
 
         async def close(self) -> None:
             self.close_calls += 1
@@ -696,12 +758,12 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
         def peek_next_chunk_num_frames(self) -> int:
             return 1
 
-        async def generate_chunk(
+        async def _run_chunk_inference(
             self,
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> OmnidreamsStepResult:
+        ) -> _RawChunkOutput:
             del segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")

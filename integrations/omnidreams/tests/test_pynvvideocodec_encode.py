@@ -61,7 +61,7 @@ class TestAbgrConversionUint8:
             assert tuple(frame.shape) == (48, 64, 4)
 
     def test_channel_ordering(self) -> None:
-        """Verify ABGR channel layout: A=255, B=src[2], G=src[1], R=src[0]."""
+        """Verify ABGR surface format: memory bytes are R, G, B, A (little-endian)."""
         # Create a 1x1 pixel: R=100, G=150, B=200
         pixel = torch.tensor(
             [[[[[[100]], [[150]], [[200]]]]]],
@@ -71,7 +71,7 @@ class TestAbgrConversionUint8:
         frames = tensor_chunk_to_abgr_cuda_frames(pixel)
         assert len(frames) == 1
         abgr = frames[0][0, 0].tolist()
-        assert abgr == [255, 200, 150, 100]  # A, B, G, R
+        assert abgr == [100, 150, 200, 255]  # R, G, B, A
 
     def test_omnidreams_resolution(self) -> None:
         """Verify conversion works at OmniDreams native resolution."""
@@ -97,7 +97,7 @@ class TestAbgrConversionFloat:
             assert tuple(frame.shape) == (48, 64, 4)
 
     def test_channel_ordering(self) -> None:
-        """Float [-1,1] → uint8 ABGR: verify known pixel values."""
+        """Float [-1,1] → ABGR surface format: verify known pixel values."""
         # R=1.0→255, G=0.0→128, B=-1.0→0
         pixel = torch.tensor(
             [[[[[[1.0]], [[0.0]], [[-1.0]]]]]],
@@ -107,8 +107,8 @@ class TestAbgrConversionFloat:
         frames = tensor_chunk_to_abgr_cuda_frames(pixel)
         assert len(frames) == 1
         abgr = frames[0][0, 0].tolist()
-        # A=255, B=0 (from -1.0), G=128 (from 0.0), R=255 (from 1.0)
-        assert abgr == [255, 0, 128, 255]
+        # R=255 (from 1.0), G=128 (from 0.0), B=0 (from -1.0), A=255
+        assert abgr == [255, 128, 0, 255]
 
 
 # ---------------------------------------------------------------------------

@@ -22,7 +22,12 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
-from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCConfiguration,
+    RTCPeerConnection,
+    RTCRtpSender,
+    RTCSessionDescription,
+)
 from filelock import FileLock
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
@@ -48,7 +53,11 @@ from flashdreams.serving.webrtc.controls import (
     KeyboardResampler,
     PoseSegment,
 )
-from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.encode import (
+    EncodedVideoPacket,
+    PyNvVideoCodecH264ChunkEncoder,
+)
+from flashdreams.serving.webrtc.media import BufferedVideoTrack, EncodedPacketVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
@@ -297,14 +306,30 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
+    use_nvenc: bool = True
+    video_encoder_bitrate: int = 10_000_000
+    video_encoder_gpu_id: int = 0
+    video_queue_max_size: int = 512
+    keyframe_interval_chunks: int = 30
 
 
 @dataclass(slots=True)
 class OmnidreamsStepResult:
     chunk_index: int
     num_frames: int
-    video_chunk: torch.Tensor
+    encoded_packets: list[EncodedVideoPacket]
+    encoder_backend: str
+    encode_ms: float
+    keyframes: int
     stats: dict[str, float] | None
+
+
+@dataclass(slots=True)
+class _RawChunkOutput:
+    video_chunk: torch.Tensor
+    chunk_index: int
+    num_frames: int
+    force_keyframe: bool
 
 
 class OmnidreamsInferenceRuntime:
@@ -342,6 +367,7 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._video_encoder: PyNvVideoCodecH264ChunkEncoder | None = None
         # Keep every blocking runtime call on the same OS thread. This is not
         # for throughput: Omnidreams uses CUDA graph capture/replay through
         # torch.compile/cuDNN, and the captured state appears to depend on
@@ -401,11 +427,19 @@ class OmnidreamsInferenceRuntime:
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> OmnidreamsStepResult:
+        raw = await self._run_chunk_inference(segments=segments, frame_times=frame_times)
+        return await self._run_chunk_encode(raw)
+
+    async def _run_chunk_inference(
+        self,
+        *,
+        segments: list[PoseSegment],
+        frame_times: list[float],
+    ) -> _RawChunkOutput:
         if self._closed:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-
         async with self._step_lock:
             if self._closed:
                 raise OmnidreamsRuntimeError("Session is closed.")
@@ -414,6 +448,9 @@ class OmnidreamsInferenceRuntime:
                 segments,
                 frame_times,
             )
+
+    async def _run_chunk_encode(self, raw: _RawChunkOutput) -> OmnidreamsStepResult:
+        return await asyncio.to_thread(self._encode_raw_output_sync, raw)
 
     async def _run_on_runtime_thread(
         self,
@@ -471,7 +508,7 @@ class OmnidreamsInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> OmnidreamsStepResult:
+    ) -> _RawChunkOutput:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
     @distributed_op(OmnidreamsControlSignal.CLOSE)
@@ -615,10 +652,29 @@ class OmnidreamsInferenceRuntime:
         )
         self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
+        self._initialize_video_encoder_sync()
         self._reset_rollout_sync()
         logger.info(
             "Omnidreams runtime initialization complete in {:.1f}s.",
             time.perf_counter() - init_t0,
+        )
+
+    def _initialize_video_encoder_sync(self) -> None:
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
+
+        if not self.config.use_nvenc:
+            logger.info("NVENC encoder disabled (use_nvenc=False); using aiortc VP8.")
+            return
+
+        cfg = self.config
+        self._video_encoder = PyNvVideoCodecH264ChunkEncoder(
+            width=cfg.video_width,
+            height=cfg.video_height,
+            fps=cfg.fps,
+            bitrate=cfg.video_encoder_bitrate,
+            gpu_id=cfg.video_encoder_gpu_id,
         )
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
@@ -680,6 +736,7 @@ class OmnidreamsInferenceRuntime:
     def _close_sync(self) -> None:
         state = self._state
         wrapper = self._wrapper
+        video_encoder = self._video_encoder
         self._state = None
         self._wrapper = None
         self._renderer = None
@@ -688,11 +745,14 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
+        self._video_encoder = None
 
         if state is not None and wrapper is not None:
             wrapper.cleanup(state)
         if wrapper is not None:
             del wrapper
+        if video_encoder is not None:
+            video_encoder.close()
         if self._clipgt_temp_dir is not None:
             self._clipgt_temp_dir.cleanup()
             self._clipgt_temp_dir = None
@@ -718,15 +778,16 @@ class OmnidreamsInferenceRuntime:
         if self._device is None:
             raise OmnidreamsRuntimeError("Runtime device is not initialized.")
 
+        chunk_idx = self.autoregressive_index
         num_frames = self.peek_next_chunk_num_frames()
         if len(frame_times) != num_frames:
             raise OmnidreamsRuntimeError(
-                f"Expected {num_frames} frame_times for chunk={self.autoregressive_index}, "
+                f"Expected {num_frames} frame_times for chunk={chunk_idx}, "
                 f"got {len(frame_times)}."
             )
         if not segments:
             raise OmnidreamsRuntimeError(
-                f"Chunk={self.autoregressive_index} received empty segments."
+                f"Chunk={chunk_idx} received empty segments."
             )
 
         ego_poses = self.pose_integrator.integrate_chunk(
@@ -741,7 +802,9 @@ class OmnidreamsInferenceRuntime:
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
-        if self._state is None:
+        is_first = self._state is None
+        gen_label = "start_generation" if is_first else "continue_generation"
+        if is_first:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
                 initial_rgb_frames=self._initial_rgb_frames,
@@ -775,14 +838,36 @@ class OmnidreamsInferenceRuntime:
         else:
             video_chunk = output.rgb_frames
 
-        result = OmnidreamsStepResult(
-            chunk_index=self.autoregressive_index,
-            num_frames=int(video_chunk.shape[2]),
-            video_chunk=video_chunk.detach().cpu(),
-            stats=None,
+        force_keyframe = (
+            chunk_idx % self.config.keyframe_interval_chunks == 0
         )
         self.autoregressive_index += 1
-        return result
+        return _RawChunkOutput(
+            video_chunk=video_chunk,
+            chunk_index=chunk_idx,
+            num_frames=int(video_chunk.shape[2]),
+            force_keyframe=force_keyframe,
+        )
+
+    def _encode_raw_output_sync(self, raw: _RawChunkOutput) -> OmnidreamsStepResult:
+        if self._video_encoder is None:
+            raise OmnidreamsRuntimeError("Video encoder is not initialized.")
+        encoding_result = self._video_encoder.encode_chunk(
+            raw.video_chunk, force_keyframe=raw.force_keyframe,
+        )
+        if not encoding_result.packets:
+            raise OmnidreamsRuntimeError(
+                f"PyNvVideoCodec produced zero packets for chunk={raw.chunk_index}"
+            )
+        return OmnidreamsStepResult(
+            chunk_index=raw.chunk_index,
+            num_frames=raw.num_frames,
+            encoded_packets=encoding_result.packets,
+            encoder_backend=encoding_result.backend,
+            encode_ms=encoding_result.encode_ms,
+            keyframes=encoding_result.num_keyframes,
+            stats=None,
+        )
 
     def _consume_timestamps(self, num_frames: int) -> list[int]:
         step_us = int(round(1_000_000 / self.config.fps))
@@ -794,7 +879,7 @@ class OmnidreamsInferenceRuntime:
 @dataclass(slots=True)
 class _ManagedOmnidreamsSession:
     runtime: OmnidreamsInferenceRuntime
-    video_track: BufferedVideoTrack
+    video_track: EncodedPacketVideoTrack | BufferedVideoTrack
     peer_connection: Any
     resampler: KeyboardResampler
     control_channel: Any | None = None
@@ -889,6 +974,28 @@ class OmnidreamsWebRTCSessionManager:
                     time.perf_counter() - warmup_t0,
                 )
 
+    @staticmethod
+    def _prefer_h264_video_codec(*, transceiver: Any, rtp_sender_cls: Any) -> None:
+        """Force H.264 as the preferred video codec in SDP negotiation."""
+        capabilities = rtp_sender_cls.getCapabilities("video").codecs
+        h264_codecs = [
+            codec for codec in capabilities if codec.mimeType.lower() == "video/h264"
+        ]
+        rtx_codecs = [
+            codec for codec in capabilities if codec.mimeType.lower() == "video/rtx"
+        ]
+        if not h264_codecs:
+            logger.warning(
+                "No local H.264 capability found; using aiortc default codec preference."
+            )
+            return
+        transceiver.setCodecPreferences([*h264_codecs, *rtx_codecs])
+        logger.info(
+            "Forced H.264 codec preference for video transceiver (profiles={}, rtx={}).",
+            len(h264_codecs),
+            bool(rtx_codecs),
+        )
+
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
         if not self._runtime_ready or not self._warmup_complete:
             await self.preload_runtime()
@@ -917,9 +1024,27 @@ class OmnidreamsWebRTCSessionManager:
         await self._runtime.reset_for_new_session()
 
         peer_connection = RTCPeerConnection(rtc_configuration)
-        num_frames = self._runtime.peek_steady_chunk_num_frames()
-        video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
-        peer_connection.addTrack(video_track)
+        use_nvenc = self.runtime_config.use_nvenc
+        if use_nvenc:
+            video_track: EncodedPacketVideoTrack | BufferedVideoTrack = (
+                EncodedPacketVideoTrack(
+                    fps=self.fps,
+                    maxsize=self.runtime_config.video_queue_max_size,
+                )
+            )
+        else:
+            video_track = BufferedVideoTrack(
+                fps=self.fps,
+                maxsize=self.runtime_config.video_queue_max_size,
+            )
+        video_transceiver = peer_connection.addTransceiver(
+            video_track, direction="sendonly",
+        )
+        if use_nvenc:
+            self._prefer_h264_video_codec(
+                transceiver=video_transceiver,
+                rtp_sender_cls=RTCRtpSender,
+            )
         resampler = KeyboardResampler(
             fps=self.fps,
             start_v=0.0,
@@ -998,6 +1123,26 @@ class OmnidreamsWebRTCSessionManager:
             await peer_connection.setRemoteDescription(offer)
             answer = await peer_connection.createAnswer()
             await peer_connection.setLocalDescription(answer)
+
+            negotiated_codecs = video_transceiver._codecs
+            if use_nvenc:
+                if (
+                    not negotiated_codecs
+                    or negotiated_codecs[0].mimeType.lower() != "video/h264"
+                ):
+                    negotiated_name = (
+                        negotiated_codecs[0].mimeType if negotiated_codecs else "none"
+                    )
+                    raise RuntimeError(
+                        f"H.264 codec required but not negotiated (got {negotiated_name}). "
+                        "The browser may not support H.264. "
+                        "NVENC pre-encoded packets cannot be sent over a non-H.264 codec."
+                    )
+            logger.info(
+                "Video codec negotiated: {}.",
+                negotiated_codecs[0].mimeType if negotiated_codecs else "default",
+            )
+
             await wait_for_ice_gathering_complete(peer_connection)
             local_description = peer_connection.localDescription
             if local_description is None:
@@ -1163,6 +1308,124 @@ class OmnidreamsWebRTCSessionManager:
         managed_session.pending_action_arrivals.append(arrival_t)
         managed_session.first_action_received.set()
 
+    async def _encode_and_deliver(
+        self,
+        *,
+        runtime: OmnidreamsInferenceRuntime,
+        raw: _RawChunkOutput,
+        video_track: EncodedPacketVideoTrack | BufferedVideoTrack,
+        managed_session: _ManagedOmnidreamsSession,
+        t_before_gen: float,
+        t_after_inference: float,
+        chunk_end_v: float,
+        consumed_action_arrivals: list[float],
+        num_segments: int,
+    ) -> None:
+        """Encode a raw chunk, enqueue packets, and send timing telemetry.
+
+        Runs as a fire-and-forget ``asyncio.Task`` so that NVENC encoding
+        (via ``asyncio.to_thread``) overlaps with the next chunk's trigger
+        sleep and model inference on the runtime executor thread.
+
+        When ``use_nvenc`` is False, skips NVENC encoding and enqueues raw
+        frames to a :class:`BufferedVideoTrack` (VP8 software encoding path).
+        """
+        if managed_session.closed:
+            return
+        loop = asyncio.get_running_loop()
+
+        use_nvenc = self.runtime_config.use_nvenc
+        if use_nvenc:
+            try:
+                result = await runtime._run_chunk_encode(raw)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not managed_session.closed:
+                    logger.exception("Chunk encoding failed; closing session.")
+                    await self.close_active_session()
+                return
+            if managed_session.closed:
+                return
+            assert isinstance(video_track, EncodedPacketVideoTrack)
+            enqueued = await video_track.enqueue_encoded_packets(result.encoded_packets)
+            encode_ms = result.encode_ms
+            encoder_backend = result.encoder_backend
+            keyframes = result.keyframes
+            num_frames = result.num_frames
+            chunk_index = result.chunk_index
+        else:
+            assert isinstance(video_track, BufferedVideoTrack)
+            enqueued = await video_track.enqueue_chunk(raw.video_chunk)
+            encode_ms = 0.0
+            encoder_backend = "vp8-aiortc"
+            keyframes = 0
+            num_frames = raw.num_frames
+            chunk_index = raw.chunk_index
+
+        t_after_enqueue = loop.time()
+        inference_ms = (t_after_inference - t_before_gen) * 1e3
+        enqueue_ms = (t_after_enqueue - t_after_inference) * 1e3
+        play_ms = num_frames * 1000.0 / video_track.fps
+        lag_ms = (t_after_enqueue - chunk_end_v) * 1e3
+        control_latency_ms = (
+            (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
+            if consumed_action_arrivals
+            else None
+        )
+        logger.info(
+            "Chunk done chunk={} num_frames={} segments={} "
+            "enqueued={} backend={} encode_ms={:.2f} keyframes={} "
+            "inference_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
+            "queue_depth={} dropped={} lag_ms={:.1f}",
+            chunk_index,
+            num_frames,
+            num_segments,
+            enqueued,
+            encoder_backend,
+            encode_ms,
+            keyframes,
+            inference_ms,
+            enqueue_ms,
+            play_ms,
+            video_track.qsize(),
+            video_track.dropped_packets if hasattr(video_track, "dropped_packets") else 0,
+            lag_ms,
+        )
+
+        channel = managed_session.control_channel
+        if channel is not None and not managed_session.closed:
+            payload: dict[str, Any] = {
+                "type": "chunk_done",
+                "chunk_index": chunk_index,
+                "num_frames": num_frames,
+                "enqueued_frames": enqueued,
+                "encoder_backend": encoder_backend,
+                "encode_ms": round(encode_ms, 2),
+                "keyframes": keyframes,
+                "fps": video_track.fps,
+                "resolution": {
+                    "width": self.runtime_config.video_width,
+                    "height": self.runtime_config.video_height,
+                },
+                "model": self.runtime_config.pipeline_config_name,
+                "stream": (
+                    "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"
+                ),
+                "gen_ms": round(inference_ms, 1),
+                "inference_ms": round(inference_ms, 1),
+                "enqueue_ms": round(enqueue_ms, 1),
+                "play_ms": round(play_ms, 1),
+                "queue_depth": video_track.qsize(),
+                "dropped_packets": video_track.dropped_packets if hasattr(video_track, "dropped_packets") else 0,
+                "lag_ms": round(lag_ms, 1),
+            }
+            if control_latency_ms is not None:
+                payload["latency_ms"] = round(control_latency_ms, 1)
+                payload["control_latency_ms"] = round(control_latency_ms, 1)
+                payload["consumed_actions"] = len(consumed_action_arrivals)
+            self._send_json(channel, payload)
+
     async def _generation_worker(
         self, *, managed_session: _ManagedOmnidreamsSession
     ) -> None:
@@ -1181,6 +1444,8 @@ class OmnidreamsWebRTCSessionManager:
             return
         resampler.next_chunk_start_v = loop.time()
 
+        _pending_encode_tasks: list[asyncio.Task[None]] = []
+        _gen_chunk_counter = 0
         try:
             while not managed_session.closed:
                 try:
@@ -1213,7 +1478,7 @@ class OmnidreamsWebRTCSessionManager:
                         managed_session.pending_action_arrivals.popleft()
                     )
                 try:
-                    result = await runtime.generate_chunk(
+                    raw = await runtime._run_chunk_inference(
                         segments=segments, frame_times=frame_times
                     )
                 except Exception as exc:
@@ -1223,64 +1488,36 @@ class OmnidreamsWebRTCSessionManager:
                         self._send_json(channel, {"type": "error", "message": str(exc)})
                     await self.close_active_session()
                     return
-                t_after_gen = loop.time()
-                enqueued = await video_track.enqueue_chunk(result.video_chunk)
-                t_after_enqueue = loop.time()
-
-                gen_ms = (t_after_gen - t_before_gen) * 1e3
-                enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3
-                play_ms = result.num_frames * 1000.0 / video_track.fps
-                lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
-                control_latency_ms = (
-                    (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
-                    if consumed_action_arrivals
-                    else None
-                )
-                logger.info(
-                    "Chunk done chunk={} num_frames={} segments={} "
-                    "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
-                    "queue_depth={} lag_ms={:.1f}",
-                    result.chunk_index,
-                    result.num_frames,
-                    len(segments),
-                    enqueued,
-                    gen_ms,
-                    enqueue_ms,
-                    play_ms,
-                    video_track.qsize(),
-                    lag_ms,
-                )
-
-                channel = managed_session.control_channel
-                if channel is not None:
-                    payload: dict[str, Any] = {
-                        "type": "chunk_done",
-                        "chunk_index": result.chunk_index,
-                        "num_frames": result.num_frames,
-                        "enqueued_frames": enqueued,
-                        "fps": video_track.fps,
-                        "resolution": {
-                            "width": self.runtime_config.video_width,
-                            "height": self.runtime_config.video_height,
-                        },
-                        "model": self.runtime_config.pipeline_config_name,
-                        "stream": (
-                            "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"
-                        ),
-                        "gen_ms": round(gen_ms, 1),
-                        "enqueue_ms": round(enqueue_ms, 1),
-                        "play_ms": round(play_ms, 1),
-                        "queue_depth": video_track.qsize(),
-                        "lag_ms": round(lag_ms, 1),
-                    }
-                    if control_latency_ms is not None:
-                        payload["latency_ms"] = round(control_latency_ms, 1)
-                        payload["control_latency_ms"] = round(control_latency_ms, 1)
-                        payload["consumed_actions"] = len(consumed_action_arrivals)
-                    self._send_json(channel, payload)
+                t_after_inference = loop.time()
+                _gen_chunk_counter += 1
+                _pending_encode_tasks.append(asyncio.create_task(
+                    self._encode_and_deliver(
+                        runtime=runtime,
+                        raw=raw,
+                        video_track=video_track,
+                        managed_session=managed_session,
+                        t_before_gen=t_before_gen,
+                        t_after_inference=t_after_inference,
+                        chunk_end_v=chunk_end_v,
+                        consumed_action_arrivals=consumed_action_arrivals,
+                        num_segments=len(segments),
+                    )
+                ))
+                _pending_encode_tasks = [
+                    t for t in _pending_encode_tasks if not t.done()
+                ]
         except asyncio.CancelledError:
             logger.info("Generation worker cancelled.")
             raise
+        finally:
+            for task in _pending_encode_tasks:
+                if not task.done():
+                    task.cancel()
+            if _pending_encode_tasks:
+                with contextlib.suppress(Exception):
+                    await asyncio.gather(
+                        *_pending_encode_tasks, return_exceptions=True
+                    )
 
     @staticmethod
     def _send_json(channel: Any, payload: dict[str, Any]) -> None:

@@ -32,6 +32,7 @@ dependencies = [
     "grpcio",
     "nvidia-cudnn-frontend==1.22.1",
     "opencv-python-headless",
+    "pynvvideocodec",
     "shapely"
 ]
 
