@@ -56,6 +56,12 @@ class MainLoopState:
     # the navigable area; non-``None`` is the warning / respawn message
     # that the loop merges into the displayed frame's ``status_message``.
     oob_message: str | None
+    # Number of consecutive chunks whose boundary-state proximity has
+    # stayed at or above :attr:`LoopConfig.oob_respawn_proximity`. The
+    # auto-respawn only fires once the streak reaches
+    # :attr:`LoopConfig.oob_respawn_debounce_chunks`; resets to zero the
+    # moment a chunk reads below the respawn threshold.
+    oob_respawn_streak: int
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -64,6 +70,7 @@ class MainLoopState:
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
         self.oob_message = None
+        self.oob_respawn_streak = 0
 
 
 @dataclass(frozen=True)
@@ -75,14 +82,27 @@ class LoopConfig:
     history_capacity: int = 16
     # Out-of-bounds detection. Proximity is the GroundSnapper's
     # ``1.0 - hit_ratio``: 0.0 is solidly in-bounds (every body-grid sample
-    # ray hit the ground mesh), 1.0 is fully off the mesh. Defaults are
-    # tuned for the alpasim-style 16-sample body grid -- the warn level
-    # fires once roughly half the rays leave the mesh, the respawn level
-    # fires when only a few stragglers are still hitting. Both checks
+    # ray hit the ground mesh), 1.0 is fully off the mesh. With the
+    # default 4x4 = 16-sample body grid the readings quantize to
+    # multiples of 1/16: ``0.6875`` is the point at which
+    # :class:`GroundSnapper` itself bails out because fewer than
+    # ``min_intersections=6`` rays hit (so it can't fit a plane), which
+    # is the same signal we want for "ego is leaving the mesh". Respawn
+    # is held to ``>= 0.95`` so corner samples briefly clipping a
+    # sidewalk during a sharp turn don't trip a teleport. Both checks
     # are skipped when the scene shipped no ground mesh
     # (``simulation.last_proximity`` reads ``0.0`` in that case).
-    oob_warn_proximity: float = 0.5
-    oob_respawn_proximity: float = 0.85
+    oob_warn_proximity: float = 0.7
+    oob_respawn_proximity: float = 0.95
+    # Number of consecutive chunks the boundary-state proximity must
+    # remain above ``oob_respawn_proximity`` before the loop fires the
+    # auto-respawn. With ~270 ms per 8-frame chunk this gives the user
+    # ~800 ms of "Respawning..." overlay -- long enough that a single
+    # transient mesh-edge spike (e.g. a corner ray missing for one
+    # chunk while the rest of the body is still on the road) doesn't
+    # cause a teleport, short enough that a true OOB drive feels
+    # responsive. Set to ``1`` to fire on the first qualifying chunk.
+    oob_respawn_debounce_chunks: int = 3
 
 
 # Warning text shown when the ego enters the OOB warning band. Kept as a
@@ -180,21 +200,92 @@ def update_oob_state(
 
     Reads ``simulation.last_proximity`` defensively so test fakes and
     other ``SimulationBackend`` implementations that don't track OOB
-    state default to ``0.0`` (always in-bounds). Returns ``True`` when
-    the proximity has crossed the respawn threshold and the loop should
-    abort with the existing reset signal -- the caller's ``app.run`` outer
-    loop then rebuilds the simulation from the scene's initial pose,
-    which auto-clears the OOB condition.
+    state default to ``0.0`` (always in-bounds). The respawn threshold
+    is debounced: the boundary-state proximity must stay above
+    :attr:`LoopConfig.oob_respawn_proximity` for
+    :attr:`LoopConfig.oob_respawn_debounce_chunks` consecutive chunks
+    before the loop returns ``True``. That smooths out single-chunk
+    spikes when a corner ray briefly misses the mesh during a sharp
+    turn -- the alpasim driver's auto-respawn was similarly sticky on
+    the runtime side. Returns ``True`` only on the chunk that actually
+    fires the respawn; the caller's ``app.run`` outer loop then
+    rebuilds the simulation from the scene's initial pose and the new
+    sim's first chunk re-enters with proximity ``0.0``, auto-clearing
+    the streak.
     """
     proximity = float(getattr(simulation, "last_proximity", 0.0))
+    previous_message = state.oob_message
+
     if proximity >= config.oob_respawn_proximity:
+        state.oob_respawn_streak += 1
         state.oob_message = OOB_RESPAWN_MESSAGE
-        return True
+        if state.oob_respawn_streak >= max(1, config.oob_respawn_debounce_chunks):
+            _log_oob_transition(
+                previous_message, OOB_RESPAWN_MESSAGE, proximity,
+                streak=state.oob_respawn_streak, action="firing respawn",
+            )
+            return True
+        if previous_message != OOB_RESPAWN_MESSAGE:
+            _log_oob_transition(
+                previous_message, OOB_RESPAWN_MESSAGE, proximity,
+                streak=state.oob_respawn_streak, action="respawn pending",
+            )
+        return False
+
+    # Below respawn threshold; reset the debounce streak so a brief dip
+    # back into the warning band can't accumulate toward a respawn.
+    state.oob_respawn_streak = 0
+
     if proximity >= config.oob_warn_proximity:
         state.oob_message = OOB_WARN_MESSAGE
+        if previous_message != OOB_WARN_MESSAGE:
+            _log_oob_transition(
+                previous_message, OOB_WARN_MESSAGE, proximity,
+                streak=0, action="warning",
+            )
         return False
+
     state.oob_message = None
+    if previous_message is not None:
+        _log_oob_transition(
+            previous_message, None, proximity,
+            streak=0, action="cleared",
+        )
     return False
+
+
+def _log_oob_transition(
+    previous: str | None,
+    current: str | None,
+    proximity: float,
+    *,
+    streak: int,
+    action: str,
+) -> None:
+    """Log OOB state transitions to stderr.
+
+    Fires once per state edge (in-bounds -> warn -> respawn-pending ->
+    fire, plus recovery), so the volume is bounded even on long
+    sessions: a typical drive sees only a handful of these lines.
+    Including the proximity reading and streak count makes it easy to
+    confirm whether the defaults are firing at the right time, and to
+    tune :attr:`LoopConfig.oob_warn_proximity` /
+    :attr:`LoopConfig.oob_respawn_proximity` /
+    :attr:`LoopConfig.oob_respawn_debounce_chunks` if not.
+    """
+    prev_label = "in-bounds" if previous is None else _truncate(previous, 32)
+    curr_label = "in-bounds" if current is None else _truncate(current, 32)
+    print(
+        f"[loop] oob {prev_label!r} -> {curr_label!r}"
+        f" proximity={proximity:.3f} streak={streak} action={action}",
+        flush=True,
+    )
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "\u2026"
 
 
 def push_telemetry(

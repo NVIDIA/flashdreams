@@ -372,14 +372,29 @@ simulation thread tracks an OOB *proximity* metric -- the fraction of
 the ego's body-grid raycasts that miss the scene's ground mesh -- and
 the runtime loop reacts to it in two stages:
 
-- **Approaching the edge** (proximity ≥ 0.5): the warning text
+- **Approaching the edge** (proximity ≥ 0.7): the warning text
   *"Approaching map edge, turn back to avoid respawn"* is overlaid on
   the current frame. Steering back onto the navigable area clears it
   on the next chunk.
-- **Out of bounds** (proximity ≥ 0.85): the overlay flips to
-  *"Respawning..."* and the loop triggers the same reset path that `R`
-  uses, so the next iteration starts from the scene's initial pose
-  with a fresh world-model rollout.
+- **Out of bounds** (proximity ≥ 0.95 for 3 consecutive chunks): the
+  overlay flips to *"Respawning..."* and the loop triggers the same
+  reset path that `R` uses, so the next iteration starts from the
+  scene's initial pose with a fresh world-model rollout.
+
+The respawn is debounced by 3 chunks (~800 ms) so a single corner ray
+briefly clipping a sidewalk during a sharp turn doesn't cause a
+teleport. The loop logs every state transition to stderr (e.g.
+`[loop] oob 'in-bounds' -> 'Approaching map edge…' proximity=0.750
+streak=0 action=warning`) so you can confirm the thresholds are firing
+at the right time and tune them if needed.
+
+Three CLI flags expose the thresholds:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--oob-warn-proximity` | `0.7` | Lower values warn earlier; raise if the warning fires while you still feel solidly on the road. |
+| `--oob-respawn-proximity` | `0.95` | Lower values respawn earlier; set to `1.01` to disable auto-respawn entirely while keeping the warning overlay. |
+| `--oob-respawn-debounce-chunks` | `3` | Higher values are stickier (more transient-tolerant); set to `1` to fire on the first qualifying chunk. |
 
 Both messages render through the standard `status_message` overlay, so
 they look identical across the HUD, `--no-hud`, and `--stream-mjpeg`

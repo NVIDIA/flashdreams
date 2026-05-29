@@ -265,6 +265,46 @@ def build_parser() -> argparse.ArgumentParser:
             " so the bottom of the image doesn't cross the horizon."
         ),
     )
+    parser.add_argument(
+        "--oob-warn-proximity",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help=(
+            "Body-grid miss-fraction at which the loop overlays "
+            "'Approaching map edge, turn back to avoid respawn' on the "
+            "frame. Range [0.0, 1.0]; 0.0 = solidly in-bounds, 1.0 = no "
+            "rays hit the ground mesh. Defaults to 0.7. Lower values "
+            "warn earlier; raise this if the warning fires while you "
+            "still feel solidly on the road."
+        ),
+    )
+    parser.add_argument(
+        "--oob-respawn-proximity",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help=(
+            "Body-grid miss-fraction above which the loop fires the "
+            "auto-respawn (after ``--oob-respawn-debounce-chunks`` "
+            "consecutive chunks at this level). Defaults to 0.95 "
+            "(essentially the entire body off the mesh). Set to 1.01 "
+            "to disable auto-respawn entirely while keeping the warning "
+            "overlay."
+        ),
+    )
+    parser.add_argument(
+        "--oob-respawn-debounce-chunks",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Number of consecutive chunks the proximity must stay above "
+            "``--oob-respawn-proximity`` before the auto-respawn fires. "
+            "Defaults to 3 (~800 ms at 8-frame chunks). Set to 1 to "
+            "fire on the first qualifying chunk."
+        ),
+    )
     return parser
 
 
@@ -281,6 +321,26 @@ def _parse_resolution(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise SystemExit(f"--bev-resolution must be positive: {value!r}")
     return width, height
+
+
+def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
+    """Forward only the OOB flags the user actually passed.
+
+    Each ``--oob-*`` flag defaults to ``None`` so the
+    :class:`AppConfig` field defaults stay authoritative; we only add
+    a kwarg to the ``AppConfig(**kwargs)`` call when the user passed
+    an explicit value.
+    """
+    overrides: dict[str, float | int] = {}
+    if args.oob_warn_proximity is not None:
+        overrides["oob_warn_proximity"] = float(args.oob_warn_proximity)
+    if args.oob_respawn_proximity is not None:
+        overrides["oob_respawn_proximity"] = float(args.oob_respawn_proximity)
+    if args.oob_respawn_debounce_chunks is not None:
+        overrides["oob_respawn_debounce_chunks"] = int(
+            args.oob_respawn_debounce_chunks
+        )
+    return overrides
 
 
 def main() -> None:
@@ -369,6 +429,7 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         bev=bev_config,
         stream_mjpeg_bind=args.stream_mjpeg,
+        **_oob_kwargs(args),
     )
 
     backend: RenderBackend

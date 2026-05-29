@@ -138,6 +138,14 @@ class AppConfig:
     world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_offload_text_encoder: bool = False
     bev: BevConfig = BevConfig()
+    # Out-of-bounds detection thresholds plumbed through to
+    # :class:`~omnidreams.interactive_drive.runtime.loop.LoopConfig`.
+    # Exposed on AppConfig so the CLI's ``--oob-*`` flags can override
+    # them per-run; the defaults match the LoopConfig defaults so the
+    # behaviour is identical when the flags aren't passed.
+    oob_warn_proximity: float = 0.7
+    oob_respawn_proximity: float = 0.95
+    oob_respawn_debounce_chunks: int = 3
     # When non-None, the app swaps the Vulkan presenter out for
     # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
     # which serves frames to a browser over HTTP and reads keyboard

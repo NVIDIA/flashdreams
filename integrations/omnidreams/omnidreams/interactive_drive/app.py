@@ -118,6 +118,11 @@ class InteractiveDriveApp:
                         initial_chunk_size=self._config.chunk.initial_chunk_frames,
                         chunk_size=self._config.chunk.chunk_frames,
                         frame_interval_s=self._config.chunk.frame_interval_s,
+                        oob_warn_proximity=self._config.oob_warn_proximity,
+                        oob_respawn_proximity=self._config.oob_respawn_proximity,
+                        oob_respawn_debounce_chunks=(
+                            self._config.oob_respawn_debounce_chunks
+                        ),
                     ),
                 )
                 if not reset_requested:
