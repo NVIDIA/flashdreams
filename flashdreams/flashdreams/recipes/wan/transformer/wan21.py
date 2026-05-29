@@ -177,6 +177,36 @@ class Wan21TransformerConfig(TransformerConfig):
     concat_image_mask_to_latent: bool = False
     """See class docstring (channel-concat I2V layout)."""
 
+    ti2v_first_frame_per_token_timestep: bool = False
+    """Wan 2.2 TI2V 5B first-frame conditioning. When ``True`` and an
+    :class:`I2VCtrl` input is provided at AR step 0, ``predict_flow``
+    rewrites the scheduler's scalar timestep into a per-token tensor:
+    ``t = first_frame_timestep_value`` at positions marked by the I2V
+    mask (i.e. the first-frame latent), and the scheduler's ``t``
+    elsewhere. AR steps ``>= 1`` continue to use the scalar timestep,
+    which keeps the CUDA-graph-captured replay branch on a single
+    stable input shape.
+
+    Composes with ``stamp_image_latent``: together they implement the
+    upstream Wan 2.2 5B "VAE-seeded first-frame + per-token ``t=0``"
+    TI2V recipe -- the latent is stamped clean every denoising step
+    while the network sees ``t=0`` for those tokens. The standard
+    mask-inject I2V recipe leaves this flag off and relies on the
+    classifier-free stamp alone."""
+
+    first_frame_timestep_value: float = 0.0
+    """Per-token timestep assigned to first-frame conditioning tokens
+    when :attr:`ti2v_first_frame_per_token_timestep` is ``True``.
+
+    Defaults to ``0.0`` (Wan 2.2 TI2V 5B's base recipe — treats the
+    first frame as fully clean by AdaLN). HY-WorldPlay's distilled
+    WAN-5B raises it to ``14.0`` (vendor's
+    ``stabilization_level - 1``) so the AdaLN table sees a small
+    nonzero sigma at the first frame.
+
+    Unused when :attr:`ti2v_first_frame_per_token_timestep` is ``False``.
+    """
+
 
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
     """Wan 2.1 DiT adapted to the infra Transformer interface."""
@@ -426,6 +456,51 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             rope_adapter=rope_adapter,
         )
 
+    def _maybe_build_per_token_timestep(
+        self,
+        timestep: Tensor,
+        input: I2VCtrl | None,
+        autoregressive_index: int,
+    ) -> Tensor:
+        """Optionally rewrite ``timestep`` into a per-token tensor for TI2V.
+
+        Off-path for everything except Wan 2.2 TI2V 5B AR-step 0 with a
+        non-``None`` :class:`I2VCtrl`. When on-path, the scalar scheduler
+        timestep is broadcast to ``[..., L]`` then zeroed at positions
+        marked by the I2V mask, so the first-frame conditioning tokens
+        see ``t=0`` while the rest of the chunk denoises at the current
+        scheduler step.
+
+        The post-patchify mask is constant across the patchified channel
+        axis (the encoder fills a per-pixel binary mask, and patchify
+        concatenates channel * kt * kh * kw entries that all share the
+        same value), so ``mask[..., 0]`` recovers a per-token boolean
+        without an ``any`` reduction.
+        """
+        if not self.config.ti2v_first_frame_per_token_timestep:
+            return timestep
+        if autoregressive_index != 0:
+            # CUDA-graph capture starts at AR ``_cuda_graph_capture_ar_idx``;
+            # AR>=1 must keep the scalar shape stable across the captured
+            # replay branch.
+            return timestep
+        if input is None:
+            return timestep
+        assert isinstance(input, I2VCtrl), (
+            "ti2v_first_frame_per_token_timestep requires the I2V control "
+            f"payload to be an I2VCtrl (got {type(input).__name__})"
+        )
+        per_token_mask = input.mask[..., 0]  # [..., L]
+        # Broadcast scalar / per-batch ``timestep`` to ``[..., L]`` and
+        # blend with ``first_frame_timestep_value`` at masked positions.
+        # Multiplying preserves the scheduler dtype so downstream
+        # sinusoidal embedding stays bit-identical to the scalar path
+        # on non-masked tokens.
+        timestep = timestep.to(per_token_mask.device)
+        mask = per_token_mask.to(timestep.dtype)
+        first_frame_value = timestep.new_tensor(self.config.first_frame_timestep_value)
+        return timestep.unsqueeze(-1) * (1.0 - mask) + first_frame_value * mask
+
     def _stamp_image_latent(
         self,
         latent: Tensor,
@@ -519,6 +594,24 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         input: I2VCtrl | None = None,
         network_extra_kwargs: dict[str, Any] | None = None,
     ) -> Tensor:
+        """Predict the flow for one denoising step.
+
+        ``timestep`` may be a scalar / per-batch tensor (standard Wan
+        2.1 / 14B path) or a per-token tensor with the same trailing
+        token axis as ``noisy_latent`` (Wan 2.2 TI2V 5B first-frame
+        seeding at AR step 0). The per-token layout flows through
+        :meth:`WanDiTNetwork.forward`, which dispatches the sinusoidal
+        embedding + AdaLN modulation on the native shape.
+
+        CUDA-graph capture is shape-sensitive: the captured replay
+        region only sees AR step ``>= self._cuda_graph_capture_ar_idx``
+        (steady state). TI2V 5B is configured with ``len_t ==
+        window_size_t`` so the threshold lands at AR 1, putting the
+        per-token AR-0 step inside the eager ``.drain`` branch where
+        shape changes are safe. After AR 0 the pipeline switches back
+        to scalar timesteps, so the captured branch sees a single
+        stable shape across all AR steps it owns.
+        """
         ar_idx = cache.autoregressive_index
         assert ar_idx >= 0, (
             "Wan21TransformerCache.start(autoregressive_index) must be called "
@@ -526,6 +619,9 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         )
         network_extra_kwargs = network_extra_kwargs or {}
         network_input = self._build_network_input(noisy_latent, input)
+        timestep = self._maybe_build_per_token_timestep(
+            timestep=timestep, input=input, autoregressive_index=ar_idx
+        )
 
         flow_cond = self._predict_flow(
             network_input=network_input,

@@ -75,9 +75,11 @@ extraPaths = [
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
     "integrations/fastvideo_causal_wan22",
+    "integrations/hy_worldplay",
     "integrations/lingbot",
     "integrations/self_forcing",
     "integrations/wan21",
+    "integrations/wan22",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -96,9 +98,11 @@ extra-paths = [
     "integrations/cosmos_predict2",
     "integrations/flashvsr",
     "integrations/fastvideo_causal_wan22",
+    "integrations/hy_worldplay",
     "integrations/lingbot",
     "integrations/self_forcing",
     "integrations/wan21",
+    "integrations/wan22",
 ]
 
 [tool.ty.src]
@@ -112,6 +116,9 @@ exclude = [
     "**/protos/*pb2*",
     "integrations/omnidreams/omnidreams/interactive_drive/**",
     "integrations/omnidreams/tests/interactive_drive/**",
+    # Bench / parity-debugging scaffolding for the hy_worldplay integration;
+    # not shipped product, mirrors the interactive_drive precedent above.
+    "integrations/hy_worldplay/tests/parity_check/**",
 ]
 
 [tool.ty.rules]

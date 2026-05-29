@@ -99,8 +99,10 @@ def _choose_existing_asset(
             continue
         if allowed_suffixes is not None and path.suffix.lower() not in allowed_suffixes:
             continue
-        if path.stem in fallback_stems or any(
-            path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes
+        if (
+            path.stem in preferred_stems
+            or path.stem in fallback_stems
+            or any(path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes)
         ):
             candidates.append(path)
 
@@ -134,25 +136,26 @@ def _resolve_webrtc_scene_assets(
         if clipgt_dir is None
         else _choose_existing_asset(
             clipgt_dir,
-            fallback_stems=("first_image",),
+            fallback_stems=("first_image_1",),
             allowed_suffixes=WEBRTC_SCENE_IMAGE_SUFFIXES,
             preferred_stems=("first_image",),
         )
     )
     if first_frame_path is None:
-        missing_assets.append(f"first_image.* under {clipgt_dirname}/")
+        missing_assets.append(f"first_image.* under {clipgt_dir}/")
 
     prompt_path = (
         None
         if clipgt_dir is None
         else _choose_existing_asset(
             clipgt_dir,
-            exact_name=prompt_filename,
+            fallback_stems=("prompt1",),
             allowed_suffixes={".txt"},
+            preferred_stems=("prompt",),
         )
     )
     if prompt_path is None:
-        missing_assets.append(f"{prompt_filename} under {clipgt_dirname}/")
+        missing_assets.append(f"{prompt_filename} under {clipgt_dir}/")
 
     if missing_assets:
         raise FileNotFoundError(
@@ -198,6 +201,48 @@ def _safe_extract_zip(source: Path, destination: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(member) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
+
+
+def _extract_local_webrtc_scene_if_needed(
+    scene_dir: Path,
+    *,
+    scene_uuid: str | None,
+    clipgt_dirname: str,
+) -> Path:
+    """Extract ``scene_uuid`` archive and normalize local WebRTC scene layout."""
+    if scene_uuid is None:
+        return scene_dir
+
+    scene_uuid = scene_uuid.strip()
+    assert scene_uuid, "scene_uuid must be non-empty when provided."
+    if not scene_dir.is_dir():
+        raise FileNotFoundError(f"scene_dir does not exist: {scene_dir}")
+
+    expected_names = (
+        f"clipgt-{scene_uuid}.usdz",
+        f"{scene_uuid}.usdz",
+    )
+    archive_path = _choose_existing_asset(scene_dir, exact_name=expected_names[0]) or (
+        _choose_existing_asset(scene_dir, exact_name=expected_names[1])
+    )
+    if archive_path is None:
+        # Fall back to prefixed local naming like ``clipgt-<uuid>-v2.usdz``.
+        archive_path = _choose_existing_asset(
+            scene_dir,
+            fallback_prefixes=(f"clipgt-{scene_uuid}", scene_uuid),
+            allowed_suffixes={".usdz"},
+            preferred_stems=(f"clipgt-{scene_uuid}", scene_uuid),
+        )
+    if archive_path is None:
+        raise FileNotFoundError(
+            "scene_uuid is set but no local USDZ archive was found in "
+            f"{scene_dir}. Expected one of: {', '.join(expected_names)}."
+        )
+
+    normalized_scene_dir = scene_dir / scene_uuid
+    normalized_clipgt_root = normalized_scene_dir / clipgt_dirname
+    _safe_extract_zip(archive_path, normalized_clipgt_root)
+    return normalized_scene_dir
 
 
 def _ensure_hf_webrtc_scene_synced(
@@ -501,10 +546,11 @@ class OmnidreamsInferenceRuntime:
                 clipgt_dirname=cfg.clipgt_dirname,
             )
         else:
-            assert cfg.scene_uuid is None, (
-                "scene_uuid must be None when scene_dir is set"
+            scene_dir = _extract_local_webrtc_scene_if_needed(
+                cfg.scene_dir,
+                scene_uuid=cfg.scene_uuid,
+                clipgt_dirname=cfg.clipgt_dirname,
             )
-            scene_dir = cfg.scene_dir
 
         cfg.scene_dir = scene_dir
         clipgt_dir, first_frame_path, prompt_path = _resolve_webrtc_scene_assets(

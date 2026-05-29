@@ -100,7 +100,7 @@ Some generated samples from the above commands:
    <div class="model-video-grid">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -109,7 +109,7 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
