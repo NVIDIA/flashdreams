@@ -20,6 +20,8 @@ _HF_URL_PATTERN = re.compile(
     r"^https?://(?:www\.)?huggingface\.co/[^/]+/[^/]+/(?:blob|resolve)/[^/]+/.+$",
     re.IGNORECASE,
 )
+_DEFAULT_RESOLUTION_WH = (1280, 704)
+_RESOLUTION_ALIGNMENT_PX = 16
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -95,10 +97,26 @@ def _resolve_manifest_path(raw_path: str | None, *, manifest_dir: Path) -> Path 
     return path
 
 
+def _parse_resolution_wh(raw: object) -> tuple[int, int]:
+    if raw is None:
+        return _DEFAULT_RESOLUTION_WH
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"resolution_wh must be [width, height], got {raw!r}")
+    width, height = int(raw[0]), int(raw[1])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"resolution_wh must be positive, got {(width, height)!r}")
+    if width % _RESOLUTION_ALIGNMENT_PX or height % _RESOLUTION_ALIGNMENT_PX:
+        raise ValueError(
+            "resolution_wh must be divisible by "
+            f"{_RESOLUTION_ALIGNMENT_PX}, got {(width, height)!r}"
+        )
+    return (width, height)
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
-    resolution_wh: tuple[int, int] = (1280, 704)
+    resolution_wh: tuple[int, int] = _DEFAULT_RESOLUTION_WH
     fps: int = 30
     num_frames_per_block: int = 8
     compile_net: bool = True
@@ -134,14 +152,14 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
                 flush=True,
             )
         raw_yaml = rewritten
-    data = yaml.safe_load(raw_yaml)
-    resolution = tuple(data.get("resolution_wh", [1280, 704]))
+    data = yaml.safe_load(raw_yaml) or {}
+    resolution = _parse_resolution_wh(data.get("resolution_wh"))
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(
             data.get("debug_condition_frame_dir"),
             manifest_dir=manifest_dir,
         ),
-        resolution_wh=(int(resolution[0]), int(resolution[1])),
+        resolution_wh=resolution,
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
         compile_net=bool(data.get("compile_net", True)),

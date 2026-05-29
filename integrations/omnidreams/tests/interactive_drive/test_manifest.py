@@ -28,6 +28,20 @@ class WorldModelManifestTest(unittest.TestCase):
             self.assertEqual(manifest.denoising_steps, [1000, 500])
             self.assertEqual(manifest.resolution_wh, (1280, 704))
 
+    def test_rejects_unaligned_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                textwrap.dedent(
+                    """
+                    resolution_wh: [1164, 640]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "divisible by 16"):
+                load_world_model_manifest(path)
+
     def test_resolves_relative_paths_from_manifest_location(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

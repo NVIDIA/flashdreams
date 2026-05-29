@@ -331,6 +331,15 @@ def prepare_config_and_backend(
             manifest = replace(
                 manifest, debug_condition_frame_dir=args.official_hdmap_dir.resolve()
             )
+        if config.raster.resolution_wh != manifest.resolution_wh:
+            config = replace(
+                config,
+                raster=replace(
+                    config.raster,
+                    width=manifest.resolution_wh[0],
+                    height=manifest.resolution_wh[1],
+                ),
+            )
         backend = WorldModelRenderBackend(
             manifest=manifest,
             chunk=config.chunk,

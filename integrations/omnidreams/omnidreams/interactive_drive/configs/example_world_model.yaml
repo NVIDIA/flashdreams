@@ -7,7 +7,13 @@
 # Flashdreams owns checkpoint selection and cache layout for the selected
 # recipe; this manifest keeps the interactive demo's runtime shape and
 # performance knobs in one place.
-
+#
+# Default is 1280x704. You can try smaller resolutions as long as both width
+# and height are multiples of 16; examples with roughly similar aspect ratio:
+#   - [1168, 640]
+#   - [1024, 560]
+#   - [896, 496]
+#   - [640, 352]
 resolution_wh: [1280, 704]
 fps: 30
 num_frames_per_block: 8

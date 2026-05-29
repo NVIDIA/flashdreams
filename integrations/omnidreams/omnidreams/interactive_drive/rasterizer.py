@@ -110,7 +110,7 @@ class _LudusConditionRasterizerImpl:
         self.ctx.set_msaa_samples(4)
         self.ctx.set_max_tessellation_levels(cube=0)
         # Use thinner BEV linework so the small map panel doesn't get
-        # swallowed by 12-pixel polylines designed for the 1280x704 main view.
+        # swallowed by the heavier polylines designed for the main view.
         bev_line_width = max(2.0, float(raster.line_width_px) * 0.4)
         bev_pole_width = max(2.0, float(raster.pole_width_px) * 0.6)
         self.ctx.set_line_widths(
