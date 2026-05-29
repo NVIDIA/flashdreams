@@ -33,6 +33,9 @@ dependencies = [
     "block-sparse-attn==0.0.2",
 ]
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 # Upstream Block-Sparse-Attention is not on PyPI. Install from the public
