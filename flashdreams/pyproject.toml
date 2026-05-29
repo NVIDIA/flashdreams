@@ -42,7 +42,9 @@ dependencies = [
     # tyro powers the ``flashdreams-run`` console script (subcommand
     # union over the integration registry, per-field CLI overrides), so it
     # has to ship as a runtime dependency, not a dev-only one.
-    "tyro>=0.8",
+    # 1.0 introduced ``sort_subcommands`` in
+    # ``tyro.extras.subcommand_type_from_defaults``, used by the CLI union.
+    "tyro>=1.0",
 
     # Minimum is 2.9: context_parallel(buffers=, buffer_seq_dims=,
     # no_restore_buffers=) and set_rotate_method in
@@ -76,7 +78,9 @@ Repository = "https://github.com/NVIDIA/flashdreams"
 dev = [
     "pytest>=8.0",
     "mediapy>=1.1",
-    "pytest-manual-marker",
+    # 2.0 rewrote the plugin for pytest 8+ (older versions use the removed
+    # ``Item.get_marker`` API).
+    "pytest-manual-marker>=2.0",
     "tomli>=2.0",
     # Transformer Engine is the parity / perf reference for the
     # in-house RoPE Triton kernel (see ``tests/test_rope_kernel.py``

@@ -304,18 +304,13 @@ uv run pytest                    # all tests including manual
 ## Dependency version bounds
 
 The `flashdreams/pyproject.toml` declares minimum version bounds for all
-runtime dependencies (e.g. `torch>=2.9`). These bounds reflect the oldest
-versions we believe are compatible based on API analysis -- for example,
-the `torch>=2.9` floor exists because
-`torch.distributed.tensor.experimental.context_parallel` requires the
-`buffers` / `buffer_seq_dims` / `no_restore_buffers` interface
-introduced in PyTorch 2.9.
+runtime dependencies. These bounds reflect the oldest versions we believe
+are compatible based on API analysis.
 
 **CI tests run against the pinned versions in `uv.lock`**, not against
 the declared minimums. This means:
 
-- We guarantee correctness at the locked versions (currently torch 2.12,
-  torchvision 0.27 on Linux).
+- We guarantee correctness at the locked versions.
 - We expect the package to work at the declared minimum bounds, but do
   not continuously validate this in CI.
 - If you encounter breakage with a version that satisfies the declared

@@ -1166,7 +1166,7 @@ requires-dist = [
     { name = "opencv-python-headless", marker = "extra == 'examples'" },
     { name = "opencv-python-headless", marker = "extra == 'runners'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-manual-marker", marker = "extra == 'dev'" },
+    { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "safetensors", specifier = ">=0.4" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.11" },
     { name = "scipy", marker = "extra == 'runners'", specifier = ">=1.11" },
@@ -1177,7 +1177,7 @@ requires-dist = [
     { name = "transformer-engine", extras = ["core-cu13", "pytorch"], marker = "sys_platform != 'win32' and extra == 'dev'", specifier = ">=2.12" },
     { name = "transformers", specifier = ">=5.0,<6" },
     { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
-    { name = "tyro", specifier = ">=0.8" },
+    { name = "tyro", specifier = ">=1.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
 provides-extras = ["dev", "examples", "runners", "serving"]
