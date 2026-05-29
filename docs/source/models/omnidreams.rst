@@ -106,7 +106,7 @@ Some generated samples from the above commands:
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -116,7 +116,7 @@ Some generated samples from the above commands:
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -153,7 +153,7 @@ When successfully connected, the browser-based UI looks like this:
 
   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/alpadreams/assets/omnidreams/omnidreams-demo-0524-720P.mp4" type="video/mp4">
+      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-webrtc-recording-0529.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
   </div>

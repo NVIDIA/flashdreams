@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         help="Maximum seconds to wait for synthetic startup warmup chunks.",
     )
     parser.add_argument(
+        "--fps",
+        type=int,
+        default=16,
+        help="Output video framerate for WebRTC playback.",
+    )
+    parser.add_argument(
         "--example-idx",
         "--example_idx",
         type=int,
@@ -187,6 +193,8 @@ def initialize_distributed(
 def main() -> None:
     configure_logging()
     args = parse_args()
+    if args.fps <= 0:
+        raise ValueError("--fps must be > 0")
 
     runtime_device, world_rank, context_parallel_size = initialize_distributed(
         default_device=args.device
@@ -197,7 +205,10 @@ def main() -> None:
         device_override=str(runtime_device),
         context_parallel_size=context_parallel_size,
     )
-    session_manager = LingbotWebRTCSessionManager(runtime_config=runtime_config)
+    session_manager = LingbotWebRTCSessionManager(
+        runtime_config=runtime_config,
+        fps=args.fps,
+    )
     if world_rank == 0:
         external_ip = get_external_ip()
         app = create_app(
