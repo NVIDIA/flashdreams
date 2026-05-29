@@ -685,7 +685,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         if not args.manifest.exists():
             raise SystemExit(
                 f"--manifest path does not exist: {args.manifest}"
-                " (typo? expected something like configs/example_world_model.yaml)"
+                " (typo? expected a path or bundled config name like "
+                "example_world_model.yaml)"
             )
     if not scene_options and not args.scene.exists():
         raise SystemExit(
@@ -799,10 +800,12 @@ def _apply_cuda_visible_devices_inplace(requested: str) -> None:
 
 
 def _resolve_demo_paths(args: argparse.Namespace) -> None:
-    for attr in ("scene", "manifest", "scene_dir", "wheel_profiles_dir"):
+    for attr in ("scene", "scene_dir", "wheel_profiles_dir"):
         value = getattr(args, attr)
         if value is not None:
             setattr(args, attr, _project_path(value))
+    if args.manifest is not None:
+        args.manifest = _cli.resolve_manifest_path(args.manifest)
     if args.control_assets_dir is not None:
         args.control_assets_dir = _project_path(args.control_assets_dir)
 

@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-lingbot"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "Lingbot World streaming camera-control I2V integration + WebRTC server for flashdreams."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,7 +28,7 @@ dependencies = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
     "mediapy>=1.1",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 

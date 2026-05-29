@@ -7,8 +7,10 @@ from dataclasses import replace
 
 import numpy as np
 import torch
+from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
+    _build_pipeline_config,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -79,6 +81,33 @@ def test_select_config_name_uses_omnidreams_recipe_slugs() -> None:
         )
         == "omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae"
     )
+
+
+def test_build_pipeline_config_uses_manifest_native_dit_overrides() -> None:
+    config = _build_pipeline_config(
+        replace(
+            _manifest(),
+            skip_finalize_kv_cache=True,
+            native_dit_acceleration="required",
+            native_dit_verbose_build=True,
+            native_dit_backend="bf16",
+            native_dit_attention_backend="sparge",
+            native_dit_sparge_topk=0.4,
+            native_dit_sparge_hybrid_period=4,
+            native_dit_sparge_hybrid_phase=1,
+        ),
+        profile=WorldModelProfileConfig(),
+    )
+    transformer_config = config.diffusion_model.transformer
+
+    assert transformer_config.skip_finalize_kv_cache is True
+    assert transformer_config.native_dit_acceleration == "required"
+    assert transformer_config.native_dit_verbose_build is True
+    assert transformer_config.native_dit_backend == "bf16"
+    assert transformer_config.native_dit_attention_backend == "sparge"
+    assert transformer_config.native_dit_sparge_topk == 0.4
+    assert transformer_config.native_dit_sparge_hybrid_period == 4
+    assert transformer_config.native_dit_sparge_hybrid_phase == 1
 
 
 def test_session_uses_flashdreams_pipeline_for_rollout() -> None:

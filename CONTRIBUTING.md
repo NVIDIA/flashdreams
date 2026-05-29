@@ -19,10 +19,12 @@ issue and we'll fix it.
 4. [Submitting a pull request](#submitting-a-pull-request)
 5. [Code review and merge](#code-review-and-merge)
 6. [Coding conventions](#coding-conventions)
-7. [Speeding up local builds](#speeding-up-local-builds)
-8. [Licensing of contributions](#licensing-of-contributions)
-9. [Filing issues and security reports](#filing-issues-and-security-reports)
-10. [Code of Conduct](#code-of-conduct)
+7. [Testing](#testing)
+8. [Dependency version bounds](#dependency-version-bounds)
+9. [Speeding up local builds](#speeding-up-local-builds)
+10. [Licensing of contributions](#licensing-of-contributions)
+11. [Filing issues and security reports](#filing-issues-and-security-reports)
+12. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -298,6 +300,23 @@ uv run pytest -m ci_gpu          # GPU tests only (needs CUDA)
 uv run pytest -m "not manual"    # everything that runs in CI
 uv run pytest                    # all tests including manual
 ```
+
+## Dependency version bounds
+
+The `flashdreams/pyproject.toml` declares minimum version bounds for all
+runtime dependencies. These bounds reflect the oldest versions we believe
+are compatible based on API analysis.
+
+**CI tests run against the pinned versions in `uv.lock`**, not against
+the declared minimums. This means:
+
+- We guarantee correctness at the locked versions.
+- We expect the package to work at the declared minimum bounds, but do
+  not continuously validate this in CI.
+- If you encounter breakage with a version that satisfies the declared
+  bounds but differs from the lock file, please
+  [open an issue](https://github.com/NVIDIA/flashdreams/issues). We will
+  either fix compatibility or bump the bound in `pyproject.toml`.
 
 ## Speeding up local builds
 

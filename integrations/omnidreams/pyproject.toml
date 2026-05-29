@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-omnidreams"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,12 +30,12 @@ dependencies = [
     "flashdreams[serving]",
     "mediapy>=1.1",
     "ludus-renderer",
-    "imageio",
-    "grpcio-tools",
-    "grpcio",
+    "imageio>=2.20",
+    "grpcio-tools>=1.50",
+    "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
-    "opencv-python-headless",
-    "shapely",
+    "opencv-python-headless>=4.5",
+    "shapely>=2.0",
     # Runtime deps for the ``omnidreams.interactive_drive`` desktop demo
     # subpackage. Most are already transitive via ``flashdreams[serving]``
     # but listed here explicitly so the subpackage's dep surface is
@@ -69,7 +69,7 @@ interactive-drive = [
 ]
 dev = [
     "pytest>=8.0",
-    "pytest-manual-marker",
+    "pytest-manual-marker>=2.0",
     # ``omnidreams.interactive_drive`` test-only deps.
     "pyvirtualdisplay>=3.0",
     "flip-evaluator>=1.7",
