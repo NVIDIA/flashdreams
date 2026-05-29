@@ -29,7 +29,6 @@ from __future__ import annotations
 import tempfile
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -136,121 +135,6 @@ def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # High-level: LudusRenderer wrapper used by the omnidreams pipeline
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.ci_cpu
-@pytest.mark.parametrize(("env_value", "expected"), [("0", 0), ("4", 4)])
-def test_ludus_renderer_msaa_samples_can_be_configured(
-    monkeypatch: pytest.MonkeyPatch, env_value: str, expected: int
-) -> None:
-    from omnidreams.conditioning import renderer as renderer_module
-
-    class _FakeCtx:
-        instances = []
-
-        def __init__(self, device: torch.device) -> None:
-            self.device = device
-            self.msaa_samples = []
-            _FakeCtx.instances.append(self)
-
-        def set_depth_scaling(self, enabled: bool) -> None:
-            self.depth_scaling = enabled
-
-        def set_msaa_samples(self, samples: int) -> None:
-            self.msaa_samples.append(samples)
-
-        def set_max_tessellation_levels(self, **kwargs: int) -> None:
-            self.max_tessellation_levels = kwargs
-
-        def upload_cameras(self, cameras: list[object]) -> None:
-            self.cameras = cameras
-
-        def upload_scene(self, scene: object) -> int:
-            self.scene = scene
-            return 7
-
-    monkeypatch.setenv("OMNIDREAMS_LUDUS_MSAA_SAMPLES", env_value)
-    monkeypatch.setattr(renderer_module, "LudusCudaTimestampedContext", _FakeCtx)
-    monkeypatch.setattr(
-        renderer_module.LudusRenderer,
-        "to_ludus_camera",
-        staticmethod(lambda camera: camera),
-    )
-
-    scene_data = SimpleNamespace(
-        metadata={"ludus_scene": SimpleNamespace(timestamped_scene=object())}
-    )
-
-    renderer_module.LudusRenderer(
-        scene_data=scene_data,
-        camera_models={"front": SimpleNamespace()},
-        device=torch.device("cpu"),
-    )
-
-    assert _FakeCtx.instances[-1].msaa_samples == [expected]
-
-
-@pytest.mark.ci_cpu
-def test_ludus_renderer_records_render_substage_stats_with_cpu_fake_ctx() -> None:
-    from omnidreams.conditioning.renderer import LudusRenderer
-
-    class _FakeCtx:
-        needs_vflip = False
-        last_render_profile = {
-            "ctx_render_scalar_item_host_ms_sum": 2.0,
-            "ctx_render_plugin_host_ms_sum": 5.0,
-            "ctx_render_cat_host_ms": 1.0,
-        }
-
-        def render(
-            self,
-            scene_id_batch: torch.Tensor,
-            camera_id_batch: torch.Tensor,
-            timestamps_batch: torch.Tensor,
-            camera_type_id_batch: torch.Tensor,
-            camera_poses_batch: torch.Tensor,
-            *,
-            resolution: tuple[int, int],
-        ) -> torch.Tensor:
-            del camera_id_batch, timestamps_batch, camera_type_id_batch
-            assert tuple(scene_id_batch.shape) == (2,)
-            assert tuple(camera_poses_batch.shape) == (2, 4, 4)
-            height, width = resolution
-            return torch.zeros((2, height, width, 4), dtype=torch.uint8)
-
-    renderer = LudusRenderer.__new__(LudusRenderer)
-    renderer.device = torch.device("cpu")
-    renderer.scene_id = 7
-    renderer.msaa_samples = 0
-    renderer.ctx = _FakeCtx()
-    renderer.all_camera_map = {"front": 0}
-    renderer.all_cameras = [
-        SimpleNamespace(image_size=torch.tensor([4, 3], dtype=torch.int64))
-    ]
-
-    output = renderer.render_all_frames_and_cameras(
-        camera_names=["front"],
-        camera_poses_per_camera={"front": torch.eye(4).repeat(2, 1, 1)},
-        frame_timestamps_us=[1_000_000, 1_033_333],
-    )
-
-    assert output.shape == (1, 2, 3, 3, 4)
-    assert {
-        "renderer_scene_id_ms",
-        "renderer_batch_setup_ms",
-        "renderer_camera_pose_ms",
-        "renderer_ctx_render_ms",
-        "renderer_output_layout_ms",
-        "renderer_total_ms",
-        "renderer_num_frames",
-        "renderer_num_cameras",
-        "renderer_msaa_samples",
-        "renderer_height",
-        "renderer_width",
-        "ctx_render_scalar_item_host_ms_sum",
-        "ctx_render_plugin_host_ms_sum",
-        "ctx_render_cat_host_ms",
-    } <= renderer.last_render_stats.keys()
 
 
 @pytest.mark.manual

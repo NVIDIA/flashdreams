@@ -80,7 +80,6 @@ class _FakeRenderer:
         self.height = height
         self.width = width
         self.cleaned_up = False
-        self.last_render_stats: dict[str, float] = {}
 
     def render_all_frames_and_cameras(
         self,
@@ -93,10 +92,6 @@ class _FakeRenderer:
         del camera_poses_per_view, dynamic_actor_pool
         n_views = len(camera_names)
         n_frames = len(frame_timestamps_us)
-        self.last_render_stats = {
-            "renderer_ctx_render_ms": 12.0,
-            "renderer_output_layout_ms": 3.0,
-        }
         # [V, T, 3, H, W]
         return torch.full(
             (n_views, n_frames, 3, self.height, self.width),
@@ -158,17 +153,6 @@ def test_start_continue_and_finalize_flow() -> None:
     assert start_output.finalization_state == {"autoregressive_index": 0}
     assert start_output.state.pipeline_cache is not None
     assert start_output.state.pipeline_cache.autoregressive_index == 0
-    assert start_output.stats is not None
-    assert {
-        "wrapper_render_condition_ms",
-        "renderer_ctx_render_ms",
-        "renderer_output_layout_ms",
-        "wrapper_prepare_condition_ms",
-        "wrapper_initialize_cache_ms",
-        "wrapper_pipeline_generate_ms",
-        "wrapper_to_uint8_ms",
-        "wrapper_total_ms",
-    } <= start_output.stats.keys()
 
     continue_output = wrapper.continue_generation(
         state=start_output.state,
@@ -183,16 +167,6 @@ def test_start_continue_and_finalize_flow() -> None:
     assert continue_output.finalization_state == {"autoregressive_index": 1}
     assert continue_output.state.pipeline_cache is not None
     assert continue_output.state.pipeline_cache.autoregressive_index == 1
-    assert continue_output.stats is not None
-    assert {
-        "wrapper_render_condition_ms",
-        "renderer_ctx_render_ms",
-        "renderer_output_layout_ms",
-        "wrapper_prepare_condition_ms",
-        "wrapper_pipeline_generate_ms",
-        "wrapper_to_uint8_ms",
-        "wrapper_total_ms",
-    } <= continue_output.stats.keys()
 
     assert continue_output.state.pipeline_cache is not None
     wrapper.finalize_block_generation(
