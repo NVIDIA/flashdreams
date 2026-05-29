@@ -26,7 +26,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
-    "torch>=2.11",
+    "torch>=2.9",
     "pandas>=2.0",
     "pyarrow>=14.0",
     "scipy>=1.11",
@@ -41,7 +41,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "imageio-ffmpeg>=0.5",
-    "opencv-python>=4.5",
+    "opencv-python>=4.6",
 ]
 
 [build-system]

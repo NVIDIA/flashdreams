@@ -34,7 +34,7 @@ dependencies = [
     "grpcio-tools>=1.50",
     "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
-    "opencv-python-headless>=4.5",
+    "opencv-python-headless>=4.6",
     "shapely>=2.0",
     # Runtime deps for the ``omnidreams.interactive_drive`` desktop demo
     # subpackage. Most are already transitive via ``flashdreams[serving]``
@@ -44,8 +44,8 @@ dependencies = [
     "Pillow>=10.0",
     "PyYAML>=6.0",
     "pyarrow>=16.0",
-    "torch>=2.11",
-    "torchvision>=0.26",
+    "torch>=2.9",
+    "torchvision>=0.24",
     "einops>=0.8",
     "safetensors>=0.5",
     "tqdm>=4.67",
