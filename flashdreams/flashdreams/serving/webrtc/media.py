@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 from fractions import Fraction
 
@@ -12,7 +13,10 @@ import torch
 from aiortc import MediaStreamTrack
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from av.packet import Packet
 from loguru import logger
+
+from flashdreams.serving.webrtc.encode import EncodedVideoPacket
 
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
@@ -148,4 +152,147 @@ class BufferedVideoTrack(MediaStreamTrack):
             except asyncio.QueueEmpty:
                 break
         self._frames.put_nowait(None)
+        self.stop()
+
+
+class EncodedPacketVideoTrack(MediaStreamTrack):
+    """WebRTC video track that sends pre-encoded H.264 packets.
+
+    Instead of raw frames, this track accepts :class:`EncodedVideoPacket`
+    items and returns :class:`av.Packet` objects from :meth:`recv`. The
+    aiortc sender bypasses its internal software encoder and passes the
+    pre-encoded NAL bytes directly to the RTP packetizer.
+
+    Requires H.264 to be the negotiated codec (see
+    ``setCodecPreferences``); sending H.264 bytes through a VP8
+    packetizer would produce corrupt output.
+    """
+
+    kind = "video"
+
+    def __init__(
+        self,
+        *,
+        fps: int,
+        maxsize: int = 0,
+    ) -> None:
+        super().__init__()
+        if fps <= 0:
+            raise ValueError("fps must be > 0")
+        if maxsize < 0:
+            raise ValueError("maxsize must be >= 0")
+        self._fps = fps
+        self._time_base = Fraction(1, fps)
+        self._frame_interval_s = 1.0 / fps
+        self._next_deadline_s: float | None = None
+        self._pts = 0
+        self._maxsize = maxsize
+        self._packets: asyncio.Queue[EncodedVideoPacket | None] = (
+            asyncio.Queue(maxsize=maxsize) if maxsize > 0 else asyncio.Queue()
+        )
+        self._dropped_packets = 0
+        self._closed = False
+
+    @property
+    def fps(self) -> int:
+        return self._fps
+
+    @property
+    def maxsize(self) -> int:
+        return self._maxsize
+
+    def qsize(self) -> int:
+        return self._packets.qsize()
+
+    @property
+    def dropped_packets(self) -> int:
+        return self._dropped_packets
+
+    async def enqueue_encoded_packets(
+        self, packets: list[EncodedVideoPacket]
+    ) -> int:
+        """Enqueue pre-encoded H.264 packets for transmission.
+
+        If the queue is bounded and full, the oldest packet is dropped
+        to make room (drop-oldest overflow).
+
+        Returns:
+            Number of packets successfully enqueued.
+        """
+        if self._closed:
+            return 0
+        enqueued = 0
+        for packet in packets:
+            if self._closed:
+                break
+            if self._maxsize > 0 and self._packets.full():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    self._packets.get_nowait()
+                    self._dropped_packets += 1
+            await self._packets.put(packet)
+            enqueued += 1
+        return enqueued
+
+    async def recv(self) -> Packet:
+        """Return the next pre-encoded H.264 packet for RTP transmission.
+
+        Paces delivery at the configured FPS using deadline-based
+        sleeping, matching :class:`BufferedVideoTrack` behavior.
+        """
+        if self._closed:
+            raise MediaStreamError
+
+        loop = asyncio.get_running_loop()
+        t_get_start = loop.time()
+        item = await self._packets.get()
+        if item is None:
+            raise MediaStreamError
+        get_wait_ms = (loop.time() - t_get_start) * 1000.0
+        first_packet = self._next_deadline_s is None
+        just_stalled = (not first_packet) and get_wait_ms > _STALL_THRESHOLD_MS
+        if just_stalled:
+            logger.debug(
+                "Encoded track stall: pts={} waited {:.1f}ms for next packet; "
+                "queue depth now {}.",
+                self._pts,
+                get_wait_ms,
+                self._packets.qsize(),
+            )
+
+        now_s = loop.time()
+        if first_packet or just_stalled:
+            self._next_deadline_s = now_s
+        else:
+            proposed = self._next_deadline_s + self._frame_interval_s
+            wait_s = proposed - now_s
+            if wait_s > 0:
+                await asyncio.sleep(wait_s)
+                self._next_deadline_s = proposed
+            else:
+                if -wait_s * 1000.0 > _PACING_LAG_LOG_MS:
+                    logger.debug(
+                        "Encoded track pacing lag: pts={} deadline {:.1f}ms behind "
+                        "walltime; re-anchoring (queue depth {}).",
+                        self._pts,
+                        -wait_s * 1000.0,
+                        self._packets.qsize(),
+                    )
+                self._next_deadline_s = now_s
+
+        packet = Packet(item.payload)
+        packet.pts = self._pts
+        packet.time_base = self._time_base
+        self._pts += 1
+        return packet
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        while True:
+            try:
+                self._packets.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._packets.put_nowait(None)
         self.stop()
