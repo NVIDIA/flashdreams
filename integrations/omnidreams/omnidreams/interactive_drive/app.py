@@ -20,6 +20,7 @@ from omnidreams.interactive_drive.scene_loader import load_scene_bundle
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
+    build_map_bounds,
     state_from_initial_pose,
 )
 from omnidreams.interactive_drive.streaming_presenter import (
@@ -90,6 +91,10 @@ class InteractiveDriveApp:
         )
         local_backend = LocalVideoModelAdapter(self._backend)
         pipeline = ChunkPipeline(local_backend, self._scene)
+        # Build the OOB map bounds once at scene load -- the AABB is a
+        # property of the scene's geometry and is invariant across the
+        # rollout-restart loop below.
+        map_bounds = build_map_bounds(self._scene)
         try:
             while not self._presenter.should_close:
                 simulation = EgoVehicleKinematics(
@@ -105,6 +110,9 @@ class InteractiveDriveApp:
                     vehicle_config=self._config.vehicle,
                     ground_snapper=build_ground_snapper(self._scene),
                     initial_timestamp_us=self._scene.initial_timestamp_us,
+                    map_bounds=map_bounds,
+                    oob_margin_m=self._config.oob_margin_m,
+                    oob_warning_zone_m=self._config.oob_warning_zone_m,
                 )
                 input_backend = KeyboardInputBackend(self._keyboard)
                 reset_requested = run_main_loop(

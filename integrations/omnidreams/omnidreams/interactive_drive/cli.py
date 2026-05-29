@@ -308,6 +308,31 @@ def build_parser() -> argparse.ArgumentParser:
             "if you've lowered the respawn threshold below 2.0."
         ),
     )
+    parser.add_argument(
+        "--oob-margin-m",
+        type=float,
+        default=None,
+        metavar="METERS",
+        help=(
+            "Margin (in metres) added around the scene's spatial-content "
+            "AABB before any in-bounds check. The respawn fires only "
+            "once the ego is past AABB+margin, so larger values give "
+            "more room to leave the explicitly mapped area. Default 50, "
+            "matching alpasim. Bump to 200+ on scenes whose geometry "
+            "layers don't cover the full driveable area."
+        ),
+    )
+    parser.add_argument(
+        "--oob-warning-zone-m",
+        type=float,
+        default=None,
+        metavar="METERS",
+        help=(
+            "Depth of the linear warning-ramp band inside the AABB+margin "
+            "edge. Default 100, matching alpasim. Set to 0 to disable the "
+            "ramp and only ever show the binary on/off respawn signal."
+        ),
+    )
     return parser
 
 
@@ -343,6 +368,10 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
         overrides["oob_respawn_debounce_chunks"] = int(
             args.oob_respawn_debounce_chunks
         )
+    if args.oob_margin_m is not None:
+        overrides["oob_margin_m"] = float(args.oob_margin_m)
+    if args.oob_warning_zone_m is not None:
+        overrides["oob_warning_zone_m"] = float(args.oob_warning_zone_m)
     return overrides
 
 

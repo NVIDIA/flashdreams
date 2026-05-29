@@ -108,69 +108,6 @@ class GroundSnapper:
             for cell, idxs in cell_buckets.items()
         }
 
-        # XY axis-aligned bounding box of the ground mesh, used by
-        # :meth:`oob_proximity_at` to compute the alpasim-style
-        # ``oob_proximity`` signal. Mirrors the role of the GT
-        # trajectory's spatial extent in
-        # :meth:`alpasim_runtime.events.state.is_ego_off_map`. Stored as
-        # plain floats so the value is cheap to read from the
-        # per-chunk OOB checker.
-        self._mesh_xy_bounds: tuple[float, float, float, float] = (
-            float(self._grid_origin[0]),
-            float(self._grid_origin[1]),
-            float(self._grid_origin[0] + self._grid_shape[0] * self._grid_resolution_m),
-            float(self._grid_origin[1] + self._grid_shape[1] * self._grid_resolution_m),
-        )
-
-    @property
-    def mesh_xy_bounds(self) -> tuple[float, float, float, float]:
-        """``(x_min, y_min, x_max, y_max)`` of the ground mesh's XY footprint."""
-        return self._mesh_xy_bounds
-
-    def oob_proximity_at(
-        self,
-        ego_xy: tuple[float, float],
-        *,
-        margin_m: float = 50.0,
-        warning_zone_m: float = 100.0,
-    ) -> float:
-        """Distance-from-AABB proximity, matching alpasim's ``is_ego_off_map``.
-
-        Returns:
-        - ``0.0`` when the ego is more than ``warning_zone_m`` inside the
-          mesh AABB expanded by ``margin_m`` -- solidly in-bounds.
-        - ``(0.0, 1.0]`` linearly ramping over the ``warning_zone_m`` band
-          as the ego approaches the edge.
-        - ``2.0`` (the alpasim sentinel value) when the ego has crossed
-          the AABB+margin boundary. The runtime loop respawns on this
-          step value, so transient warning-band excursions never trigger
-          a teleport.
-
-        The mesh AABB stands in for alpasim's GT-trajectory bounds: the
-        interactive demo lets the user drive freely instead of replaying
-        a recorded trajectory, so the navigable area is "wherever the
-        ground mesh covers" rather than "wherever the GT path went". The
-        50 m margin and 100 m warning zone match alpasim's defaults so
-        the UX feel is equivalent.
-        """
-        x_min, y_min, x_max, y_max = self._mesh_xy_bounds
-        bx_min = x_min - margin_m
-        by_min = y_min - margin_m
-        bx_max = x_max + margin_m
-        by_max = y_max + margin_m
-
-        dist_to_edge = min(
-            ego_xy[0] - bx_min,
-            bx_max - ego_xy[0],
-            ego_xy[1] - by_min,
-            by_max - ego_xy[1],
-        )
-        if dist_to_edge < 0.0:
-            return 2.0
-        if warning_zone_m > 0.0 and dist_to_edge < warning_zone_m:
-            return float(np.clip(1.0 - dist_to_edge / warning_zone_m, 0.0, 1.0))
-        return 0.0
-
     @property
     def anchor_offset_m(self) -> float | None:
         return self._anchor_offset_m

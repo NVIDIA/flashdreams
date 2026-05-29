@@ -148,6 +148,17 @@ class AppConfig:
     oob_warn_proximity: float = 0.6
     oob_respawn_proximity: float = 2.0
     oob_respawn_debounce_chunks: int = 1
+    # OOB AABB geometry. ``oob_margin_m`` expands the scene's
+    # spatial-content AABB before any in-bounds check (alpasim uses
+    # 50 m around the GT trajectory; we use the same default around
+    # the union of all scene geometry). ``oob_warning_zone_m`` is the
+    # depth of the linear ramp inside that expanded AABB where the
+    # warning overlay shows. Set ``oob_margin_m`` higher to give the
+    # ego more room to leave the geometry-covered area without firing
+    # the respawn -- useful on scenes whose geometry layers don't
+    # cover the full driveable area.
+    oob_margin_m: float = 50.0
+    oob_warning_zone_m: float = 100.0
     # When non-None, the app swaps the Vulkan presenter out for
     # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
     # which serves frames to a browser over HTTP and reads keyboard

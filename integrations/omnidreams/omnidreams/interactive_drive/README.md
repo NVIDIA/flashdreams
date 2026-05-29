@@ -368,10 +368,17 @@ quality starts to drift.
 ### Out-of-bounds warning and auto-respawn
 
 The demo also auto-resets when you drive off the navigable area. The
-implementation mirrors alpasim's ``is_ego_off_map`` algorithm: each
-chunk, the simulation computes how far the ego is from the ground
-mesh's axis-aligned bounding box (expanded by a 50 m margin) and the
-loop reacts to it in two stages:
+implementation mirrors alpasim's ``is_ego_off_map`` algorithm: at scene
+load time the demo computes an axis-aligned bounding box of **every**
+spatial layer in the scene (lane markers, drivable triangles,
+polygons, vehicle tracks, ground mesh) and prints it to stderr, e.g.
+
+```
+[ego_vehicle_kinematics] map bounds: x=[-127.4, 218.9] (346.3 m), y=[-89.6, 142.3] (231.9 m). Adds 50 m margin + 100 m warning zone for OOB.
+```
+
+Each chunk, the simulation computes how far the ego is from this AABB
+expanded by a 50 m margin and the loop reacts to it in two stages:
 
 - **Approaching the edge** (proximity ramps `0.0 → 1.0` across the
   100 m warning zone inside the AABB+margin edge): the warning text
@@ -381,15 +388,16 @@ loop reacts to it in two stages:
 - **Out of bounds** (proximity = `2.0`, set when the ego has actually
   crossed the AABB+margin boundary): the overlay flips to
   *"Respawning..."* and the loop triggers the same reset path that `R`
-  uses, so the next iteration starts from the scene's initial pose.
+  uses.
 
 Crucially, the respawn is a **binary** trigger — it fires only when
 the ego is actually past the AABB+margin edge, not when it's somewhere
-in the warning ramp. So driving on a sidewalk, brushing curbs, or
-crossing sparse-mesh patches inside the navigable area never trigger a
-teleport; only flying off the entire mapped area does. This matches
-alpasim's behaviour exactly, where ``oob_proximity >= 2.0`` is the
-respawn threshold.
+in the warning ramp. Driving on a sidewalk, brushing curbs, or
+crossing sparse-mesh patches *inside* the navigable area never trigger
+a teleport; only flying off the entire mapped area does. Because the
+AABB is the union of all geometry (not just the ground mesh, which is
+often a small strip representing only the road surface), it covers the
+full extent of where the scene "contains" content.
 
 The loop logs every state transition to stderr so you can confirm the
 thresholds are firing at the right time:
@@ -399,19 +407,21 @@ thresholds are firing at the right time:
 [loop] oob 'Approaching map edge…' -> 'Respawning...' proximity=2.000 streak=1 action=firing respawn
 ```
 
-Three CLI flags expose the thresholds:
+Five CLI flags expose the OOB knobs:
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--oob-warn-proximity` | `0.6` | Lower values warn earlier; raise if the warning fires while you still feel solidly on the road. |
+| `--oob-margin-m` | `50` | Margin (m) added around the geometry AABB. Bigger = more room before the boundary. |
+| `--oob-warning-zone-m` | `100` | Depth (m) of the warning-ramp band inside the AABB+margin edge. Set to `0` to disable the ramp. |
+| `--oob-warn-proximity` | `0.6` | Lower values warn earlier. |
 | `--oob-respawn-proximity` | `2.0` | Default `2.0` matches alpasim's binary "off map" sentinel. Set to `2.5` (or any value > `2.0`) to disable auto-respawn entirely while keeping the warning overlay. |
-| `--oob-respawn-debounce-chunks` | `1` | Default `1` matches alpasim's immediate-on-step behaviour. Higher values add a per-chunk buffer; useful mainly if you've lowered the respawn threshold below 2.0. |
+| `--oob-respawn-debounce-chunks` | `1` | Default `1` matches alpasim. Higher values add a per-chunk buffer. |
 
 Both messages render through the standard `status_message` overlay, so
 they look identical across the HUD, `--no-hud`, and `--stream-mjpeg`
-presenters. Scenes that ship no ground mesh (legacy fixtures with no
-`mesh_ground.ply`) report proximity `0.0` and never auto-respawn -- you
-get the same behaviour as the older builds.
+presenters. Scenes that ship no spatial geometry report proximity
+`0.0` and never auto-respawn -- you get the same behaviour as the
+older builds.
 
 ### Without HD-map data (synthetic scene)
 
