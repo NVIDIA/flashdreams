@@ -144,7 +144,7 @@ First-time setup:
 
 .. code-block:: bash
 
-   git clone git@github.com:NVIDIA/flashdreams.git
+   git clone https://github.com/NVIDIA/flashdreams.git
    cd flashdreams
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
