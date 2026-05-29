@@ -454,7 +454,37 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (mask-inject I2V integration).&quot;&quot;&quot;</span>
 
     <span class="n">concat_image_mask_to_latent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (channel-concat I2V layout).&quot;&quot;&quot;</span></div>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;See class docstring (channel-concat I2V layout).&quot;&quot;&quot;</span>
+
+    <span class="n">ti2v_first_frame_per_token_timestep</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wan 2.2 TI2V 5B first-frame conditioning. When ``True`` and an</span>
+<span class="sd">    :class:`I2VCtrl` input is provided at AR step 0, ``predict_flow``</span>
+<span class="sd">    rewrites the scheduler&#39;s scalar timestep into a per-token tensor:</span>
+<span class="sd">    ``t = first_frame_timestep_value`` at positions marked by the I2V</span>
+<span class="sd">    mask (i.e. the first-frame latent), and the scheduler&#39;s ``t``</span>
+<span class="sd">    elsewhere. AR steps ``&gt;= 1`` continue to use the scalar timestep,</span>
+<span class="sd">    which keeps the CUDA-graph-captured replay branch on a single</span>
+<span class="sd">    stable input shape.</span>
+
+<span class="sd">    Composes with ``stamp_image_latent``: together they implement the</span>
+<span class="sd">    upstream Wan 2.2 5B &quot;VAE-seeded first-frame + per-token ``t=0``&quot;</span>
+<span class="sd">    TI2V recipe -- the latent is stamped clean every denoising step</span>
+<span class="sd">    while the network sees ``t=0`` for those tokens. The standard</span>
+<span class="sd">    mask-inject I2V recipe leaves this flag off and relies on the</span>
+<span class="sd">    classifier-free stamp alone.&quot;&quot;&quot;</span>
+
+    <span class="n">first_frame_timestep_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-token timestep assigned to first-frame conditioning tokens</span>
+<span class="sd">    when :attr:`ti2v_first_frame_per_token_timestep` is ``True``.</span>
+
+<span class="sd">    Defaults to ``0.0`` (Wan 2.2 TI2V 5B&#39;s base recipe — treats the</span>
+<span class="sd">    first frame as fully clean by AdaLN). HY-WorldPlay&#39;s distilled</span>
+<span class="sd">    WAN-5B raises it to ``14.0`` (vendor&#39;s</span>
+<span class="sd">    ``stabilization_level - 1``) so the AdaLN table sees a small</span>
+<span class="sd">    nonzero sigma at the first frame.</span>
+
+<span class="sd">    Unused when :attr:`ti2v_first_frame_per_token_timestep` is ``False``.</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
 
 
 
@@ -711,6 +741,51 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span></div>
 
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_maybe_build_per_token_timestep</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="nb">input</span><span class="p">:</span> <span class="n">I2VCtrl</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Optionally rewrite ``timestep`` into a per-token tensor for TI2V.</span>
+
+<span class="sd">        Off-path for everything except Wan 2.2 TI2V 5B AR-step 0 with a</span>
+<span class="sd">        non-``None`` :class:`I2VCtrl`. When on-path, the scalar scheduler</span>
+<span class="sd">        timestep is broadcast to ``[..., L]`` then zeroed at positions</span>
+<span class="sd">        marked by the I2V mask, so the first-frame conditioning tokens</span>
+<span class="sd">        see ``t=0`` while the rest of the chunk denoises at the current</span>
+<span class="sd">        scheduler step.</span>
+
+<span class="sd">        The post-patchify mask is constant across the patchified channel</span>
+<span class="sd">        axis (the encoder fills a per-pixel binary mask, and patchify</span>
+<span class="sd">        concatenates channel * kt * kh * kw entries that all share the</span>
+<span class="sd">        same value), so ``mask[..., 0]`` recovers a per-token boolean</span>
+<span class="sd">        without an ``any`` reduction.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">ti2v_first_frame_per_token_timestep</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">timestep</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c1"># CUDA-graph capture starts at AR ``_cuda_graph_capture_ar_idx``;</span>
+            <span class="c1"># AR&gt;=1 must keep the scalar shape stable across the captured</span>
+            <span class="c1"># replay branch.</span>
+            <span class="k">return</span> <span class="n">timestep</span>
+        <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">timestep</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">I2VCtrl</span><span class="p">),</span> <span class="p">(</span>
+            <span class="s2">&quot;ti2v_first_frame_per_token_timestep requires the I2V control &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;payload to be an I2VCtrl (got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+        <span class="n">per_token_mask</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">mask</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>  <span class="c1"># [..., L]</span>
+        <span class="c1"># Broadcast scalar / per-batch ``timestep`` to ``[..., L]`` and</span>
+        <span class="c1"># blend with ``first_frame_timestep_value`` at masked positions.</span>
+        <span class="c1"># Multiplying preserves the scheduler dtype so downstream</span>
+        <span class="c1"># sinusoidal embedding stays bit-identical to the scalar path</span>
+        <span class="c1"># on non-masked tokens.</span>
+        <span class="n">timestep</span> <span class="o">=</span> <span class="n">timestep</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">per_token_mask</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">per_token_mask</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">timestep</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="n">first_frame_value</span> <span class="o">=</span> <span class="n">timestep</span><span class="o">.</span><span class="n">new_tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">first_frame_timestep_value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">timestep</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">mask</span><span class="p">)</span> <span class="o">+</span> <span class="n">first_frame_value</span> <span class="o">*</span> <span class="n">mask</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">_stamp_image_latent</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -806,6 +881,24 @@ SPDX-License-Identifier: Apache-2.0
         <span class="nb">input</span><span class="p">:</span> <span class="n">I2VCtrl</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">network_extra_kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Predict the flow for one denoising step.</span>
+
+<span class="sd">        ``timestep`` may be a scalar / per-batch tensor (standard Wan</span>
+<span class="sd">        2.1 / 14B path) or a per-token tensor with the same trailing</span>
+<span class="sd">        token axis as ``noisy_latent`` (Wan 2.2 TI2V 5B first-frame</span>
+<span class="sd">        seeding at AR step 0). The per-token layout flows through</span>
+<span class="sd">        :meth:`WanDiTNetwork.forward`, which dispatches the sinusoidal</span>
+<span class="sd">        embedding + AdaLN modulation on the native shape.</span>
+
+<span class="sd">        CUDA-graph capture is shape-sensitive: the captured replay</span>
+<span class="sd">        region only sees AR step ``&gt;= self._cuda_graph_capture_ar_idx``</span>
+<span class="sd">        (steady state). TI2V 5B is configured with ``len_t ==</span>
+<span class="sd">        window_size_t`` so the threshold lands at AR 1, putting the</span>
+<span class="sd">        per-token AR-0 step inside the eager ``.drain`` branch where</span>
+<span class="sd">        shape changes are safe. After AR 0 the pipeline switches back</span>
+<span class="sd">        to scalar timesteps, so the captured branch sees a single</span>
+<span class="sd">        stable shape across all AR steps it owns.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">ar_idx</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">autoregressive_index</span>
         <span class="k">assert</span> <span class="n">ar_idx</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
             <span class="s2">&quot;Wan21TransformerCache.start(autoregressive_index) must be called &quot;</span>
@@ -813,6 +906,9 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
         <span class="n">network_extra_kwargs</span> <span class="o">=</span> <span class="n">network_extra_kwargs</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="n">network_input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_network_input</span><span class="p">(</span><span class="n">noisy_latent</span><span class="p">,</span> <span class="nb">input</span><span class="p">)</span>
+        <span class="n">timestep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_build_per_token_timestep</span><span class="p">(</span>
+            <span class="n">timestep</span><span class="o">=</span><span class="n">timestep</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">ar_idx</span>
+        <span class="p">)</span>
 
         <span class="n">flow_cond</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_predict_flow</span><span class="p">(</span>
             <span class="n">network_input</span><span class="o">=</span><span class="n">network_input</span><span class="p">,</span>

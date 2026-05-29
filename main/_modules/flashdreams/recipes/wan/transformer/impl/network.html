@@ -411,6 +411,32 @@ SPDX-License-Identifier: Apache-2.0
 
 
 
+<div class="viewcode-block" id="WanDiTNetworkTI2V5BConfig">
+<a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetworkTI2V5BConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetworkTI2V5BConfig</span><span class="p">(</span><span class="n">WanDiTNetworkConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for the Wan 2.2 TI2V 5B DiT network.</span>
+
+<span class="sd">    Mirrors the official ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/transformer``</span>
+<span class="sd">    config: 24 heads * 128 head_dim = 3072 inner dim, 30 layers, ffn_dim</span>
+<span class="sd">    14336, and 48-channel latent in/out (the matching 16x VAE in</span>
+<span class="sd">    ``vae.py`` outputs 48 channels). Unlike Wan 2.1 14B I2V, TI2V 5B has</span>
+<span class="sd">    no CLIP cross-attention branch (``cross_attn_enable_img=False``):</span>
+<span class="sd">    the first frame is conditioned via a clean VAE-latent seed plus a</span>
+<span class="sd">    per-token ``t=0`` timestep on the AR-step-0 first-frame tokens, not</span>
+<span class="sd">    via CLIP image features.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">in_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">48</span>
+    <span class="n">out_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">48</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3072</span>
+    <span class="n">ffn_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">14336</span>
+    <span class="n">num_heads</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">24</span>
+    <span class="n">num_layers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+    <span class="n">cross_attn_enable_img</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+
+
 <div class="viewcode-block" id="WanDiTNetwork">
 <a class="viewcode-back" href="../../../../../../api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">WanDiTNetwork</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
@@ -714,7 +740,18 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">        Args:</span>
 <span class="sd">            x: Input tokens after patchify + CP, shape ``[..., L, D_in]``;</span>
 <span class="sd">                layout ``&quot;... (t h w) (c kt kh kw)&quot;``.</span>
-<span class="sd">            timesteps: Diffusion timesteps, broadcastable to shape ``[...]``.</span>
+<span class="sd">            timesteps: Diffusion timesteps. Two layouts are supported:</span>
+
+<span class="sd">                * **Scalar (per-batch).** Shape broadcastable to ``[...]``</span>
+<span class="sd">                  (i.e., to ``x.shape[:-2]``). The same timestep is shared</span>
+<span class="sd">                  across every token, matching the standard Wan 2.1 /</span>
+<span class="sd">                  Wan 2.2 14B chunked-denoise path.</span>
+<span class="sd">                * **Per-token.** Shape ``[..., L]`` matching ``x``&#39;s post-</span>
+<span class="sd">                  patchify token axis. Used by Wan 2.2 TI2V 5B at AR step</span>
+<span class="sd">                  0 to stamp ``t=0`` at the first-frame conditioning tokens</span>
+<span class="sd">                  while the rest of the chunk denoises at the current</span>
+<span class="sd">                  scheduler step. See ``Wan21Transformer.predict_flow`` for</span>
+<span class="sd">                  the higher-level entry point.</span>
 <span class="sd">            cache: Network KV caches.</span>
 <span class="sd">            rope_freqs: Full-width RoPE frequencies after CP. Standard mode</span>
 <span class="sd">                uses current-chunk frequencies with shape ``[L, 1, 1, d]``;</span>
@@ -730,6 +767,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="s2">&quot;We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint&quot;</span>
         <span class="p">)</span>
         <span class="n">batch_shape</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
 
         <span class="c1"># Patch embedding</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">patch_embedding_type</span> <span class="o">==</span> <span class="s2">&quot;linear&quot;</span><span class="p">:</span>
@@ -745,11 +783,40 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="sa">f</span><span class="s2">&quot;Invalid patch embedding type: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">patch_embedding_type</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
 
-        <span class="c1"># Timestep embedding and modulation projection</span>
+        <span class="c1"># Timestep embedding and modulation projection.</span>
+        <span class="c1">#</span>
+        <span class="c1"># Per-token vs scalar dispatch: ``timesteps`` is per-token iff its</span>
+        <span class="c1"># rank exceeds the batch rank and its trailing axis matches the</span>
+        <span class="c1"># post-patchify+CP token count. Sinusoidal + MLP both run on the</span>
+        <span class="c1"># native shape so per-token tensors stay ``[..., L, D]`` instead</span>
+        <span class="c1"># of collapsing to ``[..., D]``. Downstream ``Block`` / ``Head``</span>
+        <span class="c1"># squeeze the modulation axis (``[..., 1, D]`` or ``[..., L, 1, D]``)</span>
+        <span class="c1"># so the same kernel handles both via broadcast.</span>
+        <span class="n">per_token_timestep</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">timesteps</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">batch_shape</span><span class="p">)</span> <span class="ow">and</span> <span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">L</span>
+        <span class="p">)</span>
         <span class="n">e</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_embedding</span><span class="p">(</span>
             <span class="n">sinusoidal_embedding_1d</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">freq_dim</span><span class="p">,</span> <span class="n">timesteps</span><span class="p">)</span><span class="o">.</span><span class="n">type_as</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="p">)</span>  <span class="c1"># [..., D]</span>
-        <span class="n">e0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_projection</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">unflatten</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">))</span>  <span class="c1"># [..., 6, D]</span>
+        <span class="p">)</span>  <span class="c1"># [..., D] (scalar) or [..., L, D] (per-token)</span>
+        <span class="n">e0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_projection</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">unflatten</span><span class="p">(</span>
+            <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="p">)</span>  <span class="c1"># [..., 6, D] or [..., L, 6, D]</span>
+
+        <span class="c1"># ``broadcast_to`` materialises the broadcast against ``batch_shape``</span>
+        <span class="c1"># in case ``timesteps`` was a true scalar / smaller-rank tensor; the</span>
+        <span class="c1"># per-token branch already has ``batch_shape`` in its leading dims so</span>
+        <span class="c1"># this is just a contiguity-preserving no-op there.</span>
+        <span class="k">if</span> <span class="n">per_token_timestep</span><span class="p">:</span>
+            <span class="n">block_e_shape</span> <span class="o">=</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+            <span class="n">head_e</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">))</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span>
+                <span class="o">-</span><span class="mi">2</span>
+            <span class="p">)</span>  <span class="c1"># [..., L, 1, D]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">block_e_shape</span> <span class="o">=</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+            <span class="n">head_e</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">,))</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span>
+                <span class="o">-</span><span class="mi">2</span>
+            <span class="p">)</span>  <span class="c1"># [..., 1, D]</span>
+        <span class="n">block_e</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">e0</span><span class="p">,</span> <span class="n">block_e_shape</span><span class="p">)</span>
 
         <span class="c1"># Transformer blocks</span>
         <span class="k">if</span> <span class="n">eager_mode</span><span class="p">:</span>
@@ -758,7 +825,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">Block</span><span class="p">)</span>
             <span class="n">x</span> <span class="o">=</span> <span class="n">block</span><span class="p">(</span>
                 <span class="n">x</span><span class="o">=</span><span class="n">x</span><span class="p">,</span>
-                <span class="n">e</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">e0</span><span class="p">,</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="n">e0</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]),</span>
+                <span class="n">e</span><span class="o">=</span><span class="n">block_e</span><span class="p">,</span>
                 <span class="n">rope_freqs</span><span class="o">=</span><span class="n">rope_freqs</span><span class="p">,</span>
                 <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">[</span><span class="n">block_idx</span><span class="p">],</span>
                 <span class="o">**</span><span class="n">block_extra_kwargs</span><span class="p">,</span>
@@ -767,9 +834,7 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">cache</span><span class="o">.</span><span class="n">after_update</span><span class="p">(</span><span class="n">current_chunk_idx</span><span class="p">)</span>
 
         <span class="c1"># Final head</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">head</span><span class="p">(</span>
-            <span class="n">x</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">batch_shape</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
-        <span class="p">)</span>  <span class="c1"># (..., L, D)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">head_e</span><span class="p">)</span>  <span class="c1"># (..., L, D)</span>
         <span class="k">return</span> <span class="n">x</span></div>
 </div>
 
