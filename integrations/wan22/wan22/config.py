@@ -76,11 +76,17 @@ Sharded safetensors (3 shards + index); ``load_checkpoint`` handles the
 ``WanDiTNetwork`` keys (``blocks.N.self_attn.q``, ``text_embedding.0``,
 ``head.head`` ...) -- a verified 825<->825 name-identical bijection (see
 ``test_native_dit_checkpoint_needs_no_remap``), because our network was
-ported from native Wan. So this path loads with **no remap at all**
-(``state_dict_transform=None``), dropping the ~25-rule
-:data:`_WAN22_TI2V_5B_DIT_KEY_REMAP`. Opt-in for now -- the production
-config keeps the diffusers default until a GPU decode-parity smoke
-confirms the two checkpoints produce identical output."""
+ported from native Wan. So **for the base (un-distilled) pipeline** this
+path loads with no remap at all (``state_dict_transform=None``). The two
+checkpoints carry bit-identical weights (verified max ``|Δ| = 0`` across
+all 825 fp32 tensors -- see ``test_native_dit_matches_diffusers_weights``),
+so this is an equivalent, simpler source for the base Wan 2.2 recipe.
+
+It does **not** let us delete :data:`_WAN22_TI2V_5B_DIT_KEY_REMAP`: the HY
+distilled checkpoint ships in diffusers-key format and still needs that
+remap (``hy_worldplay/_checkpoint.py``), and the diffusers repo path needs
+it too. Kept opt-in -- the production config keeps the diffusers default
+to avoid the larger sharded fp32 download (~20 GB) on the base recipe."""
 
 
 # Diffusers ``WanTransformer3DModel`` -> bare ``WanDiTNetwork`` state-
@@ -91,9 +97,11 @@ confirms the two checkpoints produce identical output."""
 # checkpoints inherit the same diffusers ``WanTransformer3DModel``
 # layout -- only the layer counts and channel counts differ.
 # NOTE: the *native* ``Wan-AI/Wan2.2-TI2V-5B`` checkpoint
-# (:data:`WAN22_TI2V_5B_DIT_NATIVE_PATH`) already uses our key names, so
-# loading from it needs no remap at all -- this dict is only required for
-# the diffusers-repo path.
+# (:data:`WAN22_TI2V_5B_DIT_NATIVE_PATH`) already uses our key names, so the
+# *base* pipeline can load it with no remap. This dict is still required,
+# though: the diffusers-repo path needs it, and -- load-bearing -- so does
+# the HY distilled checkpoint (``hy_worldplay/_checkpoint.py`` layers its
+# action/PRoPE rewrites on top of this base remap).
 _WAN22_TI2V_5B_DIT_KEY_REMAP: dict[str, str] = {
     r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
     r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",

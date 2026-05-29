@@ -57,3 +57,52 @@ def test_native_dit_checkpoint_needs_no_remap() -> None:
     )
     assert not extra, f"{len(extra)} native keys not in the model: {sorted(extra)[:5]}"
     assert native_keys == model_keys
+
+
+@pytest.mark.manual
+def test_native_dit_matches_diffusers_weights() -> None:
+    """Native + (no remap) and diffusers + remap yield bit-identical DiT weights.
+
+    The native checkpoint is only worth offering for the base pipeline if it
+    is the *same* model as the diffusers default. This loads both DiT
+    checkpoints, applies the diffusers remap to the diffusers one, and
+    asserts every tensor matches.
+
+    Marked ``manual``: downloads both DiT checkpoints (~40 GB total) from
+    HuggingFace.
+    """
+    import glob
+
+    import torch
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file
+    from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
+
+    diff_dir = snapshot_download(
+        "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        allow_patterns=["transformer/diffusion_pytorch_model-*.safetensors"],
+    )
+    nat_dir = snapshot_download(
+        "Wan-AI/Wan2.2-TI2V-5B",
+        allow_patterns=["diffusion_pytorch_model-*.safetensors"],
+    )
+
+    diff_raw: dict[str, torch.Tensor] = {}
+    for shard in glob.glob(
+        f"{diff_dir}/transformer/diffusion_pytorch_model-*.safetensors"
+    ):
+        diff_raw.update(load_file(shard))
+    from_diffusers = wan22_ti2v_5b_dit_state_dict_transform(diff_raw)
+
+    native: dict[str, torch.Tensor] = {}
+    for shard in glob.glob(f"{nat_dir}/diffusion_pytorch_model-*.safetensors"):
+        native.update(load_file(shard))  # native is already in WanDiTNetwork keys
+
+    assert set(from_diffusers) == set(native), "remapped key sets differ"
+    worst = max(
+        (from_diffusers[k].float() - native[k].float()).abs().max().item()
+        for k in from_diffusers
+    )
+    assert worst == 0.0, (
+        f"DiT weights differ between checkpoints (max |delta| = {worst})"
+    )
