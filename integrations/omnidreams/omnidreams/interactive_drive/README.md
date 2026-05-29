@@ -368,33 +368,44 @@ quality starts to drift.
 ### Out-of-bounds warning and auto-respawn
 
 The demo also auto-resets when you drive off the navigable area. The
-simulation thread tracks an OOB *proximity* metric -- the fraction of
-the ego's body-grid raycasts that miss the scene's ground mesh -- and
-the runtime loop reacts to it in two stages:
+implementation mirrors alpasim's ``is_ego_off_map`` algorithm: each
+chunk, the simulation computes how far the ego is from the ground
+mesh's axis-aligned bounding box (expanded by a 50 m margin) and the
+loop reacts to it in two stages:
 
-- **Approaching the edge** (proximity ≥ 0.7): the warning text
+- **Approaching the edge** (proximity ramps `0.0 → 1.0` across the
+  100 m warning zone inside the AABB+margin edge): the warning text
   *"Approaching map edge, turn back to avoid respawn"* is overlaid on
-  the current frame. Steering back onto the navigable area clears it
+  the current frame. Steering back into the navigable area clears it
   on the next chunk.
-- **Out of bounds** (proximity ≥ 0.95 for 3 consecutive chunks): the
-  overlay flips to *"Respawning..."* and the loop triggers the same
-  reset path that `R` uses, so the next iteration starts from the
-  scene's initial pose with a fresh world-model rollout.
+- **Out of bounds** (proximity = `2.0`, set when the ego has actually
+  crossed the AABB+margin boundary): the overlay flips to
+  *"Respawning..."* and the loop triggers the same reset path that `R`
+  uses, so the next iteration starts from the scene's initial pose.
 
-The respawn is debounced by 3 chunks (~800 ms) so a single corner ray
-briefly clipping a sidewalk during a sharp turn doesn't cause a
-teleport. The loop logs every state transition to stderr (e.g.
-`[loop] oob 'in-bounds' -> 'Approaching map edge…' proximity=0.750
-streak=0 action=warning`) so you can confirm the thresholds are firing
-at the right time and tune them if needed.
+Crucially, the respawn is a **binary** trigger — it fires only when
+the ego is actually past the AABB+margin edge, not when it's somewhere
+in the warning ramp. So driving on a sidewalk, brushing curbs, or
+crossing sparse-mesh patches inside the navigable area never trigger a
+teleport; only flying off the entire mapped area does. This matches
+alpasim's behaviour exactly, where ``oob_proximity >= 2.0`` is the
+respawn threshold.
+
+The loop logs every state transition to stderr so you can confirm the
+thresholds are firing at the right time:
+
+```
+[loop] oob 'in-bounds' -> 'Approaching map edge…' proximity=0.620 streak=0 action=warning
+[loop] oob 'Approaching map edge…' -> 'Respawning...' proximity=2.000 streak=1 action=firing respawn
+```
 
 Three CLI flags expose the thresholds:
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--oob-warn-proximity` | `0.7` | Lower values warn earlier; raise if the warning fires while you still feel solidly on the road. |
-| `--oob-respawn-proximity` | `0.95` | Lower values respawn earlier; set to `1.01` to disable auto-respawn entirely while keeping the warning overlay. |
-| `--oob-respawn-debounce-chunks` | `3` | Higher values are stickier (more transient-tolerant); set to `1` to fire on the first qualifying chunk. |
+| `--oob-warn-proximity` | `0.6` | Lower values warn earlier; raise if the warning fires while you still feel solidly on the road. |
+| `--oob-respawn-proximity` | `2.0` | Default `2.0` matches alpasim's binary "off map" sentinel. Set to `2.5` (or any value > `2.0`) to disable auto-respawn entirely while keeping the warning overlay. |
+| `--oob-respawn-debounce-chunks` | `1` | Default `1` matches alpasim's immediate-on-step behaviour. Higher values add a per-chunk buffer; useful mainly if you've lowered the respawn threshold below 2.0. |
 
 Both messages render through the standard `status_message` overlay, so
 they look identical across the HUD, `--no-hud`, and `--stream-mjpeg`

@@ -142,10 +142,12 @@ class AppConfig:
     # :class:`~omnidreams.interactive_drive.runtime.loop.LoopConfig`.
     # Exposed on AppConfig so the CLI's ``--oob-*`` flags can override
     # them per-run; the defaults match the LoopConfig defaults so the
-    # behaviour is identical when the flags aren't passed.
-    oob_warn_proximity: float = 0.7
-    oob_respawn_proximity: float = 0.95
-    oob_respawn_debounce_chunks: int = 3
+    # behaviour is identical when the flags aren't passed. Mirrors
+    # alpasim's driver-side thresholds (warn > 0.6, respawn >= 2.0
+    # against the AABB-distance proximity).
+    oob_warn_proximity: float = 0.6
+    oob_respawn_proximity: float = 2.0
+    oob_respawn_debounce_chunks: int = 1
     # When non-None, the app swaps the Vulkan presenter out for
     # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
     # which serves frames to a browser over HTTP and reads keyboard

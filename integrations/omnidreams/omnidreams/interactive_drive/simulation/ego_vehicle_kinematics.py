@@ -202,17 +202,33 @@ class EgoVehicleKinematics:
 
     @property
     def last_proximity(self) -> float:
-        """OOB proximity of the latest simulated frame, in [0.0, 1.0].
+        """Out-of-bounds proximity of the latest simulated frame.
 
-        Reads the underlying :class:`GroundSnapper`'s post-snap reading
-        (the boundary frame of the most-recent :meth:`pose_chunk`).
-        Returns ``0.0`` when the scene shipped no ground mesh -- there's
-        no way to be off a map that doesn't exist, so the OOB respawn
-        path is a no-op for those scenes.
+        Mirrors alpasim's ``oob_proximity`` semantics:
+
+        - ``0.0`` -- ego is more than 100 m inside the mesh AABB
+          (expanded by a 50 m margin); solidly in-bounds.
+        - ``(0.0, 1.0]`` -- linear ramp across the 100 m warning zone
+          as the ego approaches the AABB+margin edge. The runtime loop
+          shows the "Approaching map edge..." overlay across this band.
+        - ``2.0`` -- alpasim's "off map" sentinel; the ego has crossed
+          AABB+margin. Triggers the auto-respawn.
+
+        The check is computed from the ego's current XY against the
+        ground mesh's spatial extent; it is **not** related to the
+        body-grid raycast (which only measures snap quality, and was
+        the wrong signal for OOB -- it false-positives on every curb,
+        sidewalk, or sparse-mesh patch the body brushes against).
+
+        Returns ``0.0`` for scenes that ship no ground mesh: there's no
+        way to be off a map that doesn't exist, so the OOB respawn path
+        is a no-op for those scenes.
         """
         if self._ground_snapper is None:
             return 0.0
-        return self._ground_snapper.last_proximity
+        return self._ground_snapper.oob_proximity_at(
+            (self._state.x_m, self._state.y_m)
+        )
 
     def pose_chunk(
         self,

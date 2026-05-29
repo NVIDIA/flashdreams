@@ -80,29 +80,33 @@ class LoopConfig:
     frame_interval_s: float
     poll_timeout_s: float = 0.001
     history_capacity: int = 16
-    # Out-of-bounds detection. Proximity is the GroundSnapper's
-    # ``1.0 - hit_ratio``: 0.0 is solidly in-bounds (every body-grid sample
-    # ray hit the ground mesh), 1.0 is fully off the mesh. With the
-    # default 4x4 = 16-sample body grid the readings quantize to
-    # multiples of 1/16: ``0.6875`` is the point at which
-    # :class:`GroundSnapper` itself bails out because fewer than
-    # ``min_intersections=6`` rays hit (so it can't fit a plane), which
-    # is the same signal we want for "ego is leaving the mesh". Respawn
-    # is held to ``>= 0.95`` so corner samples briefly clipping a
-    # sidewalk during a sharp turn don't trip a teleport. Both checks
-    # are skipped when the scene shipped no ground mesh
-    # (``simulation.last_proximity`` reads ``0.0`` in that case).
-    oob_warn_proximity: float = 0.7
-    oob_respawn_proximity: float = 0.95
+    # Out-of-bounds detection. ``simulation.last_proximity`` mirrors
+    # alpasim's ``oob_proximity`` semantics:
+    #   0.0  = solidly inside the mesh AABB (expanded by a 50 m margin),
+    #          more than 100 m from any edge.
+    #   (0,1] = within the 100 m warning zone, ramping linearly with
+    #          ``1.0 - dist_to_edge / 100``.
+    #   2.0  = "off map" sentinel; the ego has crossed AABB + margin.
+    #
+    # Defaults match the alpasim driver: warn at >= 0.6 (standard
+    # "approaching" threshold from
+    # ``alpasim_driver.models.manual_model``'s render path), respawn at
+    # >= 2.0 (the binary "you're past the boundary" trigger). The
+    # warning ramps over a wide band; the respawn is a hard step that
+    # only fires when ``dist_to_edge < 0`` -- so brushing curbs,
+    # driving on sidewalks, or other intra-AABB excursions never
+    # trigger a teleport. Both checks no-op when the scene shipped no
+    # ground mesh (``simulation.last_proximity`` reads ``0.0``).
+    oob_warn_proximity: float = 0.6
+    oob_respawn_proximity: float = 2.0
     # Number of consecutive chunks the boundary-state proximity must
-    # remain above ``oob_respawn_proximity`` before the loop fires the
-    # auto-respawn. With ~270 ms per 8-frame chunk this gives the user
-    # ~800 ms of "Respawning..." overlay -- long enough that a single
-    # transient mesh-edge spike (e.g. a corner ray missing for one
-    # chunk while the rest of the body is still on the road) doesn't
-    # cause a teleport, short enough that a true OOB drive feels
-    # responsive. Set to ``1`` to fire on the first qualifying chunk.
-    oob_respawn_debounce_chunks: int = 3
+    # remain at or above ``oob_respawn_proximity`` before the loop fires
+    # the auto-respawn. Default ``1`` matches alpasim's behaviour
+    # (immediate respawn on the off-map step). Raise this for an
+    # added "are you sure you want to teleport" buffer; the alpasim
+    # signal is binary so a small debounce mostly catches measurement
+    # noise that doesn't really exist for the AABB check.
+    oob_respawn_debounce_chunks: int = 1
 
 
 # Warning text shown when the ego enters the OOB warning band. Kept as a

@@ -271,12 +271,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="FLOAT",
         help=(
-            "Body-grid miss-fraction at which the loop overlays "
+            "Proximity at which the loop overlays "
             "'Approaching map edge, turn back to avoid respawn' on the "
-            "frame. Range [0.0, 1.0]; 0.0 = solidly in-bounds, 1.0 = no "
-            "rays hit the ground mesh. Defaults to 0.7. Lower values "
-            "warn earlier; raise this if the warning fires while you "
-            "still feel solidly on the road."
+            "frame. Mirrors alpasim's ``oob_proximity``: 0.0 is solidly "
+            "inside the navigable AABB+margin, 1.0 is at the AABB+margin "
+            "edge (the warning band ramps linearly across a 100 m zone "
+            "inside the edge), 2.0 is the off-map sentinel. Default 0.6, "
+            "matching alpasim's 'approaching' threshold."
         ),
     )
     parser.add_argument(
@@ -285,11 +286,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="FLOAT",
         help=(
-            "Body-grid miss-fraction above which the loop fires the "
-            "auto-respawn (after ``--oob-respawn-debounce-chunks`` "
-            "consecutive chunks at this level). Defaults to 0.95 "
-            "(essentially the entire body off the mesh). Set to 1.01 "
-            "to disable auto-respawn entirely while keeping the warning "
+            "Proximity above which the loop fires the auto-respawn (after "
+            "``--oob-respawn-debounce-chunks`` consecutive chunks at this "
+            "level). Default 2.0, matching alpasim: a hard binary trigger "
+            "that only fires when the ego has actually crossed the "
+            "AABB+margin boundary. Set to 2.5 (or any value > 2.0) to "
+            "disable auto-respawn entirely while keeping the warning "
             "overlay."
         ),
     )
@@ -299,10 +301,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help=(
-            "Number of consecutive chunks the proximity must stay above "
-            "``--oob-respawn-proximity`` before the auto-respawn fires. "
-            "Defaults to 3 (~800 ms at 8-frame chunks). Set to 1 to "
-            "fire on the first qualifying chunk."
+            "Number of consecutive chunks the proximity must stay at or "
+            "above ``--oob-respawn-proximity`` before the auto-respawn "
+            "fires. Default 1, matching alpasim's immediate-on-step "
+            "behaviour. Raise this for an added buffer; useful mainly "
+            "if you've lowered the respawn threshold below 2.0."
         ),
     )
     return parser

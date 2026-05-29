@@ -49,15 +49,16 @@ class GroundSnapper:
         self._num_sample_points = int(num_sample_points)
         self._min_intersections = int(min_intersections)
         self._anchor_offset_m: float | None = None
-        # Updated as a side effect of every ``snap()`` call. Reads as
-        # ``1.0 - hit_ratio`` of the body-grid raycast, so 0.0 means every
-        # sample ray hit the ground mesh (solidly in-bounds) and 1.0 means
-        # no rays hit (the ego is fully off the mesh). The runtime loop
-        # reads this between chunks to drive the OOB warning overlay and
-        # the auto-respawn trigger; matches the alpasim driver's
-        # ``oob_proximity`` semantics (warn near 0.5, respawn near 1.0)
-        # without needing a separate runtime channel.
-        self._last_proximity: float = 0.0
+        # Updated as a side effect of every ``snap()`` call. ``snap_hit_ratio``
+        # is the fraction of body-grid sample rays that found ground in
+        # the most recent call; the runtime loop uses it as a *quality*
+        # signal for the snap itself (does it apply or bail out), NOT
+        # as the OOB metric. OOB is computed separately by
+        # :meth:`oob_proximity_at` from the ego's XY against the mesh
+        # AABB -- mirroring alpasim's ``is_ego_off_map`` algorithm,
+        # where the body-grid hit count would false-positive on every
+        # sidewalk or curb the ego brushes against.
+        self._last_snap_hit_ratio: float = 1.0
 
         vertices_d = np.asarray(vertices_xyz, dtype=np.float64)
         faces_i = np.asarray(faces_ijk, dtype=np.int32)
@@ -107,21 +108,83 @@ class GroundSnapper:
             for cell, idxs in cell_buckets.items()
         }
 
+        # XY axis-aligned bounding box of the ground mesh, used by
+        # :meth:`oob_proximity_at` to compute the alpasim-style
+        # ``oob_proximity`` signal. Mirrors the role of the GT
+        # trajectory's spatial extent in
+        # :meth:`alpasim_runtime.events.state.is_ego_off_map`. Stored as
+        # plain floats so the value is cheap to read from the
+        # per-chunk OOB checker.
+        self._mesh_xy_bounds: tuple[float, float, float, float] = (
+            float(self._grid_origin[0]),
+            float(self._grid_origin[1]),
+            float(self._grid_origin[0] + self._grid_shape[0] * self._grid_resolution_m),
+            float(self._grid_origin[1] + self._grid_shape[1] * self._grid_resolution_m),
+        )
+
+    @property
+    def mesh_xy_bounds(self) -> tuple[float, float, float, float]:
+        """``(x_min, y_min, x_max, y_max)`` of the ground mesh's XY footprint."""
+        return self._mesh_xy_bounds
+
+    def oob_proximity_at(
+        self,
+        ego_xy: tuple[float, float],
+        *,
+        margin_m: float = 50.0,
+        warning_zone_m: float = 100.0,
+    ) -> float:
+        """Distance-from-AABB proximity, matching alpasim's ``is_ego_off_map``.
+
+        Returns:
+        - ``0.0`` when the ego is more than ``warning_zone_m`` inside the
+          mesh AABB expanded by ``margin_m`` -- solidly in-bounds.
+        - ``(0.0, 1.0]`` linearly ramping over the ``warning_zone_m`` band
+          as the ego approaches the edge.
+        - ``2.0`` (the alpasim sentinel value) when the ego has crossed
+          the AABB+margin boundary. The runtime loop respawns on this
+          step value, so transient warning-band excursions never trigger
+          a teleport.
+
+        The mesh AABB stands in for alpasim's GT-trajectory bounds: the
+        interactive demo lets the user drive freely instead of replaying
+        a recorded trajectory, so the navigable area is "wherever the
+        ground mesh covers" rather than "wherever the GT path went". The
+        50 m margin and 100 m warning zone match alpasim's defaults so
+        the UX feel is equivalent.
+        """
+        x_min, y_min, x_max, y_max = self._mesh_xy_bounds
+        bx_min = x_min - margin_m
+        by_min = y_min - margin_m
+        bx_max = x_max + margin_m
+        by_max = y_max + margin_m
+
+        dist_to_edge = min(
+            ego_xy[0] - bx_min,
+            bx_max - ego_xy[0],
+            ego_xy[1] - by_min,
+            by_max - ego_xy[1],
+        )
+        if dist_to_edge < 0.0:
+            return 2.0
+        if warning_zone_m > 0.0 and dist_to_edge < warning_zone_m:
+            return float(np.clip(1.0 - dist_to_edge / warning_zone_m, 0.0, 1.0))
+        return 0.0
+
     @property
     def anchor_offset_m(self) -> float | None:
         return self._anchor_offset_m
 
     @property
-    def last_proximity(self) -> float:
-        """Most-recent ``snap()``'s OOB proximity, in [0.0, 1.0].
+    def last_snap_hit_ratio(self) -> float:
+        """Fraction of body-grid sample rays that hit ground in the latest ``snap()``.
 
-        ``0.0`` means every body-grid sample ray hit the ground mesh on the
-        last call (solidly inside the navigable area); ``1.0`` means no
-        rays hit (the ego is over a hole in the mesh or off the map).
-        Updated even on bail-out paths so the runtime can detect a
-        rapid OOB transition that the snap itself refuses to apply.
+        ``1.0`` means every ray landed on a ground triangle (clean snap);
+        ``0.0`` means none did. Useful for diagnosing snap quality on
+        sparse meshes; **not** the OOB signal -- see
+        :meth:`oob_proximity_at` for that.
         """
-        return self._last_proximity
+        return self._last_snap_hit_ratio
 
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
@@ -190,11 +253,11 @@ class GroundSnapper:
         mask = ~np.isnan(ground_zs)
         n_hits = int(mask.sum())
         n_total = int(len(world_pts))
-        # Update proximity unconditionally so callers see the freshest
-        # OOB reading even when the snap itself bails out below. The
-        # runtime loop's auto-respawn path depends on this.
-        self._last_proximity = (
-            1.0 - float(n_hits) / float(n_total) if n_total > 0 else 0.0
+        # Track snap quality (hit ratio) for diagnostics; OOB proximity
+        # is computed separately by ``oob_proximity_at`` from the ego XY
+        # against the mesh AABB.
+        self._last_snap_hit_ratio = (
+            float(n_hits) / float(n_total) if n_total > 0 else 1.0
         )
         if n_hits < self._min_intersections:
             logger.debug(
