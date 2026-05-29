@@ -162,7 +162,7 @@ def test_prope_block_forward_requires_viewmats() -> None:
     rope_freqs = torch.zeros(4, 1, 1, 32)
 
     with pytest.raises(ValueError, match="viewmats"):
-        block(  # ty: ignore[call-non-callable]
+        block(
             x=x,
             e=e,
             cache=cast(Any, object()),
@@ -187,7 +187,7 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
             x=torch.zeros(1, 4, 64),
             kv_cache=cast(Any, object()),
             prope_kv_cache=cast(Any, object()),
-            rope_freqs=None,
+            rope_freqs=cast(Any, None),
             viewmats=torch.zeros(1, 4, 4, 4),
             Ks=None,
         )

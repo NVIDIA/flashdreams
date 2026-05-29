@@ -296,7 +296,7 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
             network_extra_kwargs=None,
         )
     finally:
-        Wan21Transformer.predict_flow = original  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        Wan21Transformer.predict_flow = original  # type: ignore[assignment]
 
     assert "network_extra_kwargs" in captured["kwargs"]
     nek = captured["kwargs"]["network_extra_kwargs"]
