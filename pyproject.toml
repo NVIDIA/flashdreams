@@ -144,7 +144,7 @@ markers = [
 # flashdreams/_pytest_plugins.
 test = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
+    "pytest-asyncio>=0.24",
     "pytest-manual-marker>=2.0",
     "imageio-ffmpeg>=0.5",
 ]

@@ -307,16 +307,9 @@ The `flashdreams/pyproject.toml` declares minimum version bounds for all
 runtime dependencies. These bounds reflect the oldest versions we believe
 are compatible based on API analysis.
 
-**CI tests run against the pinned versions in `uv.lock`**, not against
-the declared minimums. This means:
-
-- We guarantee correctness at the locked versions.
-- We expect the package to work at the declared minimum bounds, but do
-  not continuously validate this in CI.
-- If you encounter breakage with a version that satisfies the declared
-  bounds but differs from the lock file, please
-  [open an issue](https://github.com/NVIDIA/flashdreams/issues). We will
-  either fix compatibility or bump the bound in `pyproject.toml`.
+CI tests both the **pinned versions** (from `uv.lock`) and the **declared
+minimums** (via `uv sync --resolution lowest-direct`). If you change a
+dependency bound, both resolution strategies must pass.
 
 ## Speeding up local builds
 

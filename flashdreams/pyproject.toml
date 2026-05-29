@@ -50,17 +50,6 @@ dependencies = [
     # no_restore_buffers=) and set_rotate_method in
     # torch.distributed.tensor.experimental require PyTorch 2.9+.
     "torch>=2.9",
-    # ``torch.compile`` lowers conv/elementwise kernels through Inductor +
-    # Triton. On Windows the upstream PyPI ``triton`` package is Linux-only,
-    # so without ``triton-windows`` Inductor crashes deep inside its
-    # template heuristics with ``TypeError: object() takes no arguments``.
-    # The maintainers ship a Windows-compatible drop-in under the
-    # ``triton-windows`` package; pulling it on win32 keeps every
-    # ``use_compile=True`` config path (encoder, decoder, DiT) working
-    # the same way it does on Linux. This is the same fix carried before
-    # on dev/truesight_alpa, scoped to the workspace member that owns
-    # the ``use_compile`` knob.
-    "triton-windows>=3.5.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -92,7 +81,7 @@ dev = [
 # main; the canonical extra is ``runners`` (same package set).
 examples = [
     "mediapy>=1.1",
-    "opencv-python-headless>=4.5",
+    "opencv-python-headless>=4.6",
     "scipy>=1.11",
 ]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
@@ -101,7 +90,7 @@ examples = [
 # pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
     "mediapy>=1.1",
-    "opencv-python-headless>=4.5",
+    "opencv-python-headless>=4.6",
     "scipy>=1.11",
 ]
 serving = [
@@ -118,23 +107,6 @@ version = {attr = "flashdreams._version.__version__"}
 [tool.setuptools.packages.find]
 include = ["flashdreams*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
-
-# PyPI's default ``torch`` is the CPU build on Windows. The truesight CUDA
-# extensions (built by ``uv run build-truesight``) need a CUDA-enabled
-# PyTorch so PyTorch's ``cpp_extension`` resolves ``CUDA_HOME`` from the
-# env (the gate is ``torch.version.cuda is not None``). On Linux the
-# default wheel is already CUDA-enabled; on Windows we have to point at
-# NVIDIA's PyTorch index. Constrain by marker so the override only fires
-# on Windows -- Linux / NGC users keep the upstream wheel.
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
-]
 
 [tool.uv]
 managed = true

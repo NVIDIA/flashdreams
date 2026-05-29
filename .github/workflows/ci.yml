@@ -18,6 +18,13 @@ on:
 jobs:
   cpu:
     runs-on: linux-amd64-cpu8
+    strategy:
+      fail-fast: false
+      matrix:
+        # pinned: install from uv.lock (exact locked versions)
+        # minimal: re-resolve with --resolution lowest-direct (lowest
+        #          versions allowed by pyproject.toml bounds, e.g. torch 2.9)
+        resolution: [pinned, minimal]
     container:
       image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
     env:
@@ -30,12 +37,16 @@ jobs:
         id: get-pr-info
         uses: nv-gha-runners/get-pr-info@main
 
-      - name: Install lint system dependencies
+      - name: Install system dependencies
         run: |
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             python3 python3-dev python3-venv \
-            git curl ca-certificates
+            ffmpeg \
+            gcc g++ ninja-build \
+            libnccl-dev \
+            git curl ca-certificates unzip
+          rm -rf /var/lib/apt/lists/*
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,38 +58,39 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-suffix: "cpu"
+          cache-suffix: "cpu-${{ matrix.resolution }}"
 
-      - name: Install lint dependencies
+      - name: Install dependencies
         env:
           # Skip compiling CUDA kernels for block-sparse-attn on CPU runners;
           # the Python interface is enough for CPU-only unit tests.
           BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD: "TRUE"
         run: |
-          # ty needs third-party packages to resolve imports. Skip packages
-          # that cannot be installed on CPU-only runners:
-          # - transformer-engine-torch: source-only, requires GPU arch to compile
           uv venv --clear
-          uv sync --extra dev --group lint \
-            --no-install-package transformer-engine-torch
+          if [ "${{ matrix.resolution }}" = "minimal" ]; then
+            uv sync --resolution lowest-direct --extra dev --group lint \
+              --no-install-package transformer-engine-torch
+          else
+            # ty needs third-party packages to resolve imports. Skip packages
+            # that cannot be installed on CPU-only runners:
+            # - transformer-engine-torch: source-only, requires GPU arch to compile
+            uv sync --extra dev --group lint \
+              --no-install-package transformer-engine-torch
+          fi
 
       - name: Run linter checks
+        # Type-checking (ty) validates against installed stub versions;
+        # minimal resolution pulls older stubs with different signatures
+        # that produce false positives. Only lint against pinned versions.
+        if: matrix.resolution == 'pinned'
         run: |
           # Container runs as root but the workspace is owned by the runner
           # uid -- git refuses to operate without safe.directory.
           git config --global --add safe.directory "$(pwd)"
           uv run --no-sync pre-commit run -a
 
-      - name: Install remaining system dependencies
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-            ffmpeg \
-            gcc g++ ninja-build \
-            libnccl-dev \
-            unzip
-          rm -rf /var/lib/apt/lists/*
-
       - name: Build flashdreams wheel
+        if: matrix.resolution == 'pinned'
         run: uv build --wheel --package flashdreams
 
       - name: Run CPU unit tests
@@ -89,6 +101,13 @@ jobs:
   gpu:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # pinned: install from uv.lock (exact locked versions)
+        # minimal: re-resolve with --resolution lowest-direct (lowest
+        #          versions allowed by pyproject.toml bounds, e.g. torch 2.9)
+        resolution: [pinned, minimal]
     container:
       image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
       options: --gpus all
@@ -139,7 +158,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-suffix: "gpu-sm${{ steps.gpu-arch.outputs.arch }}"
+          cache-suffix: "gpu-sm${{ steps.gpu-arch.outputs.arch }}-${{ matrix.resolution }}"
           # Disable default prune --ci which removes pre-built wheels but also
           # invalidates git-sourced builds (timestamps change on cache restore).
           # Instead we selectively trim the cache in a post step below.
@@ -151,7 +170,11 @@ jobs:
           BLOCK_SPARSE_ATTN_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
         run: |
           uv venv --clear
-          uv sync --extra dev
+          if [ "${{ matrix.resolution }}" = "minimal" ]; then
+            uv sync --resolution lowest-direct --extra dev
+          else
+            uv sync --extra dev
+          fi
 
       - name: Verify GPU availability
         run: |
