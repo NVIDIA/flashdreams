@@ -382,9 +382,53 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
     </div>
   </div>
 </div></section>
-<section id="launch-the-interactive-server">
-<h2>Launch the interactive server<a class="headerlink" href="#launch-the-interactive-server" title="Link to this heading">¶</a></h2>
-<p>Spin up the interactive single-view OmniDreams server via WebRTC:</p>
+<section id="launch-the-interactive-demo">
+<h2>Launch the interactive demo<a class="headerlink" href="#launch-the-interactive-demo" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
+single process and streams the camera view to your browser. The demo
+machine only needs a CUDA-capable GPU – no graphics-capable GPU,
+display server, or Vulkan toolchain required.</p>
+<p>Requires access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
+and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
+<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
+(scene USDZs) and
+<a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>
+(world-model checkpoints).</p>
+<p>First-time setup:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:NVIDIA/flashdreams.git
+<span class="nb">cd</span><span class="w"> </span>flashdreams
+<span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
+</pre></div>
+</div>
+<p>Optionally pre-download scenes and checkpoints so the first launch
+isn’t blocked on network I/O:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
+</pre></div>
+</div>
+<p>Run the demo and stream to your browser:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
+</pre></div>
+</div>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in any browser on the same
+network and pick a scene from the picker in the bottom-right.</p>
+<p>For deployments with a desktop NVIDIA GPU that has a graphics queue,
+omit <code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> to open the demo in a local Vulkan window
+instead:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
+</pre></div>
+</div>
+</section>
+<section id="alternative-webrtc-server">
+<h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">¶</a></h2>
+<p>For deployments that need a richer browser frontend with WebRTC’s
+lower video-delivery latency and a streaming gRPC service for
+multi-client setups, the standalone server at
+<code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> ships a polished HTML5 client on top of
+the same OmniDreams pipeline. The MJPEG path above is the
+recommended starting point for most users; reach for WebRTC when you
+need bidirectional camera-control APIs or are already integrating
+the gRPC service into a larger product.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>omnidreams.webrtc.server<span class="w"> </span><span class="se">\</span>
@@ -416,33 +460,6 @@ peer connection from completing. Disable the setting and reload:</p>
 <li><p><strong>Brave:</strong> <code class="docutils literal notranslate"><span class="pre">brave://settings/privacy/security</span></code> → <em>WebRTC IP handling policy</em> → <strong>Default public and private interfaces</strong>.</p></li>
 <li><p><strong>Firefox:</strong> <code class="docutils literal notranslate"><span class="pre">about:config</span></code> → <code class="docutils literal notranslate"><span class="pre">media.peerconnection.ice.obfuscate_host_addresses</span></code> → <strong>false</strong>.</p></li>
 </ul>
-</div>
-</section>
-<section id="run-the-desktop-demo">
-<h2>Run the desktop demo<a class="headerlink" href="#run-the-desktop-demo" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
-local Vulkan window with keyboard or steering-wheel input. Requires
-access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
-and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
-<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
-(scene USDZs) and
-<a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>
-(world-model checkpoints).</p>
-<p>First-time setup:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:NVIDIA/flashdreams.git
-<span class="nb">cd</span><span class="w"> </span>flashdreams
-<span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
-uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
-</pre></div>
-</div>
-<p>Optionally pre-download scenes and checkpoints so the first launch
-isn’t blocked on network I/O:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
-</pre></div>
-</div>
-<p>Run the demo:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
-</pre></div>
 </div>
 </section>
 <section id="performance-table">
@@ -567,8 +584,8 @@ isn’t blocked on network I/O:</p>
 <li><a class="reference internal" href="#">OmniDreams</a><ul>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
-<li><a class="reference internal" href="#launch-the-interactive-server">Launch the interactive server</a></li>
-<li><a class="reference internal" href="#run-the-desktop-demo">Run the desktop demo</a></li>
+<li><a class="reference internal" href="#launch-the-interactive-demo">Launch the interactive demo</a></li>
+<li><a class="reference internal" href="#alternative-webrtc-server">Alternative: WebRTC server</a></li>
 <li><a class="reference internal" href="#performance-table">Performance table</a></li>
 </ul>
 </li>
