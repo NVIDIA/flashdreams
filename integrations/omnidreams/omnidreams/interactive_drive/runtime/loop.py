@@ -225,14 +225,20 @@ def update_oob_state(
         state.oob_message = OOB_RESPAWN_MESSAGE
         if state.oob_respawn_streak >= max(1, config.oob_respawn_debounce_chunks):
             _log_oob_transition(
-                previous_message, OOB_RESPAWN_MESSAGE, proximity,
-                streak=state.oob_respawn_streak, action="firing respawn",
+                previous_message,
+                OOB_RESPAWN_MESSAGE,
+                proximity,
+                streak=state.oob_respawn_streak,
+                action="firing respawn",
             )
             return True
         if previous_message != OOB_RESPAWN_MESSAGE:
             _log_oob_transition(
-                previous_message, OOB_RESPAWN_MESSAGE, proximity,
-                streak=state.oob_respawn_streak, action="respawn pending",
+                previous_message,
+                OOB_RESPAWN_MESSAGE,
+                proximity,
+                streak=state.oob_respawn_streak,
+                action="respawn pending",
             )
         return False
 
@@ -244,16 +250,22 @@ def update_oob_state(
         state.oob_message = OOB_WARN_MESSAGE
         if previous_message != OOB_WARN_MESSAGE:
             _log_oob_transition(
-                previous_message, OOB_WARN_MESSAGE, proximity,
-                streak=0, action="warning",
+                previous_message,
+                OOB_WARN_MESSAGE,
+                proximity,
+                streak=0,
+                action="warning",
             )
         return False
 
     state.oob_message = None
     if previous_message is not None:
         _log_oob_transition(
-            previous_message, None, proximity,
-            streak=0, action="cleared",
+            previous_message,
+            None,
+            proximity,
+            streak=0,
+            action="cleared",
         )
     return False
 

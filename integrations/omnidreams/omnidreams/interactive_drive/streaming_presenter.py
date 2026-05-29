@@ -957,7 +957,9 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             # pre-scene-picker tab open doesn't keep rendering the old
             # HTML after a server upgrade. The page is tiny (~10 KB) so
             # bypassing the cache on every reload costs nothing.
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header(
+                "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
+            )
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
             self.end_headers()
@@ -992,7 +994,11 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             asset.
             """
             scenes_with_thumbs = [
-                {**entry, "has_thumbnail": str(entry.get("path", "")) in presenter._thumbnails}
+                {
+                    **entry,
+                    "has_thumbnail": str(entry.get("path", ""))
+                    in presenter._thumbnails,
+                }
                 for entry in presenter._scenes
             ]
             body = json.dumps({"scenes": scenes_with_thumbs}).encode("utf-8")

@@ -365,9 +365,7 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
     if args.oob_respawn_proximity is not None:
         overrides["oob_respawn_proximity"] = float(args.oob_respawn_proximity)
     if args.oob_respawn_debounce_chunks is not None:
-        overrides["oob_respawn_debounce_chunks"] = int(
-            args.oob_respawn_debounce_chunks
-        )
+        overrides["oob_respawn_debounce_chunks"] = int(args.oob_respawn_debounce_chunks)
     if args.oob_margin_m is not None:
         overrides["oob_margin_m"] = float(args.oob_margin_m)
     if args.oob_warning_zone_m is not None:

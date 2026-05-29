@@ -143,9 +143,7 @@ class InteractiveDriveApp:
                 self._presenter.close()
 
 
-def _build_presenter(
-    config: AppConfig, keyboard: KeyboardState
-) -> PresenterBackend:
+def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBackend:
     """Default presenter factory.
 
     Returns an :class:`MJPEGStreamingPresenter` when
