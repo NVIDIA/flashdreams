@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -232,61 +233,114 @@ _INDEX_HTML = """<!doctype html>
     color: #111;
   }
   .scene-picker {
-    position: fixed; top: 16px; right: 16px;
+    position: fixed; bottom: 16px; right: 16px;
     background: rgba(0, 0, 0, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 10px;
-    padding: 10px 14px;
     color: white;
-    font-size: 13px;
-    display: flex; flex-direction: column; gap: 8px;
-    min-width: 220px;
+    font-size: 12px;
+    display: flex; flex-direction: column;
+    max-height: 60vh;
     backdrop-filter: blur(6px);
+    overflow: hidden;
+    /* Animate the collapse so the toggle feels physical rather than a
+       hard show/hide. ``max-height`` is the lever rather than ``display``
+       because ``display: none`` short-circuits transitions. */
+    transition: max-height 0.18s ease-out;
   }
   .scene-picker.hidden { display: none; }
-  .scene-picker label { opacity: 0.75; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
-  .scene-picker select {
-    background: #1a1a1a; color: white;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-radius: 5px;
+  .scene-picker.collapsed { max-height: 38px; }
+  .scene-picker-toggle {
+    background: none; border: none; color: white;
+    padding: 9px 12px;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    width: 100%;
+    text-align: left;
+    flex-shrink: 0;
+    pointer-events: auto;
+    user-select: none;
+  }
+  .scene-picker-toggle:hover { background: rgba(255, 255, 255, 0.06); }
+  .scene-picker-count {
+    opacity: 0.55;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 11px;
+  }
+  .scene-picker-chevron {
+    margin-left: auto;
+    font-size: 10px;
+    transition: transform 0.18s ease-out;
+  }
+  .scene-picker.collapsed .scene-picker-chevron {
+    transform: rotate(-90deg);
+  }
+  .scene-picker-list {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 0 10px 10px 10px;
+    overflow-y: auto;
+  }
+  /* Hide the list's scroll viewport entirely while the panel is
+     collapsed so no scrollbar artifacts leak through the parent's
+     ``overflow: hidden`` clipping. */
+  .scene-picker.collapsed .scene-picker-list { overflow: hidden; }
+  /* Replace Chromium's default scrollbar (which carries the up/down
+     arrow buttons that were poking out the bottom-right of the
+     collapsed panel) with a slim button-less rail. Firefox's
+     standards-track ``scrollbar-width`` covers the same ground. */
+  .scene-picker-list { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
+  .scene-picker-list::-webkit-scrollbar { width: 6px; }
+  .scene-picker-list::-webkit-scrollbar-track { background: transparent; }
+  .scene-picker-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+  }
+  .scene-picker-list::-webkit-scrollbar-button { display: none; }
+  .scene-picker-list::-webkit-scrollbar-corner { background: transparent; }
+  .scene-card {
+    width: 160px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.1s, transform 0.05s;
+    background: rgba(255, 255, 255, 0.05);
+    pointer-events: auto;
+    user-select: none;
+  }
+  .scene-card:hover { border-color: rgba(120, 200, 255, 0.7); }
+  .scene-card.loading {
+    border-color: rgba(120, 200, 255, 1.0);
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  .scene-card img {
+    width: 100%; height: 72px;
+    object-fit: cover;
+    display: block;
+    background: #222;
+  }
+  .scene-card .scene-label {
     padding: 6px 8px;
-    font-size: 13px;
-    cursor: pointer;
+    font-size: 11px; line-height: 1.3;
   }
-  .scene-picker select:focus { outline: 1px solid rgba(120, 200, 255, 0.7); }
-  .scene-picker button {
-    background: rgba(120, 200, 255, 0.85);
-    color: #001020;
-    border: none;
-    border-radius: 5px;
-    padding: 8px 12px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background-color 0.1s, transform 0.05s;
-  }
-  .scene-picker button:hover { background: rgba(140, 215, 255, 1.0); }
-  .scene-picker button:active { transform: translateY(1px); }
-  .scene-picker button:disabled {
-    background: rgba(255, 255, 255, 0.18);
-    color: rgba(255, 255, 255, 0.45);
-    cursor: not-allowed;
-  }
-  .scene-picker .row { display: flex; flex-direction: column; gap: 3px; }
 </style>
 </head>
 <body>
 <img id="stream" src="/stream">
-<div class="hint">WASD / Arrows = Drive &middot; Space = Brake &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
+<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
-  <div class="row">
-    <label for="scene-select">Scene</label>
-    <select id="scene-select"></select>
-  </div>
-  <div class="row">
-    <label for="variant-select">Variant</label>
-    <select id="variant-select"></select>
-  </div>
-  <button id="load-scene-btn">Load Scene</button>
+  <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
+    <span>Scenes</span>
+    <span class="scene-picker-count" id="scene-picker-count"></span>
+    <span class="scene-picker-chevron">&#9662;</span>
+  </button>
+  <div class="scene-picker-list" id="scene-picker-list"></div>
 </div>
 <div class="hud">
   <div class="speed disconnected" id="speed">
@@ -332,13 +386,14 @@ function send(key, down) {
   fetch('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0))
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
-// Skip key handling when focus is on an input/select inside the scene
-// picker so the user can navigate the dropdowns with arrow keys.
+// Skip key handling when focus is on a form input (e.g. a future
+// settings panel). The scene picker is now click-driven so the
+// keyboard never lands on a button there.
 function shouldIgnoreKey(e) {
   const t = e.target;
   if (!t) return false;
   const tag = t.tagName;
-  return tag === 'SELECT' || tag === 'INPUT' || tag === 'BUTTON' || tag === 'TEXTAREA';
+  return tag === 'INPUT' || tag === 'TEXTAREA';
 }
 document.addEventListener('keydown', e => { if (!shouldIgnoreKey(e)) send(e.key, true); });
 document.addEventListener('keyup', e => { if (!shouldIgnoreKey(e)) send(e.key, false); });
@@ -373,69 +428,86 @@ async function pollState() {
 setInterval(pollState, 100);
 pollState();
 
-// Scene picker. Hidden by default; revealed once /scenes returns
-// at least one entry so demos that don't pass scene_options stay
-// visually clean. The dropdown variants follow whichever scene is
-// currently selected.
+// Scene picker. Hidden until /scenes returns at least one entry,
+// then renders as a panel in the bottom-right. Auto-expanded on first
+// load because nothing happens until the user picks a scene -- the
+// server is blocked on ``wait_for_scene_selection`` and the MJPEG
+// stream shows the "Select a scene to begin driving" overlay frame.
+// After the first pick it auto-collapses (and click-outside collapses
+// thereafter), so the panel stays out of the way during driving.
 const scenePicker = document.getElementById('scene-picker');
-const sceneSelect = document.getElementById('scene-select');
-const variantSelect = document.getElementById('variant-select');
-const loadSceneBtn = document.getElementById('load-scene-btn');
+const scenePickerList = document.getElementById('scene-picker-list');
+const scenePickerToggle = document.getElementById('scene-picker-toggle');
+const scenePickerCount = document.getElementById('scene-picker-count');
 let SCENES = [];
-function rebuildVariants(sceneIndex) {
-  variantSelect.innerHTML = '';
-  const scene = SCENES[sceneIndex];
-  const variants = scene && Array.isArray(scene.variants) ? scene.variants : [];
-  for (const v of (variants.length ? variants : ['default'])) {
-    const opt = document.createElement('option');
-    opt.value = v;
-    opt.textContent = v.charAt(0).toUpperCase() + v.slice(1);
-    variantSelect.appendChild(opt);
-  }
+let firstSceneLoaded = false;
+function setScenePickerCollapsed(collapsed) {
+  scenePicker.classList.toggle('collapsed', collapsed);
 }
+scenePickerToggle.addEventListener('click', () => {
+  setScenePickerCollapsed(!scenePicker.classList.contains('collapsed'));
+});
+// Click outside the panel collapses it -- but only after the user has
+// actually picked their first scene. Pre-selection clicks (e.g. the
+// user clicking on the camera area to dismiss something) don't tuck
+// the picker away, since the panel is the only way to start driving.
+document.addEventListener('mousedown', e => {
+  if (!firstSceneLoaded) return;
+  if (scenePicker.classList.contains('hidden')) return;
+  if (scenePicker.contains(e.target)) return;
+  setScenePickerCollapsed(true);
+});
 async function fetchScenes() {
   try {
     const r = await fetch('/scenes', { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
     SCENES = Array.isArray(data.scenes) ? data.scenes : [];
+    scenePickerCount.textContent = SCENES.length ? `(${SCENES.length})` : '';
     if (!SCENES.length) {
       scenePicker.classList.add('hidden');
       return;
     }
-    sceneSelect.innerHTML = '';
+    scenePickerList.innerHTML = '';
     SCENES.forEach((s, i) => {
-      const opt = document.createElement('option');
-      opt.value = String(i);
-      opt.textContent = s.label || ('Scene ' + (i + 1));
-      sceneSelect.appendChild(opt);
+      const card = document.createElement('div');
+      card.className = 'scene-card';
+      card.dataset.idx = String(i);
+      if (s.has_thumbnail) {
+        const img = document.createElement('img');
+        img.src = '/thumbnail?scene=' + encodeURIComponent(s.path);
+        img.alt = '';
+        img.onerror = () => { img.style.display = 'none'; };
+        card.appendChild(img);
+      }
+      const label = document.createElement('div');
+      label.className = 'scene-label';
+      label.textContent = s.label || ('Scene ' + (i + 1));
+      card.appendChild(label);
+      card.addEventListener('click', () => loadScene(i, card));
+      scenePickerList.appendChild(card);
     });
-    rebuildVariants(0);
     scenePicker.classList.remove('hidden');
   } catch {}
 }
-sceneSelect.addEventListener('change', () => {
-  rebuildVariants(parseInt(sceneSelect.value, 10) || 0);
-});
-loadSceneBtn.addEventListener('click', async () => {
-  const idx = parseInt(sceneSelect.value, 10) || 0;
+async function loadScene(idx, card) {
   const scene = SCENES[idx];
   if (!scene) return;
-  loadSceneBtn.disabled = true;
-  loadSceneBtn.textContent = 'Loading…';
+  card.classList.add('loading');
   try {
-    await fetch('/scene/select?scene=' + encodeURIComponent(scene.path) +
-                '&variant=' + encodeURIComponent(variantSelect.value),
+    // Variant is omitted; the server falls back to the scene's first
+    // registered variant (typically ``default``). The streaming UI
+    // intentionally doesn't expose the variant selector.
+    await fetch('/scene/select?scene=' + encodeURIComponent(scene.path),
                 { method: 'GET', cache: 'no-store' });
   } catch {}
-  // Re-enable shortly so the user can pick a different scene if the
-  // request was rejected; the actual scene transition is driven by
-  // the server-side loop and the stream will pause briefly.
-  setTimeout(() => {
-    loadSceneBtn.disabled = false;
-    loadSceneBtn.textContent = 'Load Scene';
-  }, 1200);
-});
+  // Tuck the panel away so the user gets the camera view back; the
+  // scene transition itself is driven by the server-side loop. From
+  // this point on, click-outside dismissal is enabled too.
+  firstSceneLoaded = true;
+  setScenePickerCollapsed(true);
+  setTimeout(() => { card.classList.remove('loading'); }, 1500);
+}
 fetchScenes();
 </script>
 </body>
@@ -462,6 +534,7 @@ class MJPEGStreamingPresenter:
         *,
         jpeg_quality: int = 85,
         scenes: tuple[dict[str, object], ...] = (),
+        thumbnails: dict[str, bytes] | None = None,
     ) -> None:
         self._raster = raster
         self._keyboard = keyboard
@@ -485,12 +558,27 @@ class MJPEGStreamingPresenter:
         # the demo wrapper builds these from its scene-discovery layer
         # and passes them in. Empty tuple = no dropdown.
         self._scenes: tuple[dict[str, object], ...] = tuple(scenes)
+        # Pre-encoded JPEG thumbnails keyed by scene path. The demo
+        # wrapper takes :class:`SceneOption.thumbnail` (a PIL ``Image``)
+        # and JPEG-encodes once at startup -- per-tile encoding under
+        # the HTTP handler thread would compete with the main camera's
+        # encode budget for no good reason. Keys must match the
+        # ``path`` strings posted in :attr:`_scenes` so the
+        # ``/thumbnail`` endpoint can resolve them by an exact string
+        # compare instead of building a separate id->path map.
+        self._thumbnails: dict[str, bytes] = dict(thumbnails or {})
         # Scene-change request channel mirroring the slangpy HUD's
         # ``pending_scene_change`` flag. ``should_close`` returns True
         # when this is non-None so the runtime loop unwinds; the demo
         # wrapper then tears down the backend, calls
         # ``acknowledge_scene_change``, and re-enters with a fresh sim.
         self._pending_scene_change: tuple[Path, str] | None = None
+        # Pre-cached idle "Select a scene" overlay. Lazy-initialised on
+        # the first call to :meth:`_publish_idle_frame`. Cached so the
+        # heartbeat republish in ``wait_for_scene_selection`` doesn't
+        # redo the PIL text render every 2 s while the user is
+        # deciding what to load.
+        self._idle_frame_cache: np.ndarray | None = None
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
@@ -556,6 +644,62 @@ class MJPEGStreamingPresenter:
         """Clear the pending scene change after the demo wrapper has applied it."""
         del scene_path, variant  # accepted for symmetry with the slangpy HUD API
         self._pending_scene_change = None
+
+    def wait_for_scene_selection(self) -> tuple[Path, str] | None:
+        """Block until the browser POSTs a scene selection.
+
+        Used by the demo wrapper at startup so we don't burn world-model
+        warmup on whatever ``args.scene`` defaulted to before the user
+        has actually picked something. Publishes an idle "Select a
+        scene to begin" overlay frame so connected browsers have
+        something to display while the wait spins; then polls
+        :attr:`_pending_scene_change` until either the browser triggers
+        ``/scene/select`` or :meth:`close` flips the stop event.
+
+        Re-publishes the idle frame on a slow heartbeat (every 2 s) so
+        a browser that connects after ``wait_for_scene_selection``
+        first fired -- e.g. the user navigates to the demo URL after
+        the server has already started waiting -- gets the placeholder
+        promptly via the standard MJPEG ``frame_count`` increment path
+        instead of having to wait for an unrelated frame.
+
+        Returns ``(scene_path, variant)`` once the user picks, or
+        ``None`` when the presenter is closed first (Ctrl-C in the
+        terminal where the demo is running). Mirrors
+        :meth:`SlangPyHudPresenter.wait_for_scene_selection`'s contract
+        so the demo wrapper's flow is identical across HUD / MJPEG.
+        """
+        idle_heartbeat_s = 2.0
+        last_publish = 0.0
+        while True:
+            now = time.monotonic()
+            if now - last_publish >= idle_heartbeat_s:
+                self._publish_idle_frame()
+                last_publish = now
+            if self._stop_event.wait(timeout=0.1):
+                return None
+            if self._pending_scene_change is not None:
+                return self._pending_scene_change
+
+    def _publish_idle_frame(self) -> None:
+        """Stream the cached black 'select a scene' placeholder frame.
+
+        The PIL render is memoised on :attr:`_idle_frame_cache` so the
+        heartbeat in :meth:`wait_for_scene_selection` doesn't pay the
+        text-overlay cost on every tick -- the placeholder is identical
+        every time so a single render is sufficient. Each publish call
+        still bumps :attr:`_frame_count` so connected MJPEG handlers
+        wake up and push the frame out to the browser, which is what
+        actually matters for late-arriving clients.
+        """
+        if self._idle_frame_cache is None:
+            base = np.zeros(
+                (self._raster.height, self._raster.width, 3), dtype=np.uint8
+            )
+            self._idle_frame_cache = render_loading_overlay(
+                base, message="Select a scene to begin driving"
+            )
+        self._publish(self._idle_frame_cache)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter at a fresh ``KeyboardState``.
@@ -795,6 +939,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_scenes()
             elif parsed.path == "/scene/select":
                 self._serve_scene_select(parse_qs(parsed.query))
+            elif parsed.path == "/thumbnail":
+                self._serve_thumbnail(parse_qs(parsed.query))
             elif parsed.path == "/control":
                 self._serve_control(parse_qs(parsed.query))
             elif parsed.path == "/drive":
@@ -807,7 +953,13 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            # Aggressive no-cache so a browser that still has a
+            # pre-scene-picker tab open doesn't keep rendering the old
+            # HTML after a server upgrade. The page is tiny (~10 KB) so
+            # bypassing the cache on every reload costs nothing.
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(body)
 
@@ -831,14 +983,19 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
         def _serve_scenes(self) -> None:
             """Return the discovered scene options as JSON for the browser dropdown.
 
-            Each entry is ``{label, path, variants}``; the browser renders
-            them into ``<select>`` elements in the upper-right scene
-            picker. Empty list when the demo wasn't given any scene
-            options (e.g. bare ``--no-hud --stream-mjpeg`` without going
-            through the demo wrapper's discovery layer); the browser
-            then hides the picker entirely.
+            Each entry is ``{label, path, variants, has_thumbnail}``;
+            the browser renders them as clickable cards in the
+            bottom-right scene picker. ``has_thumbnail`` lets the
+            client decide whether to issue a ``/thumbnail`` request --
+            cleaner than relying on ``<img onerror>`` and avoids the
+            broken-image flash for scenes that ship no first-image
+            asset.
             """
-            body = json.dumps({"scenes": list(presenter._scenes)}).encode("utf-8")
+            scenes_with_thumbs = [
+                {**entry, "has_thumbnail": str(entry.get("path", "")) in presenter._thumbnails}
+                for entry in presenter._scenes
+            ]
+            body = json.dumps({"scenes": scenes_with_thumbs}).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -853,7 +1010,11 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             demo wrapper picks it up between ``app.run()`` iterations
             and rebuilds the backend with the new scene. Validates the
             requested scene against the presenter's ``_scenes`` list so a
-            stale browser tab can't smuggle in an arbitrary path.
+            stale browser tab can't smuggle in an arbitrary path. The
+            ``variant`` query parameter is optional: when omitted (or
+            unrecognised) the scene's first registered variant is used,
+            which is what the streaming UI relies on now that it has
+            no variant selector.
             """
             scene = query.get("scene", [""])[0]
             variant = query.get("variant", ["default"])[0]
@@ -864,6 +1025,30 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+        def _serve_thumbnail(self, query: dict[str, list[str]]) -> None:
+            """Return the JPEG-encoded thumbnail for ``?scene=PATH``.
+
+            The thumbnails were JPEG-encoded once at startup in the
+            demo wrapper (no per-request encode cost). Sends a 404
+            when the scene has no thumbnail or wasn't registered, so
+            the browser's ``onerror`` hook can hide the ``<img>``
+            element cleanly.
+            """
+            scene = query.get("scene", [""])[0]
+            data = presenter._thumbnails.get(scene)
+            if not data:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            # Long cache: the thumbnail never changes for a given
+            # session, and the path string already keys the cache
+            # bucket per-scene.
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
 
         def _serve_stream(self) -> None:
             self._serve_mjpeg(presenter._wait_for_new_frame)

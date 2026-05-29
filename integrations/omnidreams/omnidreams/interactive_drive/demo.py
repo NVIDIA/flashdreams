@@ -830,10 +830,12 @@ def _run_streaming(args: argparse.Namespace) -> None:
         )
 
     # JSON-serialisable form of the discovered scenes for the browser
-    # ``/scenes`` endpoint. Thumbnails are dropped because the browser
-    # gets the live stream once a scene loads; a static thumbnail
-    # endpoint would just add more handlers without much UX win.
-    scenes_payload = tuple(
+    # ``/scenes`` endpoint. Thumbnails are JPEG-encoded once at startup
+    # and stashed on the presenter so the per-card ``/thumbnail``
+    # request just blobs the bytes back -- no per-request encode cost
+    # under the HTTP handler thread, which would otherwise compete
+    # with the main camera's encode budget.
+    scenes_payload: tuple[dict[str, object], ...] = tuple(
         {
             "label": opt.label,
             "path": str(opt.path),
@@ -841,6 +843,21 @@ def _run_streaming(args: argparse.Namespace) -> None:
         }
         for opt in scene_options
     )
+    thumbnails: dict[str, bytes] = {}
+    for opt in scene_options:
+        if opt.thumbnail is None:
+            continue
+        buf = io.BytesIO()
+        # PIL's RGBA / palette-mode thumbnails need an explicit RGB
+        # conversion before JPEG encode. The discovery layer already
+        # returns RGB, but be defensive in case it changes upstream.
+        thumb_rgb = (
+            opt.thumbnail
+            if opt.thumbnail.mode == "RGB"
+            else opt.thumbnail.convert("RGB")
+        )
+        thumb_rgb.save(buf, format="JPEG", quality=85)
+        thumbnails[str(opt.path)] = buf.getvalue()
 
     bind_host, bind_port = parse_bind(args.stream_mjpeg)
     placeholder_keyboard = KeyboardState()
@@ -850,6 +867,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
         bind_host=bind_host,
         bind_port=bind_port,
         scenes=scenes_payload,
+        thumbnails=thumbnails,
     )
 
     def _factory(config: object, keyboard: KeyboardState) -> MJPEGStreamingPresenter:
@@ -862,6 +880,32 @@ def _run_streaming(args: argparse.Namespace) -> None:
         return presenter
 
     try:
+        # Don't auto-load: always wait for the browser to pick the
+        # first scene. This mirrors the slangpy HUD's ``--no-autoload-
+        # scene`` default (which is the *only* mode for the streaming
+        # path -- there's no Vulkan window to show progress in, so we
+        # would otherwise burn world-model warmup on whatever
+        # ``args.scene`` defaulted to before the user expressed any
+        # intent). The presenter publishes an idle "Select a scene to
+        # begin" overlay frame so connected browsers have something to
+        # render while the wait spins.
+        print(
+            "[demo] streaming presenter waiting for first scene selection...",
+            flush=True,
+        )
+        request = presenter.wait_for_scene_selection()
+        if request is None:
+            return  # presenter closed before any selection (Ctrl-C)
+        first_scene_path, first_variant = request
+        args.scene = first_scene_path
+        args.variant = first_variant
+        presenter.acknowledge_scene_change(first_scene_path, first_variant)
+        print(
+            f"[demo] streaming initial scene -> {first_scene_path.name} "
+            f"variant={first_variant!r}",
+            flush=True,
+        )
+
         while True:
             config, backend = _cli.prepare_config_and_backend(args)
             app = InteractiveDriveApp(
