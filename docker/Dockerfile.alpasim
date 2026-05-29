@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+ARG FLASHDREAMS_BASE_IMAGE=flashdreams-base:local
+FROM ${FLASHDREAMS_BASE_IMAGE}
+
+WORKDIR /workspace/flashdreams
+
+COPY . /workspace/flashdreams
+
+RUN test -f pyproject.toml
+RUN uv sync --locked --package flashdreams-omnidreams
+
+WORKDIR /workspace/flashdreams
