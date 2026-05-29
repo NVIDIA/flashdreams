@@ -33,6 +33,7 @@ from omnidreams.scenes import local_scene_archive_path
 # the package -- they're staged into ``$FLASHDREAMS_CACHE_DIR/
 # omnidreams-scenes/`` (shared with the webrtc server).
 _PACKAGE_ROOT = Path(__file__).resolve().parent
+_CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
 
 # UUID of the scene staged by ``omnidreams-prepare`` when no
 # ``--scene-uuid`` is specified and used as the demo's ``--scene``
@@ -45,6 +46,34 @@ DEFAULT_SCENE_UUID = "01d503d4-449b-46fc-8d78-9085e70d3554"
 # shared via huggingface_hub's content-addressed cache and a
 # pre-existing staged scene from one demo is visible to the other.
 DEFAULT_SCENE = local_scene_archive_path(DEFAULT_SCENE_UUID)
+
+
+def resolve_manifest_path(path: str | Path) -> Path:
+    """Resolve a CLI manifest value.
+
+    Relative paths first mean "from the caller's cwd". Bare filenames and
+    package-relative paths also fall back to the bundled interactive-drive
+    config directory, so ``--manifest example_world_model_perf.yaml`` works
+    from a workspace root.
+    """
+    raw_path = Path(path).expanduser()
+    if raw_path.is_absolute():
+        return raw_path
+
+    cwd_path = raw_path.resolve()
+    if cwd_path.exists():
+        return cwd_path
+
+    package_path = (_PACKAGE_ROOT / raw_path).resolve()
+    if package_path.exists():
+        return package_path
+
+    if len(raw_path.parts) == 1:
+        configs_path = (_CONFIGS_ROOT / raw_path).resolve()
+        if configs_path.exists():
+            return configs_path
+
+    return cwd_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,7 +151,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifest",
         type=Path,
         default=None,
-        help="Omnidreams pipeline manifest (YAML) overriding the bundled default",
+        help=(
+            "Omnidreams pipeline manifest (YAML). Accepts a path or a bundled "
+            "config filename such as example_world_model_perf.yaml."
+        ),
     )
     parser.add_argument(
         "--official-hdmap-dir",
@@ -299,6 +331,9 @@ def prepare_config_and_backend(
         fov_deg=float(args.bev_fov_deg),
         tilt_deg=float(args.bev_tilt_deg),
     )
+    manifest_path = (
+        resolve_manifest_path(args.manifest) if args.manifest is not None else None
+    )
 
     config = AppConfig(
         scene_path=scene_path,
@@ -306,7 +341,7 @@ def prepare_config_and_backend(
         camera_name=args.camera,
         variant=args.variant,
         prompt_override=args.prompt,
-        manifest_path=args.manifest,
+        manifest_path=manifest_path,
         raster=RasterConfig(
             compute_device=args.compute_device,
             sync_gpu_timing=args.sync_gpu_timing,

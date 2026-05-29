@@ -86,44 +86,25 @@ def _build_pipeline_config(
     )
 
     # The lightvae chassis maps to the perf preset (use_compile + cuda_graph
-    # on every encoder/decoder); we always plumb the manifest's
-    # denoising_steps through. ``OMNIDREAMS_CONFIGS`` values are shared
+    # on every encoder/decoder). ``OMNIDREAMS_CONFIGS`` values are shared
     # global instances, so use ``derive_config`` to get a deep-copied
     # override-applied instance instead of mutating the global.
-    if config_name == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae":
-        base = OMNIDREAMS_CONFIGS[
-            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
-        ]
-        config = derive_config(
-            base,
-            enable_sync_and_profile=bool(profile.enabled),
-            diffusion_model=dict(
-                seed=seed,
-                transformer=dict(
-                    compile_network=manifest.compile_net,
-                    skip_finalize_kv_cache=manifest.skip_finalize_kv_cache,
-                ),
-                scheduler=dict(
-                    denoising_timesteps=list(manifest.denoising_steps),
-                    num_inference_steps=len(manifest.denoising_steps),
-                ),
-            ),
-        )
-        scheduler_uses_manifest_steps = True
-    else:
-        base = OMNIDREAMS_CONFIGS[config_name]
-        config = derive_config(
-            base,
-            enable_sync_and_profile=bool(profile.enabled),
-            diffusion_model=dict(
-                seed=seed,
-                transformer=dict(
-                    compile_network=manifest.compile_net,
-                    skip_finalize_kv_cache=manifest.skip_finalize_kv_cache,
-                ),
-            ),
-        )
-        scheduler_uses_manifest_steps = False
+    transformer_overrides = _transformer_overrides(manifest)
+    base_config_name = (
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
+        if config_name == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+        else config_name
+    )
+    base = OMNIDREAMS_CONFIGS[base_config_name]
+    config = derive_config(
+        base,
+        enable_sync_and_profile=bool(profile.enabled),
+        diffusion_model=dict(
+            seed=seed,
+            transformer=transformer_overrides,
+        ),
+    )
+    scheduler_uses_manifest_steps = False
 
     if not scheduler_uses_manifest_steps and hasattr(
         config.diffusion_model, "scheduler"
@@ -145,16 +126,29 @@ def _build_pipeline_config(
             f"{config_name} uses flashdreams default denoising steps [1000, 450]; "
             f"got {manifest.denoising_steps}."
         )
-    transformer_config = getattr(config.diffusion_model, "transformer", None)
     print(
-        "[flashdreams-session] config "
-        f"recipe={config_name} "
-        f"manifest_skip_finalize_kv_cache={manifest.skip_finalize_kv_cache} "
-        "transformer_skip_finalize_kv_cache="
-        f"{getattr(transformer_config, 'skip_finalize_kv_cache', '<missing>')}",
+        "[flashdreams-session] resolved pipeline config\n"
+        f"selected_recipe={config_name}\n"
+        f"{config}",
         flush=True,
     )
     return config
+
+
+def _transformer_overrides(manifest: WorldModelManifest) -> dict[str, object]:
+    return {
+        "skip_finalize_kv_cache": manifest.skip_finalize_kv_cache,
+        "compile_network": manifest.compile_net,
+        "native_dit_acceleration": manifest.native_dit_acceleration,
+        "native_dit_build_root": manifest.native_dit_build_root,
+        "native_dit_max_jobs": manifest.native_dit_max_jobs,
+        "native_dit_verbose_build": manifest.native_dit_verbose_build,
+        "native_dit_backend": manifest.native_dit_backend,
+        "native_dit_attention_backend": manifest.native_dit_attention_backend,
+        "native_dit_sparge_topk": manifest.native_dit_sparge_topk,
+        "native_dit_sparge_hybrid_period": manifest.native_dit_sparge_hybrid_period,
+        "native_dit_sparge_hybrid_phase": manifest.native_dit_sparge_hybrid_phase,
+    }
 
 
 def _setup_pipeline_from_config(config: Any, manifest: WorldModelManifest) -> Any:
