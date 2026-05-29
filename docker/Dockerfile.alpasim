@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+ARG FLASHDREAMS_BASE_IMAGE=flashdreams:local
+FROM ${FLASHDREAMS_BASE_IMAGE} AS wheel-builder
+
+WORKDIR /workspace/flashdreams
+
+# Copy only the workspace metadata and package trees. In particular, do not
+# copy checkout-local directories such as .venv or .git into the build.
+COPY pyproject.toml uv.lock ./
+COPY flashdreams ./flashdreams
+COPY integrations ./integrations
+
+# Install the selected workspace packages non-editably while retaining uv's
+# lockfile overrides. Keeping the venv at its final absolute path makes it safe
+# to copy into the runtime stage.
+ENV UV_PROJECT_ENVIRONMENT=/opt/flashdreams
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+    --locked \
+    --package flashdreams-omnidreams \
+    --no-editable
+
+
+FROM ${FLASHDREAMS_BASE_IMAGE}
+
+COPY --from=wheel-builder /opt/flashdreams /opt/flashdreams
+
+ENV VIRTUAL_ENV=/opt/flashdreams
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+WORKDIR /app

@@ -76,6 +76,7 @@ packages = [
     "_cpp/cudaraster/framework/**/*.hpp",
     "_cpp/cudaraster/framework/**/*.cpp",
     "_cpp/cudaraster/framework/**/*.h",
+    "_cpp/cudaraster/framework/**/*.inl",
     "_cpp/bindings/*.h",
     "_cpp/bindings/*.inl",
     "_cpp/bindings/*.cpp",
