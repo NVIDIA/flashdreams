@@ -44,8 +44,10 @@ dependencies = [
     # has to ship as a runtime dependency, not a dev-only one.
     "tyro>=0.8",
 
-    "torch>=2.11",
-    "torchvision>=0.26",
+    # Minimum is 2.9: context_parallel(buffers=, buffer_seq_dims=,
+    # no_restore_buffers=) and set_rotate_method in
+    # torch.distributed.tensor.experimental require PyTorch 2.9+.
+    "torch>=2.9",
     # ``torch.compile`` lowers conv/elementwise kernels through Inductor +
     # Triton. On Windows the upstream PyPI ``triton`` package is Linux-only,
     # so without ``triton-windows`` Inductor crashes deep inside its
@@ -127,9 +129,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
-]
-torchvision = [
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
 
