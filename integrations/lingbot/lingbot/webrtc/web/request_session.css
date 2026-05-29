@@ -270,6 +270,13 @@ body[data-status="generating"] .connectButton {
   display: none;
 }
 
+.firstFrameSourceRow {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
 .uploadControl {
   display: flex;
   align-items: center;
@@ -327,6 +334,60 @@ body[data-status="generating"] .connectButton {
 
 .urlControl input {
   min-height: 38px;
+}
+
+.urlInputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.urlUpdateButton {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(142, 240, 28, 0.42);
+  border-radius: 6px;
+  background: rgba(142, 240, 28, 0.14);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.urlUpdateButton:hover:not(:disabled),
+.urlUpdateButton:focus-visible {
+  border-color: rgba(142, 240, 28, 0.70);
+  background: rgba(142, 240, 28, 0.24);
+}
+
+.urlUpdateButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.fieldStatus {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.fieldStatus[data-state="error"] {
+  color: var(--danger);
+}
+
+.fieldStatus[data-state="success"] {
+  color: var(--accent);
+}
+
+.fieldStatus[data-state="pending"] {
+  color: var(--warning);
+}
+
+@media (max-width: 560px) {
+  .firstFrameSourceRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 .promptControl textarea {

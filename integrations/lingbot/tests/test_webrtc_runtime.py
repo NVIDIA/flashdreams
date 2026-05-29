@@ -43,6 +43,13 @@ def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     return object()
 
 
+def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
+    image_url = "https://github.com/Robbyant/lingbot-world/blob/main/examples/03/image.jpg"
+    assert session._validate_remote_url(image_url, field_name="image") == (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/03/image.jpg"
+    )
+
+
 @pytest.mark.asyncio
 async def test_session_manager_preload_runs_loopback_warmup_once(
     monkeypatch: pytest.MonkeyPatch,

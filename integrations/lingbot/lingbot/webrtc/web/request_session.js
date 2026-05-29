@@ -24,6 +24,8 @@ const firstFramePreview = document.getElementById("firstFramePreview")
 const sceneCard = document.getElementById("sceneCard")
 const firstFrameInput = document.getElementById("firstFrameInput")
 const firstFrameUrlInput = document.getElementById("firstFrameUrlInput")
+const firstFrameUrlUpdateButton = document.getElementById("firstFrameUrlUpdateButton")
+const firstFrameUrlStatus = document.getElementById("firstFrameUrlStatus")
 const firstFrameName = document.getElementById("firstFrameName")
 const promptInput = document.getElementById("promptInput")
 const fpsValue = document.getElementById("fpsValue")
@@ -62,6 +64,7 @@ let firstFrameUrlEdited = false
 let initialScene = null
 let selectedFirstFrameUrl = null
 let selectedFirstFrameFile = null
+let firstFramePreviewRefreshToken = 0
 
 const metrics = {
   fps: null,
@@ -158,39 +161,82 @@ function setInitialSceneLocked(locked) {
   sceneCard.hidden = locked
   firstFrameInput.disabled = locked
   firstFrameUrlInput.disabled = locked
+  firstFrameUrlUpdateButton.disabled = locked
   promptInput.disabled = locked
+}
+
+function setFirstFrameUrlStatus(message = "", state = "idle") {
+  firstFrameUrlStatus.textContent = message
+  firstFrameUrlStatus.hidden = message.length === 0
+  firstFrameUrlStatus.dataset.state = state
+}
+
+function validateFirstFrameUrl(value) {
+  const imageUrl = value.trim()
+  if (!imageUrl) {
+    throw new Error("Enter an image URL.")
+  }
+  let parsed
+  try {
+    parsed = new URL(imageUrl)
+  } catch {
+    throw new Error("Enter a valid image URL.")
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Enter an http(s) image URL.")
+  }
+  return imageUrl
+}
+
+function clearSelectedFirstFrameFile() {
+  selectedFirstFrameFile = null
+  firstFrameInput.value = ""
+  if (selectedFirstFrameUrl) {
+    URL.revokeObjectURL(selectedFirstFrameUrl)
+    selectedFirstFrameUrl = null
+  }
+}
+
+function clearFirstFrameUrlInput() {
+  firstFrameUrlInput.value = ""
+  firstFrameUrlEdited = false
+  setFirstFrameUrlStatus()
+}
+
+function refreshedPreviewUrl(url) {
+  const separator = url.includes("?") ? "&" : "?"
+  return `${url}${separator}t=${firstFramePreviewRefreshToken}`
 }
 
 function updateReadyPreview() {
   const canPreview = !document.body.classList.contains("has-video")
-  const imageUrl = firstFrameUrlInput.value.trim()
   const hasSelectedImage = selectedFirstFrameUrl !== null
-  const hasImageUrl = imageUrl.length > 0
-  const hasInitialImage = Boolean(initialScene && initialScene.has_first_frame)
+  const hasInitialImage = Boolean(
+    initialScene && initialScene.has_first_frame && initialScene.first_frame_url
+  )
 
   if (hasSelectedImage) {
     firstFramePreview.src = selectedFirstFrameUrl
-  } else if (hasImageUrl) {
-    firstFramePreview.src = imageUrl
   } else if (hasInitialImage && initialScene.first_frame_url) {
-    firstFramePreview.src = `${initialScene.first_frame_url}?t=${Date.now()}`
+    firstFramePreview.src = refreshedPreviewUrl(initialScene.first_frame_url)
   }
 
   document.body.classList.toggle(
     "is-ready-preview",
-    canPreview && (hasSelectedImage || hasImageUrl || hasInitialImage)
+    canPreview && (hasSelectedImage || hasInitialImage)
   )
 }
 
 function applyInitialScene(scene) {
   initialScene = scene
+  firstFramePreviewRefreshToken = Date.now()
   if (!promptEdited && typeof scene.prompt === "string") {
     promptInput.value = scene.prompt
   }
   const sceneImageUrl = typeof scene.image_url === "string"
     ? scene.image_url
     : (typeof scene.default_image_url === "string" ? scene.default_image_url : "")
-  if (!firstFrameUrlEdited && sceneImageUrl) {
+  if (!selectedFirstFrameFile && !firstFrameUrlEdited && sceneImageUrl) {
     firstFrameUrlInput.value = sceneImageUrl
   }
   if (!selectedFirstFrameFile) {
@@ -217,6 +263,7 @@ async function loadInitialScene() {
     applyInitialScene({
       prompt: promptInput.value,
       has_first_frame: selectedFirstFrameFile !== null || firstFrameUrlInput.value.trim().length > 0,
+      first_frame_url: firstFrameUrlInput.value.trim(),
       image_url: firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
@@ -237,23 +284,38 @@ async function loadInitialScene() {
 
 async function uploadSessionInputIfNeeded() {
   const prompt = promptInput.value.trim()
-  const imageUrl = firstFrameUrlInput.value.trim()
+  let imageUrl = firstFrameUrlInput.value.trim()
   const hasPrompt = promptEdited && prompt.length > 0
   const hasImage = selectedFirstFrameFile !== null
   const hasImageUrl = !hasImage && firstFrameUrlEdited && imageUrl.length > 0
   if (!hasPrompt && !hasImage && !hasImageUrl) {
     return
   }
+  if (hasImageUrl) {
+    try {
+      imageUrl = validateFirstFrameUrl(imageUrl)
+      firstFrameUrlInput.value = imageUrl
+    } catch (error) {
+      setFirstFrameUrlStatus(error.message, "error")
+      throw error
+    }
+  }
 
   if (mockMode) {
     applyInitialScene({
       prompt: hasPrompt ? prompt : promptInput.value,
       has_first_frame: hasImage || hasImageUrl,
+      first_frame_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
       image_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
       input_source: "uploaded",
     })
+    promptEdited = false
+    firstFrameUrlEdited = false
+    if (hasImageUrl) {
+      setFirstFrameUrlStatus("Updated", "success")
+    }
     return
   }
 
@@ -272,10 +334,50 @@ async function uploadSessionInputIfNeeded() {
     body: form,
   })
   if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`input upload failed (${response.status}): ${text}`)
+    const text = (await response.text()).trim().replace(/^\d+:\s*/, "")
+    throw new Error(text || `input upload failed (${response.status})`)
   }
   applyInitialScene(await response.json())
+  promptEdited = false
+  firstFrameUrlEdited = false
+  if (hasImageUrl) {
+    setFirstFrameUrlStatus("Updated", "success")
+  }
+}
+
+async function updateFirstFrameFromUrl() {
+  if (initialSceneLocked) {
+    return
+  }
+
+  let imageUrl
+  try {
+    imageUrl = validateFirstFrameUrl(firstFrameUrlInput.value)
+  } catch (error) {
+    setFirstFrameUrlStatus(error.message, "error")
+    return
+  }
+
+  firstFrameUrlInput.value = imageUrl
+  firstFrameUrlEdited = true
+  clearSelectedFirstFrameFile()
+  firstFrameName.textContent = "Upload Image"
+  setFirstFrameUrlStatus("Updating...", "pending")
+  firstFrameUrlUpdateButton.disabled = true
+
+  try {
+    await uploadSessionInputIfNeeded()
+    setFirstFrameUrlStatus("Updated", "success")
+    logEvent("first frame URL updated", { source: "client" })
+  } catch (error) {
+    setFirstFrameUrlStatus(error.message, "error")
+    logEvent(`first frame URL update failed: ${error.message}`, {
+      source: "client",
+      level: "error",
+    })
+  } finally {
+    firstFrameUrlUpdateButton.disabled = initialSceneLocked
+  }
 }
 
 function renderMetrics() {
@@ -1041,6 +1143,7 @@ firstFrameInput.addEventListener("change", () => {
   if (selectedFirstFrameFile) {
     selectedFirstFrameUrl = URL.createObjectURL(selectedFirstFrameFile)
     firstFrameName.textContent = selectedFirstFrameFile.name
+    clearFirstFrameUrlInput()
   } else {
     firstFrameName.textContent = firstFrameUrlInput.value.trim()
       ? "Upload Image"
@@ -1058,7 +1161,13 @@ firstFrameUrlInput.addEventListener("input", () => {
       ? "Upload Image"
       : (initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image")
   }
-  updateReadyPreview()
+  setFirstFrameUrlStatus(
+    firstFrameUrlInput.value.trim() ? "URL not updated" : "",
+    "pending"
+  )
+})
+firstFrameUrlUpdateButton.addEventListener("click", () => {
+  void updateFirstFrameFromUrl()
 })
 promptInput.addEventListener("input", () => {
   if (initialSceneLocked) {

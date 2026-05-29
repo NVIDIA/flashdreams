@@ -64,6 +64,7 @@ _DEFAULT_INTRINSICS = (
     415.7778625488281,
     239.7777862548828,
 )
+# Aligned with the world scale computed from the first LingBot World demo scene.
 _DEFAULT_WORLD_SCALE = 1.271182656288147
 _DEFAULT_PROMPT = (
     "The video presents a soaring journey through a fantasy jungle. The wind whips "
@@ -97,12 +98,29 @@ def _content_type_for_image_path(path: Path) -> str:
     return "application/octet-stream"
 
 
+def _normalize_github_blob_url(url: str, parsed: urllib.parse.ParseResult) -> str:
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"github.com", "www.github.com"}:
+        return url
+
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if len(path_parts) < 5 or path_parts[2] != "blob":
+        return url
+
+    owner, repo, _, ref, *file_path = path_parts
+    raw_path = "/" + "/".join([owner, repo, ref, *file_path])
+    return urllib.parse.urlunparse(
+        ("https", "raw.githubusercontent.com", raw_path, "", "", "")
+    )
+
+
 def _validate_remote_url(url: str, *, field_name: str) -> str:
     normalized = url.strip()
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{field_name} must be an http(s) URL.")
-    return normalized
+    return _normalize_github_blob_url(normalized, parsed)
+
 
 
 def _read_remote_bytes(
