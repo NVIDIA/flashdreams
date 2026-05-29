@@ -1507,10 +1507,12 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
 
 # Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -> flashdreams ``WanVAE``
-# key remap. This is the default the production configs below use
-# (diffusers safetensors shard + this ~50-rule remap). The smaller
-# native-``.pth`` path (:func:`wan22_ti2v_5b_vae_pth_state_dict_transform`,
-# 4 rules) is an opt-in alternative pending a GPU decode-parity smoke.
+# key remap. Opt-in fallback: the production configs below now default to
+# the canonical single-file ``Wan2.2_VAE.pth`` + the 4-rule
+# :func:`wan22_ti2v_5b_vae_pth_state_dict_transform`. Both checkpoints
+# yield bit-identical weights (verified max ``|Δ| = 0`` across all 196
+# tensors), so this ~50-rule diffusers remap is kept only for callers who
+# prefer the diffusers safetensors shard.
 _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # Top-level quant convs.
     r"^quant_conv\.(.*)$": r"conv1.\1",
@@ -1694,13 +1696,20 @@ def wan22_ti2v_5b_vae_pth_state_dict_transform(
 class Wan22TI2V5BVAEEncoderConfig(WanVAEEncoderConfig):
     """Pre-rolled config for the Wan 2.2 TI2V 5B encoder.
 
-    Pins the diffusers upstream checkpoint, the 16x-spatial / 48ch /
-    residual / patchify architecture knobs, and the matching diffusers
-    -> flashdreams key remap. Equivalent to the Wan 2.1 encoder config
-    plus the 5B-specific knobs flipped on.
+    Pins upstream's canonical single-file ``Wan2.2_VAE.pth``, the
+    16x-spatial / 48ch / residual / patchify architecture knobs, and the
+    4-rule native-``.pth`` key remap. Equivalent to the Wan 2.1 encoder
+    config plus the 5B-specific knobs flipped on.
+
+    The diffusers safetensors shard + its ~50-rule remap
+    (:data:`WAN22_TI2V_5B_VAE_DIFFUSERS_PATH` /
+    :func:`wan22_ti2v_5b_vae_state_dict_transform`) remain available as an
+    opt-in fallback; both checkpoints yield bit-identical weights (a
+    verified max ``|Δ| = 0`` over all 196 tensors), so the switch is a
+    pure source change.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     z_dim: int = 48
     patch_size: int = 2
@@ -1708,7 +1717,7 @@ class Wan22TI2V5BVAEEncoderConfig(WanVAEEncoderConfig):
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
+        wan22_ti2v_5b_vae_pth_state_dict_transform
     )
 
 
@@ -1720,7 +1729,7 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     ``decoder_base_dim=256``.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     decoder_base_dim: int | None = 256
     z_dim: int = 48
@@ -1729,5 +1738,5 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
+        wan22_ti2v_5b_vae_pth_state_dict_transform
     )

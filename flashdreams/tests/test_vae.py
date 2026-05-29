@@ -263,6 +263,51 @@ def test_wan22_vae_pth_remap_spot_checks_real_keys() -> None:
         )
 
 
+@torch.no_grad()
+@pytest.mark.manual
+def test_wan22_vae_pth_and_diffusers_weights_identical() -> None:
+    """Native ``.pth`` and diffusers checkpoints map to bit-identical ``WanVAE`` weights.
+
+    This is the verification behind making ``Wan2.2_VAE.pth`` the default:
+    the native ``.pth`` + 4-rule transform and the diffusers safetensors +
+    ~50-rule transform must produce the same state dict, so the switch is a
+    pure checkpoint-source change with no effect on output.
+
+    Marked ``manual``: downloads both checkpoints (~few GB) from HuggingFace.
+    Set ``HY_WAN22_VAE_PTH`` to a local ``Wan2.2_VAE.pth`` to skip that
+    download.
+    """
+    import os
+
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    from flashdreams.recipes.wan.autoencoder.vae import (
+        wan22_ti2v_5b_vae_pth_state_dict_transform,
+        wan22_ti2v_5b_vae_state_dict_transform,
+    )
+
+    diff_path = hf_hub_download(
+        "Wan-AI/Wan2.2-TI2V-5B-Diffusers", "vae/diffusion_pytorch_model.safetensors"
+    )
+    pth_path = os.environ.get("HY_WAN22_VAE_PTH") or hf_hub_download(
+        "Wan-AI/Wan2.2-TI2V-5B", "Wan2.2_VAE.pth"
+    )
+
+    from_diffusers = wan22_ti2v_5b_vae_state_dict_transform(load_file(diff_path))
+    raw = torch.load(pth_path, map_location="cpu", weights_only=True)
+    while isinstance(raw, dict) and "state_dict" in raw and len(raw) <= 4:
+        raw = raw["state_dict"]
+    from_pth = wan22_ti2v_5b_vae_pth_state_dict_transform(raw)
+
+    assert set(from_diffusers) == set(from_pth), "remapped key sets differ"
+    worst = max(
+        (from_diffusers[k].float() - from_pth[k].float()).abs().max().item()
+        for k in from_diffusers
+    )
+    assert worst == 0.0, f"weights differ between checkpoints (max |delta| = {worst})"
+
+
 # python tests/test_vae.py
 if __name__ == "__main__":
     tokenizer_choices: list[Literal["lightvae", "vae"]] = ["lightvae", "vae"]
