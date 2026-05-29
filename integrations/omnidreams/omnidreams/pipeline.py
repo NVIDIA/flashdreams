@@ -28,6 +28,7 @@ from omnidreams.transformer import (
     CosmosTransformerCache,
     CosmosTransformerConfig,
 )
+from omnidreams.vae_native import OmnidreamsWanVAEEncoderConfig
 from torch import Tensor
 
 from flashdreams.core.distributed.context_parallel import (
@@ -50,7 +51,6 @@ from flashdreams.recipes.taehv import TeahvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoder,
     WanVAEEncoder,
-    WanVAEEncoderConfig,
 )
 
 OmnidreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
@@ -96,8 +96,8 @@ class OmnidreamsPipelineConfig(StreamInferencePipelineConfig):
     and use ``initialize_cache_from_embeddings`` with precomputed embeddings
     to skip loading it."""
 
-    image_encoder: WanVAEEncoderConfig | None = field(
-        default_factory=WanVAEEncoderConfig
+    image_encoder: OmnidreamsWanVAEEncoderConfig | None = field(
+        default_factory=OmnidreamsWanVAEEncoderConfig
     )
     """One-shot Wan VAE first-frame encoder. Pin its checkpoint to the
     VAE the network was trained against. ``None`` skips loading."""

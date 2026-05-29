@@ -177,6 +177,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         str(native._DIT_STREAMING_KERNEL_DIR),
         str(native._DIT_STREAMING_PYEXT_DIR),
         str(native._DIT_STREAMING_COMMON_DIR),
+        str(native._VAE_STREAMING_DIR),
         str(cutlass_dir / "include"),
         str(cutlass_dir / "tools" / "util" / "include"),
         str(cutlass_dir / "examples" / "common"),
@@ -203,6 +204,12 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "native_primitives.cpp",
         "native_primitives_cuda.cu",
         "streaming_dit_bindings.cpp",
+        "vae_streaming_bindings.cpp",
+        "lightvae_ops.cu",
+        "lightvae_fp8_ops.cu",
+        "lightvae_fp8_direct_stages.cu",
+        "lightvae_fp8_warp_mma_stages.cu",
+        "lightvae_fp8_attention.cu",
         "streaming_dit_bridge.cu",
         "sage3_blackwell_api_shim.cu",
         "sage3_fp4_quant_shim.cu",
@@ -231,6 +238,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "src/native_common/tensor_ref.h",
         "src/native_common/tensor_ref_torch.h",
         "src/native_common/workspace_allocator.h",
+        "src/vae_streaming/vae_streaming_bindings.h",
     }.issubset(fingerprint_sources)
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cflags"]
     assert (
@@ -831,6 +839,13 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert hasattr(extension, "workspace_allocation_plan")
     assert hasattr(extension, "prepare_contiguous")
     assert hasattr(extension, "zero_workspace_")
+    assert hasattr(extension, "omnidreams_vae_backend_status")
+    assert hasattr(extension, "omnidreams_vae_create_wan_encoder_fp8")
+    assert hasattr(extension, "omnidreams_vae_reset_wan_encoder_fp8")
+    assert hasattr(extension, "omnidreams_vae_encode_wan_fp8")
+    assert hasattr(extension, "lightvae_fp8_prepare_conv2d_weight_krsc")
+    vae_fp8_status = extension.omnidreams_vae_backend_status("vae_encoder", "fp8")
+    assert vae_fp8_status["available"] is True
 
     if not torch.cuda.is_available():
         return

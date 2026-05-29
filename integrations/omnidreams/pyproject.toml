@@ -97,6 +97,7 @@ interactive-drive = "omnidreams.interactive_drive.demo:main"
 [project.entry-points."flashdreams.runner_configs"]
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF"
 "omnidreams-sv-2steps-chunk2-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE"
 "omnidreams-sv-2steps-chunk3-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE"
 "omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE"

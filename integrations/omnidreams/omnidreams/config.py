@@ -25,8 +25,10 @@ registration is performed here.
 
 from __future__ import annotations
 
+import os
 from typing import cast
 
+import torch
 from omnidreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
 )
@@ -37,6 +39,9 @@ from omnidreams.runner import OmnidreamsRunnerConfig
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.transformer.impl.network import (
     CosmosDiTNetworkConfig,
+)
+from omnidreams.vae_native import (
+    OmnidreamsWanVAEEncoderConfig as WanVAEEncoderConfig,
 )
 
 from flashdreams.core.io.internal import use_internal_storage
@@ -59,7 +64,6 @@ from flashdreams.recipes.taehv import (
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoderConfig,
-    WanVAEEncoderConfig,
 )
 
 _INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
@@ -91,6 +95,13 @@ AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = (
     }
 )
 """Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
+
+_LIGHTVAE_FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
+
+
+def _lightvae_fp8_state_path() -> str | None:
+    return os.environ.get(_LIGHTVAE_FP8_STATE_ENV)
+
 
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsPipelineConfig(
     name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
@@ -159,6 +170,35 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
 )  # ty:ignore[redundant-cast]
 """Performance-tuned variant: enable ``use_compile`` / ``use_cuda_graph``
 on the image encoder, the per-AR-step encoder, and the decoder."""
+
+SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf",
+        image_encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_state_path=_lightvae_fp8_state_path(),
+        ),
+        encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_state_path=_lightvae_fp8_state_path(),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Native VAE perf variant: LightVAE FP8 encoder with PyTorch LightTAE decoder.
+
+Set ``OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH`` before setup to provide the
+calibrated FP8 LightVAE state required by the native encoder.
+"""
 
 SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
     OmnidreamsPipelineConfig,
@@ -399,6 +439,7 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     for cfg in (
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
         SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
         SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
         SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
@@ -448,6 +489,16 @@ RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = OmnidreamsRunnerConfig(
         "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
     ),
     pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF = OmnidreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.name,
+    description=(
+        "Single-view chunk2 native VAE perf preset "
+        "(LightVAE FP8 encoder + PyTorch LightTAE decoder)."
+    ),
+    pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
@@ -545,6 +596,7 @@ OMNIDREAMS_RUNNERS: dict[str, RunnerConfig] = {
     for cfg in (
         RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
         RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
         RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
         RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
         RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
