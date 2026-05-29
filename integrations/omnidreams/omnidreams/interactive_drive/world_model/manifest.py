@@ -22,6 +22,8 @@ _HF_URL_PATTERN = re.compile(
 )
 _DEFAULT_RESOLUTION_WH = (1280, 704)
 _RESOLUTION_ALIGNMENT_PX = 16
+_NATIVE_DIT_ACCELERATION_MODES = ("auto", "disabled", "required")
+_NATIVE_DIT_BACKENDS = ("fp8_kvcache_cudnn", "bf16")
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -113,6 +115,25 @@ def _parse_resolution_wh(raw: object) -> tuple[int, int]:
     return (width, height)
 
 
+def _parse_native_dit_acceleration(raw: object) -> str:
+    mode = "disabled" if raw is None else str(raw)
+    if mode not in _NATIVE_DIT_ACCELERATION_MODES:
+        raise ValueError(
+            "native_dit_acceleration must be one of "
+            f"{_NATIVE_DIT_ACCELERATION_MODES}, got {mode!r}"
+        )
+    return mode
+
+
+def _parse_native_dit_backend(raw: object) -> str:
+    backend = "fp8_kvcache_cudnn" if raw is None else str(raw)
+    if backend not in _NATIVE_DIT_BACKENDS:
+        raise ValueError(
+            f"native_dit_backend must be one of {_NATIVE_DIT_BACKENDS}, got {backend!r}"
+        )
+    return backend
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
@@ -130,6 +151,15 @@ class WorldModelManifest:
     upsampling_scale: int = 4
     device: str = "cuda:0"
     seed_for_every_rollout: int | None = None
+    native_dit_acceleration: str = "disabled"
+    native_dit_build_root: str | None = None
+    native_dit_max_jobs: int | str | None = None
+    native_dit_verbose_build: bool = False
+    native_dit_backend: str = "fp8_kvcache_cudnn"
+    native_dit_attention_backend: str = "auto"
+    native_dit_sparge_topk: float | None = None
+    native_dit_sparge_hybrid_period: int | None = None
+    native_dit_sparge_hybrid_phase: int | None = None
 
 
 def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
@@ -176,6 +206,35 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         seed_for_every_rollout=(
             int(data["seed_for_every_rollout"])
             if data.get("seed_for_every_rollout") is not None
+            else None
+        ),
+        native_dit_acceleration=_parse_native_dit_acceleration(
+            data.get("native_dit_acceleration")
+        ),
+        native_dit_build_root=(
+            str(data["native_dit_build_root"])
+            if data.get("native_dit_build_root") is not None
+            else None
+        ),
+        native_dit_max_jobs=data.get("native_dit_max_jobs"),
+        native_dit_verbose_build=bool(data.get("native_dit_verbose_build", False)),
+        native_dit_backend=_parse_native_dit_backend(data.get("native_dit_backend")),
+        native_dit_attention_backend=str(
+            data.get("native_dit_attention_backend", "auto")
+        ),
+        native_dit_sparge_topk=(
+            float(data["native_dit_sparge_topk"])
+            if data.get("native_dit_sparge_topk") is not None
+            else None
+        ),
+        native_dit_sparge_hybrid_period=(
+            int(data["native_dit_sparge_hybrid_period"])
+            if data.get("native_dit_sparge_hybrid_period") is not None
+            else None
+        ),
+        native_dit_sparge_hybrid_phase=(
+            int(data["native_dit_sparge_hybrid_phase"])
+            if data.get("native_dit_sparge_hybrid_phase") is not None
             else None
         ),
     )
