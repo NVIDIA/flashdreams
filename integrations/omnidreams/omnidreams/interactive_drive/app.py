@@ -22,6 +22,10 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     build_ground_snapper,
     state_from_initial_pose,
 )
+from omnidreams.interactive_drive.streaming_presenter import (
+    MJPEGStreamingPresenter,
+    parse_bind,
+)
 from omnidreams.interactive_drive.types import PresentedFrame
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
@@ -44,11 +48,12 @@ class InteractiveDriveApp:
         presenter (e.g. :class:`SlangPyHudPresenter`) that needs
         constructor arguments outside :class:`AppConfig`'s vocabulary
         (scene-selector options, wheel device, control assets). When
-        ``None``, :func:`_build_presenter` returns the default
-        :class:`SlangPyPresenter` -- a local Vulkan window. Browser /
-        remote streaming use cases are served by
-        ``omnidreams.webrtc.server`` instead of an in-process HTTP
-        stream on the demo.
+        ``None``, :func:`_build_presenter` returns either the default
+        :class:`SlangPyPresenter` (a local Vulkan window) or, when
+        ``config.stream_mjpeg_bind`` is set, an
+        :class:`MJPEGStreamingPresenter` that serves frames over HTTP
+        with no GPU-graphics dependency. Browser viewers with a richer
+        frontend are served by ``omnidreams.webrtc.server`` instead.
         """
         self._config = config
         self._backend = backend
@@ -125,12 +130,28 @@ class InteractiveDriveApp:
                 self._presenter.close()
 
 
-def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> SlangPyPresenter:
-    """Default presenter factory: a local Vulkan window via slangpy.
+def _build_presenter(
+    config: AppConfig, keyboard: KeyboardState
+) -> PresenterBackend:
+    """Default presenter factory.
 
-    Browser / remote streaming use cases are served by
-    ``omnidreams.webrtc.server`` (a separate entry point), not by an
-    in-process HTTP stream on the desktop demo. Hosts without a
-    graphics-capable GPU should run the webrtc server instead.
+    Returns an :class:`MJPEGStreamingPresenter` when
+    ``config.stream_mjpeg_bind`` is set (a HOST:PORT bind address) --
+    that path renders no window and has no graphics-GPU dependency, so
+    it works on compute-only SKUs (e.g. GB300) where SlangPy can't
+    create a Vulkan swapchain. Otherwise returns the default
+    :class:`SlangPyPresenter` -- a local Vulkan window.
+
+    For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
+    (a separate entry point) is the preferred path; this MJPEG fallback
+    is the in-process, dependency-free alternative for headless boxes.
     """
+    if config.stream_mjpeg_bind is not None:
+        host, port = parse_bind(config.stream_mjpeg_bind)
+        return MJPEGStreamingPresenter(
+            raster=config.raster,
+            keyboard=keyboard,
+            bind_host=host,
+            bind_port=port,
+        )
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)

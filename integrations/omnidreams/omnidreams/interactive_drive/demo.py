@@ -477,17 +477,19 @@ def build_parser() -> argparse.ArgumentParser:
     The parser is the union of three groups:
 
     * Backend args (``--scene``, ``--backend``, ``--manifest``,
-      ``--bev``, ...) inherited verbatim from
+      ``--bev``, ``--stream-mjpeg``, ...) inherited verbatim from
       :func:`omnidreams.interactive_drive.cli.build_parser`. These
       flags apply whether the user runs the supervised HUD wrapper or
-      the bare backend with ``--no-hud``.
+      the bare backend with ``--no-hud`` / ``--stream-mjpeg``.
     * Supervisor / HUD args (``--scene-dir``, ``--autoload-scene``,
       ``--cuda-visible-devices``, ``--wheel-*``, ``--no-wheel``) that
       only matter when a HUD viewer is running. They're harmlessly
-      ignored under ``--no-hud``.
+      ignored under ``--no-hud`` / ``--stream-mjpeg``.
     * The ``--no-hud`` toggle itself, which falls through to the bare
-      slangpy Vulkan window. Browser-stream use cases are served by
-      ``omnidreams.webrtc.server`` instead.
+      slangpy Vulkan window. ``--stream-mjpeg`` (in the inherited
+      backend group) implicitly does the same and serves the bare
+      backend's frames over HTTP. For a richer browser frontend use
+      ``omnidreams.webrtc.server``.
     """
     parser = _cli.build_parser()
     # Demo-friendly defaults: most users want the world model and the
@@ -505,7 +507,10 @@ def build_parser() -> argparse.ArgumentParser:
         " scene/variant selector, BEV minimap, and steering / pedal"
         " overlays, all rendered into a single Vulkan swapchain. Pass"
         " --no-hud to drop the chrome and just open the bare slangpy"
-        " Vulkan window. For browser / remote streaming use the separate"
+        " Vulkan window, or --stream-mjpeg HOST:PORT to skip the local"
+        " window entirely and serve frames to a browser as an MJPEG"
+        " HTTP stream (useful on compute-only hosts without a Vulkan"
+        " GPU). For a richer browser viewer use the separate"
         " ``omnidreams.webrtc.server`` entry point."
     )
     parser.add_argument(
@@ -625,9 +630,14 @@ def main() -> None:
     if not args.synthetic_scene:
         args.scene = _maybe_autostage_scene(args.scene)
     # ``--no-hud`` drops the slangpy HUD chrome and runs the backend
-    # against a bare Vulkan window. Browser / remote use cases live
-    # in the separate ``omnidreams.webrtc.server`` entry point.
-    if args.no_hud:
+    # against a bare Vulkan window. ``--stream-mjpeg`` similarly skips
+    # the HUD because the HUD itself is a Vulkan / SlangPy presenter
+    # and has the same graphics-GPU requirement we're trying to avoid;
+    # the bare CLI's ``_build_presenter`` then sees ``stream_mjpeg_bind``
+    # in :class:`AppConfig` and constructs the
+    # :class:`MJPEGStreamingPresenter` instead. For a richer browser
+    # frontend, ``omnidreams.webrtc.server`` remains the preferred path.
+    if args.no_hud or args.stream_mjpeg is not None:
         _cli.run(args)
         return
 

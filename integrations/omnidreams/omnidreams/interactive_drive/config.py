@@ -138,6 +138,15 @@ class AppConfig:
     world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_offload_text_encoder: bool = False
     bev: BevConfig = BevConfig()
+    # When non-None, the app swaps the Vulkan presenter out for
+    # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
+    # which serves frames to a browser over HTTP and reads keyboard
+    # events back from it. Format: "HOST:PORT" (e.g. "0.0.0.0:8080"),
+    # or bare ":PORT" to bind on all interfaces. Required on
+    # compute-only boxes (e.g. GB300-only DGX Station) where no
+    # Vulkan-capable GPU exists; for richer browser viewers prefer
+    # ``omnidreams.webrtc.server`` instead.
+    stream_mjpeg_bind: str | None = None
     # Substring to match against the Vulkan adapter name for the presenter.
     # When None, SlangPy picks whichever Vulkan adapter it enumerates first.
     # When set (e.g. "RTX PRO"), we call ``spy.Device.enumerate_adapters``

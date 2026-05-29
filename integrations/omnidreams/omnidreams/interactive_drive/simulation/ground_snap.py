@@ -49,6 +49,15 @@ class GroundSnapper:
         self._num_sample_points = int(num_sample_points)
         self._min_intersections = int(min_intersections)
         self._anchor_offset_m: float | None = None
+        # Updated as a side effect of every ``snap()`` call. Reads as
+        # ``1.0 - hit_ratio`` of the body-grid raycast, so 0.0 means every
+        # sample ray hit the ground mesh (solidly in-bounds) and 1.0 means
+        # no rays hit (the ego is fully off the mesh). The runtime loop
+        # reads this between chunks to drive the OOB warning overlay and
+        # the auto-respawn trigger; matches the alpasim driver's
+        # ``oob_proximity`` semantics (warn near 0.5, respawn near 1.0)
+        # without needing a separate runtime channel.
+        self._last_proximity: float = 0.0
 
         vertices_d = np.asarray(vertices_xyz, dtype=np.float64)
         faces_i = np.asarray(faces_ijk, dtype=np.int32)
@@ -101,6 +110,18 @@ class GroundSnapper:
     @property
     def anchor_offset_m(self) -> float | None:
         return self._anchor_offset_m
+
+    @property
+    def last_proximity(self) -> float:
+        """Most-recent ``snap()``'s OOB proximity, in [0.0, 1.0].
+
+        ``0.0`` means every body-grid sample ray hit the ground mesh on the
+        last call (solidly inside the navigable area); ``1.0`` means no
+        rays hit (the ego is over a hole in the mesh or off the map).
+        Updated even on bail-out paths so the runtime can detect a
+        rapid OOB transition that the snap itself refuses to apply.
+        """
+        return self._last_proximity
 
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
@@ -168,11 +189,18 @@ class GroundSnapper:
         )
         mask = ~np.isnan(ground_zs)
         n_hits = int(mask.sum())
+        n_total = int(len(world_pts))
+        # Update proximity unconditionally so callers see the freshest
+        # OOB reading even when the snap itself bails out below. The
+        # runtime loop's auto-respawn path depends on this.
+        self._last_proximity = (
+            1.0 - float(n_hits) / float(n_total) if n_total > 0 else 0.0
+        )
         if n_hits < self._min_intersections:
             logger.debug(
                 "ground snap: %d/%d sample rays hit, below min=%d; passing through",
                 n_hits,
-                len(world_pts),
+                n_total,
                 self._min_intersections,
             )
             return state

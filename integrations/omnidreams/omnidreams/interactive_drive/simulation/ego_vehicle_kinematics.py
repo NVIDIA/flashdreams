@@ -200,6 +200,20 @@ class EgoVehicleKinematics:
     def current_state(self) -> VehicleState:
         return self._state
 
+    @property
+    def last_proximity(self) -> float:
+        """OOB proximity of the latest simulated frame, in [0.0, 1.0].
+
+        Reads the underlying :class:`GroundSnapper`'s post-snap reading
+        (the boundary frame of the most-recent :meth:`pose_chunk`).
+        Returns ``0.0`` when the scene shipped no ground mesh -- there's
+        no way to be off a map that doesn't exist, so the OOB respawn
+        path is a no-op for those scenes.
+        """
+        if self._ground_snapper is None:
+            return 0.0
+        return self._ground_snapper.last_proximity
+
     def pose_chunk(
         self,
         command: DriverCommand,

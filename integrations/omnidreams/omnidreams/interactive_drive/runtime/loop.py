@@ -3,7 +3,7 @@
 
 import queue
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from omnidreams.interactive_drive.input.backend import InputBackend
@@ -51,6 +51,11 @@ class MainLoopState:
     frame_count: int
     chunks_outstanding: int
     last_consumed_chunk_index: int | None
+    # Out-of-bounds overlay text, refreshed each tick from the simulation's
+    # ``last_proximity`` reading. ``None`` means the ego is solidly inside
+    # the navigable area; non-``None`` is the warning / respawn message
+    # that the loop merges into the displayed frame's ``status_message``.
+    oob_message: str | None
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -58,6 +63,7 @@ class MainLoopState:
         self.frame_count = 0
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
+        self.oob_message = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,24 @@ class LoopConfig:
     frame_interval_s: float
     poll_timeout_s: float = 0.001
     history_capacity: int = 16
+    # Out-of-bounds detection. Proximity is the GroundSnapper's
+    # ``1.0 - hit_ratio``: 0.0 is solidly in-bounds (every body-grid sample
+    # ray hit the ground mesh), 1.0 is fully off the mesh. Defaults are
+    # tuned for the alpasim-style 16-sample body grid -- the warn level
+    # fires once roughly half the rays leave the mesh, the respawn level
+    # fires when only a few stragglers are still hitting. Both checks
+    # are skipped when the scene shipped no ground mesh
+    # (``simulation.last_proximity`` reads ``0.0`` in that case).
+    oob_warn_proximity: float = 0.5
+    oob_respawn_proximity: float = 0.85
+
+
+# Warning text shown when the ego enters the OOB warning band. Kept as a
+# module-level constant so the slangpy HUD's status-overlay code can
+# special-case it for styling later if needed without re-deriving the
+# string.
+OOB_WARN_MESSAGE = "Approaching map edge, turn back to avoid respawn"
+OOB_RESPAWN_MESSAGE = "Respawning..."
 
 
 def should_request_chunk(state: MainLoopState) -> bool:
@@ -115,13 +139,79 @@ def present_queued_frame(
     queued_frame: QueuedFrame,
     presenter: PresenterBackend,
     view_mode: str,
+    oob_message: str | None = None,
 ) -> float:
+    """Hand a freshly-dequeued frame to the presenter.
+
+    ``oob_message`` is merged into the frame's ``status_message`` only for
+    the duration of this present call (via :func:`dataclasses.replace`),
+    so the original ``QueuedFrame`` keeps whatever message the backend
+    attached -- e.g. the world-model's "Optimizing world model..."
+    transition text on the first chunk's last frame stays intact across
+    re-presents that intersperse the warmup window with an OOB warning.
+    """
     frame_times = queued_frame.chunk_times.frames[queued_frame.frame_index]
     frame_times.sample_display_pose_time = time.perf_counter()
-    presenter.present_frame(queued_frame.frame, view_mode=view_mode)
+    display_frame = _frame_with_overlay(queued_frame.frame, oob_message)
+    presenter.present_frame(display_frame, view_mode=view_mode)
     present_time = time.perf_counter()
     frame_times.present_time = present_time
     return present_time
+
+
+def _frame_with_overlay(
+    frame: PresentedFrame, oob_message: str | None
+) -> PresentedFrame:
+    """Return ``frame`` with ``oob_message`` merged into ``status_message``.
+
+    The OOB message wins over an existing ``status_message`` because it's
+    a more time-sensitive affordance (the user is about to be teleported);
+    returns the frame unchanged when there's no OOB message to merge in.
+    """
+    if oob_message is None:
+        return frame
+    return replace(frame, status_message=oob_message)
+
+
+def update_oob_state(
+    state: MainLoopState, simulation: SimulationBackend, config: LoopConfig
+) -> bool:
+    """Refresh ``state.oob_message`` from the simulation's OOB proximity.
+
+    Reads ``simulation.last_proximity`` defensively so test fakes and
+    other ``SimulationBackend`` implementations that don't track OOB
+    state default to ``0.0`` (always in-bounds). Returns ``True`` when
+    the proximity has crossed the respawn threshold and the loop should
+    abort with the existing reset signal -- the caller's ``app.run`` outer
+    loop then rebuilds the simulation from the scene's initial pose,
+    which auto-clears the OOB condition.
+    """
+    proximity = float(getattr(simulation, "last_proximity", 0.0))
+    if proximity >= config.oob_respawn_proximity:
+        state.oob_message = OOB_RESPAWN_MESSAGE
+        return True
+    if proximity >= config.oob_warn_proximity:
+        state.oob_message = OOB_WARN_MESSAGE
+        return False
+    state.oob_message = None
+    return False
+
+
+def push_telemetry(
+    runtime_controls: RuntimeControls, simulation: SimulationBackend
+) -> None:
+    """Forward ``simulation.current_state`` to ``runtime_controls`` if it accepts it.
+
+    Defensively no-ops when ``runtime_controls`` is a minimal Protocol
+    implementation that doesn't expose ``update_telemetry`` (test fakes,
+    custom controllers); only the production :class:`KeyboardState`
+    subscribes to this channel today, so an unknown ``runtime_controls``
+    just doesn't get a per-chunk telemetry update.
+    """
+    update = getattr(runtime_controls, "update_telemetry", None)
+    if update is None:
+        return
+    update(simulation.current_state)
 
 
 def run_main_loop(
@@ -149,7 +239,11 @@ def run_main_loop(
     Returns ``True`` if the loop exited because the user requested a reset
     (caller should call ``pipeline.reset`` and re-run the loop with a fresh
     simulation), ``False`` if it exited because the presenter requested
-    close.
+    close. The OOB auto-respawn path also returns ``True``: the simulation's
+    boundary state crossed :attr:`LoopConfig.oob_respawn_proximity`, the
+    user-visible warning escalated to ``OOB_RESPAWN_MESSAGE``, and the
+    caller is expected to rebuild the simulation from the scene's
+    initial pose just as it does for a manual ``R`` press.
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
@@ -172,6 +266,20 @@ def run_main_loop(
                 config=config,
             )
             pipeline.request_pose_chunk(chunk_request)
+            # ``simulation.pose_chunk`` (called inside make_chunk_request) just
+            # advanced the authoritative state by ``chunk_size`` frames, so its
+            # ``last_proximity`` reading is now the OOB status of the boundary
+            # frame. Refresh the overlay text here -- and bail with the same
+            # ``return True`` the manual reset path uses when the ego is far
+            # enough off the map that auto-respawning is the right move.
+            if update_oob_state(state, simulation, config):
+                return True
+            # Republish telemetry on the same per-chunk cadence so
+            # downstream observers (e.g. the MJPEG presenter's ``/state``
+            # endpoint, which the browser polls for the speed readout)
+            # see a snapshot drawn from the same ``current_state`` the
+            # OOB check just consulted.
+            push_telemetry(runtime_controls, simulation)
 
         now = time.perf_counter()
         if now < state.next_present_time:
@@ -186,11 +294,23 @@ def run_main_loop(
             if queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index:
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
-            present_queued_frame(queued_frame, presenter, view_mode=view_mode)
+            present_queued_frame(
+                queued_frame,
+                presenter,
+                view_mode=view_mode,
+                oob_message=state.oob_message,
+            )
             last_presented_frame = queued_frame.frame
             state.frame_count += 1
         except queue.Empty:
-            presenter.present_frame(last_presented_frame, view_mode=view_mode)
+            # Re-present the last frame with whatever OOB overlay is current
+            # for this tick; the merged frame is local to this call so the
+            # cached ``last_presented_frame`` stays unmodified for the next
+            # iteration.
+            presenter.present_frame(
+                _frame_with_overlay(last_presented_frame, state.oob_message),
+                view_mode=view_mode,
+            )
 
         state.next_present_time += config.frame_interval_s
     return False

@@ -1184,7 +1184,7 @@ provides-extras = ["dev", "examples", "runners", "serving"]
 
 [[package]]
 name = "flashdreams-causal-forcing"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -1208,7 +1208,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-cosmos-predict2"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
@@ -1230,7 +1230,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -1252,7 +1252,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-flashvsr"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/flashvsr" }
 dependencies = [
     { name = "block-sparse-attn" },
@@ -1286,7 +1286,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-lingbot"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/lingbot" }
 dependencies = [
     { name = "aiohttp" },
@@ -1319,7 +1319,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-omnidreams"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
@@ -1390,7 +1390,7 @@ provides-extras = ["interactive-drive", "dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -1412,7 +1412,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { editable = "integrations/wan21" }
 dependencies = [
     { name = "flashdreams" },

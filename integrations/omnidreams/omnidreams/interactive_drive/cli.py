@@ -204,6 +204,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--stream-mjpeg",
+        default=None,
+        metavar="[HOST:]PORT",
+        help=(
+            "Instead of opening a Vulkan window, serve frames as an MJPEG "
+            "HTTP stream on this bind address. Accepts ``HOST:PORT`` (e.g. "
+            "``127.0.0.1:8080``), bare ``:PORT``, or a bare port number "
+            "(``8080``); the bare forms bind on all interfaces. The user "
+            "opens http://HOST:PORT/ in a browser to view the demo and "
+            "send keyboard input. Useful on compute-only hosts (e.g. "
+            "GB300-only DGX Station) where no Vulkan-capable GPU exists; "
+            "for a richer browser viewer prefer the separate "
+            "``omnidreams.webrtc.server`` entry point. Implies --no-hud "
+            "when launched via the demo wrapper."
+        ),
+    )
+    parser.add_argument(
         "--bev",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -351,6 +368,7 @@ def prepare_config_and_backend(
         ),
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         bev=bev_config,
+        stream_mjpeg_bind=args.stream_mjpeg,
     )
 
     backend: RenderBackend
