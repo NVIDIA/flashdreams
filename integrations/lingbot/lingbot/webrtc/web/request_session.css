@@ -266,6 +266,10 @@ body[data-status="generating"] .connectButton {
   gap: 12px;
 }
 
+.sceneCard[hidden] {
+  display: none;
+}
+
 .uploadControl {
   display: flex;
   align-items: center;
