@@ -60,7 +60,27 @@ WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
 """HF diffusers safetensors shard for the Wan 2.2 TI2V 5B DiT.
 
 The 5B variant ships as a single safetensors file (no sharded index)
-under the ``transformer/`` subfolder of the ``Wan-AI`` diffusers repo."""
+under the ``transformer/`` subfolder of the ``Wan-AI`` diffusers repo.
+Loads via :func:`wan22_ti2v_5b_dit_state_dict_transform` (the diffusers
+naming differs from ours). This is the production default."""
+
+
+WAN22_TI2V_5B_DIT_NATIVE_PATH = (
+    "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/"
+    "diffusion_pytorch_model.safetensors.index.json"
+)
+"""HF *native* (non-diffusers) ``Wan-AI/Wan2.2-TI2V-5B`` DiT checkpoint.
+
+Sharded safetensors (3 shards + index); ``load_checkpoint`` handles the
+``.safetensors.index.json`` directly. Its keys are byte-for-byte the
+``WanDiTNetwork`` keys (``blocks.N.self_attn.q``, ``text_embedding.0``,
+``head.head`` ...) -- a verified 825<->825 name-identical bijection (see
+``test_native_dit_checkpoint_needs_no_remap``), because our network was
+ported from native Wan. So this path loads with **no remap at all**
+(``state_dict_transform=None``), dropping the ~25-rule
+:data:`_WAN22_TI2V_5B_DIT_KEY_REMAP`. Opt-in for now -- the production
+config keeps the diffusers default until a GPU decode-parity smoke
+confirms the two checkpoints produce identical output."""
 
 
 # Diffusers ``WanTransformer3DModel`` -> bare ``WanDiTNetwork`` state-
@@ -70,6 +90,10 @@ under the ``transformer/`` subfolder of the ``Wan-AI`` diffusers repo."""
 # identical to FastVideo's Wan 2.2 14B remap because both 5B and 14B
 # checkpoints inherit the same diffusers ``WanTransformer3DModel``
 # layout -- only the layer counts and channel counts differ.
+# NOTE: the *native* ``Wan-AI/Wan2.2-TI2V-5B`` checkpoint
+# (:data:`WAN22_TI2V_5B_DIT_NATIVE_PATH`) already uses our key names, so
+# loading from it needs no remap at all -- this dict is only required for
+# the diffusers-repo path.
 _WAN22_TI2V_5B_DIT_KEY_REMAP: dict[str, str] = {
     r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
     r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",
@@ -183,6 +207,7 @@ WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {
 __all__ = [
     "PIPELINE_WAN22_TI2V_5B",
     "WAN22_TI2V_5B_DIT_DIFFUSERS_PATH",
+    "WAN22_TI2V_5B_DIT_NATIVE_PATH",
     "WAN_CONFIGS",
     "wan22_ti2v_5b_dit_state_dict_transform",
 ]
