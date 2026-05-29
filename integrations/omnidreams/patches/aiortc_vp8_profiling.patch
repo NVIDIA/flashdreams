@@ -1,0 +1,75 @@
+--- a/rtcrtpsender.py
++++ b/rtcrtpsender.py
+@@ -1,6 +1,7 @@
+ import asyncio
+ import logging
+ import random
++import threading
+ import time
+ import traceback
+ import uuid
+@@ -29,6 +30,45 @@
+     wrap_rtx,
+ )
+
++# ---------- VP8 encode profiling (temporary) ----------
++# Mirrors flashdreams.serving.webrtc.profiler but is self-contained so
++# this patch works even if the profiler module is not importable.
++import json as _json
++import os as _os
++from pathlib import Path as _Path
++
++_VP8_PROF_ENABLED = _os.environ.get("WEBRTC_PROFILE", "").strip() in ("1", "true", "yes")
++_VP8_PROF_PATH = _Path(
++    _os.environ.get("WEBRTC_PROFILE_PATH", "/tmp/webrtc_profile.jsonl")
++)
++_vp8_prof_lock = threading.Lock()
++_vp8_prof_epoch: float = 0.0
++_vp8_prof_file = None
++
++
++def _vp8_prof_ensure_open():
++    global _vp8_prof_file, _vp8_prof_epoch
++    if _vp8_prof_file is not None:
++        return
++    _vp8_prof_epoch = time.perf_counter()
++    _VP8_PROF_PATH.parent.mkdir(parents=True, exist_ok=True)
++    _vp8_prof_file = open(_VP8_PROF_PATH, "a")
++
++
++def _vp8_encode_with_profiling(encoder, data, force_keyframe):
++    global _vp8_prof_file
++    if not _VP8_PROF_ENABLED:
++        return encoder.encode(data, force_keyframe)
++    _vp8_prof_ensure_open()
++    t0 = time.perf_counter()
++    result = encoder.encode(data, force_keyframe)
++    t1 = time.perf_counter()
++    with _vp8_prof_lock:
++        if _vp8_prof_file is not None:
++            _vp8_prof_file.write(_json.dumps({
++                "stage": "vp8_encode",
++                "start": round(t0 - _vp8_prof_epoch, 6),
++                "end": round(t1 - _vp8_prof_epoch, 6),
++                "dur_ms": round((t1 - t0) * 1000.0, 3),
++                "chunk": -1,
++                "tid": threading.current_thread().name,
++            }, separators=(",", ":")) + "\n")
++            _vp8_prof_file.flush()
++    return result
++# ---------- end VP8 encode profiling ----------
++
+ logger = logging.getLogger(__name__)
+
+
+@@ -315,8 +355,8 @@
+
+             force_keyframe = self.__force_keyframe
+             self.__force_keyframe = False
+-            payloads, timestamp = await self.__loop.run_in_executor(
+-                None, self.__encoder.encode, data, force_keyframe
++            payloads, timestamp = await self.__loop.run_in_executor(
++                None, _vp8_encode_with_profiling, self.__encoder, data, force_keyframe
+             )
+         else:
+             # Pack the pre-encoded data.

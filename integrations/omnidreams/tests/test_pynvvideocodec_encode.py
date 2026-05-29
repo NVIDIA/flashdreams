@@ -231,6 +231,82 @@ class TestPyNvVideoCodecEncoder:
         finally:
             encoder.close()
 
+    @pytest.mark.parametrize("num_encoders", [1, 2, 4])
+    def test_sustained_encode_throughput(self, num_encoders: int) -> None:
+        """Encode 600s of video at native resolution to measure sustained throughput.
+
+        Parametrized over 1/2/4 parallel encoder instances to saturate
+        all NVENC engines on the GPU.  Monitor utilization with:
+            nvidia-smi dmon -s u --gpm-metrics 30,31,166,167,168,169
+        """
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        width, height, fps = 1280, 704, 30
+        frames_per_chunk = 8
+        duration_s = 600
+        total_chunks = (duration_s * fps + frames_per_chunk - 1) // frames_per_chunk
+        chunks_per_encoder = (total_chunks + num_encoders - 1) // num_encoders
+
+        encoders = [
+            PyNvVideoCodecH264ChunkEncoder(
+                width=width, height=height, fps=fps, bitrate=10_000_000, gpu_id=0,
+            )
+            for _ in range(num_encoders)
+        ]
+
+        def _encode_worker(encoder_idx: int) -> tuple[int, int, int]:
+            enc = encoders[encoder_idx]
+            packets = 0
+            nbytes = 0
+            keyframes = 0
+            for i in range(chunks_per_encoder):
+                chunk = _make_uint8_chunk(
+                    frames=frames_per_chunk, width=width, height=height,
+                    seed=encoder_idx * chunks_per_encoder + i,
+                )
+                result = enc.encode_chunk(chunk, force_keyframe=(i % 30 == 0))
+                packets += len(result.packets)
+                nbytes += sum(len(p.payload) for p in result.packets)
+                keyframes += result.num_keyframes
+            return packets, nbytes, keyframes
+
+        try:
+            wall_start = time.perf_counter()
+            with ThreadPoolExecutor(max_workers=num_encoders) as pool:
+                futures = [
+                    pool.submit(_encode_worker, idx)
+                    for idx in range(num_encoders)
+                ]
+                total_packets = 0
+                total_bytes = 0
+                total_keyframes = 0
+                for fut in as_completed(futures):
+                    packets, nbytes, keyframes = fut.result()
+                    total_packets += packets
+                    total_bytes += nbytes
+                    total_keyframes += keyframes
+            wall_s = time.perf_counter() - wall_start
+
+            total_frames = chunks_per_encoder * num_encoders * frames_per_chunk
+            encode_fps = total_frames / wall_s
+            print(
+                f"\nSustained encode ({num_encoders} encoder(s)): "
+                f"{total_frames} frames "
+                f"({width}x{height} @ {fps}fps, {duration_s}s) "
+                f"in {wall_s:.2f}s → {encode_fps:.1f} fps, "
+                f"{total_bytes / 1024:.0f} KiB, "
+                f"{total_keyframes} keyframes"
+            )
+            assert total_packets == total_frames
+            assert total_bytes > 0
+            assert encode_fps > fps, (
+                f"Encoder too slow for real-time: {encode_fps:.1f} fps < {fps} fps"
+            )
+        finally:
+            for enc in encoders:
+                enc.close()
+
     def test_encoder_invalid_params(self) -> None:
         with pytest.raises(ValueError, match="width and height"):
             PyNvVideoCodecH264ChunkEncoder(

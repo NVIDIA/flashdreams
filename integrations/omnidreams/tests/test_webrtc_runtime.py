@@ -656,7 +656,8 @@ async def test_loopback_warmup_drives_session_generation(
     assert fake_runtime is not None
     assert fake_runtime.initialize_calls == 1
     assert fake_runtime.reset_calls == 1
-    assert len(fake_runtime.generated_segments) == 2
+    # 3 pre-buffer chunks (_PRE_BUFFER_CHUNKS) + 2 warmup chunks
+    assert len(fake_runtime.generated_segments) == 5
     assert not manager.has_active_session()
 
 

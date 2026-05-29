@@ -17,6 +17,7 @@ from av.packet import Packet
 from loguru import logger
 
 from flashdreams.serving.webrtc.encode import EncodedVideoPacket
+from flashdreams.serving.webrtc import profiler as wp
 
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
@@ -101,7 +102,8 @@ class BufferedVideoTrack(MediaStreamTrack):
 
         loop = asyncio.get_running_loop()
         t_get_start = loop.time()
-        frame_array = await self._frames.get()
+        with wp.measure("recv.queue_wait", chunk_index=self._pts):
+            frame_array = await self._frames.get()
         if frame_array is None:
             raise MediaStreamError
         get_wait_ms = (loop.time() - t_get_start) * 1000.0
@@ -123,7 +125,9 @@ class BufferedVideoTrack(MediaStreamTrack):
             proposed = self._next_deadline_s + self._frame_interval_s
             wait_s = proposed - now_s
             if wait_s > 0:
-                await asyncio.sleep(wait_s)
+                with wp.measure("recv.pacing_sleep", chunk_index=self._pts,
+                                wait_ms=round(wait_s * 1000, 1)):
+                    await asyncio.sleep(wait_s)
                 self._next_deadline_s = proposed
             else:
                 if -wait_s * 1000.0 > _PACING_LAG_LOG_MS:
@@ -244,7 +248,8 @@ class EncodedPacketVideoTrack(MediaStreamTrack):
 
         loop = asyncio.get_running_loop()
         t_get_start = loop.time()
-        item = await self._packets.get()
+        with wp.measure("recv.queue_wait", chunk_index=self._pts):
+            item = await self._packets.get()
         if item is None:
             raise MediaStreamError
         get_wait_ms = (loop.time() - t_get_start) * 1000.0
@@ -266,7 +271,9 @@ class EncodedPacketVideoTrack(MediaStreamTrack):
             proposed = self._next_deadline_s + self._frame_interval_s
             wait_s = proposed - now_s
             if wait_s > 0:
-                await asyncio.sleep(wait_s)
+                with wp.measure("recv.pacing_sleep", chunk_index=self._pts,
+                                wait_ms=round(wait_s * 1000, 1)):
+                    await asyncio.sleep(wait_s)
                 self._next_deadline_s = proposed
             else:
                 if -wait_s * 1000.0 > _PACING_LAG_LOG_MS:

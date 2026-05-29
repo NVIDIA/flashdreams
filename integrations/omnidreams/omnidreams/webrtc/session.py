@@ -58,6 +58,7 @@ from flashdreams.serving.webrtc.encode import (
     PyNvVideoCodecH264ChunkEncoder,
 )
 from flashdreams.serving.webrtc.media import BufferedVideoTrack, EncodedPacketVideoTrack
+from flashdreams.serving.webrtc import profiler as wp
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
@@ -790,46 +791,49 @@ class OmnidreamsInferenceRuntime:
                 f"Chunk={chunk_idx} received empty segments."
             )
 
-        ego_poses = self.pose_integrator.integrate_chunk(
-            segments=segments, frame_times=frame_times
-        )
-        ego_poses_t = torch.from_numpy(ego_poses).to(
-            device=self._device, dtype=torch.float32
-        )
-        camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
-        frame_timestamps_us = self._consume_timestamps(num_frames)
+        with wp.measure("pose_integration", chunk_index=chunk_idx):
+            ego_poses = self.pose_integrator.integrate_chunk(
+                segments=segments, frame_times=frame_times
+            )
+            ego_poses_t = torch.from_numpy(ego_poses).to(
+                device=self._device, dtype=torch.float32
+            )
+            camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
+            frame_timestamps_us = self._consume_timestamps(num_frames)
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
         is_first = self._state is None
         gen_label = "start_generation" if is_first else "continue_generation"
-        if is_first:
-            output = self._wrapper.start_generation(
-                text_prompts=self._text_prompts,
-                initial_rgb_frames=self._initial_rgb_frames,
-                renderer=self._renderer,
-                camera_names=camera_names,
-                camera_poses_per_view=camera_poses_per_view,
-                frame_timestamps_us=frame_timestamps_us,
-                skip_video_generation=serve_hdmaps,
-            )
-            self._state = output.state
-        else:
-            output = self._wrapper.continue_generation(
-                state=self._state,
-                camera_names=camera_names,
-                camera_poses_per_view=camera_poses_per_view,
-                frame_timestamps_us=frame_timestamps_us,
-                skip_video_generation=serve_hdmaps,
-            )
-            self._state = output.state
+        with wp.measure(gen_label, chunk_index=chunk_idx):
+            if is_first:
+                output = self._wrapper.start_generation(
+                    text_prompts=self._text_prompts,
+                    initial_rgb_frames=self._initial_rgb_frames,
+                    renderer=self._renderer,
+                    camera_names=camera_names,
+                    camera_poses_per_view=camera_poses_per_view,
+                    frame_timestamps_us=frame_timestamps_us,
+                    skip_video_generation=serve_hdmaps,
+                )
+                self._state = output.state
+            else:
+                output = self._wrapper.continue_generation(
+                    state=self._state,
+                    camera_names=camera_names,
+                    camera_poses_per_view=camera_poses_per_view,
+                    frame_timestamps_us=frame_timestamps_us,
+                    skip_video_generation=serve_hdmaps,
+                )
+                self._state = output.state
 
-        if self._state.pipeline_cache is not None:
-            self._wrapper.finalize_block_generation(
-                self._state.pipeline_cache,
-                output.finalization_state,
-            )
+        with wp.measure("finalize_kv_cache", chunk_index=chunk_idx):
+            if self._state.pipeline_cache is not None:
+                self._wrapper.finalize_block_generation(
+                    self._state.pipeline_cache,
+                    output.finalization_state,
+                )
 
         if serve_hdmaps:
             video_chunk = output.condition_frames
@@ -852,9 +856,10 @@ class OmnidreamsInferenceRuntime:
     def _encode_raw_output_sync(self, raw: _RawChunkOutput) -> OmnidreamsStepResult:
         if self._video_encoder is None:
             raise OmnidreamsRuntimeError("Video encoder is not initialized.")
-        encoding_result = self._video_encoder.encode_chunk(
-            raw.video_chunk, force_keyframe=raw.force_keyframe,
-        )
+        with wp.measure("nvenc_encode", chunk_index=raw.chunk_index):
+            encoding_result = self._video_encoder.encode_chunk(
+                raw.video_chunk, force_keyframe=raw.force_keyframe,
+            )
         if not encoding_result.packets:
             raise OmnidreamsRuntimeError(
                 f"PyNvVideoCodec produced zero packets for chunk={raw.chunk_index}"
@@ -1217,6 +1222,7 @@ class OmnidreamsWebRTCSessionManager:
         await self._runtime.close()
         self._runtime_ready = False
         self._warmup_complete = False
+        wp.close()
 
     def wait_for_termination(self) -> None:
         self._runtime.wait_for_termination()
@@ -1337,7 +1343,8 @@ class OmnidreamsWebRTCSessionManager:
         use_nvenc = self.runtime_config.use_nvenc
         if use_nvenc:
             try:
-                result = await runtime._run_chunk_encode(raw)
+                with wp.measure("encode_and_deliver.encode", chunk_index=raw.chunk_index):
+                    result = await runtime._run_chunk_encode(raw)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -1347,16 +1354,18 @@ class OmnidreamsWebRTCSessionManager:
                 return
             if managed_session.closed:
                 return
-            assert isinstance(video_track, EncodedPacketVideoTrack)
-            enqueued = await video_track.enqueue_encoded_packets(result.encoded_packets)
+            with wp.measure("encode_and_deliver.enqueue", chunk_index=raw.chunk_index):
+                assert isinstance(video_track, EncodedPacketVideoTrack)
+                enqueued = await video_track.enqueue_encoded_packets(result.encoded_packets)
             encode_ms = result.encode_ms
             encoder_backend = result.encoder_backend
             keyframes = result.keyframes
             num_frames = result.num_frames
             chunk_index = result.chunk_index
         else:
-            assert isinstance(video_track, BufferedVideoTrack)
-            enqueued = await video_track.enqueue_chunk(raw.video_chunk)
+            with wp.measure("encode_and_deliver.enqueue_vp8", chunk_index=raw.chunk_index):
+                assert isinstance(video_track, BufferedVideoTrack)
+                enqueued = await video_track.enqueue_chunk(raw.video_chunk)
             encode_ms = 0.0
             encoder_backend = "vp8-aiortc"
             keyframes = 0
@@ -1444,8 +1453,61 @@ class OmnidreamsWebRTCSessionManager:
             return
         resampler.next_chunk_start_v = loop.time()
 
+        # Pre-buffer: generate a few chunks as fast as possible and bulk-
+        # enqueue before starting paced delivery.  With pre-encoded H.264
+        # packets recv() paces at exactly 1/fps with no encoder-side slack
+        # (unlike VP8 where aiortc's software encoder added natural
+        # buffering).  The pre-buffer absorbs generation timing jitter so
+        # the queue never starves.
+        use_nvenc = self.runtime_config.use_nvenc
+        _PRE_BUFFER_CHUNKS = 3
+        pre_buffer_packets: list[EncodedVideoPacket] = []
+        for _pb_idx in range(_PRE_BUFFER_CHUNKS):
+            if managed_session.closed:
+                break
+            try:
+                num_frames = runtime.peek_next_chunk_num_frames()
+            except OmnidreamsRuntimeError:
+                logger.exception("Runtime not ready; stopping generation worker.")
+                return
+            segments, frame_times = resampler.sample_chunk(num_frames)
+            chunk_end_v = resampler.next_chunk_start_v
+            while (
+                managed_session.pending_action_arrivals
+                and managed_session.pending_action_arrivals[0] <= chunk_end_v
+            ):
+                managed_session.pending_action_arrivals.popleft()
+            try:
+                with wp.measure("prebuffer.inference", chunk_index=_pb_idx):
+                    raw = await runtime._run_chunk_inference(
+                        segments=segments, frame_times=frame_times
+                    )
+                if use_nvenc:
+                    with wp.measure("prebuffer.encode", chunk_index=_pb_idx):
+                        result = await runtime._run_chunk_encode(raw)
+                    pre_buffer_packets.extend(result.encoded_packets)
+                else:
+                    with wp.measure("prebuffer.enqueue_vp8", chunk_index=_pb_idx):
+                        assert isinstance(video_track, BufferedVideoTrack)
+                        await video_track.enqueue_chunk(raw.video_chunk)
+            except Exception as exc:
+                logger.exception("Pre-buffer chunk generation failed; closing session.")
+                channel = managed_session.control_channel
+                if channel is not None:
+                    self._send_json(channel, {"type": "error", "message": str(exc)})
+                await self.close_active_session()
+                return
+        if use_nvenc and pre_buffer_packets and not managed_session.closed:
+            assert isinstance(video_track, EncodedPacketVideoTrack)
+            await video_track.enqueue_encoded_packets(pre_buffer_packets)
+            logger.info(
+                "Pre-buffered {} chunks ({} packets) for smooth playback.",
+                _PRE_BUFFER_CHUNKS,
+                len(pre_buffer_packets),
+            )
+
         _pending_encode_tasks: list[asyncio.Task[None]] = []
-        _gen_chunk_counter = 0
+        _gen_chunk_counter = _PRE_BUFFER_CHUNKS
         try:
             while not managed_session.closed:
                 try:
@@ -1457,7 +1519,9 @@ class OmnidreamsWebRTCSessionManager:
                 trigger_wall = resampler.next_chunk_start_v + chunk_duration
                 delay = trigger_wall - loop.time()
                 if delay > 0:
-                    await asyncio.sleep(delay)
+                    with wp.measure("trigger_sleep", chunk_index=_gen_chunk_counter,
+                                    delay_ms=round(delay * 1000, 1)):
+                        await asyncio.sleep(delay)
                 if managed_session.closed:
                     break
 
@@ -1478,9 +1542,10 @@ class OmnidreamsWebRTCSessionManager:
                         managed_session.pending_action_arrivals.popleft()
                     )
                 try:
-                    raw = await runtime._run_chunk_inference(
-                        segments=segments, frame_times=frame_times
-                    )
+                    with wp.measure("chunk_inference", chunk_index=_gen_chunk_counter):
+                        raw = await runtime._run_chunk_inference(
+                            segments=segments, frame_times=frame_times
+                        )
                 except Exception as exc:
                     logger.exception("Chunk generation failed; closing session.")
                     channel = managed_session.control_channel

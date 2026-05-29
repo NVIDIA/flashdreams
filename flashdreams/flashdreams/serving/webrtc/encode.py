@@ -19,6 +19,8 @@ from typing import Any
 import torch
 from loguru import logger
 
+from flashdreams.serving.webrtc import profiler as wp
+
 try:
     import PyNvVideoCodec as nvc  # type: ignore[import-untyped]
 except ImportError as _exc:
@@ -195,7 +197,8 @@ class PyNvVideoCodecH264ChunkEncoder:
         Returns:
             ``ChunkEncodingResult`` with the encoded H.264 packets.
         """
-        frames_abgr = tensor_chunk_to_abgr_cuda_frames(video_chunk)
+        with wp.measure("abgr_conversion"):
+            frames_abgr = tensor_chunk_to_abgr_cuda_frames(video_chunk)
         packets: list[EncodedVideoPacket] = []
         num_keyframes = 0
         start_s = time.perf_counter()
