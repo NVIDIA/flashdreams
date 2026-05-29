@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -97,9 +98,16 @@ class _FakeWrapper:
 
     def finalize_block_generation(
         self, pipeline_cache: object, finalization_state: dict[str, int]
-    ) -> None:
+    ) -> dict[str, float]:
         del pipeline_cache
         self.finalized.append(finalization_state)
+        return {
+            "encode_ms": 1.0,
+            "diffuse_ms": 2.0,
+            "decode_ms": 3.0,
+            "finalize_ms": 4.0,
+            "total_ms": 10.0,
+        }
 
 
 def _build_fake_runtime() -> tuple[OmnidreamsInferenceRuntime, _FakeWrapper]:
@@ -142,6 +150,18 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.calls[1][1] == (3, 4, 4)
     assert len(wrapper.finalized) == 2
     assert wrapper.skip_video_generation_flags == [False, False]
+    assert result1.stats is not None
+    assert {
+        "pose_ms",
+        "wrapper_ms",
+        "finalize_ms",
+        "select_output_ms",
+        "detach_cpu_ms",
+        "total_ms",
+        "pipeline_total_ms",
+    } <= result1.stats.keys()
+    assert result1.stats["pipeline_total_ms"] == 10.0
+    assert result1.stats["total_ms"] >= 0.0
 
 
 def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
@@ -684,6 +704,93 @@ async def test_disconnect_message_closes_active_session(
     assert managed_session.closed
     assert video_track.closed
     assert peer_connection.closed
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_includes_profile_in_chunk_done_payload() -> None:
+    class _Runtime:
+        def __init__(self) -> None:
+            self.generate_calls = 0
+
+        def peek_next_chunk_num_frames(self) -> int:
+            return 1
+
+        async def generate_chunk(
+            self,
+            *,
+            segments: list[tuple[float, float, frozenset[str]]],
+            frame_times: list[float],
+        ) -> OmnidreamsStepResult:
+            del segments, frame_times
+            self.generate_calls += 1
+            return OmnidreamsStepResult(
+                chunk_index=0,
+                num_frames=1,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats={
+                    "wrapper_ms": 12.34,
+                    "pipeline_total_ms": 10.0,
+                    "pipeline_mem_alloc_gib": 25.445,
+                },
+            )
+
+    class _Resampler:
+        dt = 0.0
+        next_chunk_start_v = 0.0
+
+        def sample_chunk(
+            self, num_frames: int
+        ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+            assert num_frames == 1
+            return [(0.0, 0.0, frozenset({"w"}))], [0.0]
+
+    class _VideoTrack:
+        fps = 30
+
+        def __init__(self) -> None:
+            self.managed_session: session._ManagedOmnidreamsSession | None = None
+
+        async def enqueue_chunk(self, video_chunk: torch.Tensor) -> int:
+            assert video_chunk.shape == (1, 1, 1, 3, 2, 2)
+            assert self.managed_session is not None
+            self.managed_session.closed = True
+            return 1
+
+        def qsize(self) -> int:
+            return 0
+
+    class _Channel:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    video_track = _VideoTrack()
+    channel = _Channel()
+    first_action_received = asyncio.Event()
+    first_action_received.set()
+    managed_session = session._ManagedOmnidreamsSession(
+        runtime=_Runtime(),  # ty:ignore[invalid-argument-type]
+        video_track=video_track,  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=_Resampler(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+        first_action_received=first_action_received,
+    )
+    video_track.managed_session = managed_session
+
+    await manager._generation_worker(managed_session=managed_session)
+
+    assert len(channel.messages) == 1
+    payload = json.loads(channel.messages[0])
+    assert payload["type"] == "chunk_done"
+    assert payload["profile"]["wrapper_ms"] == 12.3
+    assert payload["profile"]["pipeline_total_ms"] == 10.0
+    assert payload["profile"]["pipeline_mem_alloc_gib"] == 25.4
 
 
 @pytest.mark.asyncio

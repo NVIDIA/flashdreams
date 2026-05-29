@@ -80,6 +80,9 @@ From the workspace root, run:
 uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 065dcac9-ee67-4434-a835-c6b816c88e48 --port 8089
 ```
 
+For issue 195 renderer/serving profiling, see
+[docs/issue195_renderer_profile_repro.md](docs/issue195_renderer_profile_repro.md).
+
 When `--scene_dir` is omitted, the server downloads the selected scene from the
 configured Hugging Face org, extracts its `clipgt-<uuid>.usdz` archive, and
 stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`). If

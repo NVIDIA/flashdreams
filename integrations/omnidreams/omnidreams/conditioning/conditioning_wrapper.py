@@ -23,6 +23,7 @@ This module combines:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -61,6 +62,22 @@ AV_POSITIVE_PROMPT = (
 )
 
 
+def _numeric_stats(stats: dict[str, float] | None) -> dict[str, float]:
+    if not stats:
+        return {}
+
+    numeric_stats: dict[str, float] = {}
+    for key, value in stats.items():
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(numeric_value):
+            continue
+        numeric_stats[key] = numeric_value
+    return numeric_stats
+
+
 @dataclass
 class OmnidreamsConditioningState:
     """State for generation, including renderer and pipeline state."""
@@ -79,6 +96,7 @@ class GenerationOutput:
         None  # Generated video frames [B, V, T, 3, H, W] (None if skip_video_generation)
     )
     finalization_state: dict | None = None  # Finalization state from the video model
+    stats: dict[str, float] | None = None  # Host-wall profiling stats for this call
 
 
 class OmnidreamsConditioningWrapper(nn.Module):
@@ -174,11 +192,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
         self,
         pipeline_cache: OmnidreamsPipelineCache,
         finalization_state: dict | None,
-    ) -> None:
+    ) -> dict[str, float] | None:
         if finalization_state is None:
-            return
+            return None
         block_idx = int(finalization_state["autoregressive_index"])
-        self.pipeline.finalize(
+        return self.pipeline.finalize(
             autoregressive_index=block_idx,
             cache=pipeline_cache,
         )
@@ -397,18 +415,22 @@ class OmnidreamsConditioningWrapper(nn.Module):
             and ``rgb_frames`` ``[B, V, T, 3, H, W]`` (or None).
         """
 
+        total_t0 = time.perf_counter()
         assert len(text_prompts) == 1, (
             "Only one text prompt (batch size == 1) is supported for now"
         )
 
+        validate_t0 = time.perf_counter()
         self._validate_camera_inputs(
             camera_names=camera_names,
             camera_poses_per_view=camera_poses_per_view,
             frame_timestamps_us=frame_timestamps_us,
             expected_length=self.initial_frame_chunk_size,
         )
+        stats = {"wrapper_validate_ms": (time.perf_counter() - validate_t0) * 1e3}
 
         # condition_frames: [B, V, T, 3, H, W]
+        render_t0 = time.perf_counter()
         condition_frames = self._render_condition_frames(
             renderer,
             camera_names,
@@ -416,15 +438,22 @@ class OmnidreamsConditioningWrapper(nn.Module):
             frame_timestamps_us,
             dynamic_actor_pool,
         )
+        stats["wrapper_render_condition_ms"] = (time.perf_counter() - render_t0) * 1e3
+        stats.update(_numeric_stats(getattr(renderer, "last_render_stats", None)))
 
         if skip_video_generation:
             state = OmnidreamsConditioningState(
                 renderer=renderer,
             )
+            stats["wrapper_total_ms"] = (time.perf_counter() - total_t0) * 1e3
             return GenerationOutput(
-                state=state, condition_frames=condition_frames, rgb_frames=None
+                state=state,
+                condition_frames=condition_frames,
+                rgb_frames=None,
+                stats=stats,
             )
 
+        prepare_t0 = time.perf_counter()
         initial_rgb_frames, condition_frames = self._normalize_start_inputs(
             initial_rgb_frames, condition_frames
         )
@@ -433,16 +462,32 @@ class OmnidreamsConditioningWrapper(nn.Module):
 
         first_frame = self._to_model_range(initial_rgb_frames).unsqueeze(2)
         condition = self._to_model_range(condition_frames)
+        stats["wrapper_prepare_condition_ms"] = (
+            time.perf_counter() - prepare_t0
+        ) * 1e3
 
+        initialize_cache_t0 = time.perf_counter()
         pipeline_cache = self.pipeline.initialize_cache(
             text=text, image=first_frame, view_names=camera_names
         )
+        stats["wrapper_initialize_cache_ms"] = (
+            time.perf_counter() - initialize_cache_t0
+        ) * 1e3
+
+        pipeline_generate_t0 = time.perf_counter()
         rgb_frames = self.pipeline.generate(
             autoregressive_index=0,
             hdmap=condition,
             cache=pipeline_cache,
         )
+        stats["wrapper_pipeline_generate_ms"] = (
+            time.perf_counter() - pipeline_generate_t0
+        ) * 1e3
+
+        to_uint8_t0 = time.perf_counter()
         rgb_frames = self._to_uint8(rgb_frames).contiguous()
+        stats["wrapper_to_uint8_ms"] = (time.perf_counter() - to_uint8_t0) * 1e3
+        stats["wrapper_total_ms"] = (time.perf_counter() - total_t0) * 1e3
 
         state = OmnidreamsConditioningState(
             renderer=renderer,
@@ -453,6 +498,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": 0},
+            stats=stats,
         )
 
     def continue_generation(
@@ -480,6 +526,8 @@ class OmnidreamsConditioningWrapper(nn.Module):
             GenerationOutput with ``condition_frames`` ``[B, V, T, 3, H, W]``
             and ``rgb_frames`` ``[B, V, T, 3, H, W]`` (or None).
         """
+        total_t0 = time.perf_counter()
+        validate_t0 = time.perf_counter()
         self._validate_camera_inputs(
             camera_names=camera_names,
             camera_poses_per_view=camera_poses_per_view,
@@ -487,11 +535,13 @@ class OmnidreamsConditioningWrapper(nn.Module):
             expected_length=self.frame_chunk_size,
         )
         renderer = state.renderer
+        stats = {"wrapper_validate_ms": (time.perf_counter() - validate_t0) * 1e3}
 
         profiler = get_profiler()
         session_id, chunk_idx = get_profiling_context()
 
         # condition_frames: [B, V, T, 3, H, W]
+        render_t0 = time.perf_counter()
         with profiler.measure(
             "render_condition_frames", session_id=session_id, chunk_idx=chunk_idx
         ):
@@ -502,10 +552,16 @@ class OmnidreamsConditioningWrapper(nn.Module):
                 frame_timestamps_us,
                 dynamic_actor_pool,
             )
+        stats["wrapper_render_condition_ms"] = (time.perf_counter() - render_t0) * 1e3
+        stats.update(_numeric_stats(getattr(renderer, "last_render_stats", None)))
 
         if skip_video_generation:
+            stats["wrapper_total_ms"] = (time.perf_counter() - total_t0) * 1e3
             return GenerationOutput(
-                state=state, condition_frames=condition_frames, rgb_frames=None
+                state=state,
+                condition_frames=condition_frames,
+                rgb_frames=None,
+                stats=stats,
             )
 
         if state.pipeline_cache is None:
@@ -514,11 +570,16 @@ class OmnidreamsConditioningWrapper(nn.Module):
                 "(session was started with skip_video_generation=True)"
             )
 
+        prepare_t0 = time.perf_counter()
         model_cond = self._normalize_condition_input(condition_frames)
         condition = self._to_model_range(model_cond)
         prev_block_idx = state.pipeline_cache.autoregressive_index
         block_idx = 0 if prev_block_idx is None else prev_block_idx + 1
+        stats["wrapper_prepare_condition_ms"] = (
+            time.perf_counter() - prepare_t0
+        ) * 1e3
 
+        pipeline_generate_t0 = time.perf_counter()
         with profiler.measure(
             "pipeline.continue_generation",
             session_id=session_id,
@@ -530,7 +591,16 @@ class OmnidreamsConditioningWrapper(nn.Module):
                 hdmap=condition,
                 cache=state.pipeline_cache,
             )
+            stats["wrapper_pipeline_generate_ms"] = (
+                time.perf_counter() - pipeline_generate_t0
+            ) * 1e3
+
+            to_uint8_t0 = time.perf_counter()
             rgb_frames = self._to_uint8(rgb_frames).contiguous()
+            stats["wrapper_to_uint8_ms"] = (
+                time.perf_counter() - to_uint8_t0
+            ) * 1e3
+        stats["wrapper_total_ms"] = (time.perf_counter() - total_t0) * 1e3
 
         new_state = OmnidreamsConditioningState(
             renderer=renderer,
@@ -541,6 +611,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": block_idx},
+            stats=stats,
         )
 
     def cleanup(self, state: OmnidreamsConditioningState) -> None:
