@@ -146,6 +146,16 @@ def test_omnidreams_initialize_cache_encodes_cfg_negative_prompt(
         captured_embeddings["negative_text_embeddings"] = negative_text_embeddings
         return object()
 
+    def skip_validate_image_resolution(
+        self: OmnidreamsPipeline, image: torch.Tensor
+    ) -> None:
+        del self, image
+
+    monkeypatch.setattr(
+        OmnidreamsPipeline,
+        "_validate_image_resolution",
+        skip_validate_image_resolution,
+    )
     monkeypatch.setattr(
         OmnidreamsPipeline,
         "initialize_cache_from_embeddings",
