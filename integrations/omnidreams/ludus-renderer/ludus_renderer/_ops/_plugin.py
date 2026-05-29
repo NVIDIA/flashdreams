@@ -103,25 +103,86 @@ def _get_plugin():
         "../_cpp/bindings/torch_rasterize_cuda.cpp",
     ]
 
-    # Reset CUDA arch list to let PyTorch detect the installed GPU
-    os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+    # Pin TORCH_CUDA_ARCH_LIST to the live device's compute capability and
+    # scope the JIT cache slot by that arch so a ``.so`` built for one SM
+    # can never be reused on another. ``torch.utils.cpp_extension.load``
+    # keys its cache off a hash of the SOURCE FILES but NOT the arch /
+    # compile flags, so on shared-filesystem hosts (NFS ``$HOME`` on
+    # Slurm/HPC clusters is the common case) a single user's
+    # ``~/.cache/torch_extensions/`` can hold a ``.so`` built on one node
+    # (e.g. a CPU-only login or a Hopper dev box) and then silently get
+    # reused on a node with a completely different GPU (Blackwell GB200 /
+    # GB300). The mismatched binary doesn't carry the right SASS, kernels
+    # fall back to PTX-JIT (or degraded paths) at every launch, and
+    # steady-state cudaludus throughput collapses by ~4x -- the exact
+    # symptom Junchen / Ruilong reported on the HSG GB200/GB300 cluster
+    # while the same code is fast on a locally-installed GB300 (where the
+    # cache was built fresh on the running GPU).
+    device_capability: tuple[int, int] | None = None
+    if torch.cuda.is_available():
+        try:
+            major, minor = torch.cuda.get_device_capability(0)
+            device_capability = (major, minor)
+            # nvcc-style arch tag, e.g. "sm_100" for Blackwell GB200/GB300.
+            arch_tag = f"sm_{major}{minor}"
+            # Pin the arch list so the build is deterministic and matches
+            # the cache slot below rather than depending on
+            # ``torch.cuda.get_arch_list()`` (which varies with the
+            # installed PyTorch wheel).
+            os.environ["TORCH_CUDA_ARCH_LIST"] = f"{major}.{minor}"
+        except Exception as exc:
+            logger.warning(
+                "Could not detect CUDA device capability ({}); falling back "
+                "to PyTorch auto-detect at build time. Cache slot will be "
+                "shared across archs, which is unsafe on shared filesystems.",
+                exc,
+            )
+            arch_tag = "auto"
+            os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+    else:
+        arch_tag = "nocuda"
+        os.environ["TORCH_CUDA_ARCH_LIST"] = ""
 
-    # Check for stale lock files
-    plugin_name = "ludus_renderer_plugin"
+    plugin_name = f"ludus_renderer_plugin_{arch_tag}"
     build_directory = None
     try:
         build_directory = torch.utils.cpp_extension._get_build_directory(plugin_name, False)
         lock_fn = os.path.join(build_directory, "lock")
+        compiled_so = os.path.join(build_directory, f"{plugin_name}.so")
+        cache_state = "hit (no rebuild)" if os.path.exists(compiled_so) else "miss (will build)"
         logger.info(
-            "Loading Ludus renderer extension {}; build_directory={}.",
+            "Loading Ludus renderer extension {} (device_cap={}, arch={}, "
+            "TORCH_CUDA_ARCH_LIST={!r}); build_directory={}; cache={}.",
             plugin_name,
+            device_capability,
+            arch_tag,
+            os.environ.get("TORCH_CUDA_ARCH_LIST", ""),
             build_directory,
+            cache_state,
         )
         if os.path.exists(lock_fn):
             logger.warning(
                 "Ludus renderer extension lock file exists: {}. "
                 "If no compiler process is active, this may be a stale PyTorch JIT lock.",
                 lock_fn,
+            )
+        # Heads-up if the pre-arch-pinning cache slot still exists. We do
+        # NOT auto-delete it (conservative -- another tool may use it),
+        # but flag it so operators can clean up: any ``.so`` in there was
+        # built without the arch-pinned cache slot and may have been the
+        # source of arch-mismatch slowdowns prior to this patch.
+        legacy_dir = os.path.join(
+            os.path.dirname(build_directory),
+            "ludus_renderer_plugin",
+        )
+        if os.path.isdir(legacy_dir):
+            logger.warning(
+                "Found legacy Ludus extension cache at {}; this directory "
+                "was produced by a pre-arch-pinning build and may contain "
+                "a .so compiled for a different GPU. Safe to delete -- "
+                "the new arch-scoped cache slot ({}) is independent.",
+                legacy_dir,
+                build_directory,
             )
     except Exception as exc:
         logger.debug("Could not inspect Ludus renderer extension build directory: {}", exc)
