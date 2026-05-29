@@ -309,6 +309,14 @@ the listener to a single interface.
 The browser viewer ships an HTML/CSS HUD overlay so the headless demo
 matches the desktop modes' affordances:
 
+- A **scene picker** in the upper-right lists the same scenes the
+  slangpy HUD discovers (anything under `--scene-dir`, defaulting to
+  `$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`). Pick a scene and a
+  variant, click *Load Scene*, and the demo tears down the current
+  rollout and rebuilds with the new scene without dropping the
+  browser session — the stream pauses briefly during the rebuild and
+  resumes the moment the new pipeline produces its first chunk. The
+  picker is hidden when no scenes were discovered.
 - A **speed readout** in the lower-left, rendered in MPH, polls the
   server's `/state` endpoint at 10 Hz. Reads `--` until the simulation
   has produced its first chunk; numeric the moment chunks start

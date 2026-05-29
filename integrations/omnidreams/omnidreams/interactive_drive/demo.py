@@ -629,15 +629,16 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.synthetic_scene:
         args.scene = _maybe_autostage_scene(args.scene)
-    # ``--no-hud`` drops the slangpy HUD chrome and runs the backend
-    # against a bare Vulkan window. ``--stream-mjpeg`` similarly skips
-    # the HUD because the HUD itself is a Vulkan / SlangPy presenter
-    # and has the same graphics-GPU requirement we're trying to avoid;
-    # the bare CLI's ``_build_presenter`` then sees ``stream_mjpeg_bind``
-    # in :class:`AppConfig` and constructs the
-    # :class:`MJPEGStreamingPresenter` instead. For a richer browser
-    # frontend, ``omnidreams.webrtc.server`` remains the preferred path.
-    if args.no_hud or args.stream_mjpeg is not None:
+    # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
+    # MJPEG presenter (HTTP server, browser session) survives across
+    # scene-change requests posted by the in-page picker. ``--no-hud``
+    # without MJPEG drops straight through to the bare CLI's Vulkan
+    # window, which has no scene picker UI of its own. The default path
+    # is the slangpy HUD with full chrome.
+    if args.stream_mjpeg is not None:
+        _run_streaming(args)
+        return
+    if args.no_hud:
         _cli.run(args)
         return
 
@@ -783,6 +784,110 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             args.scene = new_scene_path
             args.variant = new_variant
             presenter.acknowledge_scene_change(new_scene_path, new_variant)
+    finally:
+        presenter.close()
+
+
+def _run_streaming(args: argparse.Namespace) -> None:
+    """Run the engine with the MJPEG streaming presenter and a scene-change loop.
+
+    Mirrors :func:`_run_slangpy_hud`'s outer-loop structure but with a
+    long-lived :class:`MJPEGStreamingPresenter` instead of a slangpy
+    window. The HTTP server (and any connected browser sessions) stay
+    alive across scene transitions; only the backend / pipeline /
+    simulation get rebuilt per scene. The browser shows the loading
+    overlay during the rebuild and resumes streaming the moment the
+    new pipeline produces its first chunk.
+
+    Scene options come from the same discovery layer the slangpy HUD
+    uses. They get serialised into a JSON-friendly shape and posted to
+    the presenter so the in-browser ``/scenes`` endpoint can populate
+    its dropdown without round-tripping through the SceneOption class.
+    """
+    from omnidreams.interactive_drive.input.keyboard import KeyboardState
+    from omnidreams.interactive_drive.streaming_presenter import (
+        MJPEGStreamingPresenter,
+        parse_bind,
+    )
+
+    _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
+    _resolve_demo_paths(args)
+    scene_options = _discover_scene_options(args.scene_dir, args.scene)
+    if not args.scene.exists() and scene_options:
+        args.scene = scene_options[0].path
+    if args.backend == "omnidreams":
+        if args.manifest is None:
+            raise SystemExit("--manifest is required for the omnidreams backend")
+        if not args.manifest.exists():
+            raise SystemExit(
+                f"--manifest path does not exist: {args.manifest}"
+                " (typo? expected a path or bundled config name like "
+                "example_world_model.yaml)"
+            )
+    if not scene_options and not args.scene.exists():
+        raise SystemExit(
+            f"--scene path does not exist and --scene-dir contains no scenes: {args.scene}"
+        )
+
+    # JSON-serialisable form of the discovered scenes for the browser
+    # ``/scenes`` endpoint. Thumbnails are dropped because the browser
+    # gets the live stream once a scene loads; a static thumbnail
+    # endpoint would just add more handlers without much UX win.
+    scenes_payload = tuple(
+        {
+            "label": opt.label,
+            "path": str(opt.path),
+            "variants": list(opt.variants),
+        }
+        for opt in scene_options
+    )
+
+    bind_host, bind_port = parse_bind(args.stream_mjpeg)
+    placeholder_keyboard = KeyboardState()
+    presenter = MJPEGStreamingPresenter(
+        raster=RasterConfig(),
+        keyboard=placeholder_keyboard,
+        bind_host=bind_host,
+        bind_port=bind_port,
+        scenes=scenes_payload,
+    )
+
+    def _factory(config: object, keyboard: KeyboardState) -> MJPEGStreamingPresenter:
+        # Each ``InteractiveDriveApp.__init__`` builds a fresh
+        # ``KeyboardState``; rebind so the long-lived presenter
+        # follows the new instance instead of writing into the
+        # placeholder keyboard from before the first scene loaded.
+        del config
+        presenter.bind_keyboard(keyboard)
+        return presenter
+
+    try:
+        while True:
+            config, backend = _cli.prepare_config_and_backend(args)
+            app = InteractiveDriveApp(
+                config=config,
+                backend=backend,
+                presenter_factory=_factory,
+                close_presenter_on_exit=False,
+            )
+            app.run()
+            requested = presenter.pending_scene_change
+            if requested is None:
+                # Either the process is shutting down (Ctrl-C) or the
+                # rollout finished without a scene-change request.
+                # ``MJPEGStreamingPresenter`` has no native quit
+                # affordance, so a "no pending change" exit is
+                # treated as the end of the session.
+                break
+            new_scene_path, new_variant = requested
+            args.scene = new_scene_path
+            args.variant = new_variant
+            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            print(
+                f"[demo] streaming scene change -> {new_scene_path.name} "
+                f"variant={new_variant!r}",
+                flush=True,
+            )
     finally:
         presenter.close()
 

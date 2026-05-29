@@ -38,6 +38,7 @@ import threading
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
@@ -230,11 +231,63 @@ _INDEX_HTML = """<!doctype html>
     border-color: white;
     color: #111;
   }
+  .scene-picker {
+    position: fixed; top: 16px; right: 16px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: white;
+    font-size: 13px;
+    display: flex; flex-direction: column; gap: 8px;
+    min-width: 220px;
+    backdrop-filter: blur(6px);
+  }
+  .scene-picker.hidden { display: none; }
+  .scene-picker label { opacity: 0.75; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .scene-picker select {
+    background: #1a1a1a; color: white;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .scene-picker select:focus { outline: 1px solid rgba(120, 200, 255, 0.7); }
+  .scene-picker button {
+    background: rgba(120, 200, 255, 0.85);
+    color: #001020;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.1s, transform 0.05s;
+  }
+  .scene-picker button:hover { background: rgba(140, 215, 255, 1.0); }
+  .scene-picker button:active { transform: translateY(1px); }
+  .scene-picker button:disabled {
+    background: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.45);
+    cursor: not-allowed;
+  }
+  .scene-picker .row { display: flex; flex-direction: column; gap: 3px; }
 </style>
 </head>
 <body>
 <img id="stream" src="/stream">
 <div class="hint">WASD / Arrows = Drive &middot; Space = Brake &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
+<div class="scene-picker hidden" id="scene-picker">
+  <div class="row">
+    <label for="scene-select">Scene</label>
+    <select id="scene-select"></select>
+  </div>
+  <div class="row">
+    <label for="variant-select">Variant</label>
+    <select id="variant-select"></select>
+  </div>
+  <button id="load-scene-btn">Load Scene</button>
+</div>
 <div class="hud">
   <div class="speed disconnected" id="speed">
     <span class="speed-value" id="speed-value">--</span>
@@ -279,8 +332,16 @@ function send(key, down) {
   fetch('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0))
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
-document.addEventListener('keydown', e => send(e.key, true));
-document.addEventListener('keyup', e => send(e.key, false));
+// Skip key handling when focus is on an input/select inside the scene
+// picker so the user can navigate the dropdowns with arrow keys.
+function shouldIgnoreKey(e) {
+  const t = e.target;
+  if (!t) return false;
+  const tag = t.tagName;
+  return tag === 'SELECT' || tag === 'INPUT' || tag === 'BUTTON' || tag === 'TEXTAREA';
+}
+document.addEventListener('keydown', e => { if (!shouldIgnoreKey(e)) send(e.key, true); });
+document.addEventListener('keyup', e => { if (!shouldIgnoreKey(e)) send(e.key, false); });
 // When the page loses focus we must release all keys so the car doesn't keep steering.
 window.addEventListener('blur', () => {
   DOWN_KEYS.forEach(k => send(k, false));
@@ -311,6 +372,71 @@ async function pollState() {
 }
 setInterval(pollState, 100);
 pollState();
+
+// Scene picker. Hidden by default; revealed once /scenes returns
+// at least one entry so demos that don't pass scene_options stay
+// visually clean. The dropdown variants follow whichever scene is
+// currently selected.
+const scenePicker = document.getElementById('scene-picker');
+const sceneSelect = document.getElementById('scene-select');
+const variantSelect = document.getElementById('variant-select');
+const loadSceneBtn = document.getElementById('load-scene-btn');
+let SCENES = [];
+function rebuildVariants(sceneIndex) {
+  variantSelect.innerHTML = '';
+  const scene = SCENES[sceneIndex];
+  const variants = scene && Array.isArray(scene.variants) ? scene.variants : [];
+  for (const v of (variants.length ? variants : ['default'])) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v.charAt(0).toUpperCase() + v.slice(1);
+    variantSelect.appendChild(opt);
+  }
+}
+async function fetchScenes() {
+  try {
+    const r = await fetch('/scenes', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    SCENES = Array.isArray(data.scenes) ? data.scenes : [];
+    if (!SCENES.length) {
+      scenePicker.classList.add('hidden');
+      return;
+    }
+    sceneSelect.innerHTML = '';
+    SCENES.forEach((s, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = s.label || ('Scene ' + (i + 1));
+      sceneSelect.appendChild(opt);
+    });
+    rebuildVariants(0);
+    scenePicker.classList.remove('hidden');
+  } catch {}
+}
+sceneSelect.addEventListener('change', () => {
+  rebuildVariants(parseInt(sceneSelect.value, 10) || 0);
+});
+loadSceneBtn.addEventListener('click', async () => {
+  const idx = parseInt(sceneSelect.value, 10) || 0;
+  const scene = SCENES[idx];
+  if (!scene) return;
+  loadSceneBtn.disabled = true;
+  loadSceneBtn.textContent = 'Loading…';
+  try {
+    await fetch('/scene/select?scene=' + encodeURIComponent(scene.path) +
+                '&variant=' + encodeURIComponent(variantSelect.value),
+                { method: 'GET', cache: 'no-store' });
+  } catch {}
+  // Re-enable shortly so the user can pick a different scene if the
+  // request was rejected; the actual scene transition is driven by
+  // the server-side loop and the stream will pause briefly.
+  setTimeout(() => {
+    loadSceneBtn.disabled = false;
+    loadSceneBtn.textContent = 'Load Scene';
+  }, 1200);
+});
+fetchScenes();
 </script>
 </body>
 </html>
@@ -335,6 +461,7 @@ class MJPEGStreamingPresenter:
         bind_port: int,
         *,
         jpeg_quality: int = 85,
+        scenes: tuple[dict[str, object], ...] = (),
     ) -> None:
         self._raster = raster
         self._keyboard = keyboard
@@ -353,6 +480,17 @@ class MJPEGStreamingPresenter:
         # to either waiter are always safe.
         self._latest_bev_jpeg: bytes | None = None
         self._bev_frame_count = 0
+        # Scene options surfaced to the browser dropdown via /scenes.
+        # Each entry is a dict with ``label``, ``path``, ``variants``;
+        # the demo wrapper builds these from its scene-discovery layer
+        # and passes them in. Empty tuple = no dropdown.
+        self._scenes: tuple[dict[str, object], ...] = tuple(scenes)
+        # Scene-change request channel mirroring the slangpy HUD's
+        # ``pending_scene_change`` flag. ``should_close`` returns True
+        # when this is non-None so the runtime loop unwinds; the demo
+        # wrapper then tears down the backend, calls
+        # ``acknowledge_scene_change``, and re-enters with a fresh sim.
+        self._pending_scene_change: tuple[Path, str] | None = None
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
@@ -364,6 +502,7 @@ class MJPEGStreamingPresenter:
         # where the creep-toward-4.47-m/s logic lives.
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
+        self._keyboard_drive_factory = KeyboardDriveState
         self._keyboard_drive = KeyboardDriveState(_KeyboardDriveSink(keyboard))
 
         try:
@@ -397,8 +536,40 @@ class MJPEGStreamingPresenter:
     @property
     def should_close(self) -> bool:
         # There's no window to close. The app loop runs until the
-        # simulation thread finishes or the user Ctrl-C's the process.
-        return self._stop_event.is_set()
+        # simulation thread finishes, the user Ctrl-C's the process,
+        # or a /scene/select request flips the pending-change channel
+        # so the demo wrapper can rebuild the backend with a new scene.
+        return self._stop_event.is_set() or self._pending_scene_change is not None
+
+    @property
+    def pending_scene_change(self) -> tuple[Path, str] | None:
+        """Scene the browser asked to load next, or ``None`` if no change is pending.
+
+        Set by the ``/scene/select`` endpoint and cleared by
+        :meth:`acknowledge_scene_change`. The demo wrapper polls this
+        between ``app.run()`` invocations to drive the scene-change
+        loop without tearing down the HTTP server / browser session.
+        """
+        return self._pending_scene_change
+
+    def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
+        """Clear the pending scene change after the demo wrapper has applied it."""
+        del scene_path, variant  # accepted for symmetry with the slangpy HUD API
+        self._pending_scene_change = None
+
+    def bind_keyboard(self, keyboard: KeyboardState) -> None:
+        """Re-target the presenter at a fresh ``KeyboardState``.
+
+        ``InteractiveDriveApp`` constructs a new ``KeyboardState`` per
+        rollout; the demo wrapper reuses the same MJPEG presenter
+        across scene-change iterations, so the presenter has to follow
+        each new keyboard. The keyboard-drive integrator captures the
+        keyboard reference internally, so it gets rebuilt here.
+        """
+        self._keyboard = keyboard
+        self._keyboard_drive = self._keyboard_drive_factory(
+            _KeyboardDriveSink(keyboard)
+        )
 
     def process_events(self) -> None:
         # Input arrives asynchronously via ``/control`` HTTP requests, but
@@ -557,6 +728,40 @@ class MJPEGStreamingPresenter:
             "yaw_rad": float(snapshot.yaw_rad),
         }
 
+    def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
+        """Validate and stash a ``/scene/select`` request.
+
+        The validation gate is paranoid on purpose: the only paths that
+        can be loaded are ones the demo wrapper explicitly registered
+        in :attr:`_scenes`. A stale browser tab that POSTs an arbitrary
+        ``scene=`` path gets a 400 instead of having its filesystem
+        path latch into the next ``app.run`` iteration.
+        """
+        if not scene_path_str:
+            return False
+        # Match against the registered scenes by string-comparing the
+        # path; ``Path("a") == "a"`` is False so we normalize first.
+        for entry in self._scenes:
+            entry_path = str(entry.get("path", ""))
+            if entry_path == scene_path_str:
+                entry_variants = entry.get("variants", ()) or ("default",)
+                if not isinstance(entry_variants, (list, tuple)):
+                    entry_variants = ("default",)
+                resolved_variant = (
+                    variant if variant in entry_variants else entry_variants[0]
+                )
+                # Wake any handlers waiting on the frame condition so
+                # they observe ``should_close`` flipping and exit their
+                # per-connection loop promptly. Not strictly required
+                # for correctness (the existing 1 s timeout would
+                # eventually retry) but it makes the scene transition
+                # feel snappier.
+                self._pending_scene_change = (Path(entry_path), str(resolved_variant))
+                with self._frame_cond:
+                    self._frame_cond.notify_all()
+                return True
+        return False
+
 
 # Type alias for ``_serve_mjpeg``'s blocking getter parameter. ``None``
 # means the server is shutting down; ``(jpeg, count)`` is a fresh frame.
@@ -586,6 +791,10 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_bev_stream()
             elif parsed.path == "/state":
                 self._serve_state()
+            elif parsed.path == "/scenes":
+                self._serve_scenes()
+            elif parsed.path == "/scene/select":
+                self._serve_scene_select(parse_qs(parsed.query))
             elif parsed.path == "/control":
                 self._serve_control(parse_qs(parsed.query))
             elif parsed.path == "/drive":
@@ -618,6 +827,43 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+
+        def _serve_scenes(self) -> None:
+            """Return the discovered scene options as JSON for the browser dropdown.
+
+            Each entry is ``{label, path, variants}``; the browser renders
+            them into ``<select>`` elements in the upper-right scene
+            picker. Empty list when the demo wasn't given any scene
+            options (e.g. bare ``--no-hud --stream-mjpeg`` without going
+            through the demo wrapper's discovery layer); the browser
+            then hides the picker entirely.
+            """
+            body = json.dumps({"scenes": list(presenter._scenes)}).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _serve_scene_select(self, query: dict[str, list[str]]) -> None:
+            """Mark ``?scene=PATH&variant=NAME`` as the next scene to load.
+
+            Sets the presenter's ``pending_scene_change`` channel; the
+            demo wrapper picks it up between ``app.run()`` iterations
+            and rebuilds the backend with the new scene. Validates the
+            requested scene against the presenter's ``_scenes`` list so a
+            stale browser tab can't smuggle in an arbitrary path.
+            """
+            scene = query.get("scene", [""])[0]
+            variant = query.get("variant", ["default"])[0]
+            ok = presenter._request_scene_change(scene, variant)
+            if not ok:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def _serve_stream(self) -> None:
             self._serve_mjpeg(presenter._wait_for_new_frame)
