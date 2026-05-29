@@ -68,14 +68,17 @@ _PUBLIC_WAN_VAE_CHECKPOINT_PATHS = {
 # / ``quant_conv`` / ``post_quant_conv`` etc. -> our internal layout).
 WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
 
-# Alternative upstream single-file checkpoint. Top-level key prefixes
-# (``encoder.*`` / ``decoder.*`` / ``conv1`` / ``conv2``) line up with
-# our internal :mod:`_residual_vae` model shape, BUT the ``.pth`` does
-# not cover every parameter our ``WanVAE`` wrapper builds (some encoder
-# / decoder slots stay on meta and ``model.to(device)`` raises
-# ``NotImplementedError: Cannot copy out of meta tensor``). Kept as a
-# constant for callers who want to invest in a tighter audit + a
-# tailored loader; the diffusers path above is still the default.
+# Upstream's canonical single-file checkpoint. It covers every parameter
+# our ``WanVAE`` wrapper builds (a verified 1:1 key/shape bijection), but
+# uses Wan's *native* module layout -- each down/up stage is a flat
+# ``Sequential`` (``downsamples.{i}.downsamples.{j}`` /
+# ``upsamples.{i}.upsamples.{j}``) mixing residual blocks and a resample,
+# whereas our wrapper groups them (``resnets.{j}`` + ``downsampler`` /
+# ``upsampler``). So it still needs a remap -- a much smaller one than the
+# diffusers path: :func:`wan22_ti2v_5b_vae_pth_state_dict_transform`.
+# (An earlier audit mistook the key-name divergence for missing params --
+# without a transform, ``load_state_dict(assign=True)`` left our slots on
+# meta and ``model.to(device)`` raised "Cannot copy out of meta tensor".)
 WAN22_TI2V_5B_VAE_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
@@ -1504,11 +1507,10 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
 
 # Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -> flashdreams ``WanVAE``
-# key remap. The production configs below use upstream's
-# ``Wan2.2_VAE.pth`` whose layout matches our model directly (no remap
-# needed); this dict + :func:`wan22_ti2v_5b_vae_state_dict_transform`
-# are kept in tree as an opt-in fallback for callers who'd rather
-# point at the diffusers safetensors shard.
+# key remap. This is the default the production configs below use
+# (diffusers safetensors shard + this ~50-rule remap). The smaller
+# native-``.pth`` path (:func:`wan22_ti2v_5b_vae_pth_state_dict_transform`,
+# 4 rules) is an opt-in alternative pending a GPU decode-parity smoke.
 _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # Top-level quant convs.
     r"^quant_conv\.(.*)$": r"conv1.\1",
@@ -1630,6 +1632,62 @@ def wan22_ti2v_5b_vae_state_dict_transform(
     from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 
     return remap_checkpoint_keys(state_dict, _WAN22_TI2V_5B_VAE_KEY_REMAP)
+
+
+# Native Wan ``Wan2.2_VAE.pth`` -> flashdreams ``WanVAE`` key remap.
+# Only the down/up sampling stages diverge: upstream packs each stage as
+# a flat ``Sequential`` (``downsamples.{i}.downsamples.{j}`` /
+# ``upsamples.{i}.upsamples.{j}``) of residual blocks followed by a
+# resample, while our wrapper groups the residual blocks under
+# ``resnets.{j}`` and the resample under ``downsampler`` / ``upsampler``.
+# The residual / shortcut / resample / time_conv leaf names and the
+# middle / head / conv1 / conv2 blocks are already identical, so they
+# pass through untouched. This yields a verified 1:1 key/shape bijection
+# (see ``test_wan22_vae_pth_remap_is_full_bijection``); much smaller than
+# the diffusers remap because it never has to rename leaves.
+_WAN22_TI2V_5B_VAE_PTH_KEY_REMAP: dict[str, str] = {
+    # Residual blocks: drop the inner ``downsamples`` / ``upsamples``
+    # container name, keep the per-block index, regroup under ``resnets``.
+    r"^encoder\.downsamples\.(\d+)\.downsamples\.(\d+)\.(residual|shortcut)\.(.*)$": (
+        r"encoder.downsamples.\1.resnets.\2.\3.\4"
+    ),
+    r"^decoder\.upsamples\.(\d+)\.upsamples\.(\d+)\.(residual|shortcut)\.(.*)$": (
+        r"decoder.upsamples.\1.resnets.\2.\3.\4"
+    ),
+    # Resample: the single resample per stage (it carries the
+    # ``resample`` / ``time_conv`` leaves, never ``residual``) folds into
+    # the stage's ``downsampler`` / ``upsampler``; its sub-block index is
+    # dropped since there is exactly one.
+    r"^encoder\.downsamples\.(\d+)\.downsamples\.\d+\.(resample|time_conv)\.(.*)$": (
+        r"encoder.downsamples.\1.downsampler.\2.\3"
+    ),
+    r"^decoder\.upsamples\.(\d+)\.upsamples\.\d+\.(resample|time_conv)\.(.*)$": (
+        r"decoder.upsamples.\1.upsampler.\2.\3"
+    ),
+}
+
+
+def wan22_ti2v_5b_vae_pth_state_dict_transform(
+    state_dict: Dict[str, Tensor],
+) -> Dict[str, Tensor]:
+    """Remap upstream's native ``Wan2.2_VAE.pth`` state-dict to ``WanVAE`` keys.
+
+    Opt-in alternative to :func:`wan22_ti2v_5b_vae_state_dict_transform`
+    for callers who point :data:`WAN22_TI2V_5B_VAE_PATH` (the canonical
+    single-file ``.pth`` from ``Wan-AI/Wan2.2-TI2V-5B``) at the loader
+    instead of the diffusers safetensors shard. Purely structural -- no
+    tensors are copied or reshaped -- and a verified 1:1 key/shape
+    bijection with the ``WanVAE`` module tree (no meta leftovers, no
+    unexpected keys).
+
+    Note:
+        Decode-parity against the diffusers path is not yet verified on
+        GPU; until it is, the production configs keep diffusers as the
+        default.
+    """
+    from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
+
+    return remap_checkpoint_keys(state_dict, _WAN22_TI2V_5B_VAE_PTH_KEY_REMAP)
 
 
 @dataclass(kw_only=True)
