@@ -21,7 +21,7 @@ OmniDreams
    <div class="model-link-row">
      <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
      <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
-     <a class="model-link-button" href="https://gitlab-master.nvidia.com/sil/omni-dreams/" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
 OmniDreams is an HDMap-conditioned world model for single-view and multi-view
@@ -157,6 +157,51 @@ When successfully connected, the browser-based UI looks like this:
       Your browser does not support the video tag.
     </video>
   </div>
+
+.. note::
+
+   If ``/request_session`` loads but the video never appears, the
+   browser is likely obfuscating local IPs in WebRTC ICE candidates
+   (replacing them with mDNS ``.local`` hostnames), which prevents the
+   peer connection from completing. Disable the setting and reload:
+
+   - **Chrome / Edge:** ``chrome://flags/#enable-webrtc-hide-local-ips-with-mdns`` → **Disabled**, then restart the browser.
+   - **Brave:** ``brave://settings/privacy/security`` → *WebRTC IP handling policy* → **Default public and private interfaces**.
+   - **Firefox:** ``about:config`` → ``media.peerconnection.ice.obfuscate_host_addresses`` → **false**.
+
+Run the desktop demo
+--------------------
+
+``interactive-drive`` runs the OmniDreams single-view pipeline in a
+local Vulkan window with keyboard or steering-wheel input. Requires
+access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
+and an ``HF_TOKEN`` with read access to
+`nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
+(scene USDZs) and
+`nvidia/omni-dreams-models <https://huggingface.co/nvidia/omni-dreams-models>`_
+(world-model checkpoints).
+
+First-time setup:
+
+.. code-block:: bash
+
+   git clone git@github.com:NVIDIA/flashdreams.git
+   cd flashdreams
+   export HF_TOKEN=<your-hf-token>
+   uv sync --package flashdreams-omnidreams --extra interactive-drive
+
+Optionally pre-download scenes and checkpoints so the first launch
+isn't blocked on network I/O:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams omnidreams-prepare
+
+Run the demo:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive
 
 Performance table
 -----------------

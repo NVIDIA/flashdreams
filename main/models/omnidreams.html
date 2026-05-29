@@ -290,7 +290,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="model-link-row">
   <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
   <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
-  <a class="model-link-button" href="https://gitlab-master.nvidia.com/sil/omni-dreams/" target="_blank" rel="noopener noreferrer">Official code</a>
+  <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
 </div><p>OmniDreams is an HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.</p>
@@ -405,7 +405,46 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
     <source src="https://research.nvidia.com/labs/sil/projects/alpadreams/assets/omnidreams/omnidreams-demo-0524-720P.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
-</div></section>
+</div><div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">/request_session</span></code> loads but the video never appears, the
+browser is likely obfuscating local IPs in WebRTC ICE candidates
+(replacing them with mDNS <code class="docutils literal notranslate"><span class="pre">.local</span></code> hostnames), which prevents the
+peer connection from completing. Disable the setting and reload:</p>
+<ul class="simple">
+<li><p><strong>Chrome / Edge:</strong> <code class="docutils literal notranslate"><span class="pre">chrome://flags/#enable-webrtc-hide-local-ips-with-mdns</span></code> → <strong>Disabled</strong>, then restart the browser.</p></li>
+<li><p><strong>Brave:</strong> <code class="docutils literal notranslate"><span class="pre">brave://settings/privacy/security</span></code> → <em>WebRTC IP handling policy</em> → <strong>Default public and private interfaces</strong>.</p></li>
+<li><p><strong>Firefox:</strong> <code class="docutils literal notranslate"><span class="pre">about:config</span></code> → <code class="docutils literal notranslate"><span class="pre">media.peerconnection.ice.obfuscate_host_addresses</span></code> → <strong>false</strong>.</p></li>
+</ul>
+</div>
+</section>
+<section id="run-the-desktop-demo">
+<h2>Run the desktop demo<a class="headerlink" href="#run-the-desktop-demo" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
+local Vulkan window with keyboard or steering-wheel input. Requires
+access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
+and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
+<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
+(scene USDZs) and
+<a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>
+(world-model checkpoints).</p>
+<p>First-time setup:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:NVIDIA/flashdreams.git
+<span class="nb">cd</span><span class="w"> </span>flashdreams
+<span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
+</pre></div>
+</div>
+<p>Optionally pre-download scenes and checkpoints so the first launch
+isn’t blocked on network I/O:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
+</pre></div>
+</div>
+<p>Run the demo:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
+</pre></div>
+</div>
+</section>
 <section id="performance-table">
 <h2>Performance table<a class="headerlink" href="#performance-table" title="Link to this heading">¶</a></h2>
 <p>Single-view latency on NVIDIA GB300 at <code class="docutils literal notranslate"><span class="pre">704</span> <span class="pre">x</span> <span class="pre">1280</span></code> resolution.</p>
@@ -529,6 +568,7 @@ Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
 <li><a class="reference internal" href="#launch-the-interactive-server">Launch the interactive server</a></li>
+<li><a class="reference internal" href="#run-the-desktop-demo">Run the desktop demo</a></li>
 <li><a class="reference internal" href="#performance-table">Performance table</a></li>
 </ul>
 </li>
