@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-flashvsr"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "FlashVSR streaming video super-resolution (LR projector + Wan 2.1 DiT + TC decoder), packaged as a flashdreams plugin."
 readme = "README.md"
 requires-python = ">=3.10"
