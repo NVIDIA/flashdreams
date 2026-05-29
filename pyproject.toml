@@ -145,18 +145,18 @@ markers = [
 test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "pytest-manual-marker",
-    "imageio-ffmpeg",
+    "pytest-manual-marker>=2.0",
+    "imageio-ffmpeg>=0.5",
 ]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.39", {include-group = "test"}]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
-    "furo",
-    "sphinx",
-    "sphinx-autobuild",
-    "sphinx-copybutton",
-    "sphinx-design",
+    "furo>=2024.0",
+    "sphinx>=7.0",
+    "sphinx-autobuild>=2024.0",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.5",
 ]
 
 # CPU-only runtime deps needed by autodoc to import flashdreams on CI.
