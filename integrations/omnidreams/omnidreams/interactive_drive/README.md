@@ -1,6 +1,6 @@
 # interactive-drive
 
-`interactive-drive` is an interactive demo for exploring Omniverse Dreams live.
+`interactive-drive` is an interactive demo for exploring OmniDreams live.
 
 ![interactive-drive screenshot](screenshot.jpg)
 
