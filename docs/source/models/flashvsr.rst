@@ -123,3 +123,30 @@ A generated sample from the above commands:
        <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
      </div>
    </div>
+
+Profiling benchmark
+-------------------
+
+Here is the profiling benchmark on per-chunk 2x upsampling time for FlashDreams FlashVSR
+compared to the `official FlashVSR implementation <https://github.com/OpenImagingLab/FlashVSR>`_
+under matched settings.
+
+.. raw:: html
+
+  <figure class="benchmark-figure-wrap">
+    <div
+      id="lingbot-world-benchmark-chart"
+      class="benchmark-figure"
+      data-benchmark-md-url="../_static/performance/flashvsr/perf-0527.md"
+      data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
+      data-chart-aria-label="FlashVSR benchmark chart"
+    ></div>
+    <figcaption>
+      <p class="model-footnote">
+        This chart shows per-chunk 2x upsampling time in milliseconds on a single GB300 GPU with a chunk size of 8 frames.
+        For the official FlashVSR implementation, see
+        <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
+      </p>
+    </figcaption>
+  </figure>
+  <script src="../_static/js/benchmark_chart.js"></script>

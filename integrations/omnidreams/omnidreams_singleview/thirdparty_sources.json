@@ -33,6 +33,12 @@
       "repo": "https://github.com/thu-ml/SpargeAttn.git",
       "commit": "bfd980b781784c04ad6a53e7ee657c0645d99171",
       "directory": "SpargeAttn"
+    },
+    {
+      "name": "cudnn-frontend",
+      "repo": "https://github.com/NVIDIA/cudnn-frontend.git",
+      "commit": "deda80e5372d50e925d7bf4f76c5db779be3fbd5",
+      "directory": "cudnn-frontend"
     }
   ]
 }

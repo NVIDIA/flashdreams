@@ -246,7 +246,7 @@ class LudusRenderer:
             timestamps_batch,
             camera_type_id_batch,
             camera_poses_batch,
-            resolution=(H, W),
+            resolution=(H, W),  # ty:ignore[invalid-argument-type]
         )
 
         rgb = images[:, :, :, :3]
@@ -254,7 +254,7 @@ class LudusRenderer:
             rgb = rgb.flip(1)
         # rgb is [N, H, W, 3] where N = n_cameras * n_frames.
         # Rearrange to [n_cameras, n_frames, 3, H, W].
-        return rgb.permute(0, 3, 1, 2).contiguous().view(n_cameras, n_frames, 3, H, W)
+        return rgb.permute(0, 3, 1, 2).contiguous().view(n_cameras, n_frames, 3, H, W)  # ty:ignore[invalid-argument-type]
 
     def cleanup(self) -> None:
         """Cleanup the renderer."""

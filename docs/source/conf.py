@@ -81,8 +81,8 @@ html_static_path = ["_static", "../../assets/logo"]
 # top-level `html_logo`. Files are picked up from `html_static_path`.
 html_theme_options = {
     "logo": {
-        "image_light": "_static/flashdreams-logo-horizontal.png",
-        "image_dark": "_static/flashdreams-logo-horizontal-light.png",
+        "image_light": "_static/horizontal-light.svg",
+        "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
     # layout pages (homepage, benchmarks, community, quickstart, per-

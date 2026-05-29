@@ -29,7 +29,13 @@ class SlangPyPresenter:
             title="interactive_drive",
             resizable=False,
         )
-        self._device = spy.Device(type=spy.DeviceType.vulkan, enable_debug_layers=False)
+        self._device = spy.Device(
+            type=spy.DeviceType.vulkan,
+            enable_debug_layers=False,
+            # Workaround: avoid cuDNN MHA crash on NVIDIA Blackwell + R595.
+            enable_cuda_launch_from_gfx=False,
+            enable_ray_tracing=False,
+        )
         print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
