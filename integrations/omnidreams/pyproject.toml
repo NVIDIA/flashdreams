@@ -65,7 +65,7 @@ ludus-renderer = { workspace = true }
 # after the consumer (the ``interactive-drive`` script) rather than
 # the abstract capability so the install command is self-documenting.
 interactive-drive = [
-    "slangpy==0.41.0",
+    "slangpy==0.42.0",
 ]
 dev = [
     "pytest>=8.0",

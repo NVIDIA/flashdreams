@@ -69,8 +69,8 @@ html_theme_options = {
     "source_branch": "main",
     "source_directory": "docs/source/",
     "sidebar_hide_name": True,
-    "light_logo": "flashdreams-logo-horizontal.png",
-    "dark_logo": "flashdreams-logo-horizontal-light.png",
+    "light_logo": "horizontal-light.svg",
+    "dark_logo": "horizontal-dark.svg",
 }
 
 html_context = {

@@ -30,6 +30,7 @@ from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+REPO_ASSETS_DIR = Path(__file__).resolve().parents[4] / "assets"
 
 
 def configure_logging(*, world_rank: int | None = None) -> None:
@@ -112,12 +113,15 @@ def create_app(
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
-    return create_webrtc_app(
+    app = create_webrtc_app(
         web_dir=WEB_DIR,
         session_manager=manager,
         preload_name="Omnidreams",
         request_session_url=request_session_url,
     )
+    if REPO_ASSETS_DIR.is_dir():
+        app.router.add_static("/assets/", REPO_ASSETS_DIR, show_index=False)
+    return app
 
 
 def build_runtime_config(
