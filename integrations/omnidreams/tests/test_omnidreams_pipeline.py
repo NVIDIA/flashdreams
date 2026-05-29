@@ -24,7 +24,10 @@ from omnidreams.config import (
     SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
 )
 from omnidreams.constants import NEGATIVE_PROMPT
-from omnidreams.pipeline import OmnidreamsPipeline
+from omnidreams.pipeline import (
+    OmnidreamsPipeline,
+    _validate_pixel_resolution_alignment,
+)
 from omnidreams.transformer import (
     CosmosTransformer,
     CosmosTransformerConfig,
@@ -50,6 +53,23 @@ def _make_uninitialized_omnidreams_pipeline() -> OmnidreamsPipeline:
     )
     pipeline.V_group = None
     return pipeline
+
+
+@pytest.mark.ci_cpu
+def test_validate_pixel_resolution_alignment_requires_vae_and_patch_multiple() -> None:
+    _validate_pixel_resolution_alignment(
+        640,
+        1168,
+        spatial_compression_ratio=8,
+        patch_spatial=2,
+    )
+    with pytest.raises(ValueError, match="divisible by 16"):
+        _validate_pixel_resolution_alignment(
+            640,
+            1164,
+            spatial_compression_ratio=8,
+            patch_spatial=2,
+        )
 
 
 @pytest.mark.ci_cpu
@@ -126,6 +146,16 @@ def test_omnidreams_initialize_cache_encodes_cfg_negative_prompt(
         captured_embeddings["negative_text_embeddings"] = negative_text_embeddings
         return object()
 
+    def skip_validate_image_resolution(
+        self: OmnidreamsPipeline, image: torch.Tensor
+    ) -> None:
+        del self, image
+
+    monkeypatch.setattr(
+        OmnidreamsPipeline,
+        "_validate_image_resolution",
+        skip_validate_image_resolution,
+    )
     monkeypatch.setattr(
         OmnidreamsPipeline,
         "initialize_cache_from_embeddings",

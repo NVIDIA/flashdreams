@@ -99,7 +99,10 @@ def _build_pipeline_config(
             enable_sync_and_profile=bool(profile.enabled),
             diffusion_model=dict(
                 seed=seed,
-                transformer=dict(compile_network=manifest.compile_net),
+                transformer=dict(
+                    compile_network=manifest.compile_net,
+                    skip_finalize_kv_cache=manifest.skip_finalize_kv_cache,
+                ),
                 scheduler=dict(
                     denoising_timesteps=list(manifest.denoising_steps),
                     num_inference_steps=len(manifest.denoising_steps),
@@ -114,7 +117,10 @@ def _build_pipeline_config(
             enable_sync_and_profile=bool(profile.enabled),
             diffusion_model=dict(
                 seed=seed,
-                transformer=dict(compile_network=manifest.compile_net),
+                transformer=dict(
+                    compile_network=manifest.compile_net,
+                    skip_finalize_kv_cache=manifest.skip_finalize_kv_cache,
+                ),
             ),
         )
         scheduler_uses_manifest_steps = False
@@ -139,6 +145,15 @@ def _build_pipeline_config(
             f"{config_name} uses flashdreams default denoising steps [1000, 450]; "
             f"got {manifest.denoising_steps}."
         )
+    transformer_config = getattr(config.diffusion_model, "transformer", None)
+    print(
+        "[flashdreams-session] config "
+        f"recipe={config_name} "
+        f"manifest_skip_finalize_kv_cache={manifest.skip_finalize_kv_cache} "
+        "transformer_skip_finalize_kv_cache="
+        f"{getattr(transformer_config, 'skip_finalize_kv_cache', '<missing>')}",
+        flush=True,
+    )
     return config
 
 

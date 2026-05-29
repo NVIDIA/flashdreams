@@ -20,6 +20,8 @@ _HF_URL_PATTERN = re.compile(
     r"^https?://(?:www\.)?huggingface\.co/[^/]+/[^/]+/(?:blob|resolve)/[^/]+/.+$",
     re.IGNORECASE,
 )
+_DEFAULT_RESOLUTION_WH = (1280, 704)
+_RESOLUTION_ALIGNMENT_PX = 16
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -95,16 +97,33 @@ def _resolve_manifest_path(raw_path: str | None, *, manifest_dir: Path) -> Path 
     return path
 
 
+def _parse_resolution_wh(raw: object) -> tuple[int, int]:
+    if raw is None:
+        return _DEFAULT_RESOLUTION_WH
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"resolution_wh must be [width, height], got {raw!r}")
+    width, height = int(raw[0]), int(raw[1])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"resolution_wh must be positive, got {(width, height)!r}")
+    if width % _RESOLUTION_ALIGNMENT_PX or height % _RESOLUTION_ALIGNMENT_PX:
+        raise ValueError(
+            "resolution_wh must be divisible by "
+            f"{_RESOLUTION_ALIGNMENT_PX}, got {(width, height)!r}"
+        )
+    return (width, height)
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
-    resolution_wh: tuple[int, int] = (1280, 704)
+    resolution_wh: tuple[int, int] = _DEFAULT_RESOLUTION_WH
     fps: int = 30
     num_frames_per_block: int = 8
     compile_net: bool = True
     light_vae: bool = True
     encode_with_pixel_shuffle: bool = False
     local_attn_size: int = 6
+    skip_finalize_kv_cache: bool = False
     sink_size: int = 0
     denoising_steps: list[int] = field(default_factory=lambda: [1000, 500])
     upsampling_enabled: bool = False
@@ -134,20 +153,21 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
                 flush=True,
             )
         raw_yaml = rewritten
-    data = yaml.safe_load(raw_yaml)
-    resolution = tuple(data.get("resolution_wh", [1280, 704]))
+    data = yaml.safe_load(raw_yaml) or {}
+    resolution = _parse_resolution_wh(data.get("resolution_wh"))
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(
             data.get("debug_condition_frame_dir"),
             manifest_dir=manifest_dir,
         ),
-        resolution_wh=(int(resolution[0]), int(resolution[1])),
+        resolution_wh=resolution,
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
         compile_net=bool(data.get("compile_net", True)),
         light_vae=bool(data.get("light_vae", True)),
         encode_with_pixel_shuffle=bool(data.get("encode_with_pixel_shuffle", False)),
         local_attn_size=int(data.get("local_attn_size", 6)),
+        skip_finalize_kv_cache=bool(data.get("skip_finalize_kv_cache", False)),
         sink_size=int(data.get("sink_size", 0)),
         denoising_steps=[int(x) for x in data.get("denoising_steps", [1000, 500])],
         upsampling_enabled=bool(data.get("upsampling_enabled", False)),
