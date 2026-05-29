@@ -92,7 +92,7 @@ dev = [
 # main; the canonical extra is ``runners`` (same package set).
 examples = [
     "mediapy>=1.1",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
@@ -101,7 +101,7 @@ examples = [
 # pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
     "mediapy>=1.1",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 serving = [
