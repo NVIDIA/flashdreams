@@ -36,16 +36,20 @@ SPDX-License-Identifier: Apache-2.0
    `pagename` is the Sphinx-source path without extension. The
    reference-docs side covers:
 
-       api/*                — autodoc reference
-       documentation/*      — Documentation tab umbrella
-       developer_guides/*   — developer guides
+       api/*                  — autodoc reference
+       documentation/*        — Documentation tab umbrella
+       developer_guides/*     — developer guides
+       community/contributing — included from repo-root CONTRIBUTING.md;
+                                multi-section reference content that
+                                benefits from the docs scaffold
 
-   Everything else (homepage, benchmarks, community, quickstart,
-   per-model pages) renders in the marketing layout.
+   Everything else (homepage, benchmarks, community index/faq/support,
+   quickstart, per-model pages) renders in the marketing layout.
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
                           or pagename.startswith('documentation/')
-                          or pagename.startswith('developer_guides/') %}
+                          or pagename.startswith('developer_guides/')
+                          or pagename == 'community/contributing' %}
 
 {% block docs_main %}
   {% if _fd_is_reference %}
