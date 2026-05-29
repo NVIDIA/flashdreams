@@ -16,9 +16,9 @@
 FAQ
 ===
 
-Answers to questions that come up repeatedly in issues, Discord, and
-Discussions. If you don't see your question here, check :doc:`support`
-for where to ask.
+Answers to questions that come up repeatedly in the issue tracker
+and on Discord. If you don't see your question here, check
+:doc:`support` for where to ask.
 
 Getting started
 ---------------
@@ -35,17 +35,16 @@ from the same set.
 
 Any CUDA-capable GPU with enough memory for the chosen checkpoint
 should run the streaming recipes; smaller GPUs may need to drop
-multi-GPU recipes back to a single device. See the per-recipe
-``--total-blocks`` defaults in :doc:`/quickstart/first_world_model`
-for the cheapest path to a working clip, and the
-:doc:`benchmarks page </benchmarks/index>` for the profiled
+multi-GPU recipes back to a single device. See the
+:doc:`/quickstart/index` for the cheapest path to a working clip,
+and the :doc:`benchmarks page </benchmarks/index>` for the profiled
 configurations.
 
 Which model recipes ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Eight first-party integrations ship under ``integrations/`` in the
-repo. The :doc:`/models/index` gallery has the full list; in summary:
+repo. The :doc:`/benchmarks/index` page has the full list; in summary:
 
 - :doc:`/models/self_forcing` — Streaming Wan 2.1 T2V (1.3B).
 - :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).

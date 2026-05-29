@@ -36,9 +36,12 @@ Choose a channel
 
    .. grid-item-card:: I have a question about how to do X
       :class-card: fd-feature
+      :link: https://discord.com/invite/nvidiaomniverse
 
-      Use GitHub Discussions or Discord for open-ended "how do I…"
-      questions.
+      `Discord <https://discord.com/invite/nvidiaomniverse>`__ is the
+      venue for open-ended "how do I…" questions; GitHub Discussions
+      will join it once enabled. In the meantime, the issue tracker
+      with the ``question`` label is fine too.
 
    .. grid-item-card:: I have a feature idea
       :class-card: fd-feature
@@ -63,12 +66,13 @@ Choose a channel
    ``https://github.com/NVIDIA/flashdreams/discussions``.
 
 
-.. admonition:: PLACEHOLDER — Discord invite
-   :class: placeholder
+.. admonition:: Chat with the team on Discord
+   :class: fd-callout
 
-   **What goes here:** Replace this with a permanent Discord invite
-   URL once the server is live, and link the "I have a question" card
-   to it.
+   Real-time conversation happens on the NVIDIA Omniverse Discord
+   server — `join here <https://discord.com/invite/nvidiaomniverse>`__.
+   Maintainers and other FlashDreams users hang out in the project
+   channels for quick "how do I…" questions and design discussion.
 
 
 Before you file an issue

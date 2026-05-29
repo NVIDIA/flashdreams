@@ -117,6 +117,6 @@ Use :doc:`/developer_guides/new_integration` for the complete authoring guide.
 Next links
 ----------
 
-- :doc:`/models/index` for model commands.
+- :doc:`/benchmarks/index` for the list of supported models with launch commands.
 - :doc:`/developer_guides/new_integration` for integration authoring.
 - :doc:`/developer_guides/interactive_serving` for serving concepts.

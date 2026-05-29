@@ -22,15 +22,15 @@ Community
 
       Apache-2.0, developed in the open
 
-   .. rubric:: Build streaming diffusion with us.
+   .. rubric:: Community and contribution
       :class: fd-hero-title
 
    .. container:: fd-hero-lede
 
-      FlashDreams is built in the open at
+      FlashDreams is developed in the open at
       `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`__.
-      File a bug, ask a question, send a pull request, or just keep
-      up with releases — every channel that matters lives here.
+      This section collects the channels for filing bugs, asking
+      questions, sending pull requests, and tracking releases.
 
    .. container:: fd-cta-row
 
@@ -64,15 +64,9 @@ Community
 Where to find us
 ----------------
 
-.. container:: fd-eyebrow
-
-   Pick the channel that matches the question
-
-.. container:: fd-lede
-
-   Maintainers monitor GitHub Issues and Discussions first; Discord
-   is the place for real-time conversation; the mailing list is the
-   slow lane for announcements.
+Maintainers monitor GitHub Issues and Discussions first. Discord is
+intended for real-time conversation, and the announcements list is the
+low-volume channel for releases and security advisories.
 
 .. container:: fd-media-rail fd-media-rail-4
 
@@ -84,8 +78,8 @@ Where to find us
 
             GitHub Issues
 
-         File bug reports and feature requests. The fastest way to
-         reach the maintainers with something concrete and
+         File bug reports and feature requests. This is the fastest way
+         to reach the maintainers with something concrete and
          reproducible.
 
          `Open an issue
@@ -107,15 +101,17 @@ Where to find us
 
    .. container:: fd-media-tile
 
-      .. admonition:: PLACEHOLDER — Discord invite URL
-         :class: placeholder
+      .. container:: fd-media-tile-body
 
-         **Tile content once approved:**
+         .. container:: fd-media-tile-title
 
-         Discord — real-time chat with maintainers and other users.
+            Discord
 
-         Drop the permanent (non-expiring) FlashDreams Discord
-         server invite URL into this tile.
+         Real-time chat with maintainers and other users. The
+         FlashDreams community lives on the NVIDIA Omniverse server.
+
+         `Join the Discord
+         <https://discord.com/invite/nvidiaomniverse>`__
 
    .. container:: fd-media-tile
 
@@ -134,22 +130,17 @@ Where to find us
 Contributing
 ------------
 
-.. container:: fd-eyebrow
-
-   New contributor? Start here
-
 .. container:: fd-split fd-split-asymmetric-reverse
 
    .. container:: fd-split-text
 
-      The flow is small, well-trodden, and documented in full on the
+      The contribution flow is documented in full on the
       :doc:`contributing` page. The five steps on the side are the
-      short version — every one is the same step you'd take on any
-      other Apache-licensed NVIDIA repo.
+      short version.
 
-      The authoritative version of this flow — DCO details, review
-      expectations, CI tier markers, the SPDX header template — lives
-      in :doc:`contributing` and the canonical `CONTRIBUTING.md
+      The authoritative version — DCO details, review expectations,
+      CI tier markers, the SPDX header template — lives in
+      :doc:`contributing` and the canonical `CONTRIBUTING.md
       <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`__
       in the repo root.
 
@@ -163,8 +154,8 @@ Contributing
 
          1. **Fork** ``NVIDIA/flashdreams`` and create a feature
             branch off ``main``.
-         2. **Set up** your local environment — see
-            :doc:`/quickstart/installation`.
+         2. **Set up** your local environment — see the
+            :doc:`/quickstart/index`.
          3. **Run** the linters and CPU-tier tests before you push;
             the :doc:`contributing` page has the exact commands.
          4. **Sign off** every commit with ``git commit --signoff``
@@ -174,17 +165,11 @@ Contributing
 Code of conduct
 ---------------
 
-.. container:: fd-eyebrow
-
-   Participation is bound by the NVIDIA OSS code of conduct
-
-.. container:: fd-lede
-
-   FlashDreams follows the
-   `NVIDIA Open Source Code of Conduct <https://github.com/NVIDIA/.github/blob/main/CODE_OF_CONDUCT.md>`__.
-   By participating — issues, discussions, pull requests, chat —
-   you agree to abide by it. Concerns can be reported to the
-   maintainers via the address listed in that document.
+Participation in the project is bound by the
+`NVIDIA Open Source Code of Conduct <https://github.com/NVIDIA/.github/blob/main/CODE_OF_CONDUCT.md>`__.
+By participating — issues, discussions, pull requests, chat — you
+agree to abide by it. Concerns can be reported to the maintainers via
+the address listed in that document.
 
 .. admonition:: PLACEHOLDER — project-local CODE_OF_CONDUCT.md
    :class: placeholder
@@ -197,20 +182,12 @@ Code of conduct
 Maintainers
 -----------
 
-.. container:: fd-eyebrow
-
-   Who owns the repo
-
-.. container:: fd-lede
-
-   FlashDreams is currently maintained by NVIDIA's Simulation &
-   Imitation Learning group, which holds admin rights on the
-   repository, the ``main`` branch protections, and the package
-   publishing keys. The path to becoming a maintainer is sustained,
-   high-quality contribution in an area — see the *Project
-   governance* section of `CONTRIBUTING.md
-   <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#project-governance>`__
-   for the full statement.
+The repository is maintained by the team that owns admin rights,
+``main`` branch protections, and the package publishing keys. The
+path to becoming a maintainer is sustained, high-quality contribution
+in an area — see the *Project governance* section of `CONTRIBUTING.md
+<https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#project-governance>`__
+for the full statement.
 
 .. admonition:: PLACEHOLDER — MAINTAINERS.md
    :class: placeholder
@@ -222,24 +199,18 @@ Maintainers
 Releases
 --------
 
-.. container:: fd-eyebrow
+FlashDreams follows semantic versioning. CI currently publishes
+wheels to `Test PyPI <https://test.pypi.org/project/flashdreams/>`__
+on every push to ``main``; once the package graduates to real PyPI,
+tagged release notes will appear at `GitHub Releases
+<https://github.com/NVIDIA/flashdreams/releases>`__.
 
-   Semver, Test PyPI today, real PyPI on the runway
-
-.. container:: fd-lede
-
-   FlashDreams follows semantic versioning. CI currently publishes
-   wheels to `Test PyPI <https://test.pypi.org/project/flashdreams/>`__
-   on every push to ``main``; once the package graduates to real
-   PyPI, tagged release notes will appear at `GitHub Releases
-   <https://github.com/NVIDIA/flashdreams/releases>`__.
-
-The documentation site is set up for version-pinned hosting once
+The documentation site is configured for version-pinned hosting once
 releases land: release builds will be archived under
 ``flashdreams.org/versions/<x.y.z>/`` alongside the rolling ``main``
 build, with a switcher in the navbar. There are no release tags in
-the repo today, so the per-version layout is on the runway rather
-than in production.
+the repo today, so the per-version layout is configured but not yet
+populated.
 
 .. admonition:: PLACEHOLDER — release cadence statement
    :class: placeholder
@@ -252,29 +223,15 @@ than in production.
 Frequently asked
 ----------------
 
-.. container:: fd-eyebrow
-
-   Recurring questions, all in one place
-
-.. container:: fd-lede
-
-   Answers to questions that come up repeatedly in issues, Discord, and
-   Discussions live on the :doc:`faq` page. If a question keeps coming
-   up in support channels, propose an FAQ entry via a pull request —
-   see :doc:`contributing`.
+Answers to questions that come up repeatedly in the issue tracker
+live on the :doc:`faq` page. If a question keeps recurring in support
+channels, propose an FAQ entry via a pull request — see
+:doc:`contributing`.
 
 .. rst-class:: fd-band-accent fd-cta-banner
 
 Where to next
 -------------
-
-.. container:: fd-eyebrow
-
-   Three doors
-
-.. container:: fd-lede
-
-   Pick the path that matches what you're here to do.
 
 .. container:: fd-cta-row
 

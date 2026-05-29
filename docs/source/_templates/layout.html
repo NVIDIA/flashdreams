@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 {% extends "!layout.html" %}
 
 {#
-   Front-of-site marketing layout.
+   Front-of-site marketing layout vs. reference-docs scaffold.
 
    pydata-sphinx-theme's default `docs_main` block wraps every page's
    body in a docs-style scaffold:
@@ -22,21 +22,35 @@ SPDX-License-Identifier: Apache-2.0
          </div>
        </main>
 
-   That's the right shape for autodoc reference but reads as "docs page
-   with a hero on top" on every non-API page. **Every page except
-   `api/*`** is rendered with the marketing layout — bypassed article
-   scaffold, no sidebars, full-bleed wrapper. Our `fd-*` components
-   (hero, stat grid, feature card, etc.) bring their own layout via
-   `--fd-max-content`.
+   That's the right shape for reference material (autodoc API, the
+   Documentation tab umbrella, and the developer guides) but reads as
+   "docs page with a hero on top" on every marketing-flow page.
 
-   `pagename` is the Sphinx-source path without extension. Only
-   `api/*` falls through to pydata's default `docs_main`; everything
-   else (homepage, benchmarks, community, quickstart, developer
-   guides, models) uses the marketing layout.
+   The render-mode switch picks `_fd_is_reference` for the
+   reference-docs side (left section nav + right page TOC + article
+   container) and the marketing layout otherwise (bypassed article
+   scaffold, no sidebars, full-bleed `fd-landing-main` wrapper). Our
+   `fd-*` components (hero, stat grid, feature card, etc.) bring their
+   own layout via `--fd-max-content` on the marketing side.
+
+   `pagename` is the Sphinx-source path without extension. The
+   reference-docs side covers:
+
+       api/*                — autodoc reference
+       documentation/*      — Documentation tab umbrella
+       developer_guides/*   — developer guides
+
+   Everything else (homepage, benchmarks, community, quickstart,
+   per-model pages) renders in the marketing layout.
 #}
+{% set _fd_is_reference = pagename.startswith('api/')
+                          or pagename.startswith('documentation/')
+                          or pagename.startswith('developer_guides/') %}
+
 {% block docs_main %}
-  {% set _fd_is_landing = not pagename.startswith('api/') %}
-  {% if _fd_is_landing %}
+  {% if _fd_is_reference %}
+    {{ super() }}
+  {% else %}
     <div class="fd-landing-main">
       {{ body }}
     </div>
@@ -45,37 +59,34 @@ SPDX-License-Identifier: Apache-2.0
        to an empty <footer> that the marketing-layout CSS would still
        paint as a visible empty band). The site-wide copyright still
        renders via the outer bd-footer below the main element. #}
-  {% else %}
-    {{ super() }}
   {% endif %}
 {% endblock docs_main %}
 
 {#
    Tag <body> so CSS can target marketing pages without `:has()`
-   tricks. Same set as the `docs_main` switch above.
+   tricks. Same partition as the `docs_main` switch above: pages on
+   the reference-docs side get no `fd-page-landing` class.
 
    `fd-prose-narrow` is layered on top of `fd-page-landing` for the
-   prose-heavy sub-pages — community subpages, quickstart walkthroughs,
-   developer guides, and per-model pages. These are reading-column
+   prose-heavy marketing sub-pages — community subpages, quickstart
+   walkthroughs, and per-model pages. These are reading-column
    surfaces (paragraphs of explanation, code blocks, walkthrough
    steps) that benefit from a narrower line length and tighter band
    padding than the marketing grids on section index pages.
 
-   The section *index* pages themselves (`quickstart/index`,
-   `developer_guides/index`, `models/index`, `community/index`,
-   `benchmarks/index`, and the root `index`) keep the wider default
-   so their hero band, asymmetric splits, and tile grids have room
-   to breathe.
+   The marketing section *index* pages themselves (`quickstart/index`,
+   `community/index`, `benchmarks/index`, and the root `index`) keep
+   the wider default so their hero band, asymmetric splits, and tile
+   grids have room to breathe. Pages on the reference-docs side
+   (`_fd_is_reference`) never get the prose-narrow flag since they
+   already live in pydata's article container.
 #}
 {% block body_tag %}
-  {% set _fd_is_landing = not pagename.startswith('api/') %}
   {% set _fd_prose_narrow_indices = ('community/index',
                                      'quickstart/index',
-                                     'developer_guides/index',
-                                     'models/index',
                                      'benchmarks/index') %}
-  {% set _fd_is_prose_narrow = _fd_is_landing
+  {% set _fd_is_prose_narrow = (not _fd_is_reference)
                                and pagename != master_doc
                                and pagename not in _fd_prose_narrow_indices %}
-  <body data-default-mode="{{ default_mode }}"{% if _fd_is_landing %} class="fd-page-landing{% if _fd_is_prose_narrow %} fd-prose-narrow{% endif %}"{% endif %}>
+  <body data-default-mode="{{ default_mode }}"{% if not _fd_is_reference %} class="fd-page-landing{% if _fd_is_prose_narrow %} fd-prose-narrow{% endif %}"{% endif %}>
 {% endblock body_tag %}

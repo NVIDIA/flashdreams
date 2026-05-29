@@ -1093,6 +1093,97 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 }
 
 
+/* FOOTER ICON LINKS ------------------------------------------------------
+   GitHub + Discord channel icons rendered into the FOOTER via the
+   `icon-links` entry in `html_theme_options["footer_end"]`. The
+   component template (`pydata_sphinx_theme/components/icon-links.html`)
+   emits `<ul class="navbar-icon-links">` with FontAwesome `<i>` glyphs
+   inside `.nav-link.pst-navbar-icon` anchors — same markup regardless
+   of whether it's placed in the navbar or footer.
+
+   Scope these rules to `.bd-footer` so they don't fight the upstream
+   navbar styling (we have no navbar icon-links on this site, but the
+   selector keeps the rule isolated and lets a future maintainer
+   re-introduce a navbar instance without collision). */
+
+.bd-footer .navbar-icon-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fd-space-3);
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bd-footer .navbar-icon-links > .nav-item {
+    margin: 0;
+    padding: 0;
+}
+
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    color: var(--fd-text-muted);
+    border-radius: var(--fd-radius-sm);
+    transition: color var(--fd-transition),
+                background-color var(--fd-transition);
+}
+
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon:hover,
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon:focus-visible {
+    color: var(--fd-accent);
+    background: var(--fd-accent-soft);
+    text-decoration: none;
+}
+
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon > i {
+    font-size: 1.25rem;     /* override FontAwesome `fa-lg` */
+    line-height: 1;
+}
+
+/* Strip default link underline on the icon anchors (some pydata
+   stylesheets re-apply text-decoration on visited / hover links). */
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon,
+.bd-footer .navbar-icon-links .nav-link.pst-navbar-icon:visited {
+    text-decoration: none;
+}
+
+/* The marketing-page footer block reserves an inner container with
+   `.bd-footer__inner`; the footer's start / end items sit on its left
+   and right via flexbox. Make sure the end (icon links) stays right-
+   aligned even when the copyright text wraps onto multiple lines. */
+.bd-footer .bd-footer__inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--fd-space-3);
+}
+.bd-footer .footer-items__start {
+    flex: 1 1 auto;
+}
+.bd-footer .footer-items__end {
+    flex: 0 0 auto;
+}
+
+/* On narrow viewports stack the copyright above the icon row and
+   center both. */
+@media (max-width: 540px) {
+    .bd-footer .bd-footer__inner {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    .bd-footer .navbar-icon-links {
+        justify-content: center;
+    }
+}
+
+
 /* COMMUNITY-SUBPAGE PROSE TWEAKS ----------------------------------------
    The community/contributing, community/faq, community/support pages
    are heavy prose. They use the landing layout (no sidebars) but with

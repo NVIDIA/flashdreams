@@ -84,28 +84,51 @@ html_theme_options = {
         "image_light": "_static/flashdreams-logo-horizontal.png",
         "image_dark": "_static/flashdreams-logo-horizontal-light.png",
     },
-    # Per-page-pattern map (same shape as `html_sidebars`). Every
-    # marketing-layout page (homepage, benchmarks, community,
-    # quickstart, developer guides, models) renders without a right
-    # sidebar; only `api/*` (autodoc reference) keeps the in-page
-    # TOC. Patterns must be non-overlapping — pydata warns on any
-    # page that matches more than one — so each section is enumerated
-    # explicitly rather than using a `**` catch-all.
+    # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
+    # layout pages (homepage, benchmarks, community, quickstart, per-
+    # model pages) render without a right sidebar; the reference-docs
+    # side (`api/*`, the Documentation tab umbrella, and the developer
+    # guides) keeps the in-page TOC. Patterns must be non-overlapping
+    # — pydata warns on any page that matches more than one — so each
+    # section is enumerated explicitly rather than using a `**`
+    # catch-all.
     "secondary_sidebar_items": {
         "index": [],
         "benchmarks/*": [],
         "community/*": [],
         "quickstart/*": [],
-        "developer_guides/*": [],
+        "developer_guides/*": ["page-toc"],
         "models/*": [],
+        "documentation/*": ["page-toc"],
         "api/*": ["page-toc"],
     },
     "pygments_light_style": "tango",
     "pygments_dark_style": "monokai",
-    "github_url": "https://github.com/NVIDIA/flashdreams",
-    # Drop the "Built with the PyData Sphinx Theme x.y.z" footer credit.
+    # Channel icons (GitHub + Discord) — rendered as FontAwesome brand
+    # SVGs via pydata-sphinx-theme's `icon-links` component, wired into
+    # the FOOTER (see `footer_end` below). The navbar `github_url`
+    # shortcut is deliberately NOT set here; we want a single canonical
+    # surface for community links, not duplicated icons in the navbar
+    # AND the footer.
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/NVIDIA/flashdreams",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        },
+        {
+            "name": "Discord",
+            "url": "https://discord.com/invite/nvidiaomniverse",
+            "icon": "fa-brands fa-discord",
+            "type": "fontawesome",
+        },
+    ],
+    # Footer arrangement: copyright on the left, channel icons on the
+    # right. `icon-links` resolves to `components/icon-links.html`
+    # which iterates `theme_icon_links` (the list above).
     "footer_start": ["copyright"],
-    "footer_end": [],
+    "footer_end": ["icon-links"],
     "navigation_depth": 4,
     # `False` so each section's sub-pages stay visible in the left
     # sidebar when you're on a page within that section. `True`
@@ -114,11 +137,12 @@ html_theme_options = {
     # top-level entries the navbar already carries.
     "collapse_navigation": False,
     # -- Top navbar arrangement -----------------------------------------
-    # Logo | centered nav | theme switcher + GitHub icon (auto-rendered
-    # from `github_url`) | persistent search button.
+    # Logo | centered nav | theme switcher | persistent search button.
+    # Channel icons (GitHub / Discord) live in the FOOTER, not the
+    # navbar — see `icon_links` and `footer_end` above.
     "navbar_start": ["navbar-logo"],
     "navbar_center": ["navbar-nav"],
-    "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    "navbar_end": ["theme-switcher"],
     "navbar_persistent": ["search-button"],
     # Keep the navbar at depth 1 — only the master_doc's top-level
     # toctree entries appear there. Sub-pages live in each section's
@@ -133,18 +157,20 @@ html_theme_options = {
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
-# Sidebar" toggle) but no nav contents. Every marketing-layout page
-# (homepage, benchmarks, community, quickstart, developer guides,
-# models) gets no left sidebar — section wayfinding lives in the
-# section-index page's hero + tile grid instead. Only `api/*` (the
-# autodoc reference) keeps the section nav tree.
+# Sidebar" toggle) but no nav contents. Marketing-layout pages
+# (homepage, benchmarks, community, quickstart, per-model pages) get
+# no left sidebar — section wayfinding lives in the section-index
+# page's hero + tile grid instead. The reference-docs side (`api/*`,
+# the Documentation tab umbrella, and the developer guides) keeps
+# the section nav tree.
 html_sidebars = {
     "index": [],
     "benchmarks/*": [],
     "community/*": [],
     "quickstart/*": [],
-    "developer_guides/*": [],
+    "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],
+    "documentation/*": ["sidebar-nav-bs"],
     "api/*": ["sidebar-nav-bs"],
 }
 
