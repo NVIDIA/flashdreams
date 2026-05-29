@@ -112,6 +112,38 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
+    parser.add_argument(
+        "--no_nvenc",
+        action="store_true",
+        help=(
+            "Disable NVENC H.264 encoding; use aiortc VP8 software encoder "
+            "instead.  Useful for A/B profiling comparisons."
+        ),
+    )
+    parser.add_argument(
+        "--video_encoder_bitrate",
+        type=int,
+        default=10_000_000,
+        help="Target bitrate for NVENC H.264 encoder (bits/sec).",
+    )
+    parser.add_argument(
+        "--video_encoder_gpu_id",
+        type=int,
+        default=0,
+        help="GPU index used by the NVENC encoder.",
+    )
+    parser.add_argument(
+        "--video_queue_max_size",
+        type=int,
+        default=512,
+        help="Max queued encoded packets in the video track (0 = unbounded).",
+    )
+    parser.add_argument(
+        "--keyframe_interval_chunks",
+        type=int,
+        default=30,
+        help="Force an IDR keyframe every N generated chunks.",
+    )
     return parser.parse_args()
 
 
@@ -151,6 +183,11 @@ def build_runtime_config(
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
+        use_nvenc=not args.no_nvenc,
+        video_encoder_bitrate=args.video_encoder_bitrate,
+        video_encoder_gpu_id=args.video_encoder_gpu_id,
+        video_queue_max_size=args.video_queue_max_size,
+        keyframe_interval_chunks=args.keyframe_interval_chunks,
     )
 
 

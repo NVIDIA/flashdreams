@@ -66,7 +66,8 @@ def tensor_chunk_to_abgr_cuda_frames(video_chunk: torch.Tensor) -> list[torch.Te
         )
         frames_rgb = frames_rgb.permute(0, 2, 3, 1).contiguous()
 
-    # RGB → ABGR channel reorder
+    # PyNvVideoCodec "ABGR" surface format = 32-bit packed pixel with A in
+    # MSB and R in LSB.  On little-endian the memory byte order is R,G,B,A.
     alpha = torch.full(
         (frames_rgb.shape[0], frames_rgb.shape[1], frames_rgb.shape[2], 1),
         255,
@@ -75,10 +76,8 @@ def tensor_chunk_to_abgr_cuda_frames(video_chunk: torch.Tensor) -> list[torch.Te
     )
     frames_abgr = torch.cat(
         (
-            alpha,
-            frames_rgb[..., 2:3],  # B
-            frames_rgb[..., 1:2],  # G
-            frames_rgb[..., 0:1],  # R
+            frames_rgb,  # R, G, B
+            alpha,       # A
         ),
         dim=-1,
     ).contiguous()
@@ -105,6 +104,9 @@ class ChunkEncodingResult:
 
 
 _H264_NAL_TYPE_IDR = 5
+# Filler data NAL (type 12) — decoders are required to ignore it.
+# Used to maintain 1:1 packet-to-frame pacing when NVENC buffers a frame.
+_H264_FILLER_NAL = b"\x00\x00\x00\x01\x0c\x80"
 
 
 def _payload_contains_idr(payload: bytes) -> bool:
@@ -156,7 +158,7 @@ class PyNvVideoCodecH264ChunkEncoder:
         self._encoder: Any = self._create_encoder()
         logger.info(
             "PyNvVideoCodec H.264 encoder created: {}x{} fps={} bitrate={} "
-            "gpu_id={} preset=P1 tuning=ultra_low_latency rc=cbr",
+            "gpu_id={} preset=P4 tuning=ultra_low_latency rc=cbr",
             width, height, fps, bitrate, gpu_id,
         )
 
@@ -168,7 +170,7 @@ class PyNvVideoCodecH264ChunkEncoder:
             False,
             gpu_id=self._gpu_id,
             codec="h264",
-            preset="P1",
+            preset="P4",
             tuning_info="ultra_low_latency",
             rc="cbr",
             fps=self._fps,
@@ -203,13 +205,14 @@ class PyNvVideoCodecH264ChunkEncoder:
             else:
                 bitstream = self._encoder.Encode(frame_abgr)
             payload = bytes(bitstream)
-            if payload:
-                is_keyframe = _payload_contains_idr(payload)
-                if is_keyframe:
-                    num_keyframes += 1
-                packets.append(
-                    EncodedVideoPacket(payload=payload, keyframe=is_keyframe)
-                )
+            if not payload:
+                payload = _H264_FILLER_NAL
+            is_keyframe = _payload_contains_idr(payload)
+            if is_keyframe:
+                num_keyframes += 1
+            packets.append(
+                EncodedVideoPacket(payload=payload, keyframe=is_keyframe)
+            )
 
         encode_ms = (time.perf_counter() - start_s) * 1000.0
         total_bytes = sum(len(p.payload) for p in packets)
