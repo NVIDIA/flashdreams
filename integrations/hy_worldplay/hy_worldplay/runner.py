@@ -17,10 +17,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -92,7 +94,7 @@ def preprocess_first_frame(
     scale = max(target_h / src_h, target_w / src_w)
     new_h = int(round(src_h * scale))
     new_w = int(round(src_w * scale))
-    img = img.resize((new_w, new_h), Image.LANCZOS)
+    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     left = (new_w - target_w) // 2
     top = (new_h - target_h) // 2
@@ -518,7 +520,7 @@ class HyWorldPlayWanI2VRunner(
         *,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> object:
+    ) -> contextlib.AbstractContextManager[Any]:
         """Build a context manager that overrides the diffusion noise per chunk.
 
         When ``HY_VENDOR_NOISE_MODE=1`` the runner pre-draws the full
@@ -534,13 +536,15 @@ class HyWorldPlayWanI2VRunner(
         Returns ``nullcontext()`` when the env var is unset, leaving
         the pipeline to draw noise from its private ``torch.Generator``.
         """
-        import contextlib
         import math
         import os
+        from typing import Any
         from unittest.mock import patch as _mock_patch
 
         from einops import rearrange
         from loguru import logger
+
+        from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
         if os.environ.get("HY_VENDOR_NOISE_MODE", "") != "1":
             return contextlib.nullcontext()
@@ -549,6 +553,7 @@ class HyWorldPlayWanI2VRunner(
         diffusion_model = self.pipeline.diffusion_model
         transformer = diffusion_model.transformer
         transformer_cfg = transformer.config
+        assert isinstance(transformer_cfg, Wan21TransformerConfig)
 
         len_t = transformer_cfg.len_t
         kt, kh, kw = transformer_cfg.network.patch_size
@@ -627,7 +632,7 @@ class HyWorldPlayWanI2VRunner(
 
         orig_randn = torch.randn
 
-        def patched_randn(*args: object, **kwargs: object) -> Tensor:
+        def patched_randn(*args: Any, **kwargs: Any) -> Tensor:
             shape_arg: tuple[int, ...] | None = None
             if args:
                 first = args[0]

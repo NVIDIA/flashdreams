@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
 
@@ -53,7 +55,7 @@ _HY_WORLDPLAY_HY_KEY_REMAP: dict[str, str] = {
 
 
 def hy_worldplay_distilled_state_dict_transform(
-    state_dict: dict[str, torch.Tensor],
+    state_dict: dict[str, Any],
 ) -> dict[str, torch.Tensor]:
     """Remap the distilled WAN-5B checkpoint to :class:`HyWorldPlayWanDiTNetwork` keys.
 

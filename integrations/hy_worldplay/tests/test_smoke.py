@@ -193,7 +193,10 @@ def test_runner_uses_base_checkpoint_without_ckpt_path() -> None:
         wan22_ti2v_5b_dit_state_dict_transform,
     )
 
+    from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+
     transformer = PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.diffusion_model.transformer
+    assert isinstance(transformer, Wan21TransformerConfig)
     assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
     assert transformer.state_dict_transform is wan22_ti2v_5b_dit_state_dict_transform
     assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B.ckpt_path is None
@@ -201,16 +204,22 @@ def test_runner_uses_base_checkpoint_without_ckpt_path() -> None:
 
 def test_runner_config_default_paths_are_unset() -> None:
     """Per-user paths must default to ``None`` so the config is portable."""
-    cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        pipeline=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
+    )
     assert cfg.image_path is None
     assert cfg.ckpt_path is None
 
 
 def test_runner_config_accepts_ckpt_path() -> None:
     """Setting ``ckpt_path`` on the runner config is plain dataclass assignment, no side-effects."""
+    from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+
     distilled_path = Path("/some/distilled/model.pt")
     cfg = HyWorldPlayWanI2VRunnerConfig(
         runner_name="hy-worldplay-wan-i2v-5b",
+        pipeline=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
         ckpt_path=distilled_path,
     )
     assert cfg.ckpt_path == distilled_path
@@ -219,6 +228,7 @@ def test_runner_config_accepts_ckpt_path() -> None:
     # transformer config at construction time (see
     # ``HyWorldPlayWanI2VRunner.__init__``).
     transformer = cfg.pipeline.diffusion_model.transformer
+    assert isinstance(transformer, Wan21TransformerConfig)
     from wan22.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
 
     assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH

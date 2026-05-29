@@ -285,18 +285,18 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
     )
 
     original = Wan21Transformer.predict_flow
-    Wan21Transformer.predict_flow = _capture_predict_flow  # type: ignore[assignment]
+    Wan21Transformer.predict_flow = _capture_predict_flow  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     try:
         HyWorldPlayWan21Transformer.predict_flow(
             transformer,
             noisy_latent=torch.zeros(1, 4),
             timestep=torch.tensor(0.5),
-            cache=None,  # type: ignore[arg-type]
+            cache=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             input=ctrl,
             network_extra_kwargs=None,
         )
     finally:
-        Wan21Transformer.predict_flow = original  # type: ignore[assignment]
+        Wan21Transformer.predict_flow = original  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     assert "network_extra_kwargs" in captured["kwargs"]
     nek = captured["kwargs"]["network_extra_kwargs"]

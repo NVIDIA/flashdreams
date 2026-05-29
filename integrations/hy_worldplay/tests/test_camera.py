@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 import torch
 
@@ -32,7 +34,10 @@ def test_hyworldplay_ctrl_camera_fields_default_to_none() -> None:
     """Camera ctrl fields default ``None`` so action-only callers stay opt-in."""
     from hy_worldplay._action import HyWorldPlayCtrl
 
-    ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
+    ctrl = HyWorldPlayCtrl(
+        latent=torch.zeros(1, 1, 1, 1, 1),
+        mask=torch.zeros(1, 1, 1, 1, 1),
+    )
     assert ctrl.viewmats is None
     assert ctrl.Ks is None
     assert ctrl.action is None
@@ -47,7 +52,7 @@ def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
-    fake_self = type("F", (), {})()
+    fake_self: Any = type("F", (), {})()
 
     def passthrough(self, x):
         return x
@@ -94,7 +99,7 @@ def test_hyworldplay_transformer_patchify_preserves_camera_fields() -> None:
 ## ---------------------------------------------------------------------------
 
 
-def _make_prope_block(*, dim: int = 64, num_heads: int = 2) -> object:
+def _make_prope_block(*, dim: int = 64, num_heads: int = 2) -> Any:
     """Build a tiny :class:`HyWorldPlayPRoPEBlock` for the structural checks below."""
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
@@ -157,7 +162,13 @@ def test_prope_block_forward_requires_viewmats() -> None:
     rope_freqs = torch.zeros(4, 1, 1, 32)
 
     with pytest.raises(ValueError, match="viewmats"):
-        block(x=x, e=e, cache=object(), rope_freqs=rope_freqs, viewmats=None)
+        block(  # ty: ignore[call-non-callable]
+            x=x,
+            e=e,
+            cache=cast(Any, object()),
+            rope_freqs=rope_freqs,
+            viewmats=None,
+        )
 
 
 def test_prope_self_attention_rejects_context_parallel() -> None:
@@ -169,13 +180,13 @@ def test_prope_self_attention_rejects_context_parallel() -> None:
 
     # Stub ``is_context_parallel_enabled`` so we can hit the gate
     # without setting up a distributed mesh.
-    attn.is_context_parallel_enabled = lambda: True  # type: ignore[assignment]
+    attn.is_context_parallel_enabled = lambda: True  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     with pytest.raises(NotImplementedError, match="context-parallel"):
         attn.forward_dual_branch(
             x=torch.zeros(1, 4, 64),
-            kv_cache=object(),  # type: ignore[arg-type]
-            prope_kv_cache=object(),  # type: ignore[arg-type]
+            kv_cache=cast(Any, object()),
+            prope_kv_cache=cast(Any, object()),
             rope_freqs=None,
             viewmats=torch.zeros(1, 4, 4, 4),
             Ks=None,

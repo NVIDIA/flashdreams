@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 import torch
@@ -189,7 +191,10 @@ def test_hyworldplay_ctrl_memory_field_defaults_to_none() -> None:
     """``memory_frame_indices`` defaults ``None`` so non-memory callers stay opt-in."""
     from hy_worldplay._action import HyWorldPlayCtrl
 
-    ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
+    ctrl = HyWorldPlayCtrl(
+        latent=torch.zeros(1, 1, 1, 1, 1),
+        mask=torch.zeros(1, 1, 1, 1, 1),
+    )
     assert ctrl.memory_frame_indices is None
 
 
@@ -204,7 +209,7 @@ def test_hyworldplay_transformer_patchify_preserves_memory_indices() -> None:
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
-    fake_self = type("F", (), {})()
+    fake_self: Any = type("F", (), {})()
     fake_self.patchify_and_maybe_split_cp = (
         HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp.__get__(fake_self)
     )
@@ -388,9 +393,13 @@ def test_encoder_compute_memory_indices_no_camera_returns_none() -> None:
 
 def test_memory_knobs_default_match_upstream() -> None:
     """Memory-knob defaults track upstream's ``pipeline_wan_w_mem_relative_rope.py`` call site."""
+    from hy_worldplay.config import PIPELINE_HY_WORLDPLAY_WAN_I2V_5B
     from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
-    cfg = HyWorldPlayWanI2VRunnerConfig(runner_name="hy-worldplay-wan-i2v-5b")
+    cfg = HyWorldPlayWanI2VRunnerConfig(
+        runner_name="hy-worldplay-wan-i2v-5b",
+        pipeline=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
+    )
     assert cfg.memory_frames == 16
     assert cfg.temporal_context_size == 12
     assert cfg.memory_pred_latent_size == 4

@@ -318,6 +318,10 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             _debug_dump.dump("attn.cached_k_pre_mem_concat", cached_k)
             _debug_dump.dump("attn.cached_v_pre_mem_concat", cached_v)
         if memory_kv_cache is not None and memory_kv_cache.has_rope_kv:
+            # ``has_rope_kv`` guarantees both branches are populated; the
+            # asserts narrow ``Tensor | None`` for ``torch.cat``.
+            assert memory_kv_cache.k_rope is not None
+            assert memory_kv_cache.v_rope is not None
             if _debug_dump.enabled():
                 _debug_dump.dump("attn.memory_k_rope_prepend", memory_kv_cache.k_rope)
                 _debug_dump.dump("attn.memory_v_rope_prepend", memory_kv_cache.v_rope)
@@ -334,6 +338,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         prope_cached_k = prope_kv_cache.cached_k()
         prope_cached_v = prope_kv_cache.cached_v()
         if memory_kv_cache is not None and memory_kv_cache.has_prope_kv:
+            assert memory_kv_cache.k_prope is not None
+            assert memory_kv_cache.v_prope is not None
             prope_cached_k = torch.cat(
                 [memory_kv_cache.k_prope, prope_cached_k], dim=-3
             )
@@ -503,7 +509,7 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
       context is ``[memory K/V, current chunk K/V]`` along ``seq_dim=-3``.
     """
 
-    prope_self_attn: BlockKVCache = None  # type: ignore[assignment]
+    prope_self_attn: BlockKVCache = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     """PRoPE-branch KV cache (current-chunk K / V, dual of ``self_attn``)."""
 
     memory: HyWorldPlayMemoryKVCache = field(default_factory=HyWorldPlayMemoryKVCache)
@@ -684,6 +690,10 @@ class HyWorldPlayPRoPEBlock(Block):
         # Cross-attn residual stays in bf16 (matches vendor); only the
         # norm before attn2 runs in fp32 because the affine weights on
         # ``norm3`` are loaded in bf16.
+        # ``norm3`` is typed ``LayerNorm | Identity`` on the parent
+        # ``Block`` (depending on ``cross_attn_norm``); the PRoPE block
+        # is always built with ``cross_attn_norm=True`` so narrow here.
+        assert isinstance(self.norm3, nn.LayerNorm)
         x = x + self.cross_attn(
             _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,
@@ -758,6 +768,9 @@ class HyWorldPlayPRoPEBlock(Block):
         )
         x = (x.float() + y.float() * e_chunks[2]).type_as(x)
 
+        # See note in ``forward``: ``cross_attn_norm=True`` for the PRoPE
+        # block, so ``norm3`` is always ``LayerNorm`` here.
+        assert isinstance(self.norm3, nn.LayerNorm)
         x = x + self.cross_attn(
             _fp32_layer_norm(x, self.norm3).type_as(x),
             kv_cache=cache.cross_attn,

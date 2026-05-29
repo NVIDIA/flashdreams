@@ -1178,8 +1178,14 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 if isinstance(block_cache, HyWorldPlayPRoPEBlockCache):
                     block_cache.memory.reset()
 
+        # Narrow the parent's ``self.network`` (typed as ``Tensor | Module``
+        # by ``nn.Module``'s ``__getattr__`` overload) to the HY-DiT network
+        # so the memory-prefill entry point resolves.
+        network = self.network
+        assert isinstance(network, HyWorldPlayWanDiTNetwork)
+
         # Conditional pass.
-        self.network.prefill_memory_kv_cache(
+        network.prefill_memory_kv_cache(
             x=memory_x,
             timesteps=context_timestep,
             cache=cache.network_cache,
@@ -1190,7 +1196,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         )
         # Unconditional pass (when CFG is enabled).
         if cache.network_cache_uncond is not None:
-            self.network.prefill_memory_kv_cache(
+            network.prefill_memory_kv_cache(
                 x=memory_x,
                 timesteps=context_timestep,
                 cache=cache.network_cache_uncond,

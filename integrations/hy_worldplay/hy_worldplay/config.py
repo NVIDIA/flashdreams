@@ -25,7 +25,10 @@ from flashdreams.infra.diffusion.scheduler import (
     FlowMatchEulerDiscreteSchedulerConfig,
 )
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.recipes.wan.autoencoder.i2v import WanI2VCtrlEncoderConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipelineConfig
+from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
+from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 from hy_worldplay._action import (
     HyWorldPlayWan21TransformerConfig,
     HyWorldPlayWanCtrlEncoderConfig,
@@ -62,12 +65,18 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
         fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
     )
 
+    assert isinstance(pipeline.encoder, WanI2VCtrlEncoderConfig)
     pipeline.encoder = HyWorldPlayWanCtrlEncoderConfig(
         encoder=pipeline.encoder.encoder,
     )
 
     base_t = pipeline.diffusion_model.transformer
+    # Narrow ``TransformerConfig`` (the slot's static type) to the
+    # Wan-2.2 TI2V-5B's concrete config so ty resolves the subclass-only
+    # attributes copied across below.
+    assert isinstance(base_t, Wan21TransformerConfig)
     base_n = base_t.network
+    assert isinstance(base_n, WanDiTNetworkConfig)
     pipeline.diffusion_model.transformer = HyWorldPlayWan21TransformerConfig(
         network=HyWorldPlayWanDiTNetworkConfig(
             patch_size=base_n.patch_size,

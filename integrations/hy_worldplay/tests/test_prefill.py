@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 
@@ -58,6 +60,7 @@ def test_memory_kv_cache_write_rope_round_trip() -> None:
     cache.write_rope(k, v)
     assert cache.has_rope_kv is True
     assert cache.has_prope_kv is False
+    assert cache.k_rope is not None and cache.v_rope is not None
     assert torch.equal(cache.k_rope, k)
     assert torch.equal(cache.v_rope, v)
     assert cache.is_empty is False
@@ -73,6 +76,7 @@ def test_memory_kv_cache_write_prope_round_trip() -> None:
     cache.write_prope(k, v)
     assert cache.has_prope_kv is True
     assert cache.has_rope_kv is False
+    assert cache.k_prope is not None and cache.v_prope is not None
     assert torch.equal(cache.k_prope, k)
     assert torch.equal(cache.v_prope, v)
 
@@ -314,7 +318,7 @@ def test_transformer_cache_history_defaults_to_empty() -> None:
     cache = HyWorldPlayWan21TransformerCache(
         network_cache=WanDiTNetworkCache(block_caches=[]),
         network_cache_uncond=None,
-        rope_adapter=fake_rope,  # type: ignore[arg-type]
+        rope_adapter=fake_rope,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     )
     assert cache.clean_latent_history is None
     assert cache.finished_chunks == 0
@@ -491,7 +495,7 @@ def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
     cache = HyWorldPlayWan21TransformerCache(
         network_cache=WanDiTNetworkCache(block_caches=[block_cache]),
         network_cache_uncond=None,
-        rope_adapter=type("R", (), {})(),  # type: ignore[arg-type]
+        rope_adapter=type("R", (), {})(),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         autoregressive_index=1,
     )
 
@@ -531,7 +535,7 @@ def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:
     cache = HyWorldPlayWan21TransformerCache(
         network_cache=WanDiTNetworkCache(block_caches=[block_cache]),
         network_cache_uncond=None,
-        rope_adapter=FakeRope(),  # type: ignore[arg-type]
+        rope_adapter=FakeRope(),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     )
 
     # Simulate chunk 0 ending with populated rolling caches.
@@ -573,7 +577,7 @@ def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
     cache = HyWorldPlayWan21TransformerCache(
         network_cache=WanDiTNetworkCache(block_caches=[block_cache]),
         network_cache_uncond=None,
-        rope_adapter=FakeRope(),  # type: ignore[arg-type]
+        rope_adapter=FakeRope(),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     )
 
     cache.start(autoregressive_index=0)
@@ -596,7 +600,10 @@ def test_ctrl_rollout_fields_default_to_none() -> None:
     """
     from hy_worldplay._action import HyWorldPlayCtrl
 
-    ctrl = HyWorldPlayCtrl(latent=torch.zeros(1, 1, 1, 1, 1), mask=None)
+    ctrl = HyWorldPlayCtrl(
+        latent=torch.zeros(1, 1, 1, 1, 1),
+        mask=torch.zeros(1, 1, 1, 1, 1),
+    )
     assert ctrl.rollout_viewmats is None
     assert ctrl.rollout_Ks is None
     assert ctrl.rollout_action is None
@@ -611,7 +618,7 @@ def test_ctrl_rollout_fields_survive_patchify_rebuild() -> None:
     """
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
-    fake_self = type("F", (), {})()
+    fake_self: Any = type("F", (), {})()
 
     fake_self.patchify_and_maybe_split_cp = (
         HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp.__get__(fake_self)

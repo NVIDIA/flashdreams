@@ -53,6 +53,7 @@ def _fixture_image_or_skip() -> Path:
             "HY_WORLDPLAY_FIXTURE_IMAGE must be set to a first-frame "
             "image path to run the native-pipeline GPU smoke test."
         )
+    assert fixture_image is not None
     image = Path(fixture_image)
     if not image.exists():
         pytest.skip(f"native-pipeline GPU smoke fixture not found: {image}")
