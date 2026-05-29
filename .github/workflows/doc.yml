@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, dev/aidanf/flashdreams-site]
     # `closed` is included so the cleanup step (rossjrw/pr-preview-action in
     # `auto` mode) can remove the published preview when a PR is merged or
     # abandoned. The other three are the default `pull_request` set.
