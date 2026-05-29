@@ -99,8 +99,10 @@ def _choose_existing_asset(
             continue
         if allowed_suffixes is not None and path.suffix.lower() not in allowed_suffixes:
             continue
-        if path.stem in fallback_stems or any(
-            path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes
+        if (
+            path.stem in preferred_stems
+            or path.stem in fallback_stems
+            or any(path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes)
         ):
             candidates.append(path)
 
