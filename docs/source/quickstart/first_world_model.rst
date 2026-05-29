@@ -39,6 +39,15 @@ Launch an offline inference run using the :doc:`Self-Forcing </models/self_forci
        flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
        --total-blocks 7
 
+The first run takes several minutes — most of that time is one-time
+Triton autotuning and CUDA-graph warmup, not the generation itself.
+Subsequent runs in the same workspace reuse the cached kernels and
+finish in well under a minute. The generated video lands at
+``outputs/self-forcing-wan2.1-t2v-1.3b-taehv.mp4`` (16 FPS, 480×832 by
+default). See :doc:`/models/self_forcing` for what ``--total-blocks``
+controls, measured cold-vs-warm runtimes on H100, and when multi-GPU
+pays off.
+
 Run LingBot-World interactive server
 ------------------------------------
 

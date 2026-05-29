@@ -99,6 +99,63 @@ To inspect all supported CLI arguments and their default values, run:
        self-forcing-wan2.1-t2v-1.3b \
        --help
 
+What to expect
+--------------
+
+**Default prompt.** Omitting ``--prompt`` uses a Tokyo street-scene
+default (the same prompt shown in the command above). To override, pass
+either an inline string or a path to a ``.txt`` file whose first
+non-empty line is read as the prompt.
+
+**Total blocks.** ``--total-blocks N`` runs ``N`` autoregressive chunks
+of the streaming pipeline; each chunk emits a fixed number of decoded
+video frames, so longer rollouts come from larger ``--total-blocks``.
+The commands on this page use ``--total-blocks 7`` to keep the demo
+fast; the runner config's own default is ``60`` for full-length
+rollouts. See :doc:`/developer_guides/inference_pipeline_overview` for
+what one chunk maps to in the encoder / diffusion / decoder loop.
+
+**Outputs.** The runner writes to ``outputs/`` (relative to the current
+working directory) by default:
+
+- ``outputs/<runner-slug>.mp4`` — the generated video at 16 FPS, 480×832
+  for the defaults above (override resolution with ``--pixel-height`` /
+  ``--pixel-width`` and frame rate with ``--fps``).
+- ``outputs/stats_<runner-slug>.json`` — per-autoregressive-step timing
+  stats, when the pipeline reports them.
+
+Pass ``--output-dir <path>`` to redirect the destination.
+
+**Runtime (measured on H100 80GB, ``--total-blocks 7``, defaults
+otherwise).** First runs are dominated by Triton autotuning and
+CUDA-graph warmup; subsequent runs in the same workspace reuse cached
+kernels and are much faster:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 32 32
+
+   * - Setup
+     - First run (cold)
+     - Subsequent runs
+   * - 1× H100 PCIe
+     - ~6.9 min
+     - ~42 s
+   * - 4× H100 HBM3 (``torchrun --nproc_per_node=4``)
+     - ~8.6 min
+     - ~73 s
+
+Most of the cold-run cost lands in the first two AR blocks; steady-state
+blocks (AR 2 onward) are sub-second.
+
+**When to use multi-GPU.** Per-block steady-state cost on 4 GPUs is
+roughly 2× faster than on 1 GPU (~251 ms vs ~500 ms), but the larger
+per-rank autotune + NCCL overhead makes 4 GPUs ~24% *slower* end-to-end
+for short rollouts like ``--total-blocks 7``. Multi-GPU only pays off
+once steady-state dominates warmup — stay on 1 GPU for short demos and
+move to ``torchrun --nproc_per_node=4`` for full-length rollouts
+(``--total-blocks 60+``).
+
 Some generated samples from the above commands:
 
 .. raw:: html
