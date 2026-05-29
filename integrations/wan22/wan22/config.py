@@ -55,14 +55,17 @@ from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
 WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/"
-    "transformer/diffusion_pytorch_model.safetensors"
+    "transformer/diffusion_pytorch_model.safetensors.index.json"
 )
-"""HF diffusers safetensors shard for the Wan 2.2 TI2V 5B DiT.
+"""HF diffusers DiT for the Wan 2.2 TI2V 5B (sharded safetensors + index).
 
-The 5B variant ships as a single safetensors file (no sharded index)
-under the ``transformer/`` subfolder of the ``Wan-AI`` diffusers repo.
-Loads via :func:`wan22_ti2v_5b_dit_state_dict_transform` (the diffusers
-naming differs from ours). This is the production default."""
+The ``transformer/`` subfolder ships 5 shards + a
+``.safetensors.index.json``; there is **no** single-file
+``diffusion_pytorch_model.safetensors`` (that bare-filename URL 404s --
+it was the prior value of this constant, which broke any base-pipeline
+load). ``load_checkpoint`` resolves the index directly. Loads via
+:func:`wan22_ti2v_5b_dit_state_dict_transform` (the diffusers naming
+differs from ours). This is the production default."""
 
 
 WAN22_TI2V_5B_DIT_NATIVE_PATH = (
