@@ -21,6 +21,7 @@ const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
 const firstFramePreview = document.getElementById("firstFramePreview")
+const sceneCard = document.getElementById("sceneCard")
 const firstFrameInput = document.getElementById("firstFrameInput")
 const firstFrameUrlInput = document.getElementById("firstFrameUrlInput")
 const firstFrameName = document.getElementById("firstFrameName")
@@ -55,6 +56,7 @@ let mockChunkIndex = 0
 let mockGenerationStarted = false
 let mockChunkTimer = null
 let actionStarted = false
+let initialSceneLocked = false
 let promptEdited = false
 let firstFrameUrlEdited = false
 let initialScene = null
@@ -149,6 +151,14 @@ function setFlow(message) {
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
   updateReadyPreview()
+}
+
+function setInitialSceneLocked(locked) {
+  initialSceneLocked = locked
+  sceneCard.hidden = locked
+  firstFrameInput.disabled = locked
+  firstFrameUrlInput.disabled = locked
+  promptInput.disabled = locked
 }
 
 function updateReadyPreview() {
@@ -365,6 +375,7 @@ function takeObservedActionLatency(now = performance.now()) {
 function sendControlAction(action) {
   if (mockMode && connected && !controlChannel) {
     actionStarted = true
+    setInitialSceneLocked(true)
     updateReadyPreview()
     inferenceInFlight = true
     mockGenerationStarted = true
@@ -380,6 +391,7 @@ function sendControlAction(action) {
   }
 
   actionStarted = true
+  setInitialSceneLocked(true)
   updateReadyPreview()
   inferenceInFlight = true
   controlChannel.send(
@@ -1017,6 +1029,9 @@ connectButton.addEventListener("click", () => {
   void connectSession()
 })
 firstFrameInput.addEventListener("change", () => {
+  if (initialSceneLocked) {
+    return
+  }
   const [file] = firstFrameInput.files
   selectedFirstFrameFile = file || null
   if (selectedFirstFrameUrl) {
@@ -1034,6 +1049,9 @@ firstFrameInput.addEventListener("change", () => {
   updateReadyPreview()
 })
 firstFrameUrlInput.addEventListener("input", () => {
+  if (initialSceneLocked) {
+    return
+  }
   firstFrameUrlEdited = true
   if (!selectedFirstFrameFile) {
     firstFrameName.textContent = firstFrameUrlInput.value.trim()
@@ -1043,6 +1061,9 @@ firstFrameUrlInput.addEventListener("input", () => {
   updateReadyPreview()
 })
 promptInput.addEventListener("input", () => {
+  if (initialSceneLocked) {
+    return
+  }
   promptEdited = true
 })
 firstFrameUrlInput.addEventListener("focus", releaseAllKeys)
