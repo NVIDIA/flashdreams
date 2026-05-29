@@ -173,14 +173,6 @@ the spread is informative (greater than 5 % of p50).
          | Hand-aggregated until the
          | harness lands
 
-      .. admonition:: PLACEHOLDER — measurement harness
-         :class: placeholder
-
-         **What goes here:** wrapper script(s) under
-         ``scripts/benchmarks/`` that parse logs into the CSVs that
-         back the Results tables. Until that lands, every row is
-         hand-computed from the recipe's stdout.
-
 Results — autoregressive
 ------------------------
 

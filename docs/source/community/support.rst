@@ -39,8 +39,7 @@ Choose a channel
       :link: https://discord.com/invite/nvidiaomniverse
 
       `Discord <https://discord.com/invite/nvidiaomniverse>`__ is the
-      venue for open-ended "how do I…" questions; GitHub Discussions
-      will join it once enabled. In the meantime, the issue tracker
+      venue for open-ended "how do I…" questions. The issue tracker
       with the ``question`` label is fine too.
 
    .. grid-item-card:: I have a feature idea
@@ -57,13 +56,6 @@ Choose a channel
 
       Do **not** file as a public issue. Follow NVIDIA's coordinated
       disclosure process.
-
-.. admonition:: PLACEHOLDER — GitHub Discussions link
-   :class: placeholder
-
-   **What goes here:** Once Discussions is enabled on the repo, link
-   the "I have a question" card above to
-   ``https://github.com/NVIDIA/flashdreams/discussions``.
 
 
 .. admonition:: Chat with the team on Discord
@@ -121,20 +113,6 @@ The maintainers aim for a first review on every PR within
 statement). Issues have no formal SLA — the project is small and
 volunteer-staffed, so polite pings on quiet threads are welcome.
 
-Triage and labels
------------------
-
-.. admonition:: PLACEHOLDER — label vocabulary
-   :class: placeholder
-
-   **What goes here:** the actual label set on
-   ``https://github.com/NVIDIA/flashdreams/labels`` (no
-   ``.github/labels.yml`` in the repo today, so the live taxonomy is
-   the source of truth). A *suggested* starter taxonomy if the project
-   doesn't yet have one: ``bug``, ``enhancement``, ``question``,
-   ``good first issue``, ``needs-info``, ``perf``.
-
-
 Commercial / NVIDIA-internal support
 ------------------------------------
 
@@ -143,11 +121,4 @@ no commercial support agreement attached to the open-source project.
 NVIDIA-internal users with production deployment needs should contact
 their usual NVIDIA solutions architect rather than the public issue
 tracker.
-
-.. admonition:: PLACEHOLDER — NVIDIA-internal contact
-   :class: placeholder
-
-   **What goes here:** If there is a specific internal mailing list or
-   Slack channel for NVIDIA employees deploying FlashDreams, link it
-   here. Otherwise, remove this section.
 

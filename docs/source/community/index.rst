@@ -64,11 +64,10 @@ Community
 Where to find us
 ----------------
 
-Maintainers monitor GitHub Issues and Discussions first. Discord is
-intended for real-time conversation, and the announcements list is the
-low-volume channel for releases and security advisories.
+Maintainers monitor the GitHub issue tracker first. Discord is the
+venue for real-time conversation with maintainers and other users.
 
-.. container:: fd-media-rail fd-media-rail-4
+.. container:: fd-media-rail fd-media-rail-2
 
    .. container:: fd-media-tile
 
@@ -87,20 +86,6 @@ low-volume channel for releases and security advisories.
 
    .. container:: fd-media-tile
 
-      .. admonition:: PLACEHOLDER — GitHub Discussions
-         :class: placeholder
-
-         **Tile content once enabled:**
-
-         GitHub Discussions
-         — open-ended questions, design proposals, show-and-tell.
-
-         Confirm Discussions is enabled on
-         ``NVIDIA/flashdreams`` and link to
-         ``/discussions``.
-
-   .. container:: fd-media-tile
-
       .. container:: fd-media-tile-body
 
          .. container:: fd-media-tile-title
@@ -112,20 +97,6 @@ low-volume channel for releases and security advisories.
 
          `Join the Discord
          <https://discord.com/invite/nvidiaomniverse>`__
-
-   .. container:: fd-media-tile
-
-      .. admonition:: PLACEHOLDER — mailing list / announcements
-         :class: placeholder
-
-         **Tile content once decided:**
-
-         Email / mailing list — low-volume announcements (releases,
-         security advisories).
-
-         Either ship the subscribe URL, or remove this tile and
-         re-balance the rail to a 3-up if the project relies on
-         GitHub Releases + Discord only.
 
 Contributing
 ------------
@@ -171,14 +142,6 @@ By participating — issues, discussions, pull requests, chat — you
 agree to abide by it. Concerns can be reported to the maintainers via
 the address listed in that document.
 
-.. admonition:: PLACEHOLDER — project-local CODE_OF_CONDUCT.md
-   :class: placeholder
-
-   **What goes here:** Decide whether the project keeps deferring to
-   the NVIDIA org-wide Code of Conduct, or adds a project-local
-   ``CODE_OF_CONDUCT.md`` at the repo root (with a project-specific
-   reporting address). If a local file is added, link to it here.
-
 Maintainers
 -----------
 
@@ -188,13 +151,6 @@ path to becoming a maintainer is sustained, high-quality contribution
 in an area — see the *Project governance* section of `CONTRIBUTING.md
 <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#project-governance>`__
 for the full statement.
-
-.. admonition:: PLACEHOLDER — MAINTAINERS.md
-   :class: placeholder
-
-   **What goes here:** A ``MAINTAINERS.md`` file at the repo root
-   that lists active maintainers (GitHub handle, area of ownership,
-   contact preference) and the criteria for promotion.
 
 Releases
 --------
@@ -211,14 +167,6 @@ releases land: release builds will be archived under
 build, with a switcher in the navbar. There are no release tags in
 the repo today, so the per-version layout is configured but not yet
 populated.
-
-.. admonition:: PLACEHOLDER — release cadence statement
-   :class: placeholder
-
-   **What goes here:** A short, public statement of the project's
-   intended release cadence (e.g. "minor release every ~6 weeks,
-   patch releases as needed"). Until that is decided, point readers
-   to the Releases page above.
 
 Frequently asked
 ----------------
