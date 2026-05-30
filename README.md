@@ -99,10 +99,19 @@ See [`DEV.md`](DEV.md) for repository-specific workflow notes.
 
 ## Contributing
 
-Bug reports, feature requests, performance work, new integrations, and
-documentation fixes are all welcome. The full process — DCO sign-off, PR
-expectations, coding conventions, and local-build speedups — is in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+For how to contribute, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+New integrations, bug reports, feature requests, performance tuning, and
+documentation edits are all welcome.
+
+Use [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues) to report defects or request improvements.
+
+Join us on the [NVIDIA Omniverse Discord](https://discord.com/invite/nvidiaomniverse)
+to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/yTdHDqFP)
+
+## Security
+
+To report a potential security vulnerability, follow the coordinated
+disclosure process in [`SECURITY.md`](SECURITY.md).
 
 ## License
 

@@ -439,8 +439,8 @@ upfront.
   [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues). Please
   do not include confidential or customer information.
 - **Security vulnerabilities:** please do *not* file them as public
-  issues. Follow NVIDIA's coordinated disclosure process at
-  https://www.nvidia.com/en-us/security/.
+  issues. Follow the coordinated disclosure process in
+  [`SECURITY.md`](SECURITY.md).
 
 ## Code of Conduct
 
