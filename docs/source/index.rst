@@ -235,6 +235,7 @@ Start here
    Self-Forcing <models/self_forcing>
    OmniDreams <models/omnidreams>
    LingBot-World <models/lingbot_world>
+   HY-WorldPlay <models/hy_worldplay>
    Causal-Forcing <models/causal_forcing>
    Causal Wan2.2 <models/causal_wan22>
    FlashVSR <models/flashvsr>

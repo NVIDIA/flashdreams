@@ -33,12 +33,13 @@ pipeline.
 
    <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
+       <source src="../_static/videos/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
        Your browser does not support the video tag.
      </video>
    </div>
    <p class="model-footnote">
-     Teaser video generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
+     Teaser generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline
+     (704&times;1280, 8 autoregressive chunks, 4-step distilled Euler).
    </p>
 
 Installation
@@ -96,31 +97,37 @@ To inspect all supported CLI arguments and their default values, run:
        hy-worldplay-wan-i2v-5b \
        --help
 
-Some generated samples from the above commands:
-
-.. TODO(samples): replace the <source> filenames below with the curated mp4s from
-.. bench_batch.sh (num_chunk=8) once uploaded to
-.. research.nvidia.com/.../assets/hy_worldplay/. Keep 3-6 with varied first frames + camera moves.
+Some generated samples from the above commands (native FlashDreams pipeline,
+704&times;1280, ``num_chunk=8``, ``pose="w-31"``):
 
 .. raw:: html
 
    <div class="model-video-grid">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-01.mp4" type="video/mp4">
+         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-01.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
-         pose: w-31
+         First-person view walking around
        </div>
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-02.mp4" type="video/mp4">
+         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-02.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
-         pose: w-31
+         First-person view walking around
+       </div>
+     </div>
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-03.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         A cat surfing on a wave
        </div>
      </div>
    </div>
