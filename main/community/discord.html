@@ -3,12 +3,12 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Launch your first model" href="first_world_model.html"><link rel="prev" title="FlashDreams" href="../index.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="prev" title="Contributing" href="contribute.html">
         <link rel="prefetch" href="../_static/horizontal-light.svg" as="image">
         <link rel="prefetch" href="../_static/horizontal-dark.svg" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Installation - FlashDreams v0.1.0a4</title>
+        <title>Discord - FlashDreams v0.1.0a4</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -215,9 +215,9 @@ SPDX-License-Identifier: Apache-2.0
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Quickstart</span></p>
-<ul class="current">
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="first_world_model.html">Launch your first model</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
 <ul>
@@ -245,9 +245,9 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Community</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../community/contribute.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../community/discord.html">Discord</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="contribute.html">Contributing</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Discord</a></li>
 </ul>
 
 </div>
@@ -268,12 +268,12 @@ SPDX-License-Identifier: Apache-2.0
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/quickstart/installation.rst?plain=true" title="View this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/community/discord.rst?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
 </div><div class="edit-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/quickstart/installation.rst" rel="edit" title="Edit this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/community/discord.rst" rel="edit" title="Edit this page">
     <svg><use href="#svg-pencil"></use></svg>
     <span class="visually-hidden">Edit this page</span>
   </a>
@@ -290,57 +290,20 @@ SPDX-License-Identifier: Apache-2.0
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="installation">
-<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h1>
-<p>Choose the setup path that matches your goal.</p>
-<section id="use-flashdreams-as-a-library">
-<h2>Use FlashDreams as a library<a class="headerlink" href="#use-flashdreams-as-a-library" title="Link to this heading">¶</a></h2>
-<p>Install from PyPI:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>flashdreams
-</pre></div>
-</div>
-<p>Install the latest main branch:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/NVIDIA/flashdreams.git&quot;</span>
-</pre></div>
-</div>
-</section>
-<section id="run-models-directly-in-this-codebase">
-<span id="id1"></span><h2>Run models directly in this codebase<a class="headerlink" href="#run-models-directly-in-this-codebase" title="Link to this heading">¶</a></h2>
-<p>We recommend to use the <code class="docutils literal notranslate"><span class="pre">uv</span></code> python package manager (installation instructions <a class="reference external" href="https://docs.astral.sh/uv/getting-started/installation/">here</a>).
-With <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed, clone the repository and use the workspace environment:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/NVIDIA/flashdreams.git
-<span class="nb">cd</span><span class="w"> </span>flashdreams
-uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>runners
-</pre></div>
-</div>
-<p>The unified runner CLI is available through <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
-</pre></div>
-</div>
-</section>
-<section id="environment-variables">
-<span id="id2"></span><h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading">¶</a></h2>
-<p>Most model runs need Hugging Face authentication:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
-<span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">  </span><span class="c1"># optional</span>
-</pre></div>
-</div>
-<section id="speeding-up-cuda-builds">
-<span id="build-performance"></span><h3>Speeding up CUDA builds<a class="headerlink" href="#speeding-up-cuda-builds" title="Link to this heading">¶</a></h3>
-<p>The first <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> compiles CUDA extensions from source, which can be
-slow. Set these variables to only compile for your local GPU architecture:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">CUDA_ARCH</span><span class="o">=</span><span class="k">$(</span>nvidia-smi<span class="w"> </span>--query-gpu<span class="o">=</span>compute_cap<span class="w"> </span>--format<span class="o">=</span>csv,noheader<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;.&#39;</span><span class="k">)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NVTE_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">BLOCK_SPARSE_ATTN_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">MAX_JOBS</span><span class="o">=</span><span class="m">8</span>
-</pre></div>
-</div>
-<p>See the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds">Contributing Guide</a>
-for full details on each variable and recommended <code class="docutils literal notranslate"><span class="pre">.envrc</span></code> setup.</p>
-<p>For more environment and container details, see the project
-<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/README.md">README</a> and
-the model pages under <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>.</p>
-</section>
+          <section id="discord">
+<h1>Discord<a class="headerlink" href="#discord" title="Link to this heading">¶</a></h1>
+<p>Join us on the NVIDIA Omniverse Discord to share your results, attend office
+hours, and take part in technical discussion with the FlashDreams team and
+community.</p>
+<p>If you are new, start with the
+<a class="reference external" href="https://discord.com/invite/nvidiaomniverse">server invite</a> to on-board.</p>
+<section id="channels">
+<h2>Channels<a class="headerlink" href="#channels" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><a class="reference external" href="https://discord.gg/yTdHDqFP">#flashdreams</a></p></li>
+<li><p><a class="reference external" href="https://discord.gg/bsjzh4uZ">#omni-dreams</a></p></li>
+<li><p><a class="reference external" href="https://discord.gg/APbw7EPk">#world-model-chit-chat</a></p></li>
+</ul>
 </section>
 </section>
 
@@ -349,23 +312,15 @@ the model pages under <a class="reference internal" href="../models/index.html">
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="first_world_model.html">
-              <div class="page-info">
-                <div class="context">
-                  <span>Next</span>
-                </div>
-                <div class="title">Launch your first model</div>
-              </div>
-              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
-            </a>
-          <a class="prev-page" href="../index.html">
+          
+          <a class="prev-page" href="contribute.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Home</div>
+                <div class="title">Contributing</div>
                 
               </div>
             </a>
@@ -398,13 +353,8 @@ the model pages under <a class="reference internal" href="../models/index.html">
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Installation</a><ul>
-<li><a class="reference internal" href="#use-flashdreams-as-a-library">Use FlashDreams as a library</a></li>
-<li><a class="reference internal" href="#run-models-directly-in-this-codebase">Run models directly in this codebase</a></li>
-<li><a class="reference internal" href="#environment-variables">Environment variables</a><ul>
-<li><a class="reference internal" href="#speeding-up-cuda-builds">Speeding up CUDA builds</a></li>
-</ul>
-</li>
+<li><a class="reference internal" href="#">Discord</a><ul>
+<li><a class="reference internal" href="#channels">Channels</a></li>
 </ul>
 </li>
 </ul>
