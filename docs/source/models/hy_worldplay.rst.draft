@@ -148,8 +148,7 @@ under matched settings.
          milliseconds at steady state (median of the post-warmup chunks; the first 5 chunks are discarded),
          measured at num_chunk=8, 704x1280, seed=0 on a single GB300. For an apples-to-apples comparison,
          both implementations are forced to use the cuDNN attention backend and torch.compile under matched
-         runtime settings. The FlashDreams number is conservative: its CUDA-graph fast path is disabled in
-         this run, so the production configuration is faster still.
+         runtime settings.
          For the official HY-WorldPlay implementation, see
          <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/hy_worldplay/tests/parity_check">this instruction</a>.
        </p>

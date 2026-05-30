@@ -953,18 +953,26 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             _debug_dump.dump("predict_flow.noisy_latent", noisy_latent)
             _debug_dump.dump("predict_flow.timestep", timestep)
         network_extra_kwargs = dict(network_extra_kwargs or {})
-        # Run the reconstituted-context prefill once at the first
-        # denoising step of each chunk past the first; the
-        # ``prefill_completed_for_chunk`` latch suppresses re-runs on
-        # subsequent scheduler steps within the chunk.
-        if (
+        # Whether the reconstituted-context memory path is active for this
+        # chunk. When it is, the per-block attention prepends the prefilled
+        # memory K/V via a data-dependent ``torch.cat`` (see
+        # :mod:`hy_worldplay._camera`), which lengthens the attention
+        # sequence. A CUDA graph captured on the pre-memory path (shorter
+        # sequence, no cat) faults on replay against that longer sequence, so
+        # :meth:`_select_network` forces the eager path while this is set.
+        memory_engaged = (
             isinstance(cache, HyWorldPlayWan21TransformerCache)
             and isinstance(input, HyWorldPlayCtrl)
             and input.memory_frame_indices is not None
             and len(input.memory_frame_indices) > 0
             and cache.clean_latent_history is not None
-            and cache.prefill_completed_for_chunk != ar_idx
-        ):
+        )
+        self._hy_memory_engaged = memory_engaged
+        # Run the reconstituted-context prefill once at the first
+        # denoising step of each chunk past the first; the
+        # ``prefill_completed_for_chunk`` latch suppresses re-runs on
+        # subsequent scheduler steps within the chunk.
+        if memory_engaged and cache.prefill_completed_for_chunk != ar_idx:
             self.prefill_memory_kv_cache(cache=cache, input=input, timestep=timestep)
             cache.prefill_completed_for_chunk = ar_idx
 
@@ -982,6 +990,23 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             input=input,
             network_extra_kwargs=network_extra_kwargs,
         )
+
+    def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
+        """Force the eager path for memory-engaged chunks; else defer to base dispatch.
+
+        The memory prepend makes the attention sequence length
+        data-dependent once the reconstituted-context cache is populated
+        (a ``torch.cat`` in :mod:`hy_worldplay._camera`), so a graph
+        captured on the pre-memory path cannot be replayed against it
+        without ``cudaErrorIllegalAddress``. ``drain`` runs the wrapped
+        network eagerly (no capture/replay) through the same staged
+        buffers. Pre-memory chunks keep the base filling/steady CUDA-graph
+        dispatch and full graph fast-path.
+        """
+        if self._use_cuda_graph and getattr(self, "_hy_memory_engaged", False):
+            network_call = self._network_call_uncond if uncond else self._network_call
+            return network_call.drain
+        return super()._select_network(autoregressive_index, uncond=uncond)
 
     def finalize_kv_cache(
         self,
