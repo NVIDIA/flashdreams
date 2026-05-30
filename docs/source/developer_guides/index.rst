@@ -13,70 +13,31 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Developer Guides
-================
+:orphan:
 
-These guides cover how the system is structured underneath the CLI:
-the inference pipeline a recipe runs through, the configuration layer
-every recipe shares, the integration surface for adding a new method,
-common patterns for driving the pipeline from Python, and the shape
-of an interactive serving session. They are conceptual; the
-:doc:`/api/index` is the per-symbol reference.
+Developer guides
+===================================
 
-The pipeline overview is the anchor for the rest. The config system
-is the layer every recipe shares; new integrations sit on top of
-both. Usage patterns and interactive serving describe how the
-pipeline is embedded in surrounding code.
+Use these guides after the quick start to understand the runtime, choose a
+developer workflow, configure runs, build serving applications, or add a new
+model integration.
 
-.. grid:: 1 1 2 2
-   :gutter: 3
+Guides
+------
 
-   .. grid-item-card:: Inference pipeline overview
-      :link: inference_pipeline_overview
-      :link-type: doc
+- :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
+- :doc:`Config system </developer_guides/config_system>`
+- :doc:`Add a new method </developer_guides/new_integration>`
 
-      The end-to-end computation flow: warmup, CUDA-graph capture,
-      the autoregressive-step body, the ring-attention shard group,
-      and finalize. The mental model the rest of the project assumes.
+.. Temporarily commented out for internal development:
+.. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
+.. - :doc:`Interactive serving </developer_guides/interactive_serving>`
 
-   .. grid-item-card:: Config system
-      :link: config_system
-      :link-type: doc
-
-      How every overridable field is surfaced as a CLI flag, how
-      recipe defaults compose, and how to layer overrides on top.
-
-   .. grid-item-card:: Add a new method
-      :link: new_integration
-      :link-type: doc
-
-      The entry-point surface a new recipe ships against: what to
-      subclass, what to register, and where the parity tests live.
-
-   .. grid-item-card:: Usage patterns
-      :link: usage_patterns
-      :link-type: doc
-
-      Common ways to drive FlashDreams from Python: the CLI, the
-      in-process runner API, and the pipeline-level surface for
-      embedding.
-
-   .. grid-item-card:: Interactive serving
-      :link: interactive_serving
-      :link-type: doc
-
-      Keeping a streaming session alive: warmup, steady-state
-      generation, and how the WebRTC and gRPC servers under
-      ``integrations/`` wire the pipeline up.
-
-Where these guides fit
-----------------------
-
-Working forward from a recipe, start with the pipeline overview,
-then read the recipe's per-model page under :doc:`/benchmarks`,
-then drop into the matching module under :doc:`/api/index` for the
-implementation details. The :doc:`/get_started` covers the
-two-command path from install to a generated clip.
+.. Hidden toctree so the three non-orphan children are reachable from
+.. a toctree on this branch's navbar topology. main relied on a
+.. `:caption: Developer guides` block in the master toctree (`docs/source/
+.. index.rst`); the 4-tab restructure dropped that block, so the toctree
+.. lives here instead.
 
 .. toctree::
    :hidden:
@@ -85,5 +46,3 @@ two-command path from install to a generated clip.
    inference_pipeline_overview
    config_system
    new_integration
-   usage_patterns
-   interactive_serving

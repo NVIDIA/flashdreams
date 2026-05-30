@@ -13,6 +13,8 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+:orphan:
+
 Interactive serving
 ===================================
 
@@ -60,8 +62,8 @@ Reference integrations
 
 - :doc:`/models/lingbot_world` is the primary camera-control serving reference.
 - :doc:`/models/omnidreams` shows closed-loop autonomous-vehicle simulation.
-- :doc:`/get_started` provides the shortest command-level
-  path for trying inference and serving side by side.
+- :doc:`/get_started` provides the shortest command-level path for
+  trying inference and serving side by side.
 
 Serving implementation references
 ---------------------------------

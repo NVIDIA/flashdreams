@@ -106,9 +106,9 @@ Alternatively, you do not always have to write a complete configuration from scr
 Modifying from CLI
 ------------------
 
-Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface — powered by `tyro <https://github.com/brentyi/tyro>`_ — exposes every nested dataclass field as a flag.
+Often times, you just want to play with the parameters of an existing model without having to specify a new one. You can easily do so via the CLI, which is powered by `tyro <https://github.com/brentyi/tyro>`_.
 
-Because configurations are strongly typed dataclasses, ``tyro`` generates the CLI automatically. Each shipped model is a named runner slug; pass any nested field as a flag to override it.
+Because our configurations are strongly typed dataclasses, ``tyro`` automatically generates a comprehensive command-line interface. You can use the ``flashdreams-run`` (The CLI carried in FlashDreams) command to dynamically override any nested dataclass field.
 
 For example, to list out all existing configurable parameters for a model:
 
