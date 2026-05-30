@@ -83,18 +83,34 @@ def test_installer_is_idempotent(autotune_logger: logging.Logger):
     assert before == after == 1
 
 
-def test_end_to_end_logger_emits_at_warning_level(
-    autotune_logger: logging.Logger, caplog: pytest.LogCaptureFixture
-):
-    # ``caplog`` captures records *after* logger filters run, so a record
-    # the filter mutates lands in caplog at the new level.
-    caplog.set_level(logging.WARNING, logger=autotune_logger.name)
-    autotune_logger.error(
-        "Runtime error during autotuning: \n%s. \nIgnoring this choice.",
-        "permute(sparse_coo)",
-    )
-    matching = [r for r in caplog.records if r.name == autotune_logger.name]
-    assert len(matching) == 1
-    assert matching[0].levelno == logging.WARNING
-    assert matching[0].levelname == "WARNING"
-    assert "permute(sparse_coo)" in matching[0].getMessage()
+def test_end_to_end_logger_emits_at_warning_level(autotune_logger: logging.Logger):
+    # Attach our own capturing handler directly to the autotune logger
+    # rather than relying on pytest's ``caplog`` (which needs record
+    # propagation to the root logger). Other imports in a shared test
+    # session — notably torch's logging setup — reconfigure stdlib
+    # logging and break that propagation, so capture at the source.
+    # The logger-level filter runs in ``Logger.handle`` before handlers
+    # are invoked, so a handler on this logger sees the mutated record.
+    captured: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record)
+
+    handler = _CaptureHandler(level=logging.DEBUG)
+    autotune_logger.addHandler(handler)
+    previous_level = autotune_logger.level
+    autotune_logger.setLevel(logging.DEBUG)
+    try:
+        autotune_logger.error(
+            "Runtime error during autotuning: \n%s. \nIgnoring this choice.",
+            "permute(sparse_coo)",
+        )
+    finally:
+        autotune_logger.removeHandler(handler)
+        autotune_logger.setLevel(previous_level)
+
+    assert len(captured) == 1
+    assert captured[0].levelno == logging.WARNING
+    assert captured[0].levelname == "WARNING"
+    assert "permute(sparse_coo)" in captured[0].getMessage()
