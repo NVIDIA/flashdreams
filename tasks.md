@@ -37,8 +37,8 @@ One follow-up MR. Full command-level steps in `HANDOFF.md`.
 | Item | Status |
 |---|---|
 | Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | **DONE** — matched bench ran on a single GB300, corroborated across 6 inputs |
-| Curated samples | **DONE** — native mp4s for all 5 `data_local/*`; hero (`6`) + 3 gallery (`2`,`1`,`cat_surf`) transcoded to web mp4 in `docs/source/_static/videos/hy_worldplay/` (3.4 MB total) |
-| Model-card page (mirror `lingbot_world.rst` + `_static/performance/`) | **DONE** — `docs/source/models/hy_worldplay.rst` authored (lingbot style: hero, install, running, variants list-table, native sample grid, perf chart), registered in `models/index.rst` + the `index.rst` toctree, **builds clean under `sphinx-build -W`** |
+| Curated samples | **DONE** — native mp4s for all `data_local/*`; web-transcoded into `docs/source/_static/videos/hy_worldplay/` — hero=`1.png`, gallery=`6.jpeg`,`2.png`,`cat_surf`,`10.png` (~4 MB total) |
+| Model-card page (mirror `lingbot_world.rst` + `_static/performance/`) | **DONE** — `docs/source/models/hy_worldplay.rst` (lingbot style + lingbot-density prose: hero, install, running, variants list-table, native sample grid, perf chart), registered in `models/index.rst` + `index.rst` toctree, **builds clean under `sphinx-build -W`** |
 
 ### Re-bench result (704×1280, seed 0, pose `w-31`, warmup-discard 5, DiT+VAE scope, both legs cuDNN SDPA + `torch.compile`)
 
@@ -82,10 +82,15 @@ Post-warmup (chunks 5–7) medians, ms. Native = production config (CUDA graphs 
 
 `bench.sh` defaults `HY_VENDOR_SDPA=1`; `run.sh` adds `torchvision==0.26.*` to vendor heavy-deps (upstream HEAD's hyvideo import now needs it).
 
+## PR #231 status (perf/docs MR → `NVIDIA/flashdreams:main`)
+
+Head `62f8a6a`. Synced with `main` (merge commit) — out-of-date blocker cleared. Tracking issue **#203 body + comment updated** (perf/docs section ticked, bugs recorded). `docs`/OSRB/REUSE green; **cpu/gpu need a fresh `/ok to test` on `62f8a6a`** (the sync commit invalidated the prior one); **1 review approval** still required (human with write access). Repo merges via the merge queue.
+
 ## Next actions
 
-1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
-2. **MR open: NVIDIA/flashdreams#231** (perf/docs off this branch → `main`). TODO: drag the native-vs-vendor pairs from `tests/parity_check/outputs/pr_videos/<stem>-{native,vendor}.mp4` into the PR's "Native vs vendor video pairs" table; decide whether to drop the internal `tasks.md`/`HANDOFF.md` notes before merge.
-3. (model-card media) The gallery currently uses **committed local** mp4s in `docs/source/_static/videos/hy_worldplay/` (3.4 MB, web-transcoded). If matching LingBot's external-hosting convention is preferred, re-host on `research.nvidia.com/.../assets/hy_worldplay/` and swap the `<source>` srcs.
-4. (optional) Seed the FOV Monte-Carlo point cloud (`generate_points_in_sphere` generator) for reproducibility on rotation/strafe poses (bug 3 latent risk).
-5. (future opt) Graph-accelerate the memory-engaged steady state via fixed-size in-place memory KV buffers.
+1. **#231**: re-run `/ok to test 62f8a6a` (cpu/gpu) and get one review approval.
+2. (PR polish) Drag the native-vs-vendor pairs from `tests/parity_check/outputs/pr_videos/<stem>-{native,vendor}.mp4` into the PR's "Native vs vendor video pairs" table; decide whether to drop the internal `tasks.md`/`HANDOFF.md` notes before merge.
+3. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
+4. (model-card media) Gallery uses **committed local** mp4s in `docs/source/_static/videos/hy_worldplay/` (~4 MB, web-transcoded: hero=`1.png`, gallery=`6.jpeg`,`2.png`,`cat_surf`,`10.png`). Swap `<source>` srcs to `research.nvidia.com`-hosted URLs to match LingBot if preferred. (Homepage KPI "8 Integrated models" is now stale → 9.)
+5. (optional) Seed the FOV Monte-Carlo point cloud (`generate_points_in_sphere` generator) for reproducibility on rotation/strafe poses (bug 3 latent risk).
+6. (future opt) Graph-accelerate the memory-engaged steady state via fixed-size in-place memory KV buffers.
