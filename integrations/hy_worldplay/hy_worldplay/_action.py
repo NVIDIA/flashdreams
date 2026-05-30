@@ -1180,8 +1180,12 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
 
         # Narrow the parent's ``self.network`` (typed as ``Tensor | Module``
         # by ``nn.Module``'s ``__getattr__`` overload) to the HY-DiT network
-        # so the memory-prefill entry point resolves.
-        network = self.network
+        # so the memory-prefill entry point resolves. With
+        # ``compile_network=True`` the parent reassigns ``self.network`` to a
+        # ``torch.compile`` ``OptimizedModule`` proxy, so unwrap ``_orig_mod``
+        # to reach the raw network (the prefill is a separate eager KV-fill
+        # pass; the diffuse forward stays on the compiled ``_network_call``).
+        network = getattr(self.network, "_orig_mod", self.network)
         assert isinstance(network, HyWorldPlayWanDiTNetwork)
 
         # Conditional pass.
