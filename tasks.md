@@ -52,15 +52,15 @@ Post-warmup medians (chunks 5–7):
 | DiT+VAE / chunk | 1015 ms | 1578 ms | **1.55×** |
 
 - **Reverses the original expectation** ("native wins big on VAE, DiT closer"): native wins big on **DiT**; VAE decode is a tie.
-- Native numbers are **conservative** — its CUDA-graph fast path was disabled (see bug 2), so production is faster still.
+- These are the **production-config** numbers (use_cuda_graph=True, after bug 2's fix). The steady-state post-warmup chunks are memory-engaged and run eager either way, so CUDA graphs only accelerate the discarded warmup chunks — the reported medians are graph-independent (verified: 632 ms graphs-off vs 631.7 ms graphs-on).
 - Vendor forced onto cuDNN SDPA via `HY_VENDOR_SDPA=1` (now the `bench.sh` default); vendor as-shipped uses sageattention.
 - Artifacts: `tests/parity_check/outputs/bench/bench.md`; chart data `docs/source/_static/performance/hy_worldplay/perf-0530.md`.
 
 ### Bugs found at `num_chunk≥4` (never reachable on the old 44 GiB card)
 
 1. **FIXED** (`a5f7b74`) — `prefill_memory_kv_cache` asserted `isinstance(self.network, HyWorldPlayWanDiTNetwork)`; under `compile_network=True` that's a `torch.compile` `OptimizedModule`. Now unwraps `_orig_mod`.
-2. **OPEN** — `use_cuda_graph=True` (production default) + eager memory-prefill KV writes → `cudaErrorIllegalAddress` at AR chunk 4. Worked around with `HY_DEBUG_DISABLE_CUDA_GRAPH=1`. **Currently being fixed.**
-3. **OPEN** — parity drifted to mean |Δ| 29.3/255 at `num_chunk=8` (vs 15.65 at `num_chunk=2`, bar ≤20). Likely the memory-prefill / FOV-selection path diverging over long rollouts. Perf is independent (same FLOPs).
+2. **FIXED** (`eb121aa`) — `use_cuda_graph=True` (production default) + the data-dependent memory prepend (`torch.cat` lengthens the attention sequence once memory engages) → `cudaErrorIllegalAddress` at AR chunk 4 (graph captured pre-memory can't replay the longer post-memory sequence). Fix: `predict_flow` flags memory-engaged steps and `_select_network` routes them to the wrapper's eager `drain`; pre-memory chunks keep the graph. Verified num_chunk=8 graphs-ON end-to-end. (Graph-accelerating the memory-engaged steady state would need fixed-size in-place memory KV buffers — future opt.)
+3. **OPEN** — parity drifted to mean |Δ| 29.2/255 at `num_chunk=8` (vs 15.65 at `num_chunk=2`, bar ≤20; unchanged graphs on/off). Likely the memory-prefill / FOV-selection path diverging over long rollouts. Perf is independent (same FLOPs).
 
 ### Harness fixes (`2119225`)
 
@@ -69,6 +69,5 @@ Post-warmup medians (chunks 5–7):
 ## Next actions
 
 1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
-2. Fix bug 2 (CUDA-graph + memory-prefill illegal access) to restore the production graph fast-path.
-3. Investigate bug 3 (long-rollout parity drift).
-4. Generate curated samples → finalize + go-live on `hy_worldplay.rst` → build docs.
+2. Investigate bug 3 (long-rollout parity drift at num_chunk=8).
+3. Generate curated samples → finalize + go-live on `hy_worldplay.rst` → build docs.
