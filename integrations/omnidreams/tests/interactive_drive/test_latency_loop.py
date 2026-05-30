@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+import omnidreams.interactive_drive.runtime.loop as loop_module
 import pytest
 from omnidreams.interactive_drive._pipeline_fakes import (
     FakeVideoModelBackend,
@@ -94,6 +95,22 @@ class _CountingPresenter:
         return
 
 
+class _PreparingPresenter(_CountingPresenter):
+    def __init__(self, present_budget: int) -> None:
+        super().__init__(present_budget=present_budget)
+        self.prepared_frame_ids: set[int] = set()
+        self.unprepared_backend_frame_ids: set[int] = set()
+
+    def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        del view_mode
+        self.prepared_frame_ids.add(id(frame))
+
+    def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if id(frame) not in self.prepared_frame_ids:
+            self.unprepared_backend_frame_ids.add(id(frame))
+        super().present_frame(frame, view_mode)
+
+
 class _FakeRuntimeControls:
     def __init__(self, *, reset_after_present: int | None = None) -> None:
         self._reset_after_present = reset_after_present
@@ -178,6 +195,57 @@ def test_present_timestamp_recorded_after_present_call_returns() -> None:
     assert start <= present_time <= end
 
 
+def test_input_to_present_profile_records_queued_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, float | int]] = []
+    monkeypatch.setenv("INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT", "1")
+    monkeypatch.setattr(
+        loop_module,
+        "_record_input_to_present_for_profile",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    chunk_times = _chunk_times()
+    queued = QueuedFrame(frame=_make_frame(), chunk_times=chunk_times, frame_index=0)
+    presenter = _CountingPresenter(present_budget=1)
+
+    present_queued_frame(queued, presenter, view_mode="rgb")
+
+    assert len(calls) == 1
+    assert calls[0]["input_sample_time"] == chunk_times.input_sample_time
+    assert calls[0]["frame_index"] == 0
+
+
+def test_input_to_present_profile_prints_window_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S", "0.25")
+    loop_module.reset_input_to_present_profile_window()
+
+    loop_module._record_input_to_present_for_profile(
+        present_time=1.0,
+        input_sample_time=0.9,
+        frame_index=0,
+        frame_interval_s=0.1,
+    )
+    loop_module._record_input_to_present_for_profile(
+        present_time=1.3,
+        input_sample_time=0.9,
+        frame_index=1,
+        frame_interval_s=0.1,
+    )
+
+    output = capsys.readouterr().out
+    assert "[profile] e2e" in output
+    assert "wall_present_fps=" in output
+    assert "avg_adj_control_to_present_ms=" in output
+    assert "avg_raw_control_to_present_ms=" in output
+    assert "samples=2" in output
+    loop_module.reset_input_to_present_profile_window()
+
+
 def test_run_main_loop_returns_false_when_presenter_starts_closed() -> None:
     presenter = _CountingPresenter(present_budget=0, start_closed=True)
     controls = _FakeRuntimeControls()
@@ -236,6 +304,33 @@ def test_loop_re_presents_initial_frame_while_pipeline_queue_is_empty() -> None:
         assert record.frame is initial
 
 
+def test_input_to_present_profile_ignores_represented_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, float | int]] = []
+    monkeypatch.setenv("INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT", "1")
+    monkeypatch.setattr(
+        loop_module,
+        "_record_input_to_present_for_profile",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    initial = _make_frame()
+    presenter = _CountingPresenter(present_budget=4)
+    controls = _FakeRuntimeControls()
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=0),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+    )
+
+    assert result is False
+    assert calls == []
+
+
 def test_loop_presents_backend_frames_when_available() -> None:
     """Once the pipeline has rendered frames, the loop presents them."""
     presenter = _CountingPresenter(present_budget=2)
@@ -254,6 +349,24 @@ def test_loop_presents_backend_frames_when_available() -> None:
     assert result is False
     assert len(presenter.records) == 2
     assert any(record.frame is not initial for record in presenter.records)
+
+
+def test_loop_prepares_backend_frames_before_presenting_them() -> None:
+    presenter = _PreparingPresenter(present_budget=6)
+    controls = _FakeRuntimeControls()
+    initial = _make_frame()
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=9),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+    )
+
+    assert presenter.prepared_frame_ids
+    assert presenter.unprepared_backend_frame_ids == {id(initial)}
 
 
 def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(

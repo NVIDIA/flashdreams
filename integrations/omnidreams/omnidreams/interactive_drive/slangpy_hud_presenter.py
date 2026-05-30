@@ -17,11 +17,10 @@ the chrome, and the presentation all live in one Python process here:
   this avoids pygame entirely.
 * Chrome (panel, scene/variant dropdowns, BEV minimap, speed digit,
   steering-wheel sprite, pedal sprites, status overlays) is rendered
-  on the CPU with PIL into an offscreen RGBA canvas, composited with
-  the camera frame, and uploaded to the swapchain texture per tick.
-  Sprite / font / panel caching matches the pygame HUD's strategy so
-  per-frame chrome work is dominated by a couple of paste calls and
-  one PCIe upload.
+  on the CPU with PIL into an offscreen RGBA canvas. With CUDA interop
+  enabled, generated camera frames stay on CUDA and the PIL canvas is
+  uploaded as an alpha overlay; otherwise the HUD falls back to the
+  original CPU camera composite + swapchain upload.
 * Mouse / keyboard input flows through ``Window.on_mouse_event`` /
   ``on_keyboard_event`` callbacks straight into
   :class:`~omnidreams.interactive_drive.input.keyboard.KeyboardState` (no HTTP,
@@ -46,6 +45,7 @@ from __future__ import annotations
 
 import contextlib
 import math as _math
+import os
 import time
 from collections import OrderedDict
 from typing import Any
@@ -53,6 +53,11 @@ from typing import Any
 import numpy as np
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.presenter import (
+    _CudaRGBInterop,
+    _env_truthy,
+    _torch_cuda_initialized,
+)
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
 
@@ -98,6 +103,22 @@ EVENT_POLL_INTERVAL_S = 0.005
 # ``_pending_drive_releases`` field documentation in
 # :class:`SlangPyHudPresenter`.
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
+_HUD_PROFILE_ENV = "INTERACTIVE_DRIVE_PROFILE_HUD"
+_HUD_PROFILE_INTERVAL_S_ENV = "INTERACTIVE_DRIVE_PROFILE_HUD_INTERVAL_S"
+_HUD_PROFILE_FIELDS = (
+    "total_ms",
+    "camera_ms",
+    "bev_ms",
+    "render_ms",
+    "overlay_ms",
+    "pre_submit_ms",
+    "enqueue_ms",
+    "post_submit_ms",
+    "present_ms",
+)
+_HUD_PROFILE_SUMS: dict[str, float] = {}
+_HUD_PROFILE_COUNTS: dict[str, int] = {}
+_HUD_PROFILE_WINDOW_START: float | None = None
 
 
 def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
@@ -310,19 +331,15 @@ class SlangPyHudPresenter:
         # Window + device + surface setup mirrors SlangPyPresenter's
         # but with a resizable HUD-sized window and a display texture
         # we re-create on resize.
+        self._cuda_interop_unavailable_reason: str | None = None
+        self._cuda_hud_error_logged = False
         self._window = spy.Window(
             width=DEFAULT_WINDOW_W,
             height=DEFAULT_WINDOW_H,
             title="interactive-drive HUD",
             resizable=True,
         )
-        self._device = spy.Device(
-            type=spy.DeviceType.vulkan,
-            enable_debug_layers=False,
-            # Workaround: avoid cuDNN MHA crash on NVIDIA Blackwell + R595.
-            enable_cuda_launch_from_gfx=False,
-            enable_ray_tracing=False,
-        )
+        self._device = self._create_device()
         print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
@@ -345,6 +362,7 @@ class SlangPyHudPresenter:
         )
         self._configure_surface(*self._configured_size)
         self._display_texture = self._build_display_texture(*self._configured_size)
+        self._cuda_hud_interop = self._create_cuda_hud_interop(*self._configured_size)
         # ``_pending_resize`` is set by the on_resize callback (which
         # runs on the windowing thread) and consumed by ``present_frame``
         # on the main thread, where it's safe to recreate Vulkan
@@ -463,7 +481,15 @@ class SlangPyHudPresenter:
     def process_events(self) -> None:
         self._window.process_events()
 
+    def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        rgb = self._select_view_rgb(frame, view_mode)
+        if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
+            _prefetch_to_numpy(rgb)
+        if frame.bev_host_uint8 is not None:
+            _prefetch_to_numpy(frame.bev_host_uint8)
+
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        total_start = time.perf_counter()
         # Apply any pending resize before touching the display texture
         # this frame. Done here (not inside on_resize) so Vulkan
         # resources are only ever rebuilt on the main thread.
@@ -473,11 +499,40 @@ class SlangPyHudPresenter:
             self._apply_resize(new_size[0], new_size[1])
 
         rgb = self._select_view_rgb(frame, view_mode)
+        try:
+            if self._present_cuda_hud_frame(frame, rgb):
+                return
+        except Exception as exc:
+            if not self._cuda_hud_error_logged:
+                print(
+                    "[presenter] hud_cuda_interop=failed; disabling and using "
+                    f"host HUD upload ({exc})",
+                    flush=True,
+                )
+                self._cuda_hud_error_logged = True
+            if self._cuda_hud_interop is not None:
+                with contextlib.suppress(Exception):
+                    self._cuda_hud_interop.close()
+                self._cuda_hud_interop = None
+        camera_start = time.perf_counter()
         self._update_camera_pil(rgb)
+        camera_end = time.perf_counter()
+        bev_start = camera_end
         if frame.bev_host_uint8 is not None:
             self._update_bev_pil(frame.bev_host_uint8)
+        bev_end = time.perf_counter()
         self._render_canvas(frame.status_message)
+        render_end = time.perf_counter()
         self._present_canvas(use_gpu_camera=frame.status_message is None)
+        present_end = time.perf_counter()
+        _record_hud_profile(
+            "host",
+            total_ms=(present_end - total_start) * 1000.0,
+            camera_ms=(camera_end - camera_start) * 1000.0,
+            bev_ms=(bev_end - bev_start) * 1000.0,
+            render_ms=(render_end - bev_end) * 1000.0,
+            present_ms=(present_end - render_end) * 1000.0,
+        )
 
     def present_loading(self, rgb_host_uint8: np.ndarray) -> None:
         # Used during world-model warmup. Goes through the same render
@@ -490,8 +545,79 @@ class SlangPyHudPresenter:
         self._render_canvas("Loading world model...")
         self._present_canvas(use_gpu_camera=False)
 
+    def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
+        total_start = time.perf_counter()
+        if self._cuda_hud_interop is None:
+            return False
+
+        cuda_frame = self._cuda_hud_interop.as_cuda_rgb_source(rgb)
+        if cuda_frame is None:
+            return False
+
+        if not cuda_frame.ready:
+            submit_start = time.perf_counter()
+            self._submit_ready_cuda_hud()
+            submit_end = time.perf_counter()
+            _record_hud_profile(
+                "cuda_pending",
+                total_ms=(submit_end - total_start) * 1000.0,
+                pre_submit_ms=(submit_end - submit_start) * 1000.0,
+            )
+            return True
+
+        bev_start = time.perf_counter()
+        if frame.bev_host_uint8 is not None:
+            self._update_bev_pil(frame.bev_host_uint8)
+        bev_end = time.perf_counter()
+        self._has_camera_frame = True
+        self._render_canvas(frame.status_message, camera_transparent=True)
+        render_end = time.perf_counter()
+        overlay = np.array(self._canvas, dtype=np.uint8)
+        overlay_end = time.perf_counter()
+        camera_area, _panel_rect = self._layout_regions()
+
+        pre_submit_start = time.perf_counter()
+        submitted = self._submit_ready_cuda_hud()
+        pre_submit_end = time.perf_counter()
+        queued = self._cuda_hud_interop.enqueue_camera_to_shared_rgba(
+            cuda_frame,
+            overlay_rgba=overlay,
+            camera_area=camera_area,
+            bg_rgb=BG_COLOR,
+        )
+        enqueue_end = time.perf_counter()
+        if not queued:
+            _record_hud_profile(
+                "cuda_busy",
+                total_ms=(enqueue_end - total_start) * 1000.0,
+                bev_ms=(bev_end - bev_start) * 1000.0,
+                render_ms=(render_end - bev_end) * 1000.0,
+                overlay_ms=(overlay_end - render_end) * 1000.0,
+                pre_submit_ms=(pre_submit_end - pre_submit_start) * 1000.0,
+                enqueue_ms=(enqueue_end - pre_submit_end) * 1000.0,
+            )
+            return True
+        post_submit_start = enqueue_end
+        if not submitted:
+            self._submit_ready_cuda_hud()
+        post_submit_end = time.perf_counter()
+        _record_hud_profile(
+            "cuda",
+            total_ms=(post_submit_end - total_start) * 1000.0,
+            bev_ms=(bev_end - bev_start) * 1000.0,
+            render_ms=(render_end - bev_end) * 1000.0,
+            overlay_ms=(overlay_end - render_end) * 1000.0,
+            pre_submit_ms=(pre_submit_end - pre_submit_start) * 1000.0,
+            enqueue_ms=(enqueue_end - pre_submit_end) * 1000.0,
+            post_submit_ms=(post_submit_end - post_submit_start) * 1000.0,
+        )
+        return True
+
     def close(self) -> None:
         self._should_close_flag = True
+        if self._cuda_hud_interop is not None:
+            self._cuda_hud_interop.close()
+            self._cuda_hud_interop = None
         if self._wheel is not None:
             try:
                 self._wheel.stop()
@@ -504,12 +630,13 @@ class SlangPyHudPresenter:
     # -- Frame helpers ---------------------------------------------
 
     @staticmethod
-    def _select_view_rgb(frame: PresentedFrame, view_mode: str) -> np.ndarray:
+    def _select_view_rgb(frame: PresentedFrame, view_mode: str) -> object:
         if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
             return frame.model_rgb_host_uint8
         return frame.rgb_host_uint8
 
-    def _update_camera_pil(self, rgb: np.ndarray) -> None:
+    def _update_camera_pil(self, rgb: object) -> None:
+        rgb = _as_rgb_host_uint8(rgb)
         # ``Image.fromarray`` over a contiguous numpy buffer is zero-copy
         # at the C level (PIL keeps a buffer-protocol reference). The
         # resulting Image's ``.tobytes()`` would copy, but we only ever
@@ -535,7 +662,8 @@ class SlangPyHudPresenter:
         self._camera_resize_cache = None
         self._has_camera_frame = True
 
-    def _update_bev_pil(self, bev_rgb: np.ndarray) -> None:
+    def _update_bev_pil(self, bev_rgb: object) -> None:
+        bev_rgb = _as_rgb_host_uint8(bev_rgb)
         # Wrap the raw BEV without applying the GoogleMaps recolour
         # here -- the filter runs in :meth:`_get_bev_panel_image`
         # *after* the panel-sized resize, so the float32 pipeline
@@ -552,6 +680,105 @@ class SlangPyHudPresenter:
         self._bev_panel_cache = None
 
     # -- Vulkan / surface plumbing ---------------------------------
+
+    def _create_device(self) -> Any:
+        existing_device_handles = self._cuda_existing_device_handles()
+        torch_cuda_initialized = _torch_cuda_initialized()
+        if torch_cuda_initialized and not _env_truthy(
+            "INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"
+        ):
+            self._cuda_interop_unavailable_reason = (
+                "disabled after torch CUDA initialization"
+            )
+        enable_cuda_interop = not _env_truthy(
+            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
+        ) and (
+            not torch_cuda_initialized
+            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
+        )
+        device_kwargs = {
+            "type": self._spy.DeviceType.vulkan,
+            "enable_debug_layers": False,
+            "enable_cuda_interop": enable_cuda_interop,
+            "enable_cuda_launch_from_gfx": False,
+            "enable_ray_tracing": False,
+        }
+        if existing_device_handles:
+            device_kwargs["existing_device_handles"] = existing_device_handles
+        try:
+            return self._spy.Device(**device_kwargs)
+        except RuntimeError as exc:
+            print(
+                "[presenter] CUDA interop device creation failed; retrying Vulkan without "
+                f"interop ({exc})",
+                flush=True,
+            )
+            self._cuda_interop_unavailable_reason = "device creation failed"
+            return self._spy.Device(
+                type=self._spy.DeviceType.vulkan,
+                enable_debug_layers=False,
+                enable_cuda_launch_from_gfx=False,
+                enable_ray_tracing=False,
+            )
+
+    def _cuda_existing_device_handles(self) -> list[Any]:
+        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+            return []
+        if not _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"):
+            return []
+        try:
+            import torch
+        except ImportError:
+            return []
+        try:
+            if not torch.cuda.is_initialized():
+                return []
+        except Exception:
+            return []
+
+        get_handles = getattr(
+            self._spy, "get_cuda_current_context_native_handles", None
+        )
+        if not callable(get_handles):
+            return []
+        try:
+            handles: Any = get_handles()
+            return list(handles)
+        except Exception:
+            return []
+
+    def _create_cuda_hud_interop(
+        self, width: int, height: int
+    ) -> _CudaRGBInterop | None:
+        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+            print(
+                "[presenter] hud_cuda_interop=disabled by "
+                "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP; using host HUD upload",
+                flush=True,
+            )
+            return None
+        if not self._device.supports_cuda_interop:
+            reason = self._cuda_interop_unavailable_reason or "unsupported"
+            print(
+                f"[presenter] hud_cuda_interop={reason}; using host HUD upload",
+                flush=True,
+            )
+            return None
+        try:
+            interop = _CudaRGBInterop(
+                spy=self._spy,
+                device=self._device,
+                width=width,
+                height=height,
+            )
+        except Exception as exc:
+            print(
+                f"[presenter] hud_cuda_interop=unavailable; using host HUD upload ({exc})",
+                flush=True,
+            )
+            return None
+        print("[presenter] hud_cuda_interop=enabled", flush=True)
+        return interop
 
     def _choose_surface_format(self) -> Any:
         """Pick a linear surface format (no implicit sRGB encode).
@@ -592,7 +819,11 @@ class SlangPyHudPresenter:
             format=self._display_format,
             width=width,
             height=height,
-            usage=spy.TextureUsage.shader_resource | spy.TextureUsage.unordered_access,
+            usage=(
+                spy.TextureUsage.shader_resource
+                | spy.TextureUsage.unordered_access
+                | spy.TextureUsage.copy_destination
+            ),
             label="hud_display_texture",
         )
 
@@ -608,6 +839,9 @@ class SlangPyHudPresenter:
         # Vulkan resource so it gets freed once any in-flight command
         # buffer using it completes.
         self._display_texture = self._build_display_texture(width, height)
+        if self._cuda_hud_interop is not None:
+            self._cuda_hud_interop.close()
+            self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
         # Drop the chrome panel cache (its size depends on screen size)
         # and reallocate the canvas. Other caches are size-independent.
         self._panel_chrome_cache_key = None
@@ -629,6 +863,52 @@ class SlangPyHudPresenter:
         # resources on the next tick. Doing it in the callback would
         # race with whatever frame is in flight.
         self._pending_resize = (int(width), int(height))
+
+    def _submit_ready_cuda_hud(self) -> bool:
+        if self._cuda_hud_interop is None:
+            return False
+        interop_frame = self._cuda_hud_interop.ready_rgba_buffer()
+        if interop_frame is None:
+            return False
+        rgba_buffer, cuda_stream = interop_frame
+        self._sync_window_size()
+        if not self._surface.config:
+            return False
+        try:
+            surface_texture = self._surface.acquire_next_image()
+        except RuntimeError as exc:
+            print(
+                f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
+                flush=True,
+            )
+            self._reconfigure_surface()
+            return False
+        if not surface_texture:
+            time.sleep(0.001)
+            return False
+
+        width, height = self._configured_size
+        encoder = self._device.create_command_encoder()
+        encoder.copy_buffer_to_texture(
+            self._display_texture,
+            0,
+            0,
+            [0, 0, 0],
+            rgba_buffer.buffer,
+            0,
+            rgba_buffer.size_bytes,
+            rgba_buffer.row_pitch,
+            [width, height, 1],
+        )
+        encoder.blit(surface_texture, self._display_texture)
+        submit_id = self._device.submit_command_buffer(
+            encoder.finish(),
+            cuda_stream=cuda_stream,
+        )
+        self._cuda_hud_interop.mark_submitted(rgba_buffer, submit_id)
+        del surface_texture
+        self._surface.present()
+        return True
 
     def _present_canvas(self, use_gpu_camera: bool = False) -> None:
         # Sync to the window's CURRENT size before every present.
@@ -834,10 +1114,7 @@ class SlangPyHudPresenter:
     def _reconfigure_surface(self) -> None:
         """Rebuild the surface configuration at the current window size.
 
-        Used on the swapchain-lost path. We don't recreate the display
-        texture here because its size is independent of the swapchain
-        format (we ``blit`` the texture into the swapchain image, which
-        handles any resize implicitly via the blit destination size).
+        Used on the swapchain-lost path.
         """
         actual = self._window.size
         new_size = (
@@ -846,6 +1123,10 @@ class SlangPyHudPresenter:
         )
         self._configured_size = new_size
         self._configure_surface(*new_size)
+        self._display_texture = self._build_display_texture(*new_size)
+        if self._cuda_hud_interop is not None:
+            self._cuda_hud_interop.close()
+            self._cuda_hud_interop = self._create_cuda_hud_interop(*new_size)
         # Drop chrome panel cache because its size depends on screen size.
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
@@ -859,7 +1140,23 @@ class SlangPyHudPresenter:
 
     # -- Render ------------------------------------------------------
 
-    def _render_canvas(self, status_message: str | None) -> None:
+    def _layout_regions(
+        self,
+    ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+        screen_w, screen_h = self._canvas.size
+        panel_w = (
+            HUD_PANEL_WIDTH if screen_w > HUD_PANEL_WIDTH + MIN_WINDOW_W // 2 else 0
+        )
+        camera_area = (0, 0, max(1, screen_w - panel_w), screen_h)
+        panel_rect = (camera_area[2], 0, screen_w, screen_h)
+        return camera_area, panel_rect
+
+    def _render_canvas(
+        self,
+        status_message: str | None,
+        *,
+        camera_transparent: bool = False,
+    ) -> None:
         """Composite camera + chrome into ``self._canvas`` for this frame.
 
         Mirrors :meth:`PygameHudViewer._render_frame`'s structure:
@@ -885,11 +1182,8 @@ class SlangPyHudPresenter:
 
         canvas = self._canvas
         screen_w, screen_h = canvas.size
-        panel_w = (
-            HUD_PANEL_WIDTH if screen_w > HUD_PANEL_WIDTH + MIN_WINDOW_W // 2 else 0
-        )
-        camera_area = (0, 0, max(1, screen_w - panel_w), screen_h)
-        panel_rect = (camera_area[2], 0, screen_w, screen_h)
+        camera_area, panel_rect = self._layout_regions()
+        panel_w = panel_rect[2] - panel_rect[0]
 
         draw = ImageDraw.Draw(canvas)
         # No full-canvas clear here. The chrome panel paste in
@@ -901,9 +1195,16 @@ class SlangPyHudPresenter:
         # Only the placeholder branch needs to wipe the camera area --
         # see below. Skipping the full-canvas rectangle here saves a
         # 2 MP RGBA fill (~3-8 ms at 1080p) every render tick.
+        if camera_transparent:
+            # CUDA HUD mode composites the camera on the GPU, so keep
+            # only the camera area transparent before drawing any
+            # status/dropdown overlay that should sit above it.
+            draw.rectangle(camera_area, fill=(0, 0, 0, 0))
 
         camera_drawn = False
-        if self._latest_camera_pil is not None:
+        if camera_transparent:
+            camera_drawn = True
+        elif self._latest_camera_pil is not None:
             if status_message is None:
                 # GPU camera path will fill the centred fit rect after
                 # the canvas upload; we only need to paint the
@@ -2130,6 +2431,77 @@ def _lookup_key(key_enum: Any, *names: str) -> Any:
 def _rect_contains(rect: tuple[int, int, int, int], pos: tuple[int, int]) -> bool:
     x, y = pos
     return rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
+
+
+def _hud_profile_interval_s() -> float:
+    raw = os.environ.get(_HUD_PROFILE_INTERVAL_S_ENV, "2").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 2.0
+    return max(0.25, value)
+
+
+def _record_hud_profile(path: str, **stages_ms: float) -> None:
+    if not _env_truthy(_HUD_PROFILE_ENV):
+        return
+
+    global _HUD_PROFILE_WINDOW_START
+
+    now = time.perf_counter()
+    if _HUD_PROFILE_WINDOW_START is None:
+        _HUD_PROFILE_WINDOW_START = now
+
+    _HUD_PROFILE_COUNTS[path] = _HUD_PROFILE_COUNTS.get(path, 0) + 1
+    for field in _HUD_PROFILE_FIELDS:
+        key = f"{path}.{field}"
+        _HUD_PROFILE_SUMS[key] = _HUD_PROFILE_SUMS.get(key, 0.0) + float(
+            stages_ms.get(field, 0.0)
+        )
+
+    interval_s = _hud_profile_interval_s()
+    if now - _HUD_PROFILE_WINDOW_START < interval_s:
+        return
+
+    window_s = max(1e-9, now - _HUD_PROFILE_WINDOW_START)
+    for profiled_path in sorted(_HUD_PROFILE_COUNTS):
+        count = _HUD_PROFILE_COUNTS[profiled_path]
+        if count <= 0:
+            continue
+        fps = float(count) / window_s
+        parts = [
+            "[profile] hud",
+            f"path={profiled_path}",
+            f"fps={fps:.1f}",
+            f"samples={count}",
+        ]
+        for field in _HUD_PROFILE_FIELDS:
+            total = _HUD_PROFILE_SUMS.get(f"{profiled_path}.{field}", 0.0)
+            if total <= 0.0:
+                continue
+            parts.append(f"avg_{field}={total / float(count):.2f}")
+        print(" ".join(parts), flush=True)
+
+    _HUD_PROFILE_SUMS.clear()
+    _HUD_PROFILE_COUNTS.clear()
+    _HUD_PROFILE_WINDOW_START = now
+
+
+def _prefetch_to_numpy(frame: object) -> None:
+    prefetch = getattr(frame, "prefetch_to_numpy", None)
+    if callable(prefetch):
+        prefetch()
+
+
+def _has_cuda_tensor(frame: object) -> bool:
+    return callable(getattr(frame, "to_cuda_tensor", None))
+
+
+def _as_rgb_host_uint8(frame: object) -> np.ndarray:
+    to_numpy = getattr(frame, "to_numpy", None)
+    if callable(to_numpy):
+        frame = to_numpy()
+    return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
 
 
 __all__ = [

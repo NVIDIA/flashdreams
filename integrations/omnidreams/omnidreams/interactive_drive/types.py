@@ -202,11 +202,11 @@ class TrajectoryChunk:
 @dataclass
 class PresentedFrame:
     timestamp_us: int
-    rgb_host_uint8: UInt8Array
+    rgb_host_uint8: Any
     depth_host_f32: FloatArray | None
     rgb_native: Any | None = None
     depth_native: Any | None = None
-    model_rgb_host_uint8: UInt8Array | None = None
+    model_rgb_host_uint8: Any | None = None
     # Top-down BEV map rendered from the same scene with a synthetic camera
     # 25m above the rig (configured by :class:`BevConfig`). Carried alongside
     # the main camera frame so the demo HUD can show a minimap panel without

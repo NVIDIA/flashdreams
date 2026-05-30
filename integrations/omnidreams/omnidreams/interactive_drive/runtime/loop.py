@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import os
 import queue
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -20,6 +22,98 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkRequest,
     QueuedFrame,
 )
+
+_PROFILE_INPUT_TO_PRESENT_ENV = "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT"
+_PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (
+    "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S"
+)
+
+_PROFILE_E2E_SUM_RAW_MS: float = 0.0
+_PROFILE_E2E_SUM_ADJ_MS: float = 0.0
+_PROFILE_E2E_COUNT: int = 0
+_PROFILE_E2E_WINDOW_START: float | None = None
+
+
+def _profile_input_to_present_enabled() -> bool:
+    raw = os.environ.get(_PROFILE_INPUT_TO_PRESENT_ENV, "")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _profile_input_to_present_interval_s() -> float:
+    raw = os.environ.get(_PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV, "2").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 2.0
+    return max(0.25, value)
+
+
+def reset_input_to_present_profile_window() -> None:
+    """Clear accumulated e2e samples when the main loop starts."""
+    global _PROFILE_E2E_SUM_RAW_MS
+    global _PROFILE_E2E_SUM_ADJ_MS
+    global _PROFILE_E2E_COUNT
+    global _PROFILE_E2E_WINDOW_START
+
+    _PROFILE_E2E_SUM_RAW_MS = 0.0
+    _PROFILE_E2E_SUM_ADJ_MS = 0.0
+    _PROFILE_E2E_COUNT = 0
+    _PROFILE_E2E_WINDOW_START = None
+
+
+def _chunk_frame_interval_s(chunk_times: ChunkTimes) -> float:
+    frames = chunk_times.frames
+    if len(frames) >= 2:
+        return max(
+            0.0, frames[1].intended_present_time - frames[0].intended_present_time
+        )
+    return 0.0
+
+
+def _record_input_to_present_for_profile(
+    *,
+    present_time: float,
+    input_sample_time: float,
+    frame_index: int,
+    frame_interval_s: float,
+) -> None:
+    global _PROFILE_E2E_SUM_RAW_MS
+    global _PROFILE_E2E_SUM_ADJ_MS
+    global _PROFILE_E2E_COUNT
+    global _PROFILE_E2E_WINDOW_START
+
+    raw_ms = (present_time - input_sample_time) * 1000.0
+    scheduled_ms = frame_index * (frame_interval_s * 1000.0)
+    adj_ms = raw_ms - scheduled_ms
+    _PROFILE_E2E_SUM_RAW_MS += raw_ms
+    _PROFILE_E2E_SUM_ADJ_MS += adj_ms
+    _PROFILE_E2E_COUNT += 1
+    if _PROFILE_E2E_WINDOW_START is None:
+        _PROFILE_E2E_WINDOW_START = present_time
+
+    interval_s = _profile_input_to_present_interval_s()
+    if present_time - _PROFILE_E2E_WINDOW_START < interval_s:
+        return
+
+    count = _PROFILE_E2E_COUNT
+    if count <= 0:
+        return
+    window_s = present_time - _PROFILE_E2E_WINDOW_START
+    wall_present_fps = float(count) / window_s if window_s > 1e-9 else 0.0
+    avg_raw_ms = _PROFILE_E2E_SUM_RAW_MS / float(count)
+    avg_adj_ms = _PROFILE_E2E_SUM_ADJ_MS / float(count)
+    print(
+        "[profile] e2e "
+        f"wall_present_fps={wall_present_fps:.1f} "
+        f"avg_adj_control_to_present_ms={avg_adj_ms:.2f} "
+        f"avg_raw_control_to_present_ms={avg_raw_ms:.2f} "
+        f"samples={count}",
+        flush=True,
+    )
+    _PROFILE_E2E_SUM_RAW_MS = 0.0
+    _PROFILE_E2E_SUM_ADJ_MS = 0.0
+    _PROFILE_E2E_COUNT = 0
+    _PROFILE_E2E_WINDOW_START = present_time
 
 
 class PresenterBackend(Protocol):
@@ -180,6 +274,13 @@ def present_queued_frame(
     presenter.present_frame(display_frame, view_mode=view_mode)
     present_time = time.perf_counter()
     frame_times.present_time = present_time
+    if _profile_input_to_present_enabled():
+        _record_input_to_present_for_profile(
+            present_time=present_time,
+            input_sample_time=queued_frame.chunk_times.input_sample_time,
+            frame_index=queued_frame.frame_index,
+            frame_interval_s=_chunk_frame_interval_s(queued_frame.chunk_times),
+        )
     return present_time
 
 
@@ -321,6 +422,32 @@ def push_telemetry(
     update(simulation.current_state)
 
 
+def _prepare_queued_frame(
+    queued_frame: QueuedFrame,
+    presenter: PresenterBackend,
+    view_mode: str,
+) -> None:
+    prepare_frame = getattr(presenter, "prepare_frame", None)
+    if callable(prepare_frame):
+        prepare_frame(queued_frame.frame, view_mode=view_mode)
+
+
+def _drain_pipeline_frames(
+    *,
+    pipeline: ChunkPipeline,
+    ready_frames: "deque[QueuedFrame]",
+    presenter: PresenterBackend,
+    view_mode: str,
+) -> None:
+    while True:
+        try:
+            queued_frame = pipeline.frame_queue.get_nowait()
+        except queue.Empty:
+            return
+        _prepare_queued_frame(queued_frame, presenter, view_mode)
+        ready_frames.append(queued_frame)
+
+
 def run_main_loop(
     presenter: PresenterBackend,
     runtime_controls: RuntimeControls,
@@ -354,7 +481,10 @@ def run_main_loop(
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
+    ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory.create(config.history_capacity)
+    if _profile_input_to_present_enabled():
+        reset_input_to_present_profile_window()
 
     while not presenter.should_close:
         presenter.process_events()
@@ -388,6 +518,14 @@ def run_main_loop(
             # OOB check just consulted.
             push_telemetry(runtime_controls, simulation)
 
+        view_mode = runtime_controls.view_mode
+        _drain_pipeline_frames(
+            pipeline=pipeline,
+            ready_frames=ready_frames,
+            presenter=presenter,
+            view_mode=view_mode,
+        )
+
         now = time.perf_counter()
         if now < state.next_present_time:
             time.sleep(
@@ -395,9 +533,8 @@ def run_main_loop(
             )
             continue
 
-        view_mode = runtime_controls.view_mode
-        try:
-            queued_frame = pipeline.frame_queue.get_nowait()
+        if ready_frames:
+            queued_frame = ready_frames.popleft()
             if queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index:
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
@@ -409,7 +546,7 @@ def run_main_loop(
             )
             last_presented_frame = queued_frame.frame
             state.frame_count += 1
-        except queue.Empty:
+        else:
             # Re-present the last frame with whatever OOB overlay is current
             # for this tick; the merged frame is local to this call so the
             # cached ``last_presented_frame`` stays unmodified for the next

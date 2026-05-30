@@ -6,11 +6,13 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
 import torch
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _build_pipeline_config,
+    _LazyRGBFrame,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -138,6 +140,41 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
 
     session.close()
     assert fake_pipeline.finalize_calls == [(0, "cache"), (1, "cache")]
+
+
+def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) -> None:
+    fake_pipeline = _FakePipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    session.warmup()
+    sync_calls: list[list[object]] = []
+
+    def fake_sync(frames: list[object]) -> None:
+        sync_calls.append(frames)
+
+    monkeypatch.setattr(adapter_module, "_synchronize_cuda_frame_event", fake_sync)
+
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+    next_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(8)]
+
+    first = session.start(initial_rgb, first_condition_frames, "demo prompt")
+    second = session.continue_generation(next_condition_frames)
+
+    assert sync_calls == [first, second]
+
+
+def test_lazy_rgb_frame_exposes_tensor_before_host_materialization() -> None:
+    frames = torch.arange(2 * 2 * 3 * 3, dtype=torch.uint8).reshape(2, 2, 3, 3)
+    lazy = _LazyRGBFrame(frames, frame_index=1)
+
+    tensor = lazy.to_cuda_tensor()
+
+    assert torch.equal(tensor, frames[1])
+    assert lazy.to_cuda_event() is None
+    assert np.array_equal(lazy.to_numpy(), frames[1].numpy())
 
 
 def test_session_offload_reuses_precomputed_embeddings_after_reset() -> None:
