@@ -25,7 +25,7 @@ FlashDreams
 
    .. container:: fd-cta-row
 
-      .. button-ref:: quickstart/index
+      .. button-ref:: get_started
          :ref-type: doc
          :color: primary
 
@@ -74,7 +74,7 @@ Performance
 Each tile shows per-step latency at steady state — post-warmup,
 post-graph-capture — measured against the upstream library's own
 runner on the same hardware and the same checkpoint. Full methodology
-lives on the :doc:`benchmarks page <benchmarks/index>`.
+lives on the :doc:`benchmarks page <benchmarks>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -146,12 +146,12 @@ lives on the :doc:`benchmarks page <benchmarks/index>`.
 Try FlashDreams
 ---------------
 
-The :doc:`Get Started guide <quickstart/index>` walks from a fresh
+The :doc:`Get Started guide <get_started>` walks from a fresh
 checkout to a generated frame on a single GPU.
 
 .. container:: fd-cta-row
 
-   .. button-ref:: quickstart/index
+   .. button-ref:: get_started
       :ref-type: doc
       :color: primary
 
@@ -238,7 +238,7 @@ invocation, the checkpoint source, and the per-recipe knobs.
    :hidden:
    :maxdepth: 1
 
-   Get Started <quickstart/index>
+   Get Started <get_started>
    Documentation <documentation>
-   benchmarks/index
+   benchmarks
    community/index

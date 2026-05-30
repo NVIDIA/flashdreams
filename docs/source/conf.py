@@ -86,7 +86,7 @@ html_theme_options = {
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
     # layout pages (homepage, benchmarks, community index/faq/support,
-    # quickstart, per-model pages) render without a right sidebar; the
+    # get_started, per-model pages) render without a right sidebar; the
     # reference-docs side (`api/*`, the Documentation tab umbrella, the
     # developer guides) keeps the in-page TOC. `community/contributing`
     # also keeps the right page-TOC — the page is included from the
@@ -101,12 +101,12 @@ html_theme_options = {
     # than its siblings without overlapping a wildcard.
     "secondary_sidebar_items": {
         "index": [],
-        "benchmarks/*": [],
+        "benchmarks": [],
         "community/index": [],
         "community/faq": [],
         "community/support": [],
         "community/contributing": ["page-toc"],
-        "quickstart/*": [],
+        "get_started": [],
         "developer_guides/*": ["page-toc"],
         "models/*": [],
         "documentation": ["page-toc"],
@@ -158,17 +158,17 @@ html_theme_options = {
     # toctree entries appear there. Sub-pages live in each section's
     # own toctree, which drives the left sidebar instead.
     "show_nav_level": 1,
-    # Six top-level sections in the master toctree (Benchmarks,
-    # Quickstart, Developer Guides, Models, CLI/API References,
-    # Community); promote them all into the primary navbar instead
-    # of bucketing into "More".
+    # Four top-level entries in the master toctree (Get Started,
+    # Documentation, Benchmarks, Community); 4 <= 6 so all four
+    # promote into the primary navbar instead of bucketing into
+    # "More".
     "header_links_before_dropdown": 6,
 }
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
 # Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, benchmarks, community index/faq/support, quickstart,
+# (homepage, benchmarks, community index/faq/support, get_started,
 # per-model pages) get no left sidebar — section wayfinding lives in
 # the section-index page's hero + tile grid instead. The reference-
 # docs side (`api/*`, the Documentation tab umbrella, the developer
@@ -185,12 +185,12 @@ html_theme_options = {
 # overlapping a wildcard.
 html_sidebars = {
     "index": [],
-    "benchmarks/*": [],
+    "benchmarks": [],
     "community/index": [],
     "community/faq": [],
     "community/support": [],
     "community/contributing": [],
-    "quickstart/*": [],
+    "get_started": [],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],
     "documentation": [],

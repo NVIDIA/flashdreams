@@ -118,7 +118,7 @@ I2V recipe with the bundled example data:
 Where to next
 -------------
 
-- :doc:`/benchmarks/index` — every shipped recipe with its CLI slug,
+- :doc:`/benchmarks` — every shipped recipe with its CLI slug,
   checkpoint source, and per-recipe knobs, alongside the benchmark
   numbers.
 - :doc:`/developer_guides/inference_pipeline_overview` — the generation
@@ -128,5 +128,5 @@ Where to next
 - :doc:`/developer_guides/new_integration` — adding a new model or
   method as a plugin.
 - :doc:`/api/index` — Python API and CLI reference.
-- :doc:`/benchmarks/index` — steady-state per-step latency numbers
+- :doc:`/benchmarks` — steady-state per-step latency numbers
   with reproducer commands.

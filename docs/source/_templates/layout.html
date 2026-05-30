@@ -44,7 +44,7 @@ SPDX-License-Identifier: Apache-2.0
                                 benefits from the docs scaffold
 
    Everything else (homepage, benchmarks, community index/faq/support,
-   quickstart, per-model pages) renders in the marketing layout.
+   get_started, per-model pages) renders in the marketing layout.
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
                           or pagename == 'documentation'
@@ -72,23 +72,23 @@ SPDX-License-Identifier: Apache-2.0
    the reference-docs side get no `fd-page-landing` class.
 
    `fd-prose-narrow` is layered on top of `fd-page-landing` for the
-   prose-heavy marketing sub-pages — community subpages, quickstart
-   walkthroughs, and per-model pages. These are reading-column
-   surfaces (paragraphs of explanation, code blocks, walkthrough
-   steps) that benefit from a narrower line length and tighter band
-   padding than the marketing grids on section index pages.
+   prose-heavy marketing sub-pages — community subpages and per-model
+   pages. These are reading-column surfaces (paragraphs of
+   explanation, code blocks, walkthrough steps) that benefit from a
+   narrower line length and tighter band padding than the marketing
+   grids on section landing pages.
 
-   The marketing section *index* pages themselves (`quickstart/index`,
-   `community/index`, `benchmarks/index`, and the root `index`) keep
-   the wider default so their hero band, asymmetric splits, and tile
+   The marketing section landing pages themselves (`get_started`,
+   `community/index`, `benchmarks`, and the root `index`) keep the
+   wider default so their hero band, asymmetric splits, and tile
    grids have room to breathe. Pages on the reference-docs side
    (`_fd_is_reference`) never get the prose-narrow flag since they
    already live in pydata's article container.
 #}
 {% block body_tag %}
   {% set _fd_prose_narrow_indices = ('community/index',
-                                     'quickstart/index',
-                                     'benchmarks/index') %}
+                                     'get_started',
+                                     'benchmarks') %}
   {% set _fd_is_prose_narrow = (not _fd_is_reference)
                                and pagename != master_doc
                                and pagename not in _fd_prose_narrow_indices %}

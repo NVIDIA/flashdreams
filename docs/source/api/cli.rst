@@ -56,6 +56,6 @@ Resolve config only (no model instantiation):
 See also
 --------
 
-- :doc:`/quickstart/index`
+- :doc:`/get_started`
 - :doc:`/developer_guides/config_system`
 - :doc:`/api/infra`

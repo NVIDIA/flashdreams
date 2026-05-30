@@ -29,7 +29,7 @@ Benchmarks
 
    .. container:: fd-cta-row
 
-      .. button-ref:: /quickstart/index
+      .. button-ref:: /get_started
          :ref-type: doc
          :color: primary
 
