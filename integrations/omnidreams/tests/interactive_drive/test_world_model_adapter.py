@@ -6,13 +6,13 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
-import torch
 import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
+import torch
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
-    _LazyRGBFrame,
     _build_pipeline_config,
+    _LazyRGBFrame,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest

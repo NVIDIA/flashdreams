@@ -5,8 +5,8 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-import pytest
 import omnidreams.interactive_drive.runtime.loop as loop_module
+import pytest
 from omnidreams.interactive_drive._pipeline_fakes import (
     FakeVideoModelBackend,
     make_trajectory,

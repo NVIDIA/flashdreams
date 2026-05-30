@@ -94,7 +94,9 @@ class SlangPyPresenter:
             rgb = _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
             self._present_array(rgb)
             return
-        self._present_array(_with_status_overlay(frame.rgb_host_uint8, frame.status_message))
+        self._present_array(
+            _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        )
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
@@ -105,12 +107,11 @@ class SlangPyPresenter:
             self._cuda_interop_unavailable_reason = (
                 "disabled after torch CUDA initialization"
             )
-        enable_cuda_interop = (
-            not _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP")
-            and (
-                not torch_cuda_initialized
-                or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-            )
+        enable_cuda_interop = not _env_truthy(
+            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
+        ) and (
+            not torch_cuda_initialized
+            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
         )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
@@ -152,7 +153,9 @@ class SlangPyPresenter:
         except Exception:
             return []
 
-        get_handles = getattr(self._spy, "get_cuda_current_context_native_handles", None)
+        get_handles = getattr(
+            self._spy, "get_cuda_current_context_native_handles", None
+        )
         if not callable(get_handles):
             return []
         try:
@@ -171,7 +174,9 @@ class SlangPyPresenter:
             return None
         if not self._device.supports_cuda_interop:
             reason = self._cuda_interop_unavailable_reason or "unsupported"
-            print(f"[presenter] cuda_interop={reason}; using host RGB upload", flush=True)
+            print(
+                f"[presenter] cuda_interop={reason}; using host RGB upload", flush=True
+            )
             return None
         try:
             interop = _CudaRGBInterop(
@@ -189,7 +194,9 @@ class SlangPyPresenter:
         print("[presenter] cuda_interop=enabled", flush=True)
         return interop
 
-    def _present_cuda_rgb(self, rgb_frame: object, *, status_message: str | None) -> bool:
+    def _present_cuda_rgb(
+        self, rgb_frame: object, *, status_message: str | None
+    ) -> bool:
         if self._cuda_rgb_interop is None:
             return False
 
@@ -538,14 +545,18 @@ class _CudaRGBInterop:
             if copy_done_event is None or not _cuda_event_ready(copy_done_event):
                 continue
             stream = int(self._copy_stream.cuda_stream)
-            cuda_stream = self._spy.NativeHandle(self._spy.NativeHandleType.CUstream, stream)
+            cuda_stream = self._spy.NativeHandle(
+                self._spy.NativeHandleType.CUstream, stream
+            )
             return shared_buffer, cuda_stream
         return None
 
     def close(self) -> None:
         self._copy_stream.close()
 
-    def mark_submitted(self, shared_buffer: "_SharedRGBABuffer", submit_id: int) -> None:
+    def mark_submitted(
+        self, shared_buffer: "_SharedRGBABuffer", submit_id: int
+    ) -> None:
         shared_buffer.copy_done_event = None
         shared_buffer.pending_submit_id = int(submit_id)
 
@@ -568,9 +579,7 @@ class _CudaRGBInterop:
         index = device.index
         return 0 if index is None else int(index)
 
-    def _resize_rgb_tensor(
-        self, rgb_tensor: Any, target_h: int, target_w: int
-    ) -> Any:
+    def _resize_rgb_tensor(self, rgb_tensor: Any, target_h: int, target_w: int) -> Any:
         if tuple(rgb_tensor.shape[:2]) == (target_h, target_w):
             return rgb_tensor if rgb_tensor.is_contiguous() else rgb_tensor.contiguous()
         nchw = rgb_tensor.permute(2, 0, 1).unsqueeze(0).to(self._torch.float32)
@@ -689,7 +698,9 @@ def _check_cuda_runtime_result(result: int, get_error_string: Any) -> None:
         return
     raw = get_error_string(int(result))
     message = (
-        raw.decode("utf-8", errors="replace") if raw is not None else f"CUDA error {result}"
+        raw.decode("utf-8", errors="replace")
+        if raw is not None
+        else f"CUDA error {result}"
     )
     raise RuntimeError(message)
 

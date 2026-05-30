@@ -362,9 +362,7 @@ class SlangPyHudPresenter:
         )
         self._configure_surface(*self._configured_size)
         self._display_texture = self._build_display_texture(*self._configured_size)
-        self._cuda_hud_interop = self._create_cuda_hud_interop(
-            *self._configured_size
-        )
+        self._cuda_hud_interop = self._create_cuda_hud_interop(*self._configured_size)
         # ``_pending_resize`` is set by the on_resize callback (which
         # runs on the windowing thread) and consumed by ``present_frame``
         # on the main thread, where it's safe to recreate Vulkan
@@ -692,12 +690,11 @@ class SlangPyHudPresenter:
             self._cuda_interop_unavailable_reason = (
                 "disabled after torch CUDA initialization"
             )
-        enable_cuda_interop = (
-            not _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP")
-            and (
-                not torch_cuda_initialized
-                or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-            )
+        enable_cuda_interop = not _env_truthy(
+            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
+        ) and (
+            not torch_cuda_initialized
+            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
         )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
@@ -739,7 +736,9 @@ class SlangPyHudPresenter:
         except Exception:
             return []
 
-        get_handles = getattr(self._spy, "get_cuda_current_context_native_handles", None)
+        get_handles = getattr(
+            self._spy, "get_cuda_current_context_native_handles", None
+        )
         if not callable(get_handles):
             return []
         try:
@@ -748,7 +747,9 @@ class SlangPyHudPresenter:
         except Exception:
             return []
 
-    def _create_cuda_hud_interop(self, width: int, height: int) -> _CudaRGBInterop | None:
+    def _create_cuda_hud_interop(
+        self, width: int, height: int
+    ) -> _CudaRGBInterop | None:
         if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
             print(
                 "[presenter] hud_cuda_interop=disabled by "
@@ -1058,13 +1059,11 @@ class SlangPyHudPresenter:
         # an alpha allocation, a fresh RGBA allocation, and two
         # memory passes for what only needs to be one RGB slice
         # copy into a long-lived buffer.
-        if (
-            self._camera_rgba_staging is None
-            or self._camera_rgba_staging.shape[:2] != (src_h, src_w)
+        if self._camera_rgba_staging is None or self._camera_rgba_staging.shape[:2] != (
+            src_h,
+            src_w,
         ):
-            self._camera_rgba_staging = np.empty(
-                (src_h, src_w, 4), dtype=np.uint8
-            )
+            self._camera_rgba_staging = np.empty((src_h, src_w, 4), dtype=np.uint8)
             # One-time alpha fill -- the GPU camera path only ever
             # writes the RGB slice from here on, so alpha stays 255.
             self._camera_rgba_staging[..., 3] = 255

@@ -157,7 +157,9 @@ def test_model_rgb_falls_back_to_host_when_cuda_path_declines() -> None:
     assert np.all(presented[0] == 127)
 
 
-def test_model_rgb_does_not_materialize_host_frame_when_cuda_source_is_pending() -> None:
+def test_model_rgb_does_not_materialize_host_frame_when_cuda_source_is_pending() -> (
+    None
+):
     presenter = _presenter_without_window()
     lazy = _LazyFrame()
 
