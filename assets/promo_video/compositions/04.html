@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .stage {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+
+      .title-wrap {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        z-index: 20;
+        padding: 14px 20px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.84);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .title {
+        font-size: 58px;
+        font-weight: 860;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.52);
+      }
+
+      .lines {
+        position: absolute;
+        left: 96px;
+        right: 96px;
+        top: 148px;
+        bottom: 148px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 4px;
+      }
+
+      .feature-line {
+        min-height: 116px;
+        padding: 26px 30px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+
+      .line-text {
+        font-size: 62px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.52);
+      }
+
+      .line-1 .line-text { color: #78d7ff; }
+      .line-2 .line-text { color: #ffc07a; }
+      .line-3 .line-text { color: #c6a6ff; }
+      .line-4 .line-text { color: #ff97cc; }
+
+      .typing-cursor {
+        display: inline-block;
+        margin-left: 6px;
+        color: rgba(255, 255, 255, 0.95);
+        font-weight: 850;
+      }
+
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene-more-features" data-duration="4.4" data-width="1920" data-height="1080">
+      <div class="stage"></div>
+      <div class="lines">
+        <div class="feature-line line-1" id="line-1">
+          <div class="line-text">
+            <span id="line-1-text"></span><span id="line-1-cursor" class="typing-cursor">|</span>
+          </div>
+        </div>
+        <div class="feature-line line-2" id="line-2">
+          <div class="line-text">
+            <span id="line-2-text"></span><span id="line-2-cursor" class="typing-cursor">|</span>
+          </div>
+        </div>
+        <div class="feature-line line-3" id="line-3">
+          <div class="line-text">
+            <span id="line-3-text"></span><span id="line-3-cursor" class="typing-cursor">|</span>
+          </div>
+        </div>
+        <div class="feature-line line-4" id="line-4">
+          <div class="line-text">
+            <span id="line-4-text"></span><span id="line-4-cursor" class="typing-cursor">|</span>
+          </div>
+        </div>
+      </div>
+      <div class="title-wrap">
+        <div class="title">More Features</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.fromTo(
+        ".title-wrap",
+        { clipPath: "inset(0 100% 0 0)" },
+        { clipPath: "inset(0 0% 0 0)", duration: 1.0, ease: "power2.out" },
+        0.3
+      );
+
+      const features = [
+        {
+          containerId: "line-1",
+          textId: "line-1-text",
+          cursorId: "line-1-cursor",
+          text: "Optimized Streaming Decoding",
+        },
+        {
+          containerId: "line-2",
+          textId: "line-2-text",
+          cursorId: "line-2-cursor",
+          text: "Scalable Multi-GPU Serving",
+        },
+        {
+          containerId: "line-3",
+          textId: "line-3-text",
+          cursorId: "line-3-cursor",
+          text: "CUDAGraph for Autoregressive Models",
+        },
+        {
+          containerId: "line-4",
+          textId: "line-4-text",
+          cursorId: "line-4-cursor",
+          text: "Python Package with Minimal Dependencies",
+        },
+      ];
+
+      let startAt = 0.3;
+      features.forEach((feature) => {
+        const textNode = document.getElementById(feature.textId);
+        const cursorNode = document.getElementById(feature.cursorId);
+        const typeState = { chars: 0 };
+        const baseTypingDuration = Math.max(1.0, feature.text.length * 0.028);
+        const typingDuration = baseTypingDuration / 2.0;
+
+        tl.fromTo(
+          `#${feature.containerId}`,
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" },
+          startAt - 0.12
+        );
+
+        tl.to(
+          typeState,
+          {
+            chars: feature.text.length,
+            duration: typingDuration,
+            ease: "none",
+            onUpdate: () => {
+              textNode.textContent = feature.text.slice(0, Math.floor(typeState.chars));
+            },
+          },
+          startAt
+        );
+
+        tl.to(
+          cursorNode,
+          {
+            opacity: 0,
+            duration: 0.2,
+            repeat: Math.max(1, Math.floor(typingDuration / 0.2)),
+            yoyo: true,
+            ease: "none",
+          },
+          startAt
+        );
+
+        tl.set(cursorNode, { opacity: 0, display: "none" }, startAt + typingDuration);
+
+        startAt += typingDuration + 0.5;
+      });
+
+      window.__timelines["scene-more-features"] = tl;
+    </script>
+  </body>
+</html>

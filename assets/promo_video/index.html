@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .grid-video {
+        position: absolute;
+        width: 640px;
+        height: 360px;
+        object-fit: cover;
+        border-radius: 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: #050505;
+        z-index: 10;
+        transform: translateZ(0);
+      }
+
+      .grid-inset-video {
+        position: absolute;
+        width: 200px;
+        height: 100px;
+        object-fit: cover;
+        border-radius: 10px;
+        border: 2px solid rgba(255, 255, 255, 0.88);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+        background: #000;
+        z-index: 30;
+        transform: translateZ(0);
+      }
+
+      .interactive-full-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .inset-lingbot {
+        left: 1068px;
+        top: 248px;
+      }
+
+      .inset-flashvsr {
+        left: 1708px;
+        top: 608px;
+      }
+
+      .c1 { left: 0; }
+      .c2 { left: 640px; }
+      .c3 { left: 1280px; }
+      .r1 { top: 0; }
+      .r2 { top: 360px; }
+      .r3 { top: 720px; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="45.38"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="scene-opening"
+        class="clip"
+        data-composition-id="scene-opening"
+        data-composition-src="compositions/01.html"
+        data-start="0"
+        data-duration="4.5"
+        data-track-index="0"
+      ></div>
+
+      <div
+        id="scene-interactive-world"
+        class="clip"
+        data-composition-id="scene-interactive-world"
+        data-composition-src="compositions/01.post1.html"
+        data-start="4.5"
+        data-duration="16"
+        data-track-index="0"
+      ></div>
+
+      <video
+        id="interactive-lingbot"
+        class="clip interactive-full-video"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-webrtc-recording-0529-fasttrim8.mp4"
+        muted
+        playsinline
+        data-start="4.5"
+        data-duration="8"
+        data-track-index="1"
+      ></video>
+      <video
+        id="interactive-omnidreams"
+        class="clip interactive-full-video"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-webrtc-recording-0529-fasttrim8.mp4"
+        muted
+        playsinline
+        data-start="12.5"
+        data-duration="8"
+        data-track-index="1"
+      ></video>
+
+      <div
+        id="scene-model-grid"
+        class="clip"
+        data-composition-id="scene-model-grid"
+        data-composition-src="compositions/02.html"
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="20"
+      ></div>
+
+      <video
+        id="grid-omnidreams"
+        class="clip grid-video c1 r1"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="1"
+      ></video>
+      <video
+        id="grid-lingbot"
+        class="clip grid-video c2 r1"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="2"
+      ></video>
+      <video
+        id="grid-self-forcing"
+        class="clip grid-video c3 r1"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_6.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="3"
+      ></video>
+      <video
+        id="grid-causal-forcing"
+        class="clip grid-video c1 r2"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="4"
+      ></video>
+      <video
+        id="grid-causal-wan22"
+        class="clip grid-video c2 r2"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="5"
+      ></video>
+      <video
+        id="grid-flashvsr"
+        class="clip grid-video c3 r2"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="6"
+      ></video>
+      <video
+        id="grid-wan21"
+        class="clip grid-video c1 r3"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="7"
+      ></video>
+      <video
+        id="grid-cosmos"
+        class="clip grid-video c2 r3"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="8"
+      ></video>
+      <video
+        id="grid-lingbot-traj-inset"
+        class="clip grid-inset-video inset-lingbot"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="9"
+      ></video>
+      <video
+        id="grid-flashvsr-input-inset"
+        class="clip grid-inset-video inset-flashvsr"
+        src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4"
+        muted
+        playsinline
+        loop
+        data-start="20.5"
+        data-duration="5"
+        data-track-index="10"
+      ></video>
+
+      <div
+        id="scene-benchmarks"
+        class="clip"
+        data-composition-id="scene-benchmarks"
+        data-composition-src="compositions/03.html"
+        data-start="25.5"
+        data-duration="12.47"
+        data-track-index="0"
+      ></div>
+
+      <div
+        id="scene-more-features"
+        class="clip"
+        data-composition-id="scene-more-features"
+        data-composition-src="compositions/04.html"
+        data-start="37.98"
+        data-duration="4.4"
+        data-track-index="0"
+      ></div>
+
+      <div
+        id="scene-ending"
+        class="clip"
+        data-composition-id="scene-ending"
+        data-composition-src="compositions/05.html"
+        data-start="42.38"
+        data-duration="3"
+        data-track-index="0"
+      ></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

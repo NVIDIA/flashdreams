@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .ending-stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 36px;
+        transform: translateY(-24px);
+      }
+
+      /* Extra soft dither layer to reduce gradient banding on the final page. */
+      .ending-stage.bg-green-glow::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background-image: var(--noise-tile-soft);
+        background-size: 512px 512px;
+        background-blend-mode: soft-light;
+        opacity: 0.2;
+      }
+
+      .ending-logo {
+        width: 1440px;
+        height: auto;
+        filter: drop-shadow(0 10px 52px rgba(118, 185, 0, 0.22));
+        z-index: 1;
+      }
+
+      .ending-url {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        max-width: 1520px;
+        min-height: 72px;
+        text-align: center;
+        color: var(--fg-dim);
+        font-size: 54px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene-ending" data-duration="3" data-width="1920" data-height="1080">
+      <div id="ending-stage" class="clip ending-stage bg-green-glow" data-start="0" data-duration="3" data-track-index="0">
+        <img id="ending-logo" class="ending-logo" src="../assets/flashdreams-logo.svg" alt="FlashDreams" />
+        <div id="ending-url" class="ending-url">pip install flashdreams</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["scene-ending"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

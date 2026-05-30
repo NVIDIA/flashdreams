@@ -1,0 +1,15 @@
+{
+  "name": "promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.6.54 preview",
+    "check": "npx --yes hyperframes@0.6.54 lint && npx --yes hyperframes@0.6.54 validate && npx --yes hyperframes@0.6.54 inspect",
+    "browser": "HYPERFRAMES_BROWSER_PATH=\"${HYPERFRAMES_BROWSER_PATH:-$HOME/.cache/ms-playwright/chromium-1140/chrome-linux/chrome}\" npx --yes hyperframes@0.6.54 browser ensure",
+    "render": "HYPERFRAMES_BROWSER_PATH=\"${HYPERFRAMES_BROWSER_PATH:-$HOME/.cache/ms-playwright/chromium-1140/chrome-linux/chrome}\" npx --yes hyperframes@0.6.54 render",
+    "publish": "npx --yes hyperframes@0.6.54 publish"
+  },
+  "dependencies": {
+    "hyperframes": "^0.6.54"
+  }
+}
