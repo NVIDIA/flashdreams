@@ -18,55 +18,85 @@ FlashDreams
 
 .. container:: fd-hero fd-hero-band
 
-   .. container:: fd-hero-lede
+   .. container:: fd-split fd-split-asymmetric-reverse
 
-      A high-performance inference and serving library for
-      interactive autoregressive video and world models.
+      .. container:: fd-split-text
 
-   .. container:: fd-cta-row
+         .. container:: fd-hero-lede
 
-      .. button-ref:: get_started
-         :ref-type: doc
-         :color: primary
+            A high-performance inference and serving library for
+            interactive autoregressive video and world models.
 
-         Get started
+         .. container:: fd-cta-row
 
-      .. button-link:: https://github.com/NVIDIA/flashdreams
-         :color: secondary
-         :outline:
+            .. button-ref:: get_started
+               :ref-type: doc
+               :color: primary
 
-         GitHub
+               Get started
 
-      .. button-ref:: community/index
-         :ref-type: doc
-         :color: secondary
-         :outline:
+            .. button-link:: https://github.com/NVIDIA/flashdreams
+               :color: secondary
+               :outline:
 
-         Community
+               GitHub
+
+            .. button-ref:: community/index
+               :ref-type: doc
+               :color: secondary
+               :outline:
+
+               Community
+
+      .. container:: fd-split-visual
+
+         .. admonition:: PLACEHOLDER — hero loop
+            :class: placeholder
+
+            **What goes here:** A short looping clip of a streaming
+            recipe (for example ``self-forcing-wan2.1-t2v-1.3b-taehv``)
+            generating end-to-end, or a stylised diagram of the
+            KV cache / ring attention / CUDA-graph pipeline.
+
+            **Format:** ``_static/hero-loop.avif`` (animated AVIF, 16:9).
 
 Why FlashDreams
 ---------------
 
-FlashDreams is built for the case where a diffusion video model has to
-respond in real time — a closed-loop world-model demo, a driving
-simulator, an interactive scene rollout. The optimisations needed for
-that case are different from those used by an offline, one-shot video
-generator, and FlashDreams organises them into three abstractions that
-every shipped recipe uses.
+.. container:: fd-split fd-split-asymmetric
 
-**KV-cached transformers.** Each autoregressive chunk re-uses prior
-context as a KV cache instead of recomputing it. Self-forcing and
-causal-forcing training regimes are first-class.
+   .. container:: fd-split-text
 
-**Ring attention.** Context-parallel attention across ranks, so
-long-horizon generation scales out instead of OOM-ing on a single GPU.
+      FlashDreams is built for the case where a diffusion video model has to
+      respond in real time — a closed-loop world-model demo, a driving
+      simulator, an interactive scene rollout. The optimisations needed for
+      that case are different from those used by an offline, one-shot video
+      generator, and FlashDreams organises them into three abstractions that
+      every shipped recipe uses.
 
-**CUDA-graph capture.** The steady-state forward is captured into a
-CUDA graph after warmup, collapsing Python and launch overhead in the
-hot loop.
+      **KV-cached transformers.** Each autoregressive chunk re-uses prior
+      context as a KV cache instead of recomputing it. Self-forcing and
+      causal-forcing training regimes are first-class.
 
-The library is Apache-2.0 and developed in the open. The internals are
-covered in the :doc:`documentation <documentation>`.
+      **Ring attention.** Context-parallel attention across ranks, so
+      long-horizon generation scales out instead of OOM-ing on a single GPU.
+
+      **CUDA-graph capture.** The steady-state forward is captured into a
+      CUDA graph after warmup, collapsing Python and launch overhead in the
+      hot loop.
+
+      The library is Apache-2.0 and developed in the open. The internals are
+      covered in the :doc:`documentation <documentation>`.
+
+   .. container:: fd-split-visual
+
+      .. admonition:: PLACEHOLDER — architecture diagram
+         :class: placeholder
+
+         Stacked-block diagram showing the three abstractions in the
+         hot loop: KV cache, ring attention, and CUDA-graph capture.
+         Saved as ``_static/arch-diagram.svg`` (light and dark
+         variants).
 
 Performance
 -----------
@@ -164,6 +194,40 @@ Streaming and autoregressive recipes emit per-step output with
 sub-second latency once warm; bidirectional recipes are kept as
 full-block parity references. Each model page carries the canonical
 invocation, the checkpoint source, and the per-recipe knobs.
+
+.. container:: fd-media-rail fd-media-rail-4
+
+   .. container:: fd-media-tile
+
+      .. admonition:: PLACEHOLDER — Self-Forcing sample
+         :class: placeholder
+
+         Sample frame from a ``self-forcing-wan2.1-t2v-1.3b-taehv``
+         generation. Saved as ``_static/samples/self-forcing.avif``.
+
+   .. container:: fd-media-tile
+
+      .. admonition:: PLACEHOLDER — Causal-Forcing sample
+         :class: placeholder
+
+         Sample frame from a ``causal-forcing-wan2.1-t2v-1.3b-framewise``
+         generation. ``_static/samples/causal-forcing.avif``.
+
+   .. container:: fd-media-tile
+
+      .. admonition:: PLACEHOLDER — LingBot-World sample
+         :class: placeholder
+
+         Sample frame from the ``lingbot-world-fast`` camera-controlled
+         I2V recipe. ``_static/samples/lingbot-world.avif``.
+
+   .. container:: fd-media-tile
+
+      .. admonition:: PLACEHOLDER — OmniDreams sample
+         :class: placeholder
+
+         Sample frame from the OmniDreams multi-view streaming recipe.
+         ``_static/samples/omnidreams.avif``.
 
 .. grid:: 1 2 2 3
    :gutter: 3
