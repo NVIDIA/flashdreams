@@ -30,7 +30,7 @@ Key correction vs the original plan: the **DiT remap can't be deleted** — `hy_
 
 All four PRs (`#222` `#223` `#224` `#227`) are **fully green** (cpu/gpu/docs/OSRB/REUSE) with **auto-merge armed** — only a review approval is outstanding.
 
-## Issue #203 — perf / docs: re-bench + model card DONE; MR pending (on GB300, branch `wenqing/hy-worldplay-perf-handoff`)
+## Issue #203 — perf / docs: re-bench + model card DONE; **MR open as #231** (on GB300, branch `wenqing/hy-worldplay-perf-handoff`)
 
 One follow-up MR. Full command-level steps in `HANDOFF.md`.
 
@@ -85,7 +85,7 @@ Post-warmup (chunks 5–7) medians, ms. Native = production config (CUDA graphs 
 ## Next actions
 
 1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
-2. Open the perf/docs MR off this branch (`wenqing/hy-worldplay-perf-handoff`) → `main`: the `_action.py` CUDA-graph + compile fixes, the bench-harness fixes, `perf-0530.md`, and the `hy_worldplay.rst` model card + sample videos.
+2. **MR open: NVIDIA/flashdreams#231** (perf/docs off this branch → `main`). TODO: drag the native-vs-vendor pairs from `tests/parity_check/outputs/pr_videos/<stem>-{native,vendor}.mp4` into the PR's "Native vs vendor video pairs" table; decide whether to drop the internal `tasks.md`/`HANDOFF.md` notes before merge.
 3. (model-card media) The gallery currently uses **committed local** mp4s in `docs/source/_static/videos/hy_worldplay/` (3.4 MB, web-transcoded). If matching LingBot's external-hosting convention is preferred, re-host on `research.nvidia.com/.../assets/hy_worldplay/` and swap the `<source>` srcs.
 4. (optional) Seed the FOV Monte-Carlo point cloud (`generate_points_in_sphere` generator) for reproducibility on rotation/strafe poses (bug 3 latent risk).
 5. (future opt) Graph-accelerate the memory-engaged steady state via fixed-size in-place memory KV buffers.
