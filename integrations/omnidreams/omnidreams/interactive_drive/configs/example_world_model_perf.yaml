@@ -10,16 +10,17 @@
 #
 # Default is 1280x704. You can try smaller resolutions as long as both width
 # and height are multiples of 16; examples with roughly similar aspect ratio:
+#   - [1280, 704]
 #   - [1168, 640]
 #   - [1024, 560]
 #   - [896, 496]
 #   - [640, 352]
-resolution_wh: [1024, 560]
+resolution_wh: [1168, 640]
 fps: 30
 num_frames_per_block: 8
 # For interactive GUI bring-up, eager mode gives a much faster first chunk than
 # paying torch.compile on the first real inference call.
-compile_net: false
+compile_net: true
 light_vae: true
 encode_with_pixel_shuffle: false
 local_attn_size: 6
@@ -31,10 +32,29 @@ upsampling_scale: 4
 device: cuda:0
 seed_for_every_rollout:
 
-# Native optimized DiT is off by default so the demo still runs on machines
-# without the native extension. Set this to "required" when testing the
-# optimized path; it will fail loudly if the extension cannot build/load.
+# Native acceleration uses the OmniDreams single-view extension. Before the
+# first native DiT/VAE run on a fresh checkout, sync third-party sources:
+#   uv run --package flashdreams-omnidreams python integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py sync
+#
+# The required mode fails loudly if the extension cannot build/load.
 native_dit_acceleration: required
-native_dit_verbose_build: true
-native_dit_backend: bf16            # fp8_kvcache_cudnn | bf16
-native_dit_attention_backend: sage3 # auto | cudnn | sparge | sage3 | sage3_fp8
+# native_dit_verbose_build: true
+native_dit_backend: fp8_kvcache_cudnn            # fp8_kvcache_cudnn | bf16
+native_dit_attention_backend: cudnn # auto | cudnn | sparge | sage3 | sage3_fp8
+
+# Native LightVAE encoder. Set to "fp8" to use the native FP8 encoder path
+# from the native-perf recipe; set to "disabled" to use the PyTorch encoder.
+# The FP8 path requires either OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH or
+# native_vae_fp8_state_path. Generate a calibrated state from repo root with:
+#   uv run --no-sync --package flashdreams-omnidreams \
+#     python integrations/omnidreams/scripts/export_lightvae_fp8_state.py \
+#     --out artifacts/native_vae/lightvae_fp8_state.pt \
+#     --example-data \
+#     --height 640 \
+#     --width 1168
+#
+# Then either:
+#   export OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH=artifacts/native_vae/lightvae_fp8_state.pt
+# or uncomment and set an absolute or manifest-relative path below.
+native_vae_encoder: disabled             # disabled | fp8
+# native_vae_fp8_state_path: /path/to/lightvae_fp8_state.pt
