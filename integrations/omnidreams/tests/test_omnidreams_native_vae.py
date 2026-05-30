@@ -20,8 +20,6 @@ from types import ModuleType
 
 import pytest
 import torch
-
-from flashdreams.recipes.wan.autoencoder.vae import WanVAECache
 from omnidreams.native.acceleration import (
     NativeAccelerationMode,
     NativeAccelerationUnavailable,
@@ -31,11 +29,13 @@ from omnidreams.vae_native import (
     NATIVE_LIGHTVAE_FP8_STATE_ENV,
     OmnidreamsWanVAEEncoder,
     OmnidreamsWanVAEEncoderConfig,
-    _NativeWanVAEEncoderExecutor,
     _native_vae_availability_check,
     _native_vae_fp8_state_path,
     _native_vae_preflight_reason,
+    _NativeWanVAEEncoderExecutor,
 )
+
+from flashdreams.recipes.wan.autoencoder.vae import WanVAECache
 
 
 def _fake_extension_module(**attrs: object) -> ModuleType:
@@ -179,8 +179,7 @@ def test_native_wan_vae_encoder_fp8_state_path_env_fallback(
     )
 
     assert (
-        _native_vae_preflight_reason(component="vae_encoder", config=config)
-        is not None
+        _native_vae_preflight_reason(component="vae_encoder", config=config) is not None
     )
 
     monkeypatch.setenv(NATIVE_LIGHTVAE_FP8_STATE_ENV, "state.pt")
@@ -283,7 +282,9 @@ def test_native_wan_vae_encoder_executor_builds_fp8_state() -> None:
     assert captured["model"] is model
     assert captured["fp8_state"] is fp8_state
     assert captured["extension"] is extension
-    assert captured["native_encoder"][0] == "fp8_encoder"
+    native_encoder = captured["native_encoder"]
+    assert isinstance(native_encoder, tuple)
+    assert native_encoder[0] == "fp8_encoder"
     assert captured["shape"] == (1, 3, 1, 8, 8)
     assert captured["use_cache"] is True
 
@@ -390,15 +391,23 @@ def test_omnidreams_native_vae_perf_config_is_opt_in() -> None:
     baseline = SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF
 
     assert native.name in OMNIDREAMS_CONFIGS
+    assert isinstance(baseline.encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(native.encoder, OmnidreamsWanVAEEncoderConfig)
+    assert baseline.decoder is not None
+    assert native.decoder is not None
     assert baseline.encoder.native_vae_acceleration == "disabled"
     assert native.encoder.native_vae_acceleration == "required"
     assert native.encoder.native_vae_backend == "fp8"
     assert native.encoder.dtype is torch.float16
     assert type(native.decoder) is type(baseline.decoder)
     assert not hasattr(native.decoder, "native_vae_acceleration")
-    assert native.decoder.dtype == baseline.decoder.dtype
-    assert native.decoder.use_compile == baseline.decoder.use_compile
-    assert native.decoder.use_cuda_graph == baseline.decoder.use_cuda_graph
+    assert getattr(native.decoder, "dtype") == getattr(baseline.decoder, "dtype")
+    assert getattr(native.decoder, "use_compile") == getattr(
+        baseline.decoder, "use_compile"
+    )
+    assert getattr(native.decoder, "use_cuda_graph") == getattr(
+        baseline.decoder, "use_cuda_graph"
+    )
 
 
 @pytest.mark.ci_cpu

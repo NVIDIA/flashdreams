@@ -36,6 +36,41 @@ def _module_device(module: torch.nn.Module) -> torch.device:
     raise ValueError(f"{module.__class__.__name__} has no parameters or buffers")
 
 
+def _module_attr(obj: object, name: str) -> torch.nn.Module:
+    value = getattr(obj, name)
+    if not isinstance(value, torch.nn.Module):
+        raise TypeError(f"{obj.__class__.__name__}.{name} must be a torch module")
+    return value
+
+
+def _conv3d_attr(obj: object, name: str) -> torch.nn.Conv3d:
+    value = getattr(obj, name)
+    if not isinstance(value, torch.nn.Conv3d):
+        raise TypeError(f"{obj.__class__.__name__}.{name} must be a Conv3d module")
+    return value
+
+
+def _tensor_attr(obj: object, name: str) -> torch.Tensor:
+    value = getattr(obj, name)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"{obj.__class__.__name__}.{name} must be a tensor")
+    return value
+
+
+def _sequence_attr(obj: object, name: str) -> Any:
+    value = getattr(obj, name)
+    if not hasattr(value, "__getitem__") or not hasattr(value, "__len__"):
+        raise TypeError(f"{obj.__class__.__name__}.{name} must be an indexed sequence")
+    return value
+
+
+def _conv_bias(conv: torch.nn.Conv2d | torch.nn.Conv3d) -> torch.Tensor:
+    bias = conv.bias
+    if bias is None:
+        raise ValueError(f"{conv.__class__.__name__} must have a bias tensor")
+    return bias
+
+
 def _pad_1d(tensor: torch.Tensor, size: int, *, device: torch.device) -> torch.Tensor:
     src = tensor.detach().to(device=device, dtype=torch.float16).flatten().contiguous()
     if src.numel() == size:
@@ -52,9 +87,14 @@ def _lightvae_gamma(
     *,
     device: torch.device,
 ) -> torch.Tensor:
-    gamma = norm.gamma.detach().reshape(real_c).to(
-        device=device,
-        dtype=torch.float16,
+    gamma = (
+        _tensor_attr(norm, "gamma")
+        .detach()
+        .reshape(real_c)
+        .to(
+            device=device,
+            dtype=torch.float16,
+        )
     )
     if pad_c == real_c:
         return gamma.contiguous()
@@ -73,17 +113,25 @@ def _lightvae_causal3_weight(
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     w = conv.weight.detach().to(device=device, dtype=torch.float16).contiguous()
-    b = conv.bias.detach().to(device=device, dtype=torch.float16).contiguous()
+    b = _conv_bias(conv).detach().to(device=device, dtype=torch.float16).contiguous()
     kt, kh, kw = int(w.shape[2]), int(w.shape[3]), int(w.shape[4])
     if (kt, kh, kw) != (3, 3, 3):
         raise ValueError(f"expected LightVAE 3x3x3 weight, got {tuple(w.shape)}")
-    packed = torch.zeros((out_pad, 3, 3, 3 * in_pad), device=device, dtype=torch.float16)
-    packed3d = torch.zeros((out_pad, 3, 3, 3, in_pad), device=device, dtype=torch.float16)
+    packed = torch.zeros(
+        (out_pad, 3, 3, 3 * in_pad), device=device, dtype=torch.float16
+    )
+    packed3d = torch.zeros(
+        (out_pad, 3, 3, 3, in_pad), device=device, dtype=torch.float16
+    )
     for dt in range(3):
         wt = w[:out_real, :in_real, dt].permute(0, 2, 3, 1).contiguous()
         packed[:out_real, :, :, dt * in_pad : dt * in_pad + in_real].copy_(wt)
         packed3d[:out_real, dt, :, :, :in_real].copy_(wt)
-    return packed.contiguous(), _pad_1d(b[:out_real], out_pad, device=device), packed3d.contiguous()
+    return (
+        packed.contiguous(),
+        _pad_1d(b[:out_real], out_pad, device=device),
+        packed3d.contiguous(),
+    )
 
 
 def _lightvae_spatial3_weight(
@@ -96,7 +144,7 @@ def _lightvae_spatial3_weight(
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     w = conv.weight.detach().to(device=device, dtype=torch.float16).contiguous()
-    b = conv.bias.detach().to(device=device, dtype=torch.float16).contiguous()
+    b = _conv_bias(conv).detach().to(device=device, dtype=torch.float16).contiguous()
     packed = torch.zeros((out_pad, 3, 3, in_pad), device=device, dtype=torch.float16)
     packed[:out_real, :, :, :in_real].copy_(w[:out_real, :in_real].permute(0, 2, 3, 1))
     return packed.contiguous(), _pad_1d(b[:out_real], out_pad, device=device)
@@ -110,13 +158,17 @@ def _lightvae_temporal3_weight(
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     w = conv.weight.detach().to(device=device, dtype=torch.float16).contiguous()
-    b = conv.bias.detach().to(device=device, dtype=torch.float16).contiguous()
+    b = _conv_bias(conv).detach().to(device=device, dtype=torch.float16).contiguous()
     real = int(real_channels if real_channels is not None else channels)
     if real > channels:
-        raise ValueError(f"real_channels {real} cannot exceed padded channels {channels}")
+        raise ValueError(
+            f"real_channels {real} cannot exceed padded channels {channels}"
+        )
     packed = torch.zeros((channels, 3 * channels), device=device, dtype=torch.float16)
     for dt in range(3):
-        packed[:real, dt * channels : dt * channels + real].copy_(w[:real, :real, dt, 0, 0])
+        packed[:real, dt * channels : dt * channels + real].copy_(
+            w[:real, :real, dt, 0, 0]
+        )
     return packed.contiguous(), _pad_1d(b[:real], channels, device=device)
 
 
@@ -129,8 +181,10 @@ def _lightvae_conv1_weight(
     out_pad: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    w = conv.weight.detach().to(device=device, dtype=torch.float16).contiguous()
-    b = conv.bias.detach().to(device=device, dtype=torch.float16).contiguous()
+    w = _tensor_attr(conv, "weight").detach().to(device=device, dtype=torch.float16)
+    w = w.contiguous()
+    b = _tensor_attr(conv, "bias").detach().to(device=device, dtype=torch.float16)
+    b = b.contiguous()
     if w.dim() == 5:
         w = w[:, :, 0, 0, 0]
     elif w.dim() == 4:
@@ -149,7 +203,7 @@ def _lightvae_resblock_state(
     out_pad: int,
     device: torch.device,
 ) -> dict[str, Any]:
-    residual = block.residual
+    residual = _sequence_attr(block, "residual")
     conv1_w, conv1_b, conv1_w3d = _lightvae_causal3_weight(
         residual[2],
         in_real=in_real,
@@ -167,9 +221,10 @@ def _lightvae_resblock_state(
         device=device,
     )
     shortcut_w = shortcut_b = None
-    if not isinstance(block.shortcut, torch.nn.Identity):
+    shortcut = _module_attr(block, "shortcut")
+    if not isinstance(shortcut, torch.nn.Identity):
         shortcut_w, shortcut_b = _lightvae_conv1_weight(
-            block.shortcut,
+            shortcut,
             in_real=in_real,
             in_pad=in_pad,
             out_real=out_real,
@@ -197,17 +252,21 @@ def _lightvae_resblock_state(
 def _require_lightvae_layout(model: torch.nn.Module) -> None:
     if not hasattr(model, "encoder") or not hasattr(model, "conv1"):
         raise TypeError("native LightVAE encoder requires a WanVAE encoder model")
-    enc = _unwrap_module(model.encoder)
-    if len(enc.downsamples) != 11:
+    enc = _unwrap_module(_module_attr(model, "encoder"))
+    downs = _sequence_attr(enc, "downsamples")
+    if len(downs) != 11:
         raise ValueError(
             "native LightVAE encoder supports the pruned Wan LightVAE layout only "
-            f"(expected 11 downsample blocks, got {len(enc.downsamples)})"
+            f"(expected 11 downsample blocks, got {len(downs)})"
         )
-    if enc.conv1.out_channels != 24:
+    conv1 = _module_attr(enc, "conv1")
+    conv1_out_channels = getattr(conv1, "out_channels", None)
+    if conv1_out_channels != 24:
         raise ValueError(
             "native LightVAE encoder supports the lightvae checkpoint only "
-            f"(encoder.conv1.out_channels={enc.conv1.out_channels})"
+            f"(encoder.conv1.out_channels={conv1_out_channels})"
         )
+
 
 _LIGHTVAE_FP8_STAGED_STATE_CACHE: dict[tuple[int, int, int, str], dict[str, Any]] = {}
 
@@ -267,8 +326,10 @@ def _repeat_scale_tensor(scale: torch.Tensor, copies: int) -> torch.Tensor:
 
 def _scale_ratio(numerator: torch.Tensor, denominator: torch.Tensor) -> torch.Tensor:
     return (
-        numerator.float() / denominator.float().clamp_min(1.0e-12)
-    ).to(dtype=torch.float16).contiguous()
+        (numerator.float() / denominator.float().clamp_min(1.0e-12))
+        .to(dtype=torch.float16)
+        .contiguous()
+    )
 
 
 def _bias_over_scale(
@@ -279,8 +340,10 @@ def _bias_over_scale(
         return None
     if output_scale.numel() == 1:
         return (
-            bias.float() / output_scale.flatten()[0].float().clamp_min(1.0e-12)
-        ).to(dtype=torch.float16).contiguous()
+            (bias.float() / output_scale.flatten()[0].float().clamp_min(1.0e-12))
+            .to(dtype=torch.float16)
+            .contiguous()
+        )
     if bias.numel() != output_scale.numel():
         raise ValueError(
             f"bias has {bias.numel()} values, expected {output_scale.numel()} for scaled FP8 epilogue"
@@ -292,7 +355,9 @@ def _scale_prefix(scale: torch.Tensor, real_channels: int) -> torch.Tensor:
     if scale.numel() == 1 or scale.numel() == real_channels:
         return scale.contiguous()
     if scale.numel() < real_channels:
-        raise ValueError(f"scale has {scale.numel()} values, expected at least {real_channels}")
+        raise ValueError(
+            f"scale has {scale.numel()} values, expected at least {real_channels}"
+        )
     return scale[:real_channels].contiguous()
 
 
@@ -311,7 +376,9 @@ def _state_scale_any(
     for key in keys:
         scale = fp8_state.get(key)
         if scale is not None:
-            return _pad_scale_tensor(scale, real_channels, padded_channels, device=device)
+            return _pad_scale_tensor(
+                scale, real_channels, padded_channels, device=device
+            )
     raise KeyError(f"LightVAE fp8 state missing scale. Tried: {', '.join(keys)}")
 
 
@@ -323,7 +390,9 @@ def _activation_scale_any(
     *,
     device: torch.device,
 ) -> torch.Tensor:
-    return _state_scale_any(fp8_state, keys, real_channels, padded_channels, device=device)
+    return _state_scale_any(
+        fp8_state, keys, real_channels, padded_channels, device=device
+    )
 
 
 def _activation_scale_scalar_any(
@@ -344,11 +413,20 @@ def _activation_scale_scalar_any(
                 .to(torch.float16)
                 .contiguous()
             )
-    raise KeyError(f"LightVAE fp8 state missing scalar activation_scale. Tried: {', '.join(keys)}")
+    raise KeyError(
+        f"LightVAE fp8 state missing scalar activation_scale. Tried: {', '.join(keys)}"
+    )
 
 
 def _float_scalar(scale: torch.Tensor, *, device: torch.device) -> torch.Tensor:
-    return scale.detach().to(device=device, dtype=torch.float32).flatten().amax().reshape(1).contiguous()
+    return (
+        scale.detach()
+        .to(device=device, dtype=torch.float32)
+        .flatten()
+        .amax()
+        .reshape(1)
+        .contiguous()
+    )
 
 
 def _inverse_float_scalar(scale: torch.Tensor, *, device: torch.device) -> torch.Tensor:
@@ -363,7 +441,9 @@ def _weight_scale_any(
     *,
     device: torch.device,
 ) -> torch.Tensor:
-    return _state_scale_any(fp8_state, (key,), real_channels, padded_channels, device=device)
+    return _state_scale_any(
+        fp8_state, (key,), real_channels, padded_channels, device=device
+    )
 
 
 def _lightvae_fp8_prepare_krsc(
@@ -406,7 +486,13 @@ def _lightvae_fp8_causal_weight(
     weight_scale: torch.Tensor,
     warp_mma_scaled_epilogue: bool,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor | None,
+    torch.Tensor | None,
+    torch.Tensor | None,
+]:
     weight, bias, _weight3d = _lightvae_causal3_weight(
         conv,
         in_real=in_real,
@@ -471,7 +557,12 @@ def _lightvae_fp8_spatial_weight(
             _scale_ratio(weight_scale, output_scale),
             _bias_over_scale(bias, output_scale),
         )
-    return _lightvae_fp8_prepare_krsc(native_ext, weight, input_scale, output_scale), bias, None, None
+    return (
+        _lightvae_fp8_prepare_krsc(native_ext, weight, input_scale, output_scale),
+        bias,
+        None,
+        None,
+    )
 
 
 def _lightvae_fp8_temporal_weight(
@@ -525,7 +616,9 @@ def _lightvae_fp8_conv1_weight(
         device=device,
     )
     _ = weight_scale
-    return _lightvae_fp8_prepare_conv1(native_ext, weight, input_scale, output_scale), bias
+    return _lightvae_fp8_prepare_conv1(
+        native_ext, weight, input_scale, output_scale
+    ), bias
 
 
 def _build_lightvae_fp8_resblock_state(
@@ -549,40 +642,45 @@ def _build_lightvae_fp8_resblock_state(
     warp_mma_scaled_epilogue: bool,
     device: torch.device,
 ) -> dict[str, Any]:
-    residual = block.residual
-    conv1_w, conv1_b, conv1_source_scale, conv1_epilogue_scale, conv1_bias_scaled = _lightvae_fp8_causal_weight(
-        native_ext,
-        residual[2],
-        in_real=in_real,
-        in_pad=in_pad,
-        out_real=out_real,
-        out_pad=out_pad,
-        input_scale=norm1_scale,
-        output_scale=conv1_scale,
-        weight_scale=conv1_weight_scale,
-        warp_mma_scaled_epilogue=warp_mma_scaled_epilogue,
-        device=device,
+    residual = _sequence_attr(block, "residual")
+    conv1_w, conv1_b, conv1_source_scale, conv1_epilogue_scale, conv1_bias_scaled = (
+        _lightvae_fp8_causal_weight(
+            native_ext,
+            residual[2],
+            in_real=in_real,
+            in_pad=in_pad,
+            out_real=out_real,
+            out_pad=out_pad,
+            input_scale=norm1_scale,
+            output_scale=conv1_scale,
+            weight_scale=conv1_weight_scale,
+            warp_mma_scaled_epilogue=warp_mma_scaled_epilogue,
+            device=device,
+        )
     )
-    conv2_w, conv2_b, conv2_source_scale, conv2_epilogue_scale, conv2_bias_scaled = _lightvae_fp8_causal_weight(
-        native_ext,
-        residual[6],
-        in_real=out_real,
-        in_pad=out_pad,
-        out_real=out_real,
-        out_pad=out_pad,
-        input_scale=norm2_scale,
-        output_scale=output_scale,
-        weight_scale=conv2_weight_scale,
-        warp_mma_scaled_epilogue=warp_mma_scaled_epilogue,
-        device=device,
+    conv2_w, conv2_b, conv2_source_scale, conv2_epilogue_scale, conv2_bias_scaled = (
+        _lightvae_fp8_causal_weight(
+            native_ext,
+            residual[6],
+            in_real=out_real,
+            in_pad=out_pad,
+            out_real=out_real,
+            out_pad=out_pad,
+            input_scale=norm2_scale,
+            output_scale=output_scale,
+            weight_scale=conv2_weight_scale,
+            warp_mma_scaled_epilogue=warp_mma_scaled_epilogue,
+            device=device,
+        )
     )
     shortcut = None
-    if not isinstance(block.shortcut, torch.nn.Identity):
+    shortcut_module = _module_attr(block, "shortcut")
+    if not isinstance(shortcut_module, torch.nn.Identity):
         if shortcut_scale is None:
             raise ValueError(f"{path} shortcut requires shortcut_scale")
         sw, sb = _lightvae_fp8_conv1_weight(
             native_ext,
-            block.shortcut,
+            shortcut_module,
             in_real=in_real,
             in_pad=in_pad,
             out_real=out_real,
@@ -632,7 +730,9 @@ def build_lightvae_encoder_fp8_staged_state(
     """Return the prepared TIN16 FP8 LightVAE encoder state."""
 
     _require_lightvae_layout(model)
-    required_prepare = getattr(native_ext, "lightvae_fp8_prepare_conv2d_weight_krsc", None)
+    required_prepare = getattr(
+        native_ext, "lightvae_fp8_prepare_conv2d_weight_krsc", None
+    )
     if not callable(required_prepare):
         raise TypeError(
             "native extension missing lightvae_fp8_prepare_conv2d_weight_krsc"
@@ -644,10 +744,11 @@ def build_lightvae_encoder_fp8_staged_state(
     if cached is not None:
         return cached
 
-    enc = _unwrap_module(model.encoder).eval()
-    downs = enc.downsamples
-    middle = enc.middle
-    head = enc.head
+    enc = _unwrap_module(_module_attr(model, "encoder")).eval()
+    enc_conv1 = _conv3d_attr(enc, "conv1")
+    downs = _sequence_attr(enc, "downsamples")
+    middle = _sequence_attr(enc, "middle")
+    head = _sequence_attr(enc, "head")
     fs = {str(k): v for k, v in fp8_state.items()}
     use_warp_mma_scaled_epilogue_causal_conv3 = True
     use_warp_mma_scaled_epilogue_spatial_conv3 = True
@@ -658,99 +759,273 @@ def build_lightvae_encoder_fp8_staged_state(
     def ws(key: str, real: int, pad: int) -> torch.Tensor:
         return _weight_scale_any(fs, key, real, pad, device=device)
 
-    scale_input = act((
-        "encoder.conv1.input.activation_scale",
-        "encoder.input.activation_scale",
-        "input.activation_scale",
-    ), 3, 32)
+    scale_input = act(
+        (
+            "encoder.conv1.input.activation_scale",
+            "encoder.input.activation_scale",
+            "input.activation_scale",
+        ),
+        3,
+        32,
+    )
     scale_conv1 = act(("encoder.conv1.activation_scale",), 24, 32)
 
-    scale_s0_0_n1 = act((_ds_key(0, ".residual.1.activation_scale"), _ds_key(0, ".residual.0.activation_scale")), 24, 32)
+    scale_s0_0_n1 = act(
+        (
+            _ds_key(0, ".residual.1.activation_scale"),
+            _ds_key(0, ".residual.0.activation_scale"),
+        ),
+        24,
+        32,
+    )
     scale_s0_0_c1 = act((_ds_key(0, ".residual.2.activation_scale"),), 24, 32)
-    scale_s0_0_n2 = act((_ds_key(0, ".residual.4.activation_scale"), _ds_key(0, ".residual.3.activation_scale")), 24, 32)
+    scale_s0_0_n2 = act(
+        (
+            _ds_key(0, ".residual.4.activation_scale"),
+            _ds_key(0, ".residual.3.activation_scale"),
+        ),
+        24,
+        32,
+    )
     scale_s0_0 = act((_ds_key(0, ".activation_scale"),), 24, 32)
-    scale_s0_1_n1 = act((_ds_key(1, ".residual.1.activation_scale"), _ds_key(1, ".residual.0.activation_scale")), 24, 32)
+    scale_s0_1_n1 = act(
+        (
+            _ds_key(1, ".residual.1.activation_scale"),
+            _ds_key(1, ".residual.0.activation_scale"),
+        ),
+        24,
+        32,
+    )
     scale_s0_1_c1 = act((_ds_key(1, ".residual.2.activation_scale"),), 24, 32)
-    scale_s0_1_n2 = act((_ds_key(1, ".residual.4.activation_scale"), _ds_key(1, ".residual.3.activation_scale")), 24, 32)
+    scale_s0_1_n2 = act(
+        (
+            _ds_key(1, ".residual.4.activation_scale"),
+            _ds_key(1, ".residual.3.activation_scale"),
+        ),
+        24,
+        32,
+    )
     scale_s0_1 = act((_ds_key(1, ".activation_scale"),), 24, 32)
-    scale_ds0 = act((_ds_key(2, ".activation_scale"), _ds_key(2, ".resample.1.activation_scale")), 24, 32)
+    scale_ds0 = act(
+        (_ds_key(2, ".activation_scale"), _ds_key(2, ".resample.1.activation_scale")),
+        24,
+        32,
+    )
 
-    scale_s1_0_n1 = act((_ds_key(3, ".residual.1.activation_scale"), _ds_key(3, ".residual.0.activation_scale")), 24, 32)
+    scale_s1_0_n1 = act(
+        (
+            _ds_key(3, ".residual.1.activation_scale"),
+            _ds_key(3, ".residual.0.activation_scale"),
+        ),
+        24,
+        32,
+    )
     scale_s1_0_c1 = act((_ds_key(3, ".residual.2.activation_scale"),), 48, 64)
-    scale_s1_0_n2 = act((_ds_key(3, ".residual.4.activation_scale"), _ds_key(3, ".residual.3.activation_scale")), 48, 64)
+    scale_s1_0_n2 = act(
+        (
+            _ds_key(3, ".residual.4.activation_scale"),
+            _ds_key(3, ".residual.3.activation_scale"),
+        ),
+        48,
+        64,
+    )
     scale_s1_0_short = act((_ds_key(3, ".shortcut.activation_scale"),), 48, 64)
     scale_s1_0 = act((_ds_key(3, ".activation_scale"),), 48, 64)
-    scale_s1_1_n1 = act((_ds_key(4, ".residual.1.activation_scale"), _ds_key(4, ".residual.0.activation_scale")), 48, 64)
+    scale_s1_1_n1 = act(
+        (
+            _ds_key(4, ".residual.1.activation_scale"),
+            _ds_key(4, ".residual.0.activation_scale"),
+        ),
+        48,
+        64,
+    )
     scale_s1_1_c1 = act((_ds_key(4, ".residual.2.activation_scale"),), 48, 64)
-    scale_s1_1_n2 = act((_ds_key(4, ".residual.4.activation_scale"), _ds_key(4, ".residual.3.activation_scale")), 48, 64)
+    scale_s1_1_n2 = act(
+        (
+            _ds_key(4, ".residual.4.activation_scale"),
+            _ds_key(4, ".residual.3.activation_scale"),
+        ),
+        48,
+        64,
+    )
     scale_s1_1 = act((_ds_key(4, ".activation_scale"),), 48, 64)
     scale_ds1_spatial = act((_ds_key(5, ".resample.1.activation_scale"),), 48, 64)
-    scale_ds1 = act((_ds_key(5, ".activation_scale"), _ds_key(5, ".time_conv.activation_scale")), 48, 64)
+    scale_ds1 = act(
+        (_ds_key(5, ".activation_scale"), _ds_key(5, ".time_conv.activation_scale")),
+        48,
+        64,
+    )
 
-    scale_s2_0_n1 = act((_ds_key(6, ".residual.1.activation_scale"), _ds_key(6, ".residual.0.activation_scale")), 48, 64)
+    scale_s2_0_n1 = act(
+        (
+            _ds_key(6, ".residual.1.activation_scale"),
+            _ds_key(6, ".residual.0.activation_scale"),
+        ),
+        48,
+        64,
+    )
     scale_s2_0_c1 = act((_ds_key(6, ".residual.2.activation_scale"),), 96, 96)
-    scale_s2_0_n2 = act((_ds_key(6, ".residual.4.activation_scale"), _ds_key(6, ".residual.3.activation_scale")), 96, 96)
+    scale_s2_0_n2 = act(
+        (
+            _ds_key(6, ".residual.4.activation_scale"),
+            _ds_key(6, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s2_0_short = act((_ds_key(6, ".shortcut.activation_scale"),), 96, 96)
     scale_s2_0 = act((_ds_key(6, ".activation_scale"),), 96, 96)
-    scale_s2_1_n1 = act((_ds_key(7, ".residual.1.activation_scale"), _ds_key(7, ".residual.0.activation_scale")), 96, 96)
+    scale_s2_1_n1 = act(
+        (
+            _ds_key(7, ".residual.1.activation_scale"),
+            _ds_key(7, ".residual.0.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s2_1_c1 = act((_ds_key(7, ".residual.2.activation_scale"),), 96, 96)
-    scale_s2_1_n2 = act((_ds_key(7, ".residual.4.activation_scale"), _ds_key(7, ".residual.3.activation_scale")), 96, 96)
+    scale_s2_1_n2 = act(
+        (
+            _ds_key(7, ".residual.4.activation_scale"),
+            _ds_key(7, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s2_1 = act((_ds_key(7, ".activation_scale"),), 96, 96)
     scale_ds2_spatial = act((_ds_key(8, ".resample.1.activation_scale"),), 96, 96)
-    scale_ds2 = act((_ds_key(8, ".activation_scale"), _ds_key(8, ".time_conv.activation_scale")), 96, 96)
+    scale_ds2 = act(
+        (_ds_key(8, ".activation_scale"), _ds_key(8, ".time_conv.activation_scale")),
+        96,
+        96,
+    )
 
-    scale_s3_0_n1 = act((_ds_key(9, ".residual.1.activation_scale"), _ds_key(9, ".residual.0.activation_scale")), 96, 96)
+    scale_s3_0_n1 = act(
+        (
+            _ds_key(9, ".residual.1.activation_scale"),
+            _ds_key(9, ".residual.0.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s3_0_c1 = act((_ds_key(9, ".residual.2.activation_scale"),), 96, 96)
-    scale_s3_0_n2 = act((_ds_key(9, ".residual.4.activation_scale"), _ds_key(9, ".residual.3.activation_scale")), 96, 96)
+    scale_s3_0_n2 = act(
+        (
+            _ds_key(9, ".residual.4.activation_scale"),
+            _ds_key(9, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s3_0 = act((_ds_key(9, ".activation_scale"),), 96, 96)
-    scale_s3_1_n1 = act((_ds_key(10, ".residual.1.activation_scale"), _ds_key(10, ".residual.0.activation_scale")), 96, 96)
+    scale_s3_1_n1 = act(
+        (
+            _ds_key(10, ".residual.1.activation_scale"),
+            _ds_key(10, ".residual.0.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s3_1_c1 = act((_ds_key(10, ".residual.2.activation_scale"),), 96, 96)
-    scale_s3_1_n2 = act((_ds_key(10, ".residual.4.activation_scale"), _ds_key(10, ".residual.3.activation_scale")), 96, 96)
+    scale_s3_1_n2 = act(
+        (
+            _ds_key(10, ".residual.4.activation_scale"),
+            _ds_key(10, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_s3_1 = act((_ds_key(10, ".activation_scale"),), 96, 96)
 
-    scale_mid0_n1 = act((_mid_key(0, ".residual.1.activation_scale"), _mid_key(0, ".residual.0.activation_scale")), 96, 96)
+    scale_mid0_n1 = act(
+        (
+            _mid_key(0, ".residual.1.activation_scale"),
+            _mid_key(0, ".residual.0.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_mid0_c1 = act((_mid_key(0, ".residual.2.activation_scale"),), 96, 96)
-    scale_mid0_n2 = act((_mid_key(0, ".residual.4.activation_scale"), _mid_key(0, ".residual.3.activation_scale")), 96, 96)
+    scale_mid0_n2 = act(
+        (
+            _mid_key(0, ".residual.4.activation_scale"),
+            _mid_key(0, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_mid0 = act((_mid_key(0, ".activation_scale"),), 96, 96)
-    scale_mid_attn_norm = act((
-        _mid_key(1, ".norm.activation_scale"),
-        _mid_key(1, ".to_qkv.input.activation_scale"),
-        _mid_key(0, ".activation_scale"),
-    ), 96, 96)
-    scale_mid_qkv = _activation_scale_scalar_any(fs, (
-        _mid_key(1, ".to_qkv.activation_scale"),
-        _mid_key(1, ".qkv.activation_scale"),
-        _mid_key(1, ".activation_scale"),
-        _mid_key(0, ".activation_scale"),
-    ), device=device)
-    scale_mid_sdpa = _activation_scale_scalar_any(fs, (
-        _mid_key(1, ".sdpa.activation_scale"),
-        _mid_key(1, ".attention.activation_scale"),
-        _mid_key(1, ".to_qkv.activation_scale"),
-        _mid_key(1, ".activation_scale"),
-        _mid_key(0, ".activation_scale"),
-    ), device=device)
-    scale_mid_attn = act((_mid_key(1, ".activation_scale"), _mid_key(0, ".activation_scale")), 96, 96)
-    scale_mid1_n1 = act((_mid_key(2, ".residual.1.activation_scale"), _mid_key(2, ".residual.0.activation_scale")), 96, 96)
+    scale_mid_attn_norm = act(
+        (
+            _mid_key(1, ".norm.activation_scale"),
+            _mid_key(1, ".to_qkv.input.activation_scale"),
+            _mid_key(0, ".activation_scale"),
+        ),
+        96,
+        96,
+    )
+    scale_mid_qkv = _activation_scale_scalar_any(
+        fs,
+        (
+            _mid_key(1, ".to_qkv.activation_scale"),
+            _mid_key(1, ".qkv.activation_scale"),
+            _mid_key(1, ".activation_scale"),
+            _mid_key(0, ".activation_scale"),
+        ),
+        device=device,
+    )
+    scale_mid_sdpa = _activation_scale_scalar_any(
+        fs,
+        (
+            _mid_key(1, ".sdpa.activation_scale"),
+            _mid_key(1, ".attention.activation_scale"),
+            _mid_key(1, ".to_qkv.activation_scale"),
+            _mid_key(1, ".activation_scale"),
+            _mid_key(0, ".activation_scale"),
+        ),
+        device=device,
+    )
+    scale_mid_attn = act(
+        (_mid_key(1, ".activation_scale"), _mid_key(0, ".activation_scale")), 96, 96
+    )
+    scale_mid1_n1 = act(
+        (
+            _mid_key(2, ".residual.1.activation_scale"),
+            _mid_key(2, ".residual.0.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_mid1_c1 = act((_mid_key(2, ".residual.2.activation_scale"),), 96, 96)
-    scale_mid1_n2 = act((_mid_key(2, ".residual.4.activation_scale"), _mid_key(2, ".residual.3.activation_scale")), 96, 96)
+    scale_mid1_n2 = act(
+        (
+            _mid_key(2, ".residual.4.activation_scale"),
+            _mid_key(2, ".residual.3.activation_scale"),
+        ),
+        96,
+        96,
+    )
     scale_mid1 = act((_mid_key(2, ".activation_scale"),), 96, 96)
-    scale_head_norm = act(("encoder.head.1.activation_scale", "encoder.head.0.activation_scale"), 96, 96)
+    scale_head_norm = act(
+        ("encoder.head.1.activation_scale", "encoder.head.0.activation_scale"), 96, 96
+    )
     scale_head_conv = act(("encoder.head.2.activation_scale",), 32, 32)
     scale_post = act(("conv1.activation_scale",), 32, 32)
 
-    conv1_w, conv1_b, conv1_source_scale, conv1_epilogue_scale, conv1_bias_scaled = _lightvae_fp8_causal_weight(
-        native_ext,
-        enc.conv1,
-        in_real=3,
-        in_pad=32,
-        out_real=24,
-        out_pad=32,
-        input_scale=scale_input,
-        output_scale=scale_conv1,
-        weight_scale=ws("encoder.conv1.weight_scale", 24, 32),
-        warp_mma_scaled_epilogue=use_warp_mma_scaled_epilogue_causal_conv3,
-        device=device,
+    conv1_w, conv1_b, conv1_source_scale, conv1_epilogue_scale, conv1_bias_scaled = (
+        _lightvae_fp8_causal_weight(
+            native_ext,
+            enc_conv1,
+            in_real=3,
+            in_pad=32,
+            out_real=24,
+            out_pad=32,
+            input_scale=scale_input,
+            output_scale=scale_conv1,
+            weight_scale=ws("encoder.conv1.weight_scale", 24, 32),
+            warp_mma_scaled_epilogue=use_warp_mma_scaled_epilogue_causal_conv3,
+            device=device,
+        )
     )
 
     def rb(
@@ -883,22 +1158,24 @@ def build_lightvae_encoder_fp8_staged_state(
         weight_scale=ws(_ds_key(8, ".time_conv.weight_scale"), 96, 96),
         device=device,
     )
-    head_w, head_b, head_source_scale, head_epilogue_scale, head_bias_scaled = _lightvae_fp8_causal_weight(
-        native_ext,
-        head[2],
-        in_real=96,
-        in_pad=96,
-        out_real=32,
-        out_pad=32,
-        input_scale=scale_head_norm,
-        output_scale=scale_head_conv,
-        weight_scale=ws("encoder.head.2.weight_scale", 32, 32),
-        warp_mma_scaled_epilogue=use_warp_mma_scaled_epilogue_causal_conv3,
-        device=device,
+    head_w, head_b, head_source_scale, head_epilogue_scale, head_bias_scaled = (
+        _lightvae_fp8_causal_weight(
+            native_ext,
+            head[2],
+            in_real=96,
+            in_pad=96,
+            out_real=32,
+            out_pad=32,
+            input_scale=scale_head_norm,
+            output_scale=scale_head_conv,
+            weight_scale=ws("encoder.head.2.weight_scale", 32, 32),
+            warp_mma_scaled_epilogue=use_warp_mma_scaled_epilogue_causal_conv3,
+            device=device,
+        )
     )
     post_w, post_b = _lightvae_fp8_conv1_weight(
         native_ext,
-        model.conv1,
+        _module_attr(model, "conv1"),
         in_real=32,
         in_pad=32,
         out_real=32,
@@ -933,13 +1210,28 @@ def build_lightvae_encoder_fp8_staged_state(
         device=device,
     )
 
-    mean = model.mean.detach().to(device=device, dtype=torch.float16).reshape(-1).contiguous()
-    inv_std = model.inv_std.detach().to(device=device, dtype=torch.float16).reshape(-1).contiguous()
+    mean = (
+        _tensor_attr(model, "mean")
+        .detach()
+        .to(device=device, dtype=torch.float16)
+        .reshape(-1)
+        .contiguous()
+    )
+    inv_std = (
+        _tensor_attr(model, "inv_std")
+        .detach()
+        .to(device=device, dtype=torch.float16)
+        .reshape(-1)
+        .contiguous()
+    )
     if mean.numel() != 16 or inv_std.numel() != 16:
-        raise ValueError("native LightVAE fp8 encoder expects 16 latent mean/std channels")
+        raise ValueError(
+            "native LightVAE fp8 encoder expects 16 latent mean/std channels"
+        )
 
     staged = {
-        "warp_mma_scaled_epilogue": use_warp_mma_scaled_epilogue_causal_conv3 and use_warp_mma_scaled_epilogue_spatial_conv3,
+        "warp_mma_scaled_epilogue": use_warp_mma_scaled_epilogue_causal_conv3
+        and use_warp_mma_scaled_epilogue_spatial_conv3,
         "warp_mma_scaled_epilogue_causal_conv3": use_warp_mma_scaled_epilogue_causal_conv3,
         "warp_mma_scaled_epilogue_spatial_conv3": use_warp_mma_scaled_epilogue_spatial_conv3,
         "scale_input": scale_input,
@@ -950,20 +1242,161 @@ def build_lightvae_encoder_fp8_staged_state(
         "conv1_epilogue_scale": conv1_epilogue_scale,
         "conv1_bias_scaled": conv1_bias_scaled,
         "blocks": [
-            rb(0, downs[0], 24, 32, 24, 32, scale_conv1, scale_s0_0_n1, scale_s0_0_c1, scale_s0_0_n2, scale_s0_0),
-            rb(1, downs[1], 24, 32, 24, 32, scale_s0_0, scale_s0_1_n1, scale_s0_1_c1, scale_s0_1_n2, scale_s0_1),
-            rb(3, downs[3], 24, 32, 48, 64, scale_ds0, scale_s1_0_n1, scale_s1_0_c1, scale_s1_0_n2, scale_s1_0, scale_s1_0_short),
-            rb(4, downs[4], 48, 64, 48, 64, scale_s1_0, scale_s1_1_n1, scale_s1_1_c1, scale_s1_1_n2, scale_s1_1),
-            rb(6, downs[6], 48, 64, 96, 96, scale_ds1, scale_s2_0_n1, scale_s2_0_c1, scale_s2_0_n2, scale_s2_0, scale_s2_0_short),
-            rb(7, downs[7], 96, 96, 96, 96, scale_s2_0, scale_s2_1_n1, scale_s2_1_c1, scale_s2_1_n2, scale_s2_1),
-            rb(9, downs[9], 96, 96, 96, 96, scale_ds2, scale_s3_0_n1, scale_s3_0_c1, scale_s3_0_n2, scale_s3_0),
-            rb(10, downs[10], 96, 96, 96, 96, scale_s3_0, scale_s3_1_n1, scale_s3_1_c1, scale_s3_1_n2, scale_s3_1),
-            mid_rb(0, middle[0], scale_s3_1, scale_mid0_n1, scale_mid0_c1, scale_mid0_n2, scale_mid0),
-            mid_rb(2, middle[2], scale_mid_attn, scale_mid1_n1, scale_mid1_c1, scale_mid1_n2, scale_mid1),
+            rb(
+                0,
+                downs[0],
+                24,
+                32,
+                24,
+                32,
+                scale_conv1,
+                scale_s0_0_n1,
+                scale_s0_0_c1,
+                scale_s0_0_n2,
+                scale_s0_0,
+            ),
+            rb(
+                1,
+                downs[1],
+                24,
+                32,
+                24,
+                32,
+                scale_s0_0,
+                scale_s0_1_n1,
+                scale_s0_1_c1,
+                scale_s0_1_n2,
+                scale_s0_1,
+            ),
+            rb(
+                3,
+                downs[3],
+                24,
+                32,
+                48,
+                64,
+                scale_ds0,
+                scale_s1_0_n1,
+                scale_s1_0_c1,
+                scale_s1_0_n2,
+                scale_s1_0,
+                scale_s1_0_short,
+            ),
+            rb(
+                4,
+                downs[4],
+                48,
+                64,
+                48,
+                64,
+                scale_s1_0,
+                scale_s1_1_n1,
+                scale_s1_1_c1,
+                scale_s1_1_n2,
+                scale_s1_1,
+            ),
+            rb(
+                6,
+                downs[6],
+                48,
+                64,
+                96,
+                96,
+                scale_ds1,
+                scale_s2_0_n1,
+                scale_s2_0_c1,
+                scale_s2_0_n2,
+                scale_s2_0,
+                scale_s2_0_short,
+            ),
+            rb(
+                7,
+                downs[7],
+                96,
+                96,
+                96,
+                96,
+                scale_s2_0,
+                scale_s2_1_n1,
+                scale_s2_1_c1,
+                scale_s2_1_n2,
+                scale_s2_1,
+            ),
+            rb(
+                9,
+                downs[9],
+                96,
+                96,
+                96,
+                96,
+                scale_ds2,
+                scale_s3_0_n1,
+                scale_s3_0_c1,
+                scale_s3_0_n2,
+                scale_s3_0,
+            ),
+            rb(
+                10,
+                downs[10],
+                96,
+                96,
+                96,
+                96,
+                scale_s3_0,
+                scale_s3_1_n1,
+                scale_s3_1_c1,
+                scale_s3_1_n2,
+                scale_s3_1,
+            ),
+            mid_rb(
+                0,
+                middle[0],
+                scale_s3_1,
+                scale_mid0_n1,
+                scale_mid0_c1,
+                scale_mid0_n2,
+                scale_mid0,
+            ),
+            mid_rb(
+                2,
+                middle[2],
+                scale_mid_attn,
+                scale_mid1_n1,
+                scale_mid1_c1,
+                scale_mid1_n2,
+                scale_mid1,
+            ),
         ],
-        "ds0": {"w": ds0_w, "b": ds0_b, "scale": scale_ds0, "epilogue_scale": ds0_epilogue_scale, "bias_scaled": ds0_bias_scaled, "real": 24},
-        "ds1": {"spatial_w": ds1_w, "spatial_b": ds1_b, "spatial_scale": scale_ds1_spatial, "spatial_epilogue_scale": ds1_epilogue_scale, "spatial_bias_scaled": ds1_bias_scaled, "temporal_w": ds1_tw, "temporal_b": ds1_tb, "scale": scale_ds1, "real": 48},
-        "ds2": {"spatial_w": ds2_w, "spatial_b": ds2_b, "spatial_scale": scale_ds2_spatial, "spatial_epilogue_scale": ds2_epilogue_scale, "spatial_bias_scaled": ds2_bias_scaled, "temporal_w": ds2_tw, "temporal_b": ds2_tb, "scale": scale_ds2, "real": 96},
+        "ds0": {
+            "w": ds0_w,
+            "b": ds0_b,
+            "scale": scale_ds0,
+            "epilogue_scale": ds0_epilogue_scale,
+            "bias_scaled": ds0_bias_scaled,
+            "real": 24,
+        },
+        "ds1": {
+            "spatial_w": ds1_w,
+            "spatial_b": ds1_b,
+            "spatial_scale": scale_ds1_spatial,
+            "spatial_epilogue_scale": ds1_epilogue_scale,
+            "spatial_bias_scaled": ds1_bias_scaled,
+            "temporal_w": ds1_tw,
+            "temporal_b": ds1_tb,
+            "scale": scale_ds1,
+            "real": 48,
+        },
+        "ds2": {
+            "spatial_w": ds2_w,
+            "spatial_b": ds2_b,
+            "spatial_scale": scale_ds2_spatial,
+            "spatial_epilogue_scale": ds2_epilogue_scale,
+            "spatial_bias_scaled": ds2_bias_scaled,
+            "temporal_w": ds2_tw,
+            "temporal_b": ds2_tb,
+            "scale": scale_ds2,
+            "real": 96,
+        },
         "scale_mid0": scale_mid0,
         "scale_mid_attn": scale_mid_attn,
         "mid_attn": {
@@ -975,8 +1408,12 @@ def build_lightvae_encoder_fp8_staged_state(
             "qkv_b": mid_attn_qkv_b,
             "qkv_scale": scale_mid_qkv,
             "qkv_scale_float": _float_scalar(scale_mid_qkv, device=device),
-            "sdpa_inverse_scale_float": _inverse_float_scalar(scale_mid_sdpa, device=device),
-            "unit_float": torch.ones((1,), device=device, dtype=torch.float32).contiguous(),
+            "sdpa_inverse_scale_float": _inverse_float_scalar(
+                scale_mid_sdpa, device=device
+            ),
+            "unit_float": torch.ones(
+                (1,), device=device, dtype=torch.float32
+            ).contiguous(),
             "proj_w": mid_attn_proj_w,
             "proj_b": mid_attn_proj_b,
         },

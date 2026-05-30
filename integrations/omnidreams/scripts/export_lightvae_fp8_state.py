@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
-from flashdreams.infra.config import derive_config
 from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.runner import (
     DEFAULT_EXAMPLE_DATA_UUID_1V,
@@ -21,6 +19,7 @@ from omnidreams.runner import (
     _ensure_hf_single_view_example_data_synced,
 )
 
+from flashdreams.infra.config import derive_config
 
 DEFAULT_CONFIG = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
 VAE_FP8_VERSION_KEY = "__omnidreams_vae_fp8_version__"
@@ -64,7 +63,9 @@ def _require_float8() -> torch.dtype:
 
 
 def _scale_view_shape(tensor: torch.Tensor, channel_dim: int) -> tuple[int, ...]:
-    return tuple(tensor.shape[i] if i == channel_dim else 1 for i in range(tensor.dim()))
+    return tuple(
+        tensor.shape[i] if i == channel_dim else 1 for i in range(tensor.dim())
+    )
 
 
 def _quantize_fp8_per_channel(
@@ -97,11 +98,13 @@ def _channel_amax(value: torch.Tensor, channel_dim: int) -> torch.Tensor:
 
 
 def _collect_activation_amax(
-    model: torch.nn.Module,
+    model: Any,
     video_bcthw: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
     if video_bcthw.dim() != 5:
-        raise ValueError(f"expected calibration video [B,C,T,H,W], got {tuple(video_bcthw.shape)}")
+        raise ValueError(
+            f"expected calibration video [B,C,T,H,W], got {tuple(video_bcthw.shape)}"
+        )
 
     amax: dict[str, torch.Tensor] = {}
     handles: list[torch.utils.hooks.RemovableHandle] = []
@@ -143,12 +146,16 @@ def _collect_activation_amax(
             continue
         handles.append(module.register_forward_hook(hook(name)))
         if name == "encoder.middle.1.proj":
-            handles.append(module.register_forward_pre_hook(pre_hook("encoder.middle.1.sdpa")))
+            handles.append(
+                module.register_forward_pre_hook(pre_hook("encoder.middle.1.sdpa"))
+            )
         cache_step = getattr(module, "cache_step", None)
         if callable(cache_step):
             cache_step_originals.append((module, cache_step))
 
-            def wrapped_cache_step(*args: Any, _name: str = name, _orig: Any = cache_step, **kwargs: Any) -> Any:
+            def wrapped_cache_step(
+                *args: Any, _name: str = name, _orig: Any = cache_step, **kwargs: Any
+            ) -> Any:
                 output = _orig(*args, **kwargs)
                 if isinstance(output, torch.Tensor):
                     record(_name, output)
@@ -177,8 +184,11 @@ def _activation_scales(
     out: dict[str, torch.Tensor] = {}
     for name, value in amax.items():
         out[f"{name}.activation_scale"] = (
-            value.float().abs() / float(scale_max)
-        ).clamp(min=1.0e-6).to(torch.float16).contiguous()
+            (value.float().abs() / float(scale_max))
+            .clamp(min=1.0e-6)
+            .to(torch.float16)
+            .contiguous()
+        )
     latent = out.get("latent.activation_scale")
     if latent is not None:
         out["latent.activation_scale"] = latent
@@ -198,7 +208,11 @@ def _build_fp8_state(
     }
 
     for name, tensor in state_dict.items():
-        if name.endswith(".weight") and torch.is_floating_point(tensor) and tensor.dim() >= 2:
+        if (
+            name.endswith(".weight")
+            and torch.is_floating_point(tensor)
+            and tensor.dim() >= 2
+        ):
             q, scale = _quantize_fp8_per_channel(
                 tensor.detach(),
                 channel_dim=0,
@@ -207,13 +221,17 @@ def _build_fp8_state(
             state[name] = q.cpu()
             state[name.replace(".weight", ".weight_scale")] = scale.cpu()
         elif torch.is_floating_point(tensor):
-            state[name] = tensor.detach().to(dtype=torch.float16, device="cpu").contiguous()
+            state[name] = (
+                tensor.detach().to(dtype=torch.float16, device="cpu").contiguous()
+            )
         else:
             state[name] = tensor.detach().cpu().contiguous()
 
     for name, scale in activation_scales.items():
         if scale.dim() != 1:
-            raise ValueError(f"{name} must be a 1D scale tensor, got {tuple(scale.shape)}")
+            raise ValueError(
+                f"{name} must be a 1D scale tensor, got {tuple(scale.shape)}"
+            )
         state[name] = scale.detach().to(dtype=torch.float16, device="cpu").contiguous()
     return state
 
@@ -240,7 +258,9 @@ def _load_video_prefix_bcthw(
     try:
         import cv2  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError("OpenCV is required to load calibration video frames") from exc
+        raise ImportError(
+            "OpenCV is required to load calibration video frames"
+        ) from exc
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -256,10 +276,10 @@ def _load_video_prefix_bcthw(
         images.append(torch.from_numpy(rgb).permute(2, 0, 1).contiguous())
     cap.release()
     if len(images) < frames:
-        raise RuntimeError(
-            f"{path} has {len(images)} readable frames; need {frames}"
-        )
-    video = torch.stack(images, dim=1).unsqueeze(0).to(device=device, dtype=torch.float16)
+        raise RuntimeError(f"{path} has {len(images)} readable frames; need {frames}")
+    video = (
+        torch.stack(images, dim=1).unsqueeze(0).to(device=device, dtype=torch.float16)
+    )
     return (video / 127.5 - 1.0).contiguous()
 
 
@@ -267,9 +287,13 @@ def main() -> None:
     args = _parse_args()
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA device requested but torch.cuda.is_available() is false")
+        raise RuntimeError(
+            "CUDA device requested but torch.cuda.is_available() is false"
+        )
 
     config = OMNIDREAMS_CONFIGS[args.config_name]
+    if config.encoder is None:
+        raise TypeError(f"{args.config_name} does not define a VAE encoder")
     encoder_cfg = derive_config(
         config.encoder,
         dtype=torch.float16,
@@ -298,7 +322,9 @@ def main() -> None:
     torch.save(state, args.out)
     print(f"Wrote {args.out}")
     print(f"Calibration video: {video_path}")
-    print(f"Activation scales: {len([k for k in state if k.endswith('.activation_scale')])}")
+    print(
+        f"Activation scales: {len([k for k in state if k.endswith('.activation_scale')])}"
+    )
 
 
 if __name__ == "__main__":

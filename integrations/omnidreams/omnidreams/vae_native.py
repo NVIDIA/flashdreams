@@ -19,26 +19,17 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Literal, get_args
 
 import torch
-from torch import Tensor
-
-from flashdreams.recipes.wan.autoencoder.vae import (
-    TEMPORAL_WINDOW,
-    WanVAECache,
-    WanVAEEncoder,
-    WanVAEEncoderConfig,
-)
 from omnidreams.native import omnidreams_singleview
 from omnidreams.native.acceleration import (
     NativeAccelerationConfig,
     NativeAccelerationMode,
     NativeAccelerationUnavailable,
-    NativeAvailabilityCheck,
     NativeBackendSelection,
     require_extension_symbols,
 )
@@ -46,6 +37,14 @@ from omnidreams.native.primitives import (
     NativePrepError,
     NativeTensorSpec,
     prepare_tensor_for_native,
+)
+from torch import Tensor
+
+from flashdreams.recipes.wan.autoencoder.vae import (
+    TEMPORAL_WINDOW,
+    WanVAECache,
+    WanVAEEncoder,
+    WanVAEEncoderConfig,
 )
 
 NativeVAEBackend = Literal["fp8"]
@@ -91,7 +90,7 @@ def _native_vae_availability_check(
     backend: NativeVAEBackend,
     run_symbol: str,
     setup_symbols: tuple[str, ...] = (),
-) -> NativeAvailabilityCheck:
+) -> Callable[[ModuleType], tuple[bool, str]]:
     symbol_check = require_extension_symbols(
         "omnidreams_vae_backend_status",
         run_symbol,
@@ -99,7 +98,16 @@ def _native_vae_availability_check(
     )
 
     def check(extension: ModuleType) -> tuple[bool, str]:
-        ok, reason = symbol_check(extension)
+        symbol_result = symbol_check(extension)
+        if isinstance(symbol_result, tuple):
+            ok, reason = symbol_result
+        else:
+            ok = bool(symbol_result)
+            reason = (
+                "required native symbols are available"
+                if ok
+                else "required native symbols are unavailable"
+            )
         if not ok:
             return ok, reason
 
@@ -413,7 +421,9 @@ class _NativeWanVAEEncoderExecutor(_NativeVAEExecutor):
         t = x.shape[2]
         body = (t // TEMPORAL_WINDOW) * TEMPORAL_WINDOW
         for i in range(0, body, TEMPORAL_WINDOW):
-            outs.append(self._encode_chunk(native_encoder, x[:, :, i : i + TEMPORAL_WINDOW]))
+            outs.append(
+                self._encode_chunk(native_encoder, x[:, :, i : i + TEMPORAL_WINDOW])
+            )
         if body < t:
             outs.append(self._encode_chunk(native_encoder, x[:, :, body:]))
 
@@ -446,8 +456,8 @@ class OmnidreamsWanVAEEncoder(WanVAEEncoder):
                     selection=self._native_vae_selection,
                     backend=config.native_vae_backend,
                 )
-                self._native_vae_executor._fp8_state_path = (
-                    _native_vae_fp8_state_path(config)
+                self._native_vae_executor._fp8_state_path = _native_vae_fp8_state_path(
+                    config
                 )
 
     @property
@@ -489,6 +499,7 @@ class OmnidreamsWanVAEEncoder(WanVAEEncoder):
 
         z = self.vae.encode(input_bcthw, cache=cache).transpose(1, 2)
         return z.reshape(*batch_shape, *z.shape[1:])
+
 
 __all__ = [
     "NativeVAEBackend",

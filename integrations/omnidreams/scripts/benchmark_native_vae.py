@@ -21,7 +21,6 @@ from typing import Any
 
 import torch
 
-
 BASELINE_CONFIG = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
 NATIVE_CONFIG = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf"
 FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
@@ -175,7 +174,9 @@ def _load_video_prefix_btchw(
     try:
         import cv2  # noqa: PLC0415
     except ImportError as exc:
-        raise ImportError("OpenCV is required to load benchmark source video frames") from exc
+        raise ImportError(
+            "OpenCV is required to load benchmark source video frames"
+        ) from exc
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -192,7 +193,9 @@ def _load_video_prefix_btchw(
     cap.release()
     if len(images) < frames:
         raise RuntimeError(f"{path} has {len(images)} readable frames; need {frames}")
-    video = torch.stack(images, dim=0).unsqueeze(0).to(device=device, dtype=torch.float32)
+    video = (
+        torch.stack(images, dim=0).unsqueeze(0).to(device=device, dtype=torch.float32)
+    )
     return (video / 127.5 - 1.0).contiguous()
 
 
@@ -266,7 +269,9 @@ def _bench_pair(
 def _run(args: argparse.Namespace, configs: dict[str, Any]) -> list[EncoderRow]:
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA device requested but torch.cuda.is_available() is false")
+        raise RuntimeError(
+            "CUDA device requested but torch.cuda.is_available() is false"
+        )
     torch.manual_seed(args.seed)
 
     baseline_cfg = configs[args.baseline_config]
@@ -306,7 +311,9 @@ def _run(args: argparse.Namespace, configs: dict[str, Any]) -> list[EncoderRow]:
 
     def baseline_encode_first() -> torch.Tensor:
         cache = baseline_encoder.initialize_autoregressive_cache()
-        return baseline_encoder(first_source.to(baseline_encoder.config.dtype), cache=cache)
+        return baseline_encoder(
+            first_source.to(baseline_encoder.config.dtype), cache=cache
+        )
 
     def native_encode_first() -> torch.Tensor:
         cache = native_encoder.initialize_autoregressive_cache()
@@ -327,7 +334,9 @@ def _run(args: argparse.Namespace, configs: dict[str, Any]) -> list[EncoderRow]:
 
     baseline_cache = baseline_encoder.initialize_autoregressive_cache()
     native_cache = native_encoder.initialize_autoregressive_cache()
-    baseline_encoder(first_source.to(baseline_encoder.config.dtype), cache=baseline_cache)
+    baseline_encoder(
+        first_source.to(baseline_encoder.config.dtype), cache=baseline_cache
+    )
     native_encoder(first_source.to(native_encoder.config.dtype), cache=native_cache)
 
     rows.extend(
@@ -368,7 +377,9 @@ def _fmt(value: float | None) -> str:
     return f"{value:.4f}"
 
 
-def _write_markdown(path: Path, rows: list[EncoderRow], args: argparse.Namespace) -> None:
+def _write_markdown(
+    path: Path, rows: list[EncoderRow], args: argparse.Namespace
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
     lines = [
