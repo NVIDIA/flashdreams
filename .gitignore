@@ -132,3 +132,6 @@ AGENTS.md
 .codex/
 .claude/
 .agents/
+
+# Local HY-WorldPlay handoff status notes (not for upstream)
+/tasks.md
