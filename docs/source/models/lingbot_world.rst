@@ -181,6 +181,20 @@ first launch, much faster afterwards. When ready the server prints
 ``Connect via http://<server-ip>:8089/request_session`` (use
 ``localhost`` when running locally).
 
+.. note::
+
+   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
+   the server port is usually not reachable at the host IP directly.
+   Forward it to your local machine first, then open
+   ``http://localhost:8089/request_session``:
+
+   .. code-block:: bash
+
+      # Brev
+      brev port-forward <instance> -p 8089:8089
+      # or plain SSH
+      ssh -L 8089:localhost:8089 <user>@<host>
+
 When successfully connected, the browser-based UI looks like this:
 
 .. raw:: html
