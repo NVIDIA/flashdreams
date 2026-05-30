@@ -7,14 +7,16 @@ Parent PR **#155 is merged into `main`**.
 
 ## Where things stand
 
-The three code follow-ups are **done — CPU- and GPU-verified — and open as PRs**
-(awaiting CI). Nothing left to verify on them; they just need review/merge:
+The code follow-ups are **done — CPU- and GPU-verified — and open as 4 PRs**, all
+checks green (cpu/gpu/docs/OSRB/REUSE) with **auto-merge armed, pending one review
+approval**. They should be on `main` by the time you start the perf work:
 
 | PR | Branch | What | Verified |
 |---|---|---|---|
 | **#222** | `wenqing/hy-worldplay-pose-json-default` | pose parser `==`→`>=` prefix-slice; `--example-data` auto-downloads the pose JSON | real `--example-data num_chunk=1` rollout → valid 13-frame 704×1280 mp4 |
 | **#223** | `wenqing/hy-worldplay-vae-pth-transform` | native `.pth` VAE transform; **default flipped** to the `.pth` | native vs diffusers weights **bit-identical** (196/196 fp32, max \|Δ\|=0) |
 | **#224** | `wenqing/hy-worldplay-dit-native-ckpt` | native DiT path; **diffusers-DiT 404 fix** | native vs diffusers weights **bit-identical** (825/825 fp32, max \|Δ\|=0) |
+| **#227** | `wenqing/hy-worldplay-base-ckpt-load` | base Wan ckpt loads into the HY net (tolerate HY zero-init keys) | base rollout (no `--ckpt-path`) → valid mp4 + CPU tests |
 
 Verification method was **weight-equality** (load both checkpoints, compare tensors
 after each transform) — stronger than a decode smoke: identical weights ⇒ identical
@@ -27,14 +29,17 @@ Two corrections from the original plan (already reflected in the PRs):
   so it can't be deleted. Native path is a proven-equivalent option, not a replacement.
 - Only the **VAE** default was flipped (its remap was truly optional).
 
-## ⚠️ Known bugs you'll hit (don't rabbit-hole)
+## Bugs found + fixed during verification (FYI — they won't affect the perf work)
 
-1. **Base HY pipeline can't load without `--ckpt-path`** — the base Wan ckpt lacks the
-   zero-init HY keys (`o_prope`, `action_embedding`) and `Wan21Transformer` does a
-   *strict* `load_state_dict`. So **always pass `--ckpt-path <distilled model.pt>`**.
-   (Flagged on #203 for a separate fix; not your problem here.)
-2. **diffusers DiT single-file URL 404s** — fixed in #224 (points at the sharded
-   `.safetensors.index.json`). If you're on a branch without #224, use `--ckpt-path`.
+Both are **fixed** in the PRs above and don't touch the perf path (the bench always
+passes `--ckpt-path` + an explicit `--pose`, so it sidesteps both regardless of merge
+order). Listed so you don't re-investigate:
+
+1. **Base HY pipeline couldn't load without `--ckpt-path`** — base Wan ckpt lacks the
+   zero-init HY keys (`o_prope`, `action_embedding`) + strict `load_state_dict`.
+   **Fixed in #227.**
+2. **diffusers DiT single-file URL 404'd** — repo is sharded. **Fixed in #224**
+   (constant now points at the `.safetensors.index.json`).
 
 ## The remaining work: perf re-bench + samples + model-card MR (#203)
 
@@ -114,7 +119,9 @@ The `docs` CI job (`.github/workflows/doc.yml`) rebuilds on the MR.
 
 ## Gotchas learned the hard way
 
-- **Always `--ckpt-path <distilled>`** for any rollout (base path is broken — see bug #1).
+- **Always `--ckpt-path <distilled>`** for the bench/samples — you need the distilled
+  weights for real output (the base/un-distilled path now loads since #227, but its
+  zero-init conditioners give identity-only output). `bench.sh` passes it for you.
 - **CI-pinned ruff is `0.12.7`** — `uvx ruff` defaults to newer and re-sorts imports
   differently (touches unrelated files). Always `uvx ruff@0.12.7 …`.
 - `uv run`/`uv sync` builds `block-sparse-attn` (CUDA ext) — needs `CUDA_HOME` set.

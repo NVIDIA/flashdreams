@@ -10,9 +10,9 @@ Tracking issue for follow-ups: **#203**.
 - Review fixes: lint/ty CI green · `--example-data` default demo → `data_local/` · dropped `cli.py`.
 - Parity: mean |Δ| 15.65/255 vs vendor (acceptance ≤20).
 
-## Issue #203 — code follow-ups: PRs OPEN, CPU+GPU verified (RTX 6000 Ada)
+## Issue #203 — code follow-ups: 4 PRs, all checks green, auto-merge armed (pending 1 review)
 
-Each is a small, self-contained PR, rebased onto `main`, lint-clean (ruff 0.12.7). Awaiting review + CI.
+Each is a small, self-contained PR off `main`, CPU+GPU verified (RTX 6000 Ada), all checks green (cpu/gpu/docs/OSRB/REUSE). Auto-merge armed — they land on approval.
 
 | Item | PR | GPU verification | Outcome |
 |---|---|---|---|
@@ -22,13 +22,13 @@ Each is a small, self-contained PR, rebased onto `main`, lint-clean (ruff 0.12.7
 
 Key correction vs the original plan: the **DiT remap can't be deleted** — `hy_worldplay/_checkpoint.py` layers the distilled-ckpt rewrites on top of it. Only the VAE remap became truly optional (hence the VAE default flip, not the DiT).
 
-### Bug spun off during verification — FIXED
+### Bug spun off during verification — FIXED (#227)
 
 - Base HY pipeline couldn't load **without `--ckpt-path`** (base Wan ckpt lacks zero-init HY keys + strict `load_state_dict`). **Fixed in #227**: `HyWorldPlayWanDiTNetwork.load_state_dict` tolerates only the HY zero-init keys when absent. Verified end-to-end (base rollout → valid mp4) + CPU tests.
 
-### CI status — all four PRs
+### CI status
 
-`#222` `#223` `#224` are **fully green** (cpu/gpu/docs/OSRB/REUSE). `#227` just opened (awaiting `/ok to test`).
+All four PRs (`#222` `#223` `#224` `#227`) are **fully green** (cpu/gpu/docs/OSRB/REUSE) with **auto-merge armed** — only a review approval is outstanding.
 
 ## Issue #203 — perf / docs: NOT STARTED (needs a larger-memory GPU / GB300)
 
@@ -45,5 +45,5 @@ Prereq: larger-mem GPU + checkpoints (~40 GB vendor + ~20 GB native DiT + ~15 GB
 
 ## Next actions
 
-1. Get #222 / #223 / #224 reviewed + merged (all green). `/ok to test` + merge #227 (base-load fix).
+1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
 2. GB300 perf MR: re-bench (`num_chunk=8`) → samples → model-card page (`HANDOFF.md`).
