@@ -21,7 +21,7 @@ OmniDreams
    <div class="model-link-row">
      <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
      <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
-     <a class="model-link-button" href="https://gitlab-master.nvidia.com/sil/omni-dreams/" target="_blank" rel="noopener noreferrer">Official code</a>
+     <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
 OmniDreams is an HDMap-conditioned world model for single-view and multi-view
@@ -106,7 +106,7 @@ Some generated samples from the above commands:
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -116,7 +116,7 @@ Some generated samples from the above commands:
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -125,10 +125,65 @@ Some generated samples from the above commands:
      </div>
    </div>
 
-Launch the interactive server
------------------------------
+Launch the interactive demo
+---------------------------
 
-Spin up the interactive single-view OmniDreams server via WebRTC:
+``interactive-drive`` runs the OmniDreams single-view pipeline in a
+single process and streams the camera view to your browser. The demo
+machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
+display server, or Vulkan toolchain required.
+
+Requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
+and an ``HF_TOKEN`` with read access to
+`nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
+(scene USDZs) and
+`nvidia/omni-dreams-models <https://huggingface.co/nvidia/omni-dreams-models>`_
+(world-model checkpoints).
+
+First-time setup:
+
+.. code-block:: bash
+
+   git clone git@github.com:NVIDIA/flashdreams.git
+   cd flashdreams
+   export HF_TOKEN=<your-hf-token>
+   uv sync --package flashdreams-omnidreams --extra interactive-drive
+
+Optionally pre-download scenes and checkpoints so the first launch
+isn't blocked on network I/O:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams omnidreams-prepare
+
+Run the demo and stream to your browser:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+
+Then open ``http://<server-ip>:8080/`` in any browser on the same
+network and pick a scene from the picker in the bottom-right.
+
+For deployments with a desktop NVIDIA GPU that has a graphics queue,
+omit ``--stream-mjpeg`` to open the demo in a local Vulkan window
+instead:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive
+
+Alternative: WebRTC server
+--------------------------
+
+For deployments that need a richer browser frontend with WebRTC's
+lower video-delivery latency and a streaming gRPC service for
+multi-client setups, the standalone server at
+``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
+the same OmniDreams pipeline. The MJPEG path above is the
+recommended starting point for most users; reach for WebRTC when you
+need bidirectional camera-control APIs or are already integrating
+the gRPC service into a larger product.
 
 .. code-block:: bash
 
@@ -153,10 +208,21 @@ When successfully connected, the browser-based UI looks like this:
 
   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/alpadreams/assets/omnidreams/omnidreams-demo-0524-720P.mp4" type="video/mp4">
+      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-webrtc-recording-0529.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
   </div>
+
+.. note::
+
+   If ``/request_session`` loads but the video never appears, the
+   browser is likely obfuscating local IPs in WebRTC ICE candidates
+   (replacing them with mDNS ``.local`` hostnames), which prevents the
+   peer connection from completing. Disable the setting and reload:
+
+   - **Chrome / Edge:** ``chrome://flags/#enable-webrtc-hide-local-ips-with-mdns`` → **Disabled**, then restart the browser.
+   - **Brave:** ``brave://settings/privacy/security`` → *WebRTC IP handling policy* → **Default public and private interfaces**.
+   - **Firefox:** ``about:config`` → ``media.peerconnection.ice.obfuscate_host_addresses`` → **false**.
 
 Performance table
 -----------------

@@ -24,6 +24,10 @@ from flashdreams.infra.diffusion.scheduler.fm import (
     FlowMatchScheduler,
     FlowMatchSchedulerConfig,
 )
+from flashdreams.infra.diffusion.scheduler.fm_euler import (
+    FlowMatchEulerDiscreteScheduler,
+    FlowMatchEulerDiscreteSchedulerConfig,
+)
 from flashdreams.infra.diffusion.scheduler.fm_unipc import (
     FlowMatchUniPCScheduler,
     FlowMatchUniPCSchedulerConfig,
@@ -35,6 +39,8 @@ __all__ = [
     "SchedulerConfig",
     "FlowMatchScheduler",
     "FlowMatchSchedulerConfig",
+    "FlowMatchEulerDiscreteScheduler",
+    "FlowMatchEulerDiscreteSchedulerConfig",
     "FlowMatchUniPCScheduler",
     "FlowMatchUniPCSchedulerConfig",
 ]

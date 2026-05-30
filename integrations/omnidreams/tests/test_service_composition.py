@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import pytest
+from omnidreams.grpc import server as grpc_server
+from omnidreams.grpc.protos import common_pb2
 from omnidreams.grpc.server import WorldModelService
 
 pytestmark = pytest.mark.ci_gpu
@@ -88,3 +90,19 @@ def test_service_cleanup_closes_recorder_and_engine_session() -> None:
     assert recorder.closed is True
     assert "session-a" not in service.recorders
     assert ("cleanup", "session-a") in engine.calls
+
+
+def test_service_get_version_returns_package_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grpc_server, "_omnidreams_version_id", lambda: "1.2.3rc4")
+    engine = _DummyEngine()
+    service = WorldModelService(engine=engine)  # ty:ignore[invalid-argument-type]
+
+    response = service.get_version(common_pb2.Empty(), None)  # ty:ignore[invalid-argument-type]
+
+    assert response.version_id == "1.2.3rc4"
+    assert response.git_hash == ""
+    assert response.grpc_api_version.major == 1
+    assert response.grpc_api_version.minor == 2
+    assert response.grpc_api_version.patch == 3

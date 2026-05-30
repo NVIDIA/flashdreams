@@ -20,7 +20,12 @@ from omnidreams.interactive_drive.scene_loader import load_scene_bundle
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
+    build_map_bounds,
     state_from_initial_pose,
+)
+from omnidreams.interactive_drive.streaming_presenter import (
+    MJPEGStreamingPresenter,
+    parse_bind,
 )
 from omnidreams.interactive_drive.types import PresentedFrame
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
@@ -44,11 +49,12 @@ class InteractiveDriveApp:
         presenter (e.g. :class:`SlangPyHudPresenter`) that needs
         constructor arguments outside :class:`AppConfig`'s vocabulary
         (scene-selector options, wheel device, control assets). When
-        ``None``, :func:`_build_presenter` returns the default
-        :class:`SlangPyPresenter` -- a local Vulkan window. Browser /
-        remote streaming use cases are served by
-        ``omnidreams.webrtc.server`` instead of an in-process HTTP
-        stream on the demo.
+        ``None``, :func:`_build_presenter` returns either the default
+        :class:`SlangPyPresenter` (a local Vulkan window) or, when
+        ``config.stream_mjpeg_bind`` is set, an
+        :class:`MJPEGStreamingPresenter` that serves frames over HTTP
+        with no GPU-graphics dependency. Browser viewers with a richer
+        frontend are served by ``omnidreams.webrtc.server`` instead.
         """
         self._config = config
         self._backend = backend
@@ -85,6 +91,10 @@ class InteractiveDriveApp:
         )
         local_backend = LocalVideoModelAdapter(self._backend)
         pipeline = ChunkPipeline(local_backend, self._scene)
+        # Build the OOB map bounds once at scene load -- the AABB is a
+        # property of the scene's geometry and is invariant across the
+        # rollout-restart loop below.
+        map_bounds = build_map_bounds(self._scene)
         try:
             while not self._presenter.should_close:
                 simulation = EgoVehicleKinematics(
@@ -100,6 +110,9 @@ class InteractiveDriveApp:
                     vehicle_config=self._config.vehicle,
                     ground_snapper=build_ground_snapper(self._scene),
                     initial_timestamp_us=self._scene.initial_timestamp_us,
+                    map_bounds=map_bounds,
+                    oob_margin_m=self._config.oob_margin_m,
+                    oob_warning_zone_m=self._config.oob_warning_zone_m,
                 )
                 input_backend = KeyboardInputBackend(self._keyboard)
                 reset_requested = run_main_loop(
@@ -113,6 +126,11 @@ class InteractiveDriveApp:
                         initial_chunk_size=self._config.chunk.initial_chunk_frames,
                         chunk_size=self._config.chunk.chunk_frames,
                         frame_interval_s=self._config.chunk.frame_interval_s,
+                        oob_warn_proximity=self._config.oob_warn_proximity,
+                        oob_respawn_proximity=self._config.oob_respawn_proximity,
+                        oob_respawn_debounce_chunks=(
+                            self._config.oob_respawn_debounce_chunks
+                        ),
                     ),
                 )
                 if not reset_requested:
@@ -125,12 +143,26 @@ class InteractiveDriveApp:
                 self._presenter.close()
 
 
-def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> SlangPyPresenter:
-    """Default presenter factory: a local Vulkan window via slangpy.
+def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBackend:
+    """Default presenter factory.
 
-    Browser / remote streaming use cases are served by
-    ``omnidreams.webrtc.server`` (a separate entry point), not by an
-    in-process HTTP stream on the desktop demo. Hosts without a
-    graphics-capable GPU should run the webrtc server instead.
+    Returns an :class:`MJPEGStreamingPresenter` when
+    ``config.stream_mjpeg_bind`` is set (a HOST:PORT bind address) --
+    that path renders no window and has no graphics-GPU dependency, so
+    it works on compute-only SKUs (e.g. GB300) where SlangPy can't
+    create a Vulkan swapchain. Otherwise returns the default
+    :class:`SlangPyPresenter` -- a local Vulkan window.
+
+    For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
+    (a separate entry point) is the preferred path; this MJPEG fallback
+    is the in-process, dependency-free alternative for headless boxes.
     """
+    if config.stream_mjpeg_bind is not None:
+        host, port = parse_bind(config.stream_mjpeg_bind)
+        return MJPEGStreamingPresenter(
+            raster=config.raster,
+            keyboard=keyboard,
+            bind_host=host,
+            bind_port=port,
+        )
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)

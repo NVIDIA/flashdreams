@@ -477,17 +477,19 @@ def build_parser() -> argparse.ArgumentParser:
     The parser is the union of three groups:
 
     * Backend args (``--scene``, ``--backend``, ``--manifest``,
-      ``--bev``, ...) inherited verbatim from
+      ``--bev``, ``--stream-mjpeg``, ...) inherited verbatim from
       :func:`omnidreams.interactive_drive.cli.build_parser`. These
       flags apply whether the user runs the supervised HUD wrapper or
-      the bare backend with ``--no-hud``.
+      the bare backend with ``--no-hud`` / ``--stream-mjpeg``.
     * Supervisor / HUD args (``--scene-dir``, ``--autoload-scene``,
       ``--cuda-visible-devices``, ``--wheel-*``, ``--no-wheel``) that
       only matter when a HUD viewer is running. They're harmlessly
-      ignored under ``--no-hud``.
+      ignored under ``--no-hud`` / ``--stream-mjpeg``.
     * The ``--no-hud`` toggle itself, which falls through to the bare
-      slangpy Vulkan window. Browser-stream use cases are served by
-      ``omnidreams.webrtc.server`` instead.
+      slangpy Vulkan window. ``--stream-mjpeg`` (in the inherited
+      backend group) implicitly does the same and serves the bare
+      backend's frames over HTTP. For a richer browser frontend use
+      ``omnidreams.webrtc.server``.
     """
     parser = _cli.build_parser()
     # Demo-friendly defaults: most users want the world model and the
@@ -505,7 +507,10 @@ def build_parser() -> argparse.ArgumentParser:
         " scene/variant selector, BEV minimap, and steering / pedal"
         " overlays, all rendered into a single Vulkan swapchain. Pass"
         " --no-hud to drop the chrome and just open the bare slangpy"
-        " Vulkan window. For browser / remote streaming use the separate"
+        " Vulkan window, or --stream-mjpeg HOST:PORT to skip the local"
+        " window entirely and serve frames to a browser as an MJPEG"
+        " HTTP stream (useful on compute-only hosts without a Vulkan"
+        " GPU). For a richer browser viewer use the separate"
         " ``omnidreams.webrtc.server`` entry point."
     )
     parser.add_argument(
@@ -624,9 +629,15 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.synthetic_scene:
         args.scene = _maybe_autostage_scene(args.scene)
-    # ``--no-hud`` drops the slangpy HUD chrome and runs the backend
-    # against a bare Vulkan window. Browser / remote use cases live
-    # in the separate ``omnidreams.webrtc.server`` entry point.
+    # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
+    # MJPEG presenter (HTTP server, browser session) survives across
+    # scene-change requests posted by the in-page picker. ``--no-hud``
+    # without MJPEG drops straight through to the bare CLI's Vulkan
+    # window, which has no scene picker UI of its own. The default path
+    # is the slangpy HUD with full chrome.
+    if args.stream_mjpeg is not None:
+        _run_streaming(args)
+        return
     if args.no_hud:
         _cli.run(args)
         return
@@ -685,7 +696,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         if not args.manifest.exists():
             raise SystemExit(
                 f"--manifest path does not exist: {args.manifest}"
-                " (typo? expected something like configs/example_world_model.yaml)"
+                " (typo? expected a path or bundled config name like "
+                "example_world_model.yaml)"
             )
     if not scene_options and not args.scene.exists():
         raise SystemExit(
@@ -776,6 +788,154 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         presenter.close()
 
 
+def _run_streaming(args: argparse.Namespace) -> None:
+    """Run the engine with the MJPEG streaming presenter and a scene-change loop.
+
+    Mirrors :func:`_run_slangpy_hud`'s outer-loop structure but with a
+    long-lived :class:`MJPEGStreamingPresenter` instead of a slangpy
+    window. The HTTP server (and any connected browser sessions) stay
+    alive across scene transitions; only the backend / pipeline /
+    simulation get rebuilt per scene. The browser shows the loading
+    overlay during the rebuild and resumes streaming the moment the
+    new pipeline produces its first chunk.
+
+    Scene options come from the same discovery layer the slangpy HUD
+    uses. They get serialised into a JSON-friendly shape and posted to
+    the presenter so the in-browser ``/scenes`` endpoint can populate
+    its dropdown without round-tripping through the SceneOption class.
+    """
+    from omnidreams.interactive_drive.input.keyboard import KeyboardState
+    from omnidreams.interactive_drive.streaming_presenter import (
+        MJPEGStreamingPresenter,
+        parse_bind,
+    )
+
+    _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
+    _resolve_demo_paths(args)
+    scene_options = _discover_scene_options(args.scene_dir, args.scene)
+    if not args.scene.exists() and scene_options:
+        args.scene = scene_options[0].path
+    if args.backend == "omnidreams":
+        if args.manifest is None:
+            raise SystemExit("--manifest is required for the omnidreams backend")
+        if not args.manifest.exists():
+            raise SystemExit(
+                f"--manifest path does not exist: {args.manifest}"
+                " (typo? expected a path or bundled config name like "
+                "example_world_model.yaml)"
+            )
+    if not scene_options and not args.scene.exists():
+        raise SystemExit(
+            f"--scene path does not exist and --scene-dir contains no scenes: {args.scene}"
+        )
+
+    # JSON-serialisable form of the discovered scenes for the browser
+    # ``/scenes`` endpoint. Thumbnails are JPEG-encoded once at startup
+    # and stashed on the presenter so the per-card ``/thumbnail``
+    # request just blobs the bytes back -- no per-request encode cost
+    # under the HTTP handler thread, which would otherwise compete
+    # with the main camera's encode budget.
+    scenes_payload: tuple[dict[str, object], ...] = tuple(
+        {
+            "label": opt.label,
+            "path": str(opt.path),
+            "variants": list(opt.variants),
+        }
+        for opt in scene_options
+    )
+    thumbnails: dict[str, bytes] = {}
+    for opt in scene_options:
+        if opt.thumbnail is None:
+            continue
+        buf = io.BytesIO()
+        # PIL's RGBA / palette-mode thumbnails need an explicit RGB
+        # conversion before JPEG encode. The discovery layer already
+        # returns RGB, but be defensive in case it changes upstream.
+        thumb_rgb = (
+            opt.thumbnail
+            if opt.thumbnail.mode == "RGB"
+            else opt.thumbnail.convert("RGB")
+        )
+        thumb_rgb.save(buf, format="JPEG", quality=85)
+        thumbnails[str(opt.path)] = buf.getvalue()
+
+    bind_host, bind_port = parse_bind(args.stream_mjpeg)
+    placeholder_keyboard = KeyboardState()
+    presenter = MJPEGStreamingPresenter(
+        raster=RasterConfig(),
+        keyboard=placeholder_keyboard,
+        bind_host=bind_host,
+        bind_port=bind_port,
+        scenes=scenes_payload,
+        thumbnails=thumbnails,
+    )
+
+    def _factory(config: object, keyboard: KeyboardState) -> MJPEGStreamingPresenter:
+        # Each ``InteractiveDriveApp.__init__`` builds a fresh
+        # ``KeyboardState``; rebind so the long-lived presenter
+        # follows the new instance instead of writing into the
+        # placeholder keyboard from before the first scene loaded.
+        del config
+        presenter.bind_keyboard(keyboard)
+        return presenter
+
+    try:
+        # Don't auto-load: always wait for the browser to pick the
+        # first scene. This mirrors the slangpy HUD's ``--no-autoload-
+        # scene`` default (which is the *only* mode for the streaming
+        # path -- there's no Vulkan window to show progress in, so we
+        # would otherwise burn world-model warmup on whatever
+        # ``args.scene`` defaulted to before the user expressed any
+        # intent). The presenter publishes an idle "Select a scene to
+        # begin" overlay frame so connected browsers have something to
+        # render while the wait spins.
+        print(
+            "[demo] streaming presenter waiting for first scene selection...",
+            flush=True,
+        )
+        request = presenter.wait_for_scene_selection()
+        if request is None:
+            return  # presenter closed before any selection (Ctrl-C)
+        first_scene_path, first_variant = request
+        args.scene = first_scene_path
+        args.variant = first_variant
+        presenter.acknowledge_scene_change(first_scene_path, first_variant)
+        print(
+            f"[demo] streaming initial scene -> {first_scene_path.name} "
+            f"variant={first_variant!r}",
+            flush=True,
+        )
+
+        while True:
+            config, backend = _cli.prepare_config_and_backend(args)
+            app = InteractiveDriveApp(
+                config=config,
+                backend=backend,
+                presenter_factory=_factory,
+                close_presenter_on_exit=False,
+            )
+            app.run()
+            requested = presenter.pending_scene_change
+            if requested is None:
+                # Either the process is shutting down (Ctrl-C) or the
+                # rollout finished without a scene-change request.
+                # ``MJPEGStreamingPresenter`` has no native quit
+                # affordance, so a "no pending change" exit is
+                # treated as the end of the session.
+                break
+            new_scene_path, new_variant = requested
+            args.scene = new_scene_path
+            args.variant = new_variant
+            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            print(
+                f"[demo] streaming scene change -> {new_scene_path.name} "
+                f"variant={new_variant!r}",
+                flush=True,
+            )
+    finally:
+        presenter.close()
+
+
 def _apply_cuda_visible_devices_inplace(requested: str) -> None:
     """Resolve ``--cuda-visible-devices`` into the in-process ``os.environ``.
 
@@ -799,10 +959,12 @@ def _apply_cuda_visible_devices_inplace(requested: str) -> None:
 
 
 def _resolve_demo_paths(args: argparse.Namespace) -> None:
-    for attr in ("scene", "manifest", "scene_dir", "wheel_profiles_dir"):
+    for attr in ("scene", "scene_dir", "wheel_profiles_dir"):
         value = getattr(args, attr)
         if value is not None:
             setattr(args, attr, _project_path(value))
+    if args.manifest is not None:
+        args.manifest = _cli.resolve_manifest_path(args.manifest)
     if args.control_assets_dir is not None:
         args.control_assets_dir = _project_path(args.control_assets_dir)
 

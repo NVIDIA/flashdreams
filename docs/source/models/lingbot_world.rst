@@ -111,11 +111,11 @@ Some generated samples from the above commands:
    <div class="model-video-grid">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -124,11 +124,11 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-02.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-02.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -163,7 +163,7 @@ When successfully connected, the browser-based UI looks like this:
 
   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-demo-0520-trim-720P.mp4" type="video/mp4">
+      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-webrtc-recording-0529.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
   </div>
