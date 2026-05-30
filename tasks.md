@@ -36,8 +36,8 @@ One follow-up MR. Full command-level steps in `HANDOFF.md`.
 
 | Item | Status |
 |---|---|
-| Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | **DONE** — matched bench ran on a single GB300 |
-| Curated samples | not started (deferred pending parity/graph follow-ups) |
+| Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | **DONE** — matched bench ran on a single GB300, corroborated across 6 inputs |
+| Curated samples | native+vendor mp4s generated for all `data_local/*` (5 images); curation/upload pending |
 | Model-card page (mirror `lingbot_world.rst` + `_static/performance/`) | perf data + draft done; held as `.rst.draft` until samples land |
 | (optional) mgpu perf | not needed — 1× GB300 fits `num_chunk=8` |
 
@@ -56,6 +56,23 @@ Post-warmup medians (chunks 5–7):
 - Vendor forced onto cuDNN SDPA via `HY_VENDOR_SDPA=1` (now the `bench.sh` default); vendor as-shipped uses sageattention.
 - Artifacts: `tests/parity_check/outputs/bench/bench.md`; chart data `docs/source/_static/performance/hy_worldplay/perf-0530.md`.
 
+### Full `data_local/*` batch (native vs vendor, same config; 5 images)
+
+Post-warmup (chunks 5–7) medians, ms. Native = production config (CUDA graphs on).
+
+| image | DiT nat/ven | VAE nat/ven | DiT+VAE nat/ven | ratio | parity \|Δ\| |
+|---|--:|--:|--:|--:|--:|
+| 1.png | 630 / 1208 | 382 / 374 | 1012 / 1583 | 1.56× | 40.8 |
+| 2.png | 632 / 1210 | 382 / 374 | 1014 / 1584 | 1.56× | 31.1 |
+| 6.jpeg | 628 / 1208 | 381 / 374 | 1008 / 1582 | 1.57× | 21.1 |
+| cat_surf.jpg | 632 / 1207 | 381 / 375 | 1014 / 1582 | 1.56× | 51.8 |
+| jensen_alaska.jpg | 633 / 1207 | 382 / 375 | 1015 / 1582 | 1.56× | 48.6 |
+| **median** | **632 / 1208** | **382 / 374** | **1014 / 1582** | **1.56×** | — |
+
+- **Perf is input-independent** (native DiT 628–633 ms across all 5), corroborating the `perf-0530.md` headline (1015 ms) on 6 distinct inputs total.
+- Parity 21–52/255 is benign cumulative AR drift (bug 3); highest on off-aspect inputs (`cat_surf` 625×350 upscaled, `jensen_alaska` 900×1200 portrait cropped).
+- Artifacts written **out of repo** (the in-repo gitignored `outputs/` was wiped mid-session by the shared CI-runner box): `/home/nvidia/hy_bench_out/<stem>/{native,vendor}/*.mp4` + per-image `bench.md` + aggregated `SUMMARY.md`. Cleanest first frames for the gallery: `6.jpeg`, `2.png`, `1.png`.
+
 ### Bugs found at `num_chunk≥4` (never reachable on the old 44 GiB card)
 
 1. **FIXED** (`a5f7b74`) — `prefill_memory_kv_cache` asserted `isinstance(self.network, HyWorldPlayWanDiTNetwork)`; under `compile_network=True` that's a `torch.compile` `OptimizedModule`. Now unwraps `_orig_mod`.
@@ -69,5 +86,6 @@ Post-warmup medians (chunks 5–7):
 ## Next actions
 
 1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
-2. Investigate bug 3 (long-rollout parity drift at num_chunk=8).
-3. Generate curated samples → finalize + go-live on `hy_worldplay.rst` → build docs.
+2. Curate the gallery from the `data_local/*` batch (cleanest: `6.jpeg`, `2.png`, `1.png`) + pick a hero, upload mp4s to `research.nvidia.com/.../assets/hy_worldplay/`, fill the `<video>` srcs in `hy_worldplay.rst.draft`, then promote `.rst.draft` → `.rst`, register in `models/index.rst`, and `sphinx-build` to verify.
+3. (optional) Seed the FOV Monte-Carlo point cloud (`generate_points_in_sphere` generator) for reproducibility on rotation/strafe poses (bug 3 latent risk).
+4. (future opt) Graph-accelerate the memory-engaged steady state via fixed-size in-place memory KV buffers.
