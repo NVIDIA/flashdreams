@@ -264,3 +264,11 @@ Start here
    Infra <api/infra>
    Pipelines and runners <api/integrations>
    Serving <api/serving>
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Community
+   :hidden:
+
+   Contributing <community/contribute>
+   Discord <community/discord>
