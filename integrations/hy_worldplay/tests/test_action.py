@@ -303,3 +303,83 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
     assert nek is not None
     assert "action" in nek
     assert nek["action"] is action
+
+
+def _make_prope_network():
+    """Tiny ``HyWorldPlayWanDiTNetwork`` with PRoPE blocks (has both HY extensions)."""
+    from hy_worldplay._action import (
+        HyWorldPlayWanDiTNetwork,
+        HyWorldPlayWanDiTNetworkConfig,
+    )
+
+    cfg = HyWorldPlayWanDiTNetworkConfig(
+        patch_size=(1, 2, 2),
+        in_dim=4,
+        out_dim=4,
+        dim=64,
+        ffn_dim=64,
+        freq_dim=64,
+        text_dim=64,
+        num_heads=2,
+        num_layers=2,
+        text_len=8,
+        cross_attn_enable_img=False,
+        use_prope_blocks=True,
+    )
+    return HyWorldPlayWanDiTNetwork(cfg)
+
+
+def test_load_state_dict_tolerates_missing_hy_zero_init_keys() -> None:
+    """A base Wan checkpoint (no ``action_embedding`` / ``o_prope``) loads; they stay zero-init.
+
+    Regression for the "run without ``--ckpt-path``" path: the base
+    checkpoint omits HY's zero-init conditioner params, and a strict
+    ``load_state_dict`` would raise ``Missing key(s)``.
+    """
+    import torch
+
+    net = _make_prope_network()
+    full = net.state_dict()
+    # Simulate a base Wan checkpoint: drop exactly the HY extension params.
+    base = {
+        k: v
+        for k, v in full.items()
+        if not (k.startswith("action_embedding.") or ".o_prope." in k)
+    }
+    dropped = set(full) - set(base)
+    assert any(k.startswith("action_embedding.") for k in dropped)
+    assert any(".o_prope." in k for k in dropped)
+
+    fresh = _make_prope_network()
+    fresh.load_state_dict(base)  # must not raise
+
+    # The tolerated params kept their zero-init values.
+    assert torch.all(fresh.action_embedding[-1].weight == 0)
+    for name, p in fresh.named_parameters():
+        if ".o_prope." in name and name.endswith(".weight"):
+            assert torch.all(p == 0), f"{name} not zero after tolerated-missing load"
+
+
+def test_load_state_dict_still_rejects_other_missing_or_unexpected() -> None:
+    """Only HY zero-init keys are tolerated; real missing / unexpected keys still raise."""
+    import pytest
+    import torch
+
+    net = _make_prope_network()
+    base = {
+        k: v
+        for k, v in net.state_dict().items()
+        if not (k.startswith("action_embedding.") or ".o_prope." in k)
+    }
+
+    # Drop a genuine (non-HY) key -> must raise.
+    a_real_key = next(k for k in base if ".self_attn.q." in k)
+    missing_real = {k: v for k, v in base.items() if k != a_real_key}
+    with pytest.raises(RuntimeError, match="not HY zero-init"):
+        _make_prope_network().load_state_dict(missing_real)
+
+    # Inject an unexpected key -> must raise.
+    with_unexpected = dict(base)
+    with_unexpected["blocks.0.not_a_real_param"] = torch.zeros(1)
+    with pytest.raises(RuntimeError, match="Unexpected key"):
+        _make_prope_network().load_state_dict(with_unexpected)

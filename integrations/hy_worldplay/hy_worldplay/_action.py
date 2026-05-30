@@ -476,6 +476,45 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         if zero_linear.bias is not None:
             nn.init.zeros_(zero_linear.bias)
 
+    @staticmethod
+    def _is_hy_zero_init_key(key: str) -> bool:
+        """Whether ``key`` names an HY-specific zero-init conditioner param.
+
+        These are the two extensions this subclass adds on top of
+        :class:`WanDiTNetwork` -- the ``action_embedding`` MLP and each
+        PRoPE block's ``o_prope`` output projection. Both are zero-init,
+        so when a base (un-distilled) Wan checkpoint omits them they can
+        safely stay at their init values without breaking the identity.
+        """
+        return key.startswith("action_embedding.") or ".o_prope." in key
+
+    def load_state_dict(self, state_dict, strict=True, assign=False):  # type: ignore[override]
+        """Load weights, tolerating *only* absent HY zero-init conditioner params.
+
+        The base Wan 2.2 checkpoint carries no ``action_embedding`` /
+        ``o_prope`` weights; without this, ``Wan21Transformer.__init__``'s
+        strict ``load_state_dict`` raises ``Missing key(s)`` and the
+        documented "run without ``--ckpt-path``, conditioners stay
+        zero-init" path is impossible. Here those specific keys are
+        allowed to remain at their zero-init values (a strict identity,
+        parity-safe vs base Wan). HY's distilled checkpoint *does* carry
+        them, so nothing is tolerated on that path. This is **not** a
+        blanket ``strict=False``: any other missing key, or any unexpected
+        key, still raises.
+        """
+        incompatible = super().load_state_dict(state_dict, strict=False, assign=assign)
+        unresolved = [
+            k for k in incompatible.missing_keys if not self._is_hy_zero_init_key(k)
+        ]
+        if unresolved or incompatible.unexpected_keys:
+            raise RuntimeError(
+                "Error(s) in loading state_dict for "
+                f"{type(self).__name__}:\n"
+                f"\tMissing key(s) (not HY zero-init): {sorted(unresolved)}\n"
+                f"\tUnexpected key(s): {sorted(incompatible.unexpected_keys)}"
+            )
+        return incompatible
+
     def _build_block(self, layer_idx: int) -> Block:
         if self._hy_use_prope_blocks:
             # Lazy-imported so action-only configurations don't pay the
