@@ -39,7 +39,6 @@ One follow-up MR. Full command-level steps in `HANDOFF.md`.
 | Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | **DONE** — matched bench ran on a single GB300, corroborated across 6 inputs |
 | Curated samples | **DONE** — native mp4s for all 5 `data_local/*`; hero (`6`) + 3 gallery (`2`,`1`,`cat_surf`) transcoded to web mp4 in `docs/source/_static/videos/hy_worldplay/` (3.4 MB total) |
 | Model-card page (mirror `lingbot_world.rst` + `_static/performance/`) | **DONE** — `docs/source/models/hy_worldplay.rst` authored (lingbot style: hero, install, running, variants list-table, native sample grid, perf chart), registered in `models/index.rst` + the `index.rst` toctree, **builds clean under `sphinx-build -W`** |
-| (optional) mgpu perf | not needed — 1× GB300 fits `num_chunk=8` |
 
 ### Re-bench result (704×1280, seed 0, pose `w-31`, warmup-discard 5, DiT+VAE scope, both legs cuDNN SDPA + `torch.compile`)
 
