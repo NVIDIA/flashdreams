@@ -130,6 +130,15 @@ Some generated samples from the above commands (native FlashDreams pipeline,
          A cat surfing on a wave
        </div>
      </div>
+     <div class="model-video-card">
+       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-04.mp4" type="video/mp4">
+         Your browser does not support the video tag.
+       </video>
+       <div class="model-video-overlay">
+         First-person view walking around
+       </div>
+     </div>
    </div>
 
 Profiling benchmark
