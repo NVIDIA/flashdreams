@@ -30,20 +30,45 @@ Key correction vs the original plan: the **DiT remap can't be deleted** — `hy_
 
 All four PRs (`#222` `#223` `#224` `#227`) are **fully green** (cpu/gpu/docs/OSRB/REUSE) with **auto-merge armed** — only a review approval is outstanding.
 
-## Issue #203 — perf / docs: NOT STARTED (needs a larger-memory GPU / GB300)
+## Issue #203 — perf / docs: IN PROGRESS (on GB300, branch `wenqing/hy-worldplay-perf-handoff`)
 
-These travel together as one follow-up MR. Full command-level steps in `HANDOFF.md`.
+One follow-up MR. Full command-level steps in `HANDOFF.md`.
 
-| Item | Est. |
+| Item | Status |
 |---|---|
-| Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | 1–2 hrs (config bump; bench wall-clock) |
-| Generate curated samples | 1–2 hrs |
-| Model-card page (mirror `docs/source/models/lingbot_world.rst` + `_static/performance/`) | 2–4 hrs |
-| (optional) mgpu perf — only if 1× GB300 can't reach `num_chunk=8` and vendor supports mgpu | 3–5 hrs |
+| Re-bench `num_chunk=8`, `warmup_chunks=5`, DiT + VAE enc/dec scope, both legs cuDNN SDPA + torch.compile | **DONE** — matched bench ran on a single GB300 |
+| Curated samples | not started (deferred pending parity/graph follow-ups) |
+| Model-card page (mirror `lingbot_world.rst` + `_static/performance/`) | perf data + draft done; held as `.rst.draft` until samples land |
+| (optional) mgpu perf | not needed — 1× GB300 fits `num_chunk=8` |
 
-Prereq: larger-mem GPU + checkpoints (~40 GB vendor + ~20 GB native DiT + ~15 GB diffusers/VAE). Pre-staging ckpts cuts wall-clock roughly in half.
+### Re-bench result (704×1280, seed 0, pose `w-31`, warmup-discard 5, DiT+VAE scope, both legs cuDNN SDPA + `torch.compile`)
+
+Post-warmup medians (chunks 5–7):
+
+| stage | native | vendor | |
+|---|--:|--:|--:|
+| DiT (diffuse) | 632 ms | 1206 ms | **1.91×** |
+| VAE decode | 383 ms | 372 ms | parity |
+| DiT+VAE / chunk | 1015 ms | 1578 ms | **1.55×** |
+
+- **Reverses the original expectation** ("native wins big on VAE, DiT closer"): native wins big on **DiT**; VAE decode is a tie.
+- Native numbers are **conservative** — its CUDA-graph fast path was disabled (see bug 2), so production is faster still.
+- Vendor forced onto cuDNN SDPA via `HY_VENDOR_SDPA=1` (now the `bench.sh` default); vendor as-shipped uses sageattention.
+- Artifacts: `tests/parity_check/outputs/bench/bench.md`; chart data `docs/source/_static/performance/hy_worldplay/perf-0530.md`.
+
+### Bugs found at `num_chunk≥4` (never reachable on the old 44 GiB card)
+
+1. **FIXED** (`a5f7b74`) — `prefill_memory_kv_cache` asserted `isinstance(self.network, HyWorldPlayWanDiTNetwork)`; under `compile_network=True` that's a `torch.compile` `OptimizedModule`. Now unwraps `_orig_mod`.
+2. **OPEN** — `use_cuda_graph=True` (production default) + eager memory-prefill KV writes → `cudaErrorIllegalAddress` at AR chunk 4. Worked around with `HY_DEBUG_DISABLE_CUDA_GRAPH=1`. **Currently being fixed.**
+3. **OPEN** — parity drifted to mean |Δ| 29.3/255 at `num_chunk=8` (vs 15.65 at `num_chunk=2`, bar ≤20). Likely the memory-prefill / FOV-selection path diverging over long rollouts. Perf is independent (same FLOPs).
+
+### Harness fixes (`2119225`)
+
+`bench.sh` defaults `HY_VENDOR_SDPA=1`; `run.sh` adds `torchvision==0.26.*` to vendor heavy-deps (upstream HEAD's hyvideo import now needs it).
 
 ## Next actions
 
 1. Land #222 / #223 / #224 / #227 — all green + auto-merge armed, just need one review approval.
-2. GB300 perf MR: re-bench (`num_chunk=8`) → samples → model-card page (`HANDOFF.md`).
+2. Fix bug 2 (CUDA-graph + memory-prefill illegal access) to restore the production graph fast-path.
+3. Investigate bug 3 (long-rollout parity drift).
+4. Generate curated samples → finalize + go-live on `hy_worldplay.rst` → build docs.
