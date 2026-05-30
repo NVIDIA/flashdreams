@@ -24,10 +24,9 @@ HY-WorldPlay
    </div>
 
 Introduced by `Tencent Hunyuan <https://github.com/Tencent-Hunyuan/HY-WorldPlay>`_, HY-WorldPlay is a
-real-time interactive image-to-video (I2V) world model: a streaming video-diffusion model with action +
-camera-trajectory conditioning and reconstituted-context memory. FlashDreams ships a native port of the
-distilled WAN-5B variant (Wan 2.2 TI2V-5B backbone, 4-step distilled Euler) over its unified streaming
-pipeline.
+real-time interactive image-to-video (I2V) world model with action + camera-trajectory conditioning and
+reconstituted-context memory. FlashDreams ships a native port of the distilled WAN-5B variant (Wan 2.2
+TI2V-5B backbone, 4-step distilled Euler).
 
 .. raw:: html
 
@@ -38,8 +37,7 @@ pipeline.
      </video>
    </div>
    <p class="model-footnote">
-     Teaser generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline
-     (704&times;1280, 8 autoregressive chunks, 4-step distilled Euler).
+     Generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
    </p>
 
 Installation
@@ -53,9 +51,8 @@ Installation
 Running the method
 ------------------
 
-HY-WorldPlay WAN-5B is image-to-video only. Launch the registered runner slug via ``flashdreams-run``,
-passing a first-frame image (or ``--example-data`` to fetch upstream's bundled fixture) and the distilled
-checkpoint:
+HY-WorldPlay WAN-5B is image-to-video only. Launch it via ``flashdreams-run``, passing a first-frame
+image (or ``--example-data``) and the distilled checkpoint:
 
 .. code-block:: bash
 
@@ -67,13 +64,10 @@ checkpoint:
        --num-chunk 8 \
        --pose "w-31"
 
-``--ckpt-path`` points at HY-WorldPlay's distilled ``wan_distilled_model/model.pt`` (gated
-`tencent/HY-WorldPlay <https://huggingface.co/tencent/HY-WorldPlay>`_ repo; set ``HF_TOKEN`` first). Without
-it the pipeline loads the base Wan 2.2 TI2V-5B weights and HY's conditioners stay zero-init (strict identity
-against the base output). ``--pose`` takes the same grammar as upstream (``w-N`` / ``s-N`` forward/back,
-``a-N`` / ``d-N`` strafe, ``up-N`` / ``down-N`` pitch, ``left-N`` / ``right-N`` yaw; comma-separated), with
-``num_chunk * 4 - 1`` motion steps; or a JSON trajectory from upstream's
-``hyvideo/generate_custom_trajectory.py``.
+``--ckpt-path`` is the distilled ``model.pt`` from the gated
+`tencent/HY-WorldPlay <https://huggingface.co/tencent/HY-WorldPlay>`_ repo (set ``HF_TOKEN`` first); omit it
+to run the zero-init base Wan 2.2 identity. ``--pose`` is a camera-trajectory string (``num_chunk * 4 - 1``
+motion steps) or an upstream trajectory JSON.
 
 We provide the following variants:
 
@@ -84,9 +78,8 @@ We provide the following variants:
    * - Method
      - Description
    * - ``hy-worldplay-wan-i2v-5b``
-     - HY-WorldPlay WAN-5B I2V: Wan 2.2 TI2V-5B backbone with action + camera-trajectory conditioning,
-       PRoPE dual-branch attention, and reconstituted-context memory. Distilled checkpoint, 4 inference
-       steps, streaming autoregressive VAE.
+     - Wan 2.2 TI2V-5B backbone with action + camera conditioning, PRoPE attention, and
+       reconstituted-context memory. Distilled, 4 steps, streaming autoregressive VAE.
 
 To inspect all supported CLI arguments and their default values, run:
 
@@ -97,8 +90,7 @@ To inspect all supported CLI arguments and their default values, run:
        hy-worldplay-wan-i2v-5b \
        --help
 
-Some generated samples from the above commands (native FlashDreams pipeline,
-704&times;1280, ``num_chunk=8``, ``pose="w-31"``):
+Some generated samples from the above commands:
 
 .. raw:: html
 
@@ -160,11 +152,10 @@ under matched settings.
      ></div>
      <figcaption>
        <p class="model-footnote">
-         This chart shows total DiT + VAE decode runtime per autoregressive chunk (4 diffusion steps) in
-         milliseconds at steady state (median of the post-warmup chunks; the first 5 chunks are discarded),
-         measured at num_chunk=8, 704x1280, seed=0 on a single GB300. For an apples-to-apples comparison,
-         both implementations are forced to use the cuDNN attention backend and torch.compile under matched
-         runtime settings.
+         This chart shows total DiT + VAE-decode runtime per autoregressive chunk (4 diffusion steps) in
+         milliseconds, at steady state (median of the post-warmup chunks), measured at num_chunk=8,
+         704x1280, seed=0 on a single GB300. For an apples-to-apples comparison, both implementations are
+         forced to use the cuDNN attention backend and torch.compile under matched runtime settings.
          For the official HY-WorldPlay implementation, see
          <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/hy_worldplay/tests/parity_check">this instruction</a>.
        </p>
