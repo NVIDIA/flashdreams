@@ -84,6 +84,12 @@ PROMPT="${PROMPT:-First-person view walking around ancient Athens, with Greek ar
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs/bench}"
 HY_VENDOR_NOISE_MODE="${HY_VENDOR_NOISE_MODE:-1}"
 USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE:-1}"
+# Force the vendor leg's attention onto cuDNN SDPA (the kernel the native
+# leg uses) so the perf comparison is matched on the attention backend --
+# the apples-to-apples requirement the perf reviewers pinned (vendor's
+# default is sageattention INT8/FP8, a different kernel). Set
+# ``HY_VENDOR_SDPA=0`` to bench vendor on its as-shipped sageattention path.
+HY_VENDOR_SDPA="${HY_VENDOR_SDPA:-1}"
 # Chunks at the start of the rollout to drop from the post-warmup
 # median (Inductor autotune + KV-fill happen in the first few). 0 is
 # the safe default at ``NUM_CHUNK=2``; bump to 5 (the manager spec)
@@ -135,13 +141,14 @@ mkdir -p "${NATIVE_OUT}" "${VENDOR_OUT}"
 # the already-renamed ``${RUNNER_NAME}.mp4`` from a previous bench.
 rm -f "${VENDOR_OUT}/${RUNNER_NAME}.mp4" "${VENDOR_OUT}"/*.mp4 \
       "${VENDOR_OUT}/stats_${RUNNER_NAME}.json"
-echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, HY_VENDOR_PROFILE=1) -> ${VENDOR_OUT}"
+echo "[bench] running VENDOR leg via run.sh (USE_KV_CACHE_TRUE=${USE_KV_CACHE_TRUE}, HY_VENDOR_SDPA=${HY_VENDOR_SDPA}, HY_VENDOR_PROFILE=1) -> ${VENDOR_OUT}"
 _vendor_start_s="$(date +%s)"
 PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
     NUM_CHUNK="${NUM_CHUNK}" POSE="${POSE}" SEED="${SEED}" \
     PROMPT="${PROMPT}" IMAGE_PATH="${IMAGE_PATH}" \
     OUTPUT_DIR="${VENDOR_OUT}" \
     USE_KV_CACHE_TRUE="${USE_KV_CACHE_TRUE}" \
+    HY_VENDOR_SDPA="${HY_VENDOR_SDPA}" \
     HY_VENDOR_PROFILE=1 \
     HY_VENDOR_STATS_JSON="${VENDOR_OUT}/stats_${RUNNER_NAME}.json" \
     bash "${SCRIPT_DIR}/run.sh"
