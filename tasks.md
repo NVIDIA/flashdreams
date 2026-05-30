@@ -54,7 +54,7 @@ Post-warmup medians (chunks 5–7):
 - **Reverses the original expectation** ("native wins big on VAE, DiT closer"): native wins big on **DiT**; VAE decode is a tie.
 - These are the **production-config** numbers (use_cuda_graph=True, after bug 2's fix). The steady-state post-warmup chunks are memory-engaged and run eager either way, so CUDA graphs only accelerate the discarded warmup chunks — the reported medians are graph-independent (verified: 632 ms graphs-off vs 631.7 ms graphs-on).
 - Vendor forced onto cuDNN SDPA via `HY_VENDOR_SDPA=1` (now the `bench.sh` default); vendor as-shipped uses sageattention.
-- Artifacts: `tests/parity_check/outputs/bench/bench.md`; chart data `docs/source/_static/performance/hy_worldplay/perf-0530.md`.
+- Artifacts: `tests/parity_check/outputs/test/bench.md` (gitignored); chart data `docs/source/_static/performance/hy_worldplay/perf-0530.md` (committed).
 
 ### Full `data_local/*` batch (native vs vendor, same config; 5 images)
 
@@ -71,7 +71,7 @@ Post-warmup (chunks 5–7) medians, ms. Native = production config (CUDA graphs 
 
 - **Perf is input-independent** (native DiT 628–633 ms across all 5), corroborating the `perf-0530.md` headline (1015 ms) on 6 distinct inputs total.
 - Parity 21–52/255 is benign cumulative AR drift (bug 3); highest on off-aspect inputs (`cat_surf` 625×350 upscaled, `jensen_alaska` 900×1200 portrait cropped).
-- Artifacts written **out of repo** (the in-repo gitignored `outputs/` was wiped mid-session by the shared CI-runner box): `/home/nvidia/hy_bench_out/<stem>/{native,vendor}/*.mp4` + per-image `bench.md` + aggregated `SUMMARY.md`. Cleanest first frames for the gallery: `6.jpeg`, `2.png`, `1.png`.
+- Artifacts: `integrations/hy_worldplay/tests/parity_check/outputs/<stem>/{native,vendor}/hy-worldplay-wan-i2v-5b.mp4` + per-image `bench.md` + aggregated `outputs/SUMMARY.md` (stems: `1 2 6 cat_surf jensen_alaska test`). Note: `outputs/` is gitignored (not committed) and was wiped once mid-session by the shared CI-runner box — keep a backup if needed. Cleanest first frames for the gallery: `6.jpeg`, `2.png`, `1.png`.
 
 ### Bugs found at `num_chunk≥4` (never reachable on the old 44 GiB card)
 
