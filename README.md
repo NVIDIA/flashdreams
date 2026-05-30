@@ -97,7 +97,7 @@ uv run pytest -m "not manual"
 
 See [`DEV.md`](DEV.md) for repository-specific workflow notes.
 
-## Community
+## Contributing
 
 For how to contribute, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 New integrations, bug reports, feature requests, performance tuning, and
