@@ -34,14 +34,18 @@ from flashdreams.core.distributed import (
 )
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
+from lingbot.runner import (
+    EXAMPLE_DATA_AVAILABLE_IDXS,
+    EXAMPLE_DATA_DIR_LOCAL,
+    ensure_example_data_downloaded,
+    example_data_dirname,
+)
 from lingbot.webrtc.session import (
-    REPO_ROOT,
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
-EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 5)
 
 
 def configure_logging(*, world_rank: int | None = None) -> None:
@@ -126,10 +130,7 @@ def build_runtime_config(
     context_parallel_size: int = 1,
 ) -> LingbotRuntimeConfig:
     example_idx = getattr(args, "example_idx", 0)
-    assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
-        f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
-    )
-    example_dir = REPO_ROOT / "assets/example_data/lingbot_world" / f"{example_idx:02d}"
+    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
@@ -198,6 +199,18 @@ def main() -> None:
 
     runtime_device, world_rank, context_parallel_size = initialize_distributed(
         default_device=args.device
+    )
+
+    # Pull the bundled example-data assets onto rank 0 (and barrier the
+    # rest) before constructing the session manager: the manager's
+    # initial-sync step checks the example_data_dir for the first frame
+    # / intrinsics / poses / prompt files and raises FileNotFoundError
+    # otherwise. Mirrors the offline runner's pre-flight behavior so the
+    # WebRTC entry point is launchable on a fresh checkout with no
+    # manual file staging.
+    ensure_example_data_downloaded(
+        is_rank_zero=(world_rank == 0),
+        example_idx=args.example_idx,
     )
 
     runtime_config = build_runtime_config(
