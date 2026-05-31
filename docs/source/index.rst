@@ -44,10 +44,10 @@ GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
        controls
        playsinline
        preload="metadata"
-       aria-label="FlashDreams promo video">
+       aria-label="FlashDreams quick intro video">
        <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
      </video>
-     <button class="fd-promo-play" type="button" aria-label="Play FlashDreams promo video">
+     <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
        <span class="fd-promo-play-icon" aria-hidden="true"></span>
      </button>
    </div>

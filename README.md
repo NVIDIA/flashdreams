@@ -24,14 +24,13 @@ environments, and more.
 
 [omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
 
-<div align="center">
-  <video
-    src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4"
-    controls
-    preload="metadata"
-    width="100%">
-  </video>
-</div>
+<p align="center">
+  <a href="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4">
+    <img src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P-poster.jpg"
+         alt="Watch the FlashDreams quick intro video"
+         width="100%">
+  </a>
+</p>
 
 
 ## Quickstart
