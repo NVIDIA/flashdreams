@@ -30,6 +30,54 @@ When no `TEST_TARGET` is given, each script performs global discovery of `**/tes
 Pytest is invoked with `-m "not manual"` so any test marked `@pytest.mark.manual`
 is skipped.
 
+## Omnidreams quality regression
+
+`integrations/omnidreams/tests/test_quality_regression.py` is the golden-clip
+gate for generated driving video. It is marked `ci_gpu`, but skips until CI
+provides the reference clip and deterministic input assets.
+
+For PR gating, prefer a short clip: `TOTAL_BLOCKS=4` on the default chunk2
+runner produces roughly one second at 30fps. A longer 5 second clip is better
+as a nightly/manual check because it costs more GPU time and is more exposed to
+small non-deterministic drift.
+
+Minimum single-view setup:
+
+```bash
+export FLASHDREAMS_OMNIDREAMS_QUALITY_REFERENCE_CLIP=/abs/path/reference.mp4
+export FLASHDREAMS_OMNIDREAMS_QUALITY_HDMAP_VIDEO_PATHS=/abs/path/hdmap.mp4
+export FLASHDREAMS_OMNIDREAMS_QUALITY_FIRST_FRAME_PATHS=/abs/path/first_frame.png
+uv run pytest integrations/omnidreams/tests/test_quality_regression.py -v
+```
+
+To use the runner's public single-view example data instead of supplying
+`HDMAP_VIDEO_PATHS` and `FIRST_FRAME_PATHS`, set:
+
+```bash
+export FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA=1
+```
+
+The default example UUID is `239560dc-33d1-11ef-9720-00044bcbccac`; override it
+with `FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA_UUID=<uuid>` if you want a
+different sample from `nvidia/omni-dreams-samples`.
+
+By default, the candidate MP4 is treated as the normal Omnidreams runner output:
+HDMap condition stacked above generated frames. The test extracts the generated
+lower half before comparison. The reference should normally be generated frames
+only; if you promote the full runner MP4 as the reference, also set
+`FLASHDREAMS_OMNIDREAMS_QUALITY_EXTRACT_GENERATED_REGION_FROM_REFERENCE=1`.
+Set `FLASHDREAMS_OMNIDREAMS_QUALITY_ARTIFACT_DIR=/abs/path/artifacts` to copy
+the original reference/candidate MP4s and the exact comparison-region MP4s to a
+stable directory for visual inspection.
+
+If prompt/image embeddings have been precomputed, set
+`FLASHDREAMS_OMNIDREAMS_QUALITY_EMBEDDINGS_PATH=/abs/path/embeddings.pt` instead
+of `FIRST_FRAME_PATHS`; the test then skips loading the one-shot text/image
+encoders. Tune the metric gates with `MAX_MEAN_ABS`, `MAX_RMSE`,
+`MIN_PSNR_DB`, `MAX_MEAN_FLIP`, and `MAX_FRAME_FLIP`. Refresh the reference by
+running the same config, inspecting the generated MP4, and promoting it to the
+reference location.
+
 ## Shared environment knobs
 
 `run_tests_docker.sh` reads these env vars
