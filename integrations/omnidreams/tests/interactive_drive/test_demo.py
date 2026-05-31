@@ -61,3 +61,32 @@ def test_app_blocking_cleanup_uses_runner() -> None:
     app._run_blocking_cleanup(lambda: calls.append("cleanup"))
 
     assert calls == ["runner", "cleanup"]
+
+
+def test_main_handles_keyboard_interrupt_without_traceback(monkeypatch) -> None:
+    class _Parser:
+        def parse_args(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                synthetic_scene=True,
+                stream_mjpeg=None,
+                no_hud=True,
+            )
+
+    exits = 0
+
+    def run(args: SimpleNamespace) -> None:
+        del args
+        raise KeyboardInterrupt
+
+    def exit_after_keyboard_interrupt() -> None:
+        nonlocal exits
+        exits += 1
+
+    monkeypatch.setattr(demo, "build_parser", lambda: _Parser())
+    monkeypatch.setattr(demo._cli, "run", run)
+    monkeypatch.setattr(
+        demo, "_exit_after_keyboard_interrupt", exit_after_keyboard_interrupt
+    )
+
+    assert demo.main() == 130
+    assert exits == 1

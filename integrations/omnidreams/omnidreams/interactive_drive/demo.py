@@ -11,6 +11,7 @@ import math
 import os
 import select
 import struct
+import sys
 import threading
 import time
 import zipfile
@@ -628,7 +629,16 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     return stage_scene(bare_uuid, force=False)
 
 
-def main() -> None:
+def main() -> int | None:
+    try:
+        _main_impl()
+    except KeyboardInterrupt:
+        _exit_after_keyboard_interrupt()
+        return 130
+    return None
+
+
+def _main_impl() -> None:
     args = build_parser().parse_args()
     if not args.synthetic_scene:
         args.scene = _maybe_autostage_scene(args.scene)
@@ -646,6 +656,11 @@ def main() -> None:
         return
 
     _run_slangpy_hud(args)
+
+
+def _exit_after_keyboard_interrupt() -> None:
+    print("\n[interactive-drive] interrupted; exiting", file=sys.stderr, flush=True)
+    os._exit(130)
 
 
 def _run_slangpy_hud(args: argparse.Namespace) -> None:
