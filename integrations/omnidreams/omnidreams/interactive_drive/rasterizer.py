@@ -39,6 +39,7 @@ from ludus_renderer.render_utils import SceneAdapter
 from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.types import PresentedFrame, RasterChunk, SceneBundle
 from torch import Tensor
@@ -135,7 +136,9 @@ class _LazyRasterFrame:
 
     def to_cuda_tensor(self) -> Tensor:
         if self._frames_hwc_uint8 is None:
-            raise RuntimeError("Lazy raster frame was already materialized on the host.")
+            raise RuntimeError(
+                "Lazy raster frame was already materialized on the host."
+            )
         return self._frames_hwc_uint8[self._frame_index]
 
     def to_cuda_event(self) -> object | None:
@@ -181,6 +184,13 @@ class _LudusConditionRasterizerImpl:
         self._raster = raster
         self._bev = bev
         self._device = torch.device("cuda:0")
+        self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        if not self._use_cuda_frames:
+            print(
+                f"[rasterizer] cuda_backend=disabled by {DISABLE_CUDA_INTEROP_ENV}; "
+                "using host raster frames",
+                flush=True,
+            )
 
         self.ctx = LudusCudaTimestampedContext(device=self._device)
         self.ctx.set_depth_scaling(True)
@@ -344,23 +354,41 @@ class _LudusConditionRasterizerImpl:
                 resolution=(self._bev.height, self._bev.width),
             )
 
+        if self._use_cuda_frames:
+            frames = [
+                PresentedFrame(
+                    timestamp_us=int(timestamps_us[idx]),
+                    rgb_host_uint8=_LazyRasterFrame(
+                        rgb_frames.frames_hwc_uint8,
+                        idx,
+                        source_event=rgb_frames.ready_event,
+                    ),
+                    depth_host_f32=None,
+                    bev_host_uint8=(
+                        _LazyRasterFrame(
+                            bev_frames.frames_hwc_uint8,
+                            idx,
+                            source_event=bev_frames.ready_event,
+                        )
+                        if bev_frames is not None
+                        else None
+                    ),
+                )
+                for idx in range(len(timestamps_us))
+            ]
+            return RasterChunk(frames=tuple(frames))
+
+        rgb_host_frames = _rendered_frames_to_numpy(rgb_frames)
+        bev_host_frames = (
+            _rendered_frames_to_numpy(bev_frames) if bev_frames is not None else None
+        )
         frames = [
             PresentedFrame(
                 timestamp_us=int(timestamps_us[idx]),
-                rgb_host_uint8=_LazyRasterFrame(
-                    rgb_frames.frames_hwc_uint8,
-                    idx,
-                    source_event=rgb_frames.ready_event,
-                ),
+                rgb_host_uint8=rgb_host_frames[idx],
                 depth_host_f32=None,
                 bev_host_uint8=(
-                    _LazyRasterFrame(
-                        bev_frames.frames_hwc_uint8,
-                        idx,
-                        source_event=bev_frames.ready_event,
-                    )
-                    if bev_frames is not None
-                    else None
+                    bev_host_frames[idx] if bev_host_frames is not None else None
                 ),
             )
             for idx in range(len(timestamps_us))
@@ -493,6 +521,15 @@ class LudusConditionRasterizer:
     def __del__(self) -> None:
         with contextlib.suppress(Exception):
             self.cleanup()
+
+
+def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarray]:
+    synchronize = getattr(rendered.ready_event, "synchronize", None)
+    if callable(synchronize):
+        synchronize()
+    frames = rendered.frames_hwc_uint8.detach().cpu().numpy()
+    frames = np.ascontiguousarray(frames, dtype=np.uint8)
+    return [frames[idx] for idx in range(frames.shape[0])]
 
 
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:

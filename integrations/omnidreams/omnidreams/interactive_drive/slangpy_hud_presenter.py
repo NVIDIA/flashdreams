@@ -52,11 +52,11 @@ from typing import Any
 
 import numpy as np
 from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
-    _torch_cuda_initialized,
 )
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
@@ -683,19 +683,11 @@ class SlangPyHudPresenter:
 
     def _create_device(self) -> Any:
         existing_device_handles = self._cuda_existing_device_handles()
-        torch_cuda_initialized = _torch_cuda_initialized()
-        if torch_cuda_initialized and not _env_truthy(
-            "INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"
-        ):
+        enable_cuda_interop = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        if not enable_cuda_interop:
             self._cuda_interop_unavailable_reason = (
-                "disabled after torch CUDA initialization"
+                f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
-        enable_cuda_interop = not _env_truthy(
-            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
-        ) and (
-            not torch_cuda_initialized
-            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-        )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -722,9 +714,7 @@ class SlangPyHudPresenter:
             )
 
     def _cuda_existing_device_handles(self) -> list[Any]:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
-            return []
-        if not _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             return []
         try:
             import torch
@@ -750,10 +740,10 @@ class SlangPyHudPresenter:
     def _create_cuda_hud_interop(
         self, width: int, height: int
     ) -> _CudaRGBInterop | None:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             print(
                 "[presenter] hud_cuda_interop=disabled by "
-                "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP; using host HUD upload",
+                f"{DISABLE_CUDA_INTEROP_ENV}; using host HUD upload",
                 flush=True,
             )
             return None

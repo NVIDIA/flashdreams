@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-import os
-import sys
 import time
 from typing import Any
 
 import numpy as np
 from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.cuda_env import (
+    DISABLE_CUDA_INTEROP_ENV,
+    env_truthy,
+)
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import PresentedFrame
@@ -100,19 +102,11 @@ class SlangPyPresenter:
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
-        torch_cuda_initialized = _torch_cuda_initialized()
-        if torch_cuda_initialized and not _env_truthy(
-            "INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"
-        ):
+        enable_cuda_interop = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        if not enable_cuda_interop:
             self._cuda_interop_unavailable_reason = (
-                "disabled after torch CUDA initialization"
+                f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
-        enable_cuda_interop = not _env_truthy(
-            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
-        ) and (
-            not torch_cuda_initialized
-            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-        )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -139,9 +133,7 @@ class SlangPyPresenter:
             )
 
     def _cuda_existing_device_handles(self) -> list[Any]:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
-            return []
-        if not _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"):
+        if env_truthy(DISABLE_CUDA_INTEROP_ENV):
             return []
         try:
             import torch
@@ -165,9 +157,9 @@ class SlangPyPresenter:
             return []
 
     def _create_cuda_rgb_interop(self):
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+        if env_truthy(DISABLE_CUDA_INTEROP_ENV):
             print(
-                "[presenter] cuda_interop=disabled by INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP; "
+                f"[presenter] cuda_interop=disabled by {DISABLE_CUDA_INTEROP_ENV}; "
                 "using host RGB upload",
                 flush=True,
             )
@@ -717,21 +709,7 @@ def _cuda_event_ready(event: Any | None) -> bool:
         return False
 
 
-def _env_truthy(name: str) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _torch_cuda_initialized() -> bool:
-    torch_module = sys.modules.get("torch")
-    if torch_module is None:
-        return False
-    try:
-        return bool(torch_module.cuda.is_initialized())
-    except Exception:
-        return False
+_env_truthy = env_truthy
 
 
 def _prefetch_to_numpy(frame: object) -> None:

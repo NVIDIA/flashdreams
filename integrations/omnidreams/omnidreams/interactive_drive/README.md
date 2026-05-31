@@ -347,22 +347,22 @@ Then open `http://localhost:8080/`.
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
-Both Vulkan presenters can use SlangPy CUDA interop for generated RGB frames
-when the model output is still on CUDA. Because Torch usually owns the CUDA
-context before the presenter is constructed, this path follows upstream and is
-opt-in:
+The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
+stay CUDA-backed for world-model conditioning, and both Vulkan presenters use
+SlangPy CUDA interop for generated RGB frames when the model output is still on
+CUDA:
 
 ```bash
-INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES=1 \
-  OMNIDREAMS_TRUESIGHT=1 \
+OMNIDREAMS_TRUESIGHT=1 \
   uv run --no-sync --package flashdreams-omnidreams interactive-drive
 ```
 
-Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the host-upload
-fallback. In HUD mode, chrome is still rendered with PIL on the CPU, then
-uploaded as an alpha overlay; the generated camera frame stays lazy on CUDA and
-is resized/composited into the shared presentation buffer on the CUDA stream.
-Use `--no-hud` with the same environment variables for the bare presenter.
+Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
+path for both HDMap raster conditioning and presenter CUDA interop. In HUD mode,
+chrome is still rendered with PIL on the CPU, then uploaded as an alpha overlay;
+the generated camera frame stays lazy on CUDA and is resized/composited into the
+shared presentation buffer on the CUDA stream. Use `--no-hud` with the same
+environment variable for the bare presenter.
 
 Controls (apply in all three modes):
 
