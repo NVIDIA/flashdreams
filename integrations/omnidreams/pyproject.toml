@@ -90,6 +90,11 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
 
+# Tkinter wizard that calibrates a connected steering wheel or game
+# controller and writes a local input profile the demo auto-discovers.
+# Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
+interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
+
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
 # scans this group at CLI startup; the entry-point name itself is purely

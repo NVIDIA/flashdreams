@@ -246,15 +246,20 @@ class KeyboardStateDriveSink:
     def __init__(self, keyboard: KeyboardState) -> None:
         self._keyboard = keyboard
 
-    def set_drive(self, *, steer: float, throttle: float, brake: float) -> None:
+    def set_drive(
+        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+    ) -> None:
         # ``manual_control`` + ``steer_is_direct`` mirror what the
         # MJPEG-era ``_apply_drive_control`` set so the engine state
         # is byte-identical regardless of which transport drove it.
+        # ``reverse`` is set by a wheel/controller's bound reverse button
+        # (the keyboard path leaves it at the default ``False``).
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
             )
@@ -262,6 +267,11 @@ class KeyboardStateDriveSink:
 
     def release_all(self) -> None:
         self._keyboard.set_drive_command(None)
+
+    def request_reset(self) -> None:
+        # Lets a wheel/controller's bound reset button trigger the same
+        # rollout reset the ``R`` key does.
+        self._keyboard.request_reset()
 
     # The methods below are no-ops in-process because the slangpy HUD
     # writes pygame-style key events directly to ``KeyboardState`` from

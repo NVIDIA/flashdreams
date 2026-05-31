@@ -271,6 +271,36 @@ to bind a known device path directly use `--wheel-device /dev/input/eventX`;
 to disable wheel input entirely use `--no-wheel`. No profiles ship with the
 repo — keyboard-only driving works fine without one.
 
+**Generate an input profile (wheel or game controller).** Instead of
+hand-writing that YAML, run the calibration wizard:
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive-configuration
+```
+
+It shows a live panel -- a steering-wheel and pedal visualization plus a
+per-axis activity strip -- so you can confirm the right device and watch each
+control move. It then listens while you move each control to capture the
+correct axes and directions (self-centering sticks and force-feedback wheels
+work because it peak-holds each axis' range rather than snapshotting after you
+let go), lets you bind reverse / reset buttons and test force feedback, then
+writes the profile to
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
+`~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
+automatically through the same `--wheel-profile auto` detection. The wizard
+supports both steering wheels (with pedals) and game controllers (analog
+stick plus triggers); the generated file stays on your machine and is never
+committed. It needs a graphical session and read access to `/dev/input/*`
+(add your user to the `input` group if no devices are found).
+
+The opening screen also lists your saved profiles so you can edit their
+settings (display name, steering range and deadzone, inversion, force
+feedback, detection patterns), choose which one is the default, or delete
+them. Steering range and deadzone are most useful for game controllers,
+whose sticks are sensitive and tend to drift -- lower the range to make
+steering less twitchy and raise the deadzone to ignore a drifting stick at
+rest.
+
 ### `--no-hud`: bare backend, local Vulkan window
 
 This is the lighter-weight path that matches the older standalone
