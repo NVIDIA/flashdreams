@@ -366,14 +366,12 @@ class SlangPyHudPresenter:
         # the wrong size makes ``acquireNextImage`` fail at first
         # present with a generic SLANG_FAIL. ``window.size`` is
         # ``math.uint2``, indexed like a 2-vector.
-        actual = self._window.size
-        self._configured_size: tuple[int, int] = (
-            max(MIN_WINDOW_W, int(actual.x)),
-            max(MIN_WINDOW_H, int(actual.y)),
-        )
+        self._configured_size = self._current_window_size()
         self._configure_surface(*self._configured_size)
         self._display_texture = self._build_display_texture(*self._configured_size)
         self._cuda_hud_interop = self._create_cuda_hud_interop(*self._configured_size)
+        self._retired_cuda_hud_interops: list[Any] = []
+        self._cuda_hud_resize_logged = False
         # ``_pending_resize`` is set by the on_resize callback (which
         # runs on the windowing thread) and consumed by ``present_frame``
         # on the main thread, where it's safe to recreate Vulkan
@@ -569,6 +567,14 @@ class SlangPyHudPresenter:
         self._render_canvas("Loading world model...")
         self._present_canvas(use_gpu_camera=False)
 
+    def present_world_model_loading(self, *, process_events: bool = True) -> None:
+        """Paint the HUD's world-model loading state during blocking setup work."""
+        if process_events:
+            self.process_events()
+        self.set_engine_active(True)
+        self._render_canvas("Loading World Model")
+        self._present_canvas(use_gpu_camera=False)
+
     def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
         total_start = time.perf_counter()
         if self._cuda_hud_interop is None:
@@ -640,8 +646,14 @@ class SlangPyHudPresenter:
     def close(self) -> None:
         self._should_close_flag = True
         if self._cuda_hud_interop is not None:
-            self._cuda_hud_interop.close()
+            with contextlib.suppress(Exception):
+                self._cuda_hud_interop.close()
             self._cuda_hud_interop = None
+        retired_interops = getattr(self, "_retired_cuda_hud_interops", [])
+        for interop in retired_interops:
+            with contextlib.suppress(Exception):
+                interop.close()
+        retired_interops.clear()
         if self._wheel is not None:
             try:
                 self._wheel.stop()
@@ -841,21 +853,30 @@ class SlangPyHudPresenter:
             label="hud_display_texture",
         )
 
-    def _apply_resize(self, width: int, height: int) -> None:
-        width = max(MIN_WINDOW_W, int(width))
-        height = max(MIN_WINDOW_H, int(height))
-        if (width, height) == self._configured_size:
-            return
+    def _apply_resize(self, width: int, height: int, *, force: bool = False) -> bool:
+        width, height = self._normalise_present_size(width, height)
+        previous_size = self._configured_size
+        size_changed = (width, height) != previous_size
+        if not force and not size_changed:
+            return True
+        try:
+            display_texture = self._build_display_texture(width, height)
+            canvas_buffer, canvas = _allocate_canvas(width, height)
+            self._configure_surface(width, height)
+        except Exception as exc:
+            print(
+                "[presenter] window resize failed; keeping previous presenter "
+                f"texture size {previous_size} ({exc})",
+                flush=True,
+            )
+            return False
         self._configured_size = (width, height)
-        self._configure_surface(width, height)
-        # Re-create the display texture at the new size. The previous
-        # one is dropped here; slangpy reference-counts the underlying
-        # Vulkan resource so it gets freed once any in-flight command
-        # buffer using it completes.
-        self._display_texture = self._build_display_texture(width, height)
-        if self._cuda_hud_interop is not None:
-            self._cuda_hud_interop.close()
-            self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
+        # Re-create only presenter-owned display resources. The world-model
+        # raster/inference resolution stays fixed by AppConfig/manifest; this
+        # texture is only the final HUD swapchain upload target.
+        self._display_texture = display_texture
+        if size_changed:
+            self._retire_cuda_hud_interop_after_resize()
         # Drop the chrome panel cache (its size depends on screen size)
         # and reallocate the canvas. Other caches are size-independent.
         self._panel_chrome_cache_key = None
@@ -870,22 +891,26 @@ class SlangPyHudPresenter:
         # output dims, so it stays valid across window resizes.
         self._camera_fit_texture = None
         self._camera_fit_size = None
-        self._canvas_buffer, self._canvas = _allocate_canvas(*self._configured_size)
+        self._canvas_buffer, self._canvas = canvas_buffer, canvas
+        return True
 
     def _on_resize(self, width: int, height: int) -> None:
         # Stash the new dimensions; ``present_frame`` recreates Vulkan
         # resources on the next tick. Doing it in the callback would
         # race with whatever frame is in flight.
-        self._pending_resize = (int(width), int(height))
+        self._pending_resize = self._normalise_present_size(width, height)
 
     def _submit_ready_cuda_hud(self) -> bool:
-        if self._cuda_hud_interop is None:
+        interop = self._cuda_hud_interop
+        if interop is None:
             return False
-        interop_frame = self._cuda_hud_interop.ready_rgba_buffer()
+        interop_frame = interop.ready_rgba_buffer()
         if interop_frame is None:
             return False
         rgba_buffer, cuda_stream = interop_frame
         self._sync_window_size()
+        if self._cuda_hud_interop is not interop:
+            return False
         if not self._surface.config:
             return False
         try:
@@ -901,27 +926,35 @@ class SlangPyHudPresenter:
             time.sleep(0.001)
             return False
 
-        width, height = self._configured_size
-        encoder = self._device.create_command_encoder()
-        encoder.copy_buffer_to_texture(
-            self._display_texture,
-            0,
-            0,
-            [0, 0, 0],
-            rgba_buffer.buffer,
-            0,
-            rgba_buffer.size_bytes,
-            rgba_buffer.row_pitch,
-            [width, height, 1],
-        )
-        encoder.blit(surface_texture, self._display_texture)
-        submit_id = self._device.submit_command_buffer(
-            encoder.finish(),
-            cuda_stream=cuda_stream,
-        )
-        self._cuda_hud_interop.mark_submitted(rgba_buffer, submit_id)
-        del surface_texture
-        self._surface.present()
+        try:
+            width, height = self._configured_size
+            encoder = self._device.create_command_encoder()
+            encoder.copy_buffer_to_texture(
+                self._display_texture,
+                0,
+                0,
+                [0, 0, 0],
+                rgba_buffer.buffer,
+                0,
+                rgba_buffer.size_bytes,
+                rgba_buffer.row_pitch,
+                [width, height, 1],
+            )
+            encoder.blit(surface_texture, self._display_texture)
+            submit_id = self._device.submit_command_buffer(
+                encoder.finish(),
+                cuda_stream=cuda_stream,
+            )
+            interop.mark_submitted(rgba_buffer, submit_id)
+            del surface_texture
+            self._surface.present()
+        except RuntimeError as exc:
+            print(
+                f"[presenter] swapchain present failed ({exc}); reconfiguring",
+                flush=True,
+            )
+            self._reconfigure_surface()
+            return False
         return True
 
     def _present_canvas(self, use_gpu_camera: bool = False) -> None:
@@ -959,14 +992,21 @@ class SlangPyHudPresenter:
         # per frame at 1080p (~12% of the 33 ms 30 fps budget) for no
         # functional reason; the numpy buffer already satisfies
         # slangpy's writable + C-contiguous + uint8 constraints.
-        self._display_texture.copy_from_numpy(self._canvas_buffer)
-        encoder = self._device.create_command_encoder()
-        if use_gpu_camera:
-            self._composite_camera_gpu(encoder)
-        encoder.blit(surface_texture, self._display_texture)
-        self._device.submit_command_buffer(encoder.finish())
-        del surface_texture
-        self._surface.present()
+        try:
+            self._display_texture.copy_from_numpy(self._canvas_buffer)
+            encoder = self._device.create_command_encoder()
+            if use_gpu_camera:
+                self._composite_camera_gpu(encoder)
+            encoder.blit(surface_texture, self._display_texture)
+            self._device.submit_command_buffer(encoder.finish())
+            del surface_texture
+            self._surface.present()
+        except RuntimeError as exc:
+            print(
+                f"[presenter] swapchain present failed ({exc}); reconfiguring",
+                flush=True,
+            )
+            self._reconfigure_surface()
 
     # -- GPU camera composite --------------------------------------
 
@@ -1117,11 +1157,7 @@ class SlangPyHudPresenter:
         configuration, reconfigure the surface + canvas before the
         next present.
         """
-        actual = self._window.size
-        new_size = (
-            max(MIN_WINDOW_W, int(actual.x)),
-            max(MIN_WINDOW_H, int(actual.y)),
-        )
+        new_size = self._current_window_size()
         if new_size != self._configured_size:
             self._apply_resize(*new_size)
 
@@ -1130,27 +1166,28 @@ class SlangPyHudPresenter:
 
         Used on the swapchain-lost path.
         """
+        self._apply_resize(*self._current_window_size(), force=True)
+
+    def _normalise_present_size(self, width: int, height: int) -> tuple[int, int]:
+        return max(1, int(width)), max(1, int(height))
+
+    def _current_window_size(self) -> tuple[int, int]:
         actual = self._window.size
-        new_size = (
-            max(MIN_WINDOW_W, int(actual.x)),
-            max(MIN_WINDOW_H, int(actual.y)),
-        )
-        self._configured_size = new_size
-        self._configure_surface(*new_size)
-        self._display_texture = self._build_display_texture(*new_size)
-        if self._cuda_hud_interop is not None:
-            self._cuda_hud_interop.close()
-            self._cuda_hud_interop = self._create_cuda_hud_interop(*new_size)
-        # Drop chrome panel cache because its size depends on screen size.
-        self._panel_chrome_cache_key = None
-        self._panel_chrome_cache = None
-        # Camera fit-texture follows the camera area, which follows the
-        # display size; force a rebuild on next present.
-        self._camera_fit_texture = None
-        self._camera_fit_size = None
-        # Re-allocate the canvas so the next ``_render_canvas`` paints
-        # at the right resolution.
-        self._canvas_buffer, self._canvas = _allocate_canvas(*new_size)
+        return self._normalise_present_size(actual.x, actual.y)
+
+    def _retire_cuda_hud_interop_after_resize(self) -> None:
+        if self._cuda_hud_interop is None:
+            return
+        self._retired_cuda_hud_interops.append(self._cuda_hud_interop)
+        self._cuda_hud_interop = None
+        if not self._cuda_hud_resize_logged:
+            print(
+                "[presenter] hud_cuda_interop=disabled after window resize; "
+                "using host HUD upload so model CUDA graph resources are not "
+                "recreated during interactive resizing",
+                flush=True,
+            )
+            self._cuda_hud_resize_logged = True
 
     # -- Render ------------------------------------------------------
 
