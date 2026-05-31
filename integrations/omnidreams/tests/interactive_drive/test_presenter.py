@@ -360,6 +360,27 @@ def test_hud_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None
     assert lazy.numpy_calls == 0
 
 
+def test_hud_world_model_loading_pumps_events_and_presents_placeholder() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[tuple[str, object]] = []
+
+    presenter.process_events = lambda: calls.append(("events", None))
+    presenter.set_engine_active = lambda active: calls.append(("active", active))
+    presenter._render_canvas = lambda status_message: calls.append(
+        ("render", status_message)
+    )
+    presenter._present_canvas = lambda **kwargs: calls.append(("present", kwargs))
+
+    presenter.present_world_model_loading()
+
+    assert calls == [
+        ("events", None),
+        ("active", True),
+        ("render", "Loading World Model"),
+        ("present", {"use_gpu_camera": False}),
+    ]
+
+
 def test_hud_model_rgb_falls_back_to_host_when_cuda_path_declines() -> None:
     presenter = _hud_presenter_without_window()
     lazy = _LazyFrame()

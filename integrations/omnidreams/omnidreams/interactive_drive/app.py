@@ -32,6 +32,7 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipelin
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
 
 PresenterFactory = Callable[[AppConfig, KeyboardState], PresenterBackend]
+BlockingWorkRunner = Callable[[Callable[[], None]], None]
 
 
 class InteractiveDriveApp:
@@ -42,6 +43,7 @@ class InteractiveDriveApp:
         presenter_factory: PresenterFactory | None = None,
         *,
         close_presenter_on_exit: bool = True,
+        blocking_work_runner: BlockingWorkRunner | None = None,
     ) -> None:
         """Construct the engine.
 
@@ -77,6 +79,7 @@ class InteractiveDriveApp:
         # window. Default ``True`` matches the bare ``--no-hud`` path
         # where each ``app.run()`` owns one presenter end-to-end.
         self._close_presenter_on_exit = bool(close_presenter_on_exit)
+        self._blocking_work_runner = blocking_work_runner
 
     def run(self) -> None:
         # Pre-rendered "Loading..." overlay. Used as the loop's initial
@@ -137,10 +140,16 @@ class InteractiveDriveApp:
                     break
                 pipeline.reset()
         finally:
-            pipeline.shutdown()
-            self._backend.close()
+            self._run_blocking_cleanup(pipeline.shutdown)
+            self._run_blocking_cleanup(self._backend.close)
             if self._close_presenter_on_exit:
                 self._presenter.close()
+
+    def _run_blocking_cleanup(self, cleanup: Callable[[], None]) -> None:
+        if self._blocking_work_runner is None:
+            cleanup()
+        else:
+            self._blocking_work_runner(cleanup)
 
 
 def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBackend:

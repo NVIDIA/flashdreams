@@ -14,9 +14,10 @@ import struct
 import threading
 import time
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 import yaml
@@ -52,6 +53,8 @@ BEV_PANEL_TOP_GAP = 12
 BEV_PANEL_SIDE_MARGIN = 14
 BEV_PANEL_BOTTOM_MARGIN = 12
 BEV_PANEL_MIN_HEIGHT = 100
+HUD_LOADING_PRESENT_INTERVAL_S = 1.0 / 30.0
+_T = TypeVar("_T")
 
 # Google-Maps "land" colour: warm cream, slightly desaturated. Matches the
 # off-white background on Google Maps' default day-mode tiles. Black /
@@ -767,12 +770,20 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
         while True:
             presenter.set_engine_active(True)
-            config, backend = _cli.prepare_config_and_backend(args)
+            config, backend = _prepare_config_and_backend_with_hud_loading(
+                args, presenter
+            )
+            if presenter.should_close and presenter.pending_scene_change is None:
+                backend.close()
+                break
             app = InteractiveDriveApp(
                 config=config,
                 backend=backend,
                 presenter_factory=_factory,
                 close_presenter_on_exit=False,
+                blocking_work_runner=lambda work: _run_with_hud_loading(
+                    presenter, work
+                ),
             )
             app.run()
             presenter.set_engine_active(False)
@@ -786,6 +797,49 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             presenter.acknowledge_scene_change(new_scene_path, new_variant)
     finally:
         presenter.close()
+
+
+def _prepare_config_and_backend_with_hud_loading(
+    args: argparse.Namespace, presenter: Any
+) -> tuple[Any, Any]:
+    """Build the backend off-thread while the HUD keeps presenting loading state."""
+
+    return _run_with_hud_loading(
+        presenter, lambda: _cli.prepare_config_and_backend(args)
+    )
+
+
+def _run_with_hud_loading(presenter: Any, work: Callable[[], _T]) -> _T:
+    """Run blocking work off-thread while the HUD keeps presenting loading state."""
+
+    result: list[_T] = []
+    errors: list[BaseException] = []
+    done = threading.Event()
+
+    def _build() -> None:
+        try:
+            result.append(work())
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    thread = threading.Thread(
+        target=_build,
+        name="interactive-drive-backend-load",
+        daemon=True,
+    )
+    thread.start()
+    while not done.is_set():
+        presenter.present_world_model_loading()
+        done.wait(HUD_LOADING_PRESENT_INTERVAL_S)
+    thread.join()
+
+    if errors:
+        raise errors[0]
+    if not result:
+        raise RuntimeError("backend loader exited without returning a result")
+    return result[0]
 
 
 def _run_streaming(args: argparse.Namespace) -> None:

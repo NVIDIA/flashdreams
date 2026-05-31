@@ -447,9 +447,9 @@ class SlangPyHudPresenter:
         # wait (when the user hasn't picked a scene yet AND
         # ``--autoload-scene`` was off) and during the brief reload gap
         # between scene changes. Drives the camera-area placeholder
-        # text: "Load Scene" when False, "Loading World Model" /
-        # "Loading Scene..." when True. Toggled by the demo wrapper
-        # via :meth:`set_engine_active` around each ``app.run()``.
+        # text: "Load Scene" when False, "Loading World Model" when
+        # True. Toggled by the demo wrapper via
+        # :meth:`set_engine_active` around each ``app.run()``.
         self._engine_active = False
 
         # Scene-change request set by the dropdown click handlers. The
@@ -543,6 +543,14 @@ class SlangPyHudPresenter:
         # overlay underneath.
         self._update_camera_pil(rgb_host_uint8)
         self._render_canvas("Loading world model...")
+        self._present_canvas(use_gpu_camera=False)
+
+    def present_world_model_loading(self, *, process_events: bool = True) -> None:
+        """Paint the HUD's world-model loading state during blocking setup work."""
+        if process_events:
+            self.process_events()
+        self.set_engine_active(True)
+        self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
     def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
@@ -1225,12 +1233,7 @@ class SlangPyHudPresenter:
             # used to pay every frame: ~1.5 MP fill instead of 2 MP,
             # *and* only on placeholder ticks rather than always.
             draw.rectangle(camera_area, fill=BG_COLOR + (255,))
-            if not self._engine_active:
-                placeholder = "Load Scene"
-            elif self._has_camera_frame:
-                placeholder = "Loading World Model"
-            else:
-                placeholder = "Loading Scene..."
+            placeholder = "Loading World Model" if self._engine_active else "Load Scene"
             self._draw_camera_placeholder(canvas, draw, camera_area, placeholder)
 
         # Poll the wheel / keyboard drive sink *every* tick, before any
@@ -2289,6 +2292,7 @@ class SlangPyHudPresenter:
         self._args.variant = variant
         self._pending_scene_change = (scene_path, variant)
         self._should_close_flag = True
+        self.present_world_model_loading(process_events=False)
         # Drop the wheel-set DriverCommand so input state is clean for
         # the next scene -- otherwise a stale steer/throttle could
         # apply to the new pipeline before the user has even pressed a
@@ -2305,8 +2309,8 @@ class SlangPyHudPresenter:
 
         ``active=False`` → "Load Scene" + dropdown hint (initial wait
         and the brief gap between scene switches). ``active=True`` →
-        "Loading World Model" / "Loading Scene...". The demo's outer
-        loop calls this around each ``app.run()``.
+        "Loading World Model". The demo's outer loop calls this around
+        each ``app.run()``.
         """
         self._engine_active = bool(active)
         # Drop the chrome cache so the panel is redrawn promptly --
