@@ -24,11 +24,14 @@ environments, and more.
 
 [omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
 
-<p align="center">
-  <img src="docs/source/_static/diagrams/compare-offline-online-video-model-v2.jpg"
-       alt="Offline one-shot video inference compared with online autoregressive world-model serving."
-       width="100%">
-</p>
+<div align="center">
+  <video
+    src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4"
+    controls
+    preload="metadata"
+    width="100%">
+  </video>
+</div>
 
 
 ## Quickstart
