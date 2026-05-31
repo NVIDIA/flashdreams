@@ -28,8 +28,14 @@ from omnidreams.interactive_drive._evdev import (
     EVDEV_EVENT_SIZE,
     AxisRange,
     EvdevDevice,
+)
+from omnidreams.interactive_drive._evdev import (
     query_axis_range as _query_axis_range,
+)
+from omnidreams.interactive_drive._evdev import (
     read_evdev_name as _read_evdev_name,
+)
+from omnidreams.interactive_drive._evdev import (
     scan_evdev_devices as _scan_evdev_devices,
 )
 from omnidreams.interactive_drive._ffb import create_ffb_backend as _create_ffb_backend

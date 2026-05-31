@@ -419,9 +419,7 @@ class _CalibrationAborted(RuntimeError):
     pass
 
 
-def _calibrate_steering(
-    device_path: Path, axes: tuple[int, ...]
-) -> tuple[int, bool]:
+def _calibrate_steering(device_path: Path, axes: tuple[int, ...]) -> tuple[int, bool]:
     print("\nStep 1/3: Steering calibration")
     print(
         "  We only need full-left and full-right; you don't have to centre "
@@ -521,9 +519,7 @@ def _calibrate_ffb(device_path: Path) -> tuple[bool, str, float]:
     )
     constant_status = _pulse_constant_force(device_path)
     if constant_status == "ok":
-        if _confirm(
-            "  Did the wheel push left and then right?", default=True
-        ):
+        if _confirm("  Did the wheel push left and then right?", default=True):
             gain = _prompt_gain(
                 "  Constant-force gain (0.0-3.0, default 1.0): ",
                 default=1.0,
