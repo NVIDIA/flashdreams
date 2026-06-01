@@ -585,6 +585,11 @@ class MJPEGStreamingPresenter:
         # reads "Select a scene to begin driving" if never wired.
         self._model_can_prewarm = False
         self._model_ready_probe: Callable[[], bool] = lambda: True
+        # Scene-selection lock (wired by the demo with --preload-scenes).
+        # While the probe returns True, /scene/select is rejected and the
+        # idle frame reads "Preloading scenes..." so the browser can't pick
+        # a scene until every scene is cached.
+        self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
@@ -665,6 +670,16 @@ class MJPEGStreamingPresenter:
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
 
+    def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
+        """Gate ``/scene/select`` while ``probe()`` returns True.
+
+        Mirrors :meth:`SlangPyHudPresenter.set_scene_selection_locked`: used
+        with --preload-scenes so the browser can't pick a scene until every
+        scene has preloaded. While locked the idle overlay reads "Preloading
+        scenes..." and select requests are rejected.
+        """
+        self._scene_selection_locked_probe = probe
+
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
         """Block until the browser POSTs a scene selection.
 
@@ -713,11 +728,12 @@ class MJPEGStreamingPresenter:
         up and push the frame out to the browser, which is what actually
         matters for late-arriving clients.
         """
-        message = (
-            "Loading world model..."
-            if self._model_can_prewarm and not self._model_ready_probe()
-            else "Select a scene to begin driving"
-        )
+        if self._model_can_prewarm and not self._model_ready_probe():
+            message = "Loading world model..."
+        elif self._scene_selection_locked_probe():
+            message = "Preloading scenes..."
+        else:
+            message = "Select a scene to begin driving"
         cached = self._idle_frame_cache_by_message.get(message)
         if cached is None:
             base = np.zeros(
@@ -907,6 +923,11 @@ class MJPEGStreamingPresenter:
         path latch into the next ``app.run`` iteration.
         """
         if not scene_path_str:
+            return False
+        if self._scene_selection_locked_probe():
+            # Scenes are still preloading; reject selection so the browser
+            # waits for the instant (cached) switch instead of triggering a
+            # mid-preload parse.
             return False
         # Match against the registered scenes by string-comparing the
         # path; ``Path("a") == "a"`` is False so we normalize first.

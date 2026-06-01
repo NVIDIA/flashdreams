@@ -469,6 +469,12 @@ class SlangPyHudPresenter:
         # wiring (or before it) behaves like the old "Load Scene" prompt.
         self._model_can_prewarm = False
         self._model_ready_probe: Callable[[], bool] = lambda: True
+        # Scene-selection lock, wired by the demo via
+        # :meth:`set_scene_selection_locked` when --preload-scenes is on.
+        # While the probe returns True the scene/variant dropdowns ignore
+        # clicks and the placeholder shows a "Preloading scenes..." hint, so
+        # the user can't pick a scene until every scene is cached.
+        self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
 
         # Scene-change request set by the dropdown click handlers. The
         # outer demo loop checks this after each ``app.run_scene`` returns:
@@ -1247,6 +1253,8 @@ class SlangPyHudPresenter:
             if not self._engine_active:
                 if self._model_can_prewarm and not self._model_ready_probe():
                     placeholder = "Loading world model..."
+                elif self._scene_selection_locked():
+                    placeholder = "Preloading scenes..."
                 elif self._model_can_prewarm:
                     placeholder = "Ready - pick a scene"
                 else:
@@ -1347,8 +1355,13 @@ class SlangPyHudPresenter:
             "Loading Scene...",
             "Loading world model...",
             "Ready - pick a scene",
+            "Preloading scenes...",
         ):
-            hint = "Pick a scene from the panel on the right"
+            hint = (
+                "Preloading scenes, please wait..."
+                if self._scene_selection_locked()
+                else "Pick a scene from the panel on the right"
+            )
             hbox = _measure_text(self._font_small, hint)
             hw = hbox[2] - hbox[0]
             draw.text(
@@ -1501,6 +1514,9 @@ class SlangPyHudPresenter:
             self._variant_dropdown_open,
             has_multiple_variants,
             self._engine_active,
+            # Scene header reads "Preloading scenes..." while locked, so the
+            # lock state has to invalidate the cached chrome too.
+            self._scene_selection_locked(),
         )
         if key == self._panel_chrome_cache_key and self._panel_chrome_cache is not None:
             return self._panel_chrome_cache
@@ -1527,11 +1543,12 @@ class SlangPyHudPresenter:
             (margin + 8, header_y + 11, margin + 18, header_y + 21),
             fill=NVIDIA_GREEN + (255,),
         )
-        scene_label_full = (
-            f"Running {self._scene_label_fn(self._current_scene)}\u2026"
-            if self._engine_active
-            else "Select Scene"
-        )
+        if self._engine_active:
+            scene_label_full = f"Running {self._scene_label_fn(self._current_scene)}\u2026"
+        elif self._scene_selection_locked():
+            scene_label_full = "Preloading scenes\u2026"
+        else:
+            scene_label_full = "Select Scene"
         scene_label_max_w = header_w - 26 - 30  # 26 left for dot, 30 right for arrow
         scene_label = _truncate_text_to_width(
             self._font_small, scene_label_full, scene_label_max_w
@@ -2262,6 +2279,11 @@ class SlangPyHudPresenter:
                     break
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
+        # While scenes are still preloading, the scene/variant dropdowns are
+        # locked (the only mouse-clickable HUD elements), so ignore clicks
+        # until every scene is cached and selection is instant.
+        if self._scene_selection_locked():
+            return
         # Variant dropdown sits on top of the scene dropdown items, so
         # check it first.
         if self._variant_dropdown_open:
@@ -2363,6 +2385,19 @@ class SlangPyHudPresenter:
         """
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
+
+    def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
+        """Gate scene/variant selection while ``probe()`` returns True.
+
+        Used with --preload-scenes so the user can't pick a scene until
+        every scene has finished preloading (and would therefore hit the
+        instant cache path). While locked the dropdowns ignore clicks and
+        the camera placeholder shows a "Preloading scenes..." hint.
+        """
+        self._scene_selection_locked_probe = probe
+
+    def _scene_selection_locked(self) -> bool:
+        return self._scene_selection_locked_probe()
 
     def set_engine_active(self, active: bool) -> None:
         """Toggle the scene-running chrome and placeholder text.

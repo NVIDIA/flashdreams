@@ -502,6 +502,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start loading --scene immediately. By default the HUD opens on Load Scene.",
     )
     parser.add_argument(
+        "--preload-scenes",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Parse every scene in --scene-dir in the background at startup so"
+            " switching scenes skips the USDZ parse (the per-scene geometry"
+            " upload and first-chunk generation still happen on switch)."
+            " Off by default; uses more memory the more scenes are staged."
+        ),
+    )
+    parser.add_argument(
         "--cuda-visible-devices",
         default="auto",
         help=(
@@ -753,6 +764,15 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         wheel.start()
         presenter.set_wheel(wheel)
 
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
+
     # First scene: prefer the resolved ``config.scene_path`` so
     # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
     # default are honoured; a dropdown selection overrides it below.
@@ -771,12 +791,17 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
         while True:
             presenter.set_engine_active(True)
-            app.load_scene(scene_path, variant, args.prompt)
-            app.run_scene()
+            # load_scene parses the USDZ on a background thread while keeping
+            # the window responsive; it returns False if the window closed
+            # (or a new scene was requested) before the parse finished, so
+            # we skip run_scene and let the pending-change check below decide
+            # whether to switch scenes or exit.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             presenter.set_engine_active(False)
             requested = presenter.pending_scene_change
             if requested is None:
-                # User closed the window (X / ESC); we're done.
+                # Window closed (X / ESC) during load or run; we're done.
                 break
             scene_path, variant = requested
             presenter.acknowledge_scene_change(scene_path, variant)
@@ -881,6 +906,15 @@ def _run_streaming(args: argparse.Namespace) -> None:
     )
     presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
 
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
+
     try:
         # Don't auto-load: always wait for the browser to pick the first
         # scene. There's no Vulkan window to show progress in, so the
@@ -904,8 +938,12 @@ def _run_streaming(args: argparse.Namespace) -> None:
         )
 
         while True:
-            app.load_scene(scene_path, variant, args.prompt)
-            app.run_scene()
+            # load_scene parses the USDZ on a background thread while the
+            # browser keeps receiving frames; False means the session is
+            # ending (or a new scene was requested) before the parse
+            # finished, so skip run_scene and let the check below decide.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             requested = presenter.pending_scene_change
             if requested is None:
                 # Either the process is shutting down (Ctrl-C) or the

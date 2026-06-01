@@ -440,11 +440,17 @@ def _drain_pipeline_frames(
     presenter: PresenterBackend,
     view_mode: str,
 ) -> None:
+    current_generation = pipeline.current_generation
     while True:
         try:
             queued_frame = pipeline.frame_queue.get_nowait()
         except queue.Empty:
             return
+        if queued_frame.generation != current_generation:
+            # Stale frame from a rollout / scene the user has moved past (a
+            # reset or scene switch bumped the pipeline generation); drop it
+            # so we don't flash old content over the new load.
+            continue
         _prepare_queued_frame(queued_frame, presenter, view_mode)
         ready_frames.append(queued_frame)
 

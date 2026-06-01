@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import threading
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import replace
+from pathlib import Path
+
+import numpy as np
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.input.keyboard import (
@@ -20,6 +27,7 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     build_map_bounds,
     state_from_initial_pose,
 )
+from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
 from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter,
@@ -28,6 +36,11 @@ from omnidreams.interactive_drive.streaming_presenter import (
 from omnidreams.interactive_drive.types import PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
+
+# Cadence for the event-pump loop that keeps the presenter alive while a
+# scene parses on a background thread. ~60 Hz keeps input latency low and
+# the loading indicator smooth without burning a core.
+_SCENE_LOAD_PUMP_INTERVAL_S = 1.0 / 60.0
 
 
 class InteractiveDriveApp:
@@ -93,6 +106,30 @@ class InteractiveDriveApp:
         self._pipeline = ChunkPipeline(self._adapter)
         self._scene: SceneBundle | None = None
         self._map_bounds: MapBounds | None = None
+        # Ground snapper for the current scene. Built once per scene (its
+        # spatial grid is invariant across rollouts) and reused, so a reset
+        # doesn't rebuild it -- that pure-Python grid build can take seconds
+        # on a dense mesh and would otherwise freeze the UI on every reset.
+        self._ground_snapper: GroundSnapper | None = None
+        # Lazily-built black frame at the render resolution, used as the
+        # backdrop for the loading overlay while a scene parses (before the
+        # scene's own initial frame is available).
+        self._loading_base_rgb: np.ndarray | None = None
+        # Optional parsed-scene cache, keyed by (path, variant, prompt).
+        # Disabled unless --preload-scenes opts in via preload_scenes(); when
+        # enabled, load_scene reuses parsed bundles so switching to a
+        # preloaded (or previously-visited) scene skips the USDZ parse.
+        self._cache_scenes = False
+        self._scene_cache: dict[
+            tuple[str, str, str | None],
+            tuple[SceneBundle, MapBounds | None, GroundSnapper | None],
+        ] = {}
+        self._scene_cache_lock = threading.Lock()
+        # Set while --preload-scenes is still parsing scenes in the
+        # background; the presenter locks scene selection until it clears so
+        # the user always gets the instant (cache-hit) switch.
+        self._preload_started = False
+        self._preload_done = threading.Event()
 
     @property
     def presenter(self) -> PresenterBackend:
@@ -113,26 +150,206 @@ class InteractiveDriveApp:
 
     def load_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
-    ) -> None:
-        """Load a scene bundle and bind it on the pipeline worker.
+    ) -> bool:
+        """Load a scene bundle off the UI thread and bind it on the worker.
 
-        Cheap relative to warmup: reads the USDZ and enqueues a
-        ``request_scene`` that runs ``backend.load_scene`` (geometry
-        upload + rollout restart) on the worker, FIFO behind any pending
-        model warmup. The resident model is reused as-is.
+        ``load_scene_bundle`` parses the USDZ (camera rig, HD-map parquet,
+        ground mesh), which can take a second or more. Running it on a
+        background thread keeps the presenter responsive -- the window
+        manager won't flag the HUD as "not responding" -- and lets the
+        loading indicator stay on screen throughout. Once parsed, the scene
+        is bound on the pipeline worker (geometry upload + rollout restart,
+        FIFO behind any pending model warmup); the resident model is reused
+        as-is.
+
+        Returns ``False`` if the presenter closed before the scene finished
+        loading, in which case the caller must not call :meth:`run_scene`.
         """
-        self._scene = load_scene_bundle(
-            scene_path=scene_path,
-            camera_name=self._config.camera_name,
-            variant=variant,
-            prompt_override=prompt_override,
-            raster=self._config.raster,
+        # Fast path: a preloaded / previously-parsed bundle is reused with no
+        # parse (and no background pump). The worker still uploads geometry
+        # and renders the first chunk, so the loop's "Loading scene..."
+        # indicator still covers that part.
+        cached = self._cached_scene(scene_path, variant, prompt_override)
+        if cached is not None:
+            self._scene, self._map_bounds, self._ground_snapper = cached
+            self._pipeline.request_scene(self._scene)
+            return True
+
+        scene_ready = threading.Event()
+        loaded: list[object] = []
+        error: list[BaseException] = []
+
+        def _parse() -> None:
+            try:
+                scene = load_scene_bundle(
+                    scene_path=scene_path,
+                    camera_name=self._config.camera_name,
+                    variant=variant,
+                    prompt_override=prompt_override,
+                    raster=self._config.raster,
+                )
+                # The OOB AABB and the ground snapper's spatial grid are
+                # properties of the scene geometry and invariant across the
+                # rollout restarts inside run_scene -- build both here (on the
+                # background thread) so a reset never rebuilds the snapper.
+                loaded.append(scene)
+                loaded.append(build_map_bounds(scene))
+                loaded.append(build_ground_snapper(scene))
+            except BaseException as exc:  # re-raised on the UI thread below
+                error.append(exc)
+            finally:
+                scene_ready.set()
+
+        threading.Thread(
+            target=_parse, name="interactive_drive-scene-loader", daemon=True
+        ).start()
+        self._pump_presenter_until(scene_ready)
+        if not scene_ready.is_set():
+            return False  # presenter closed mid-load
+        if error:
+            raise error[0]
+        self._scene, self._map_bounds, self._ground_snapper = (  # type: ignore[assignment]
+            loaded[0],
+            loaded[1],
+            loaded[2],
         )
-        # Build the OOB map bounds at scene load -- the AABB is a property
-        # of the scene's geometry and is invariant across the rollout
-        # restarts inside run_scene.
-        self._map_bounds = build_map_bounds(self._scene)
+        self._store_scene(
+            scene_path,
+            variant,
+            prompt_override,
+            self._scene,
+            self._map_bounds,
+            self._ground_snapper,
+        )
         self._pipeline.request_scene(self._scene)
+        return True
+
+    def preload_scenes(
+        self, specs: Iterable[tuple[object, str, str | None]]
+    ) -> None:
+        """Parse scene bundles in the background so later switches are instant.
+
+        ``specs`` is an iterable of ``(scene_path, variant, prompt_override)``.
+        Opt-in (the demo's ``--preload-scenes``); parsing runs sequentially
+        on one daemon thread to bound peak CPU / memory, populating the cache
+        that :meth:`load_scene` consults. Already-cached entries are skipped,
+        and failures are logged and skipped so one bad scene doesn't abort the
+        rest. This only skips the USDZ parse on switch -- the per-scene
+        geometry upload and first-chunk generation still happen on the worker.
+        While it runs, :meth:`preload_in_progress` returns True so the
+        presenter can lock scene selection until every scene is ready.
+        """
+        self._cache_scenes = True
+        self._preload_started = True
+        self._preload_done.clear()
+        pending = list(specs)
+
+        def _worker() -> None:
+            try:
+                self._preload_worker(pending)
+            finally:
+                self._preload_done.set()
+
+        threading.Thread(
+            target=_worker, name="interactive_drive-scene-preloader", daemon=True
+        ).start()
+
+    def preload_in_progress(self) -> bool:
+        """True while --preload-scenes is still parsing scenes in the background."""
+        return self._preload_started and not self._preload_done.is_set()
+
+    def _preload_worker(
+        self, pending: list[tuple[object, str, str | None]]
+    ) -> None:
+        for scene_path, variant, prompt_override in pending:
+            key = self._scene_cache_key(scene_path, variant, prompt_override)
+            with self._scene_cache_lock:
+                if key in self._scene_cache:
+                    continue
+            try:
+                scene = load_scene_bundle(
+                    scene_path=scene_path,
+                    camera_name=self._config.camera_name,
+                    variant=variant,
+                    prompt_override=prompt_override,
+                    raster=self._config.raster,
+                )
+                bounds = build_map_bounds(scene)
+                snapper = build_ground_snapper(scene)
+            except BaseException as exc:  # noqa: BLE001 - log & skip one scene
+                print(
+                    f"[interactive-drive] scene preload failed for "
+                    f"{Path(str(scene_path)).name} variant={variant!r}: {exc}",
+                    flush=True,
+                )
+                continue
+            with self._scene_cache_lock:
+                self._scene_cache[key] = (scene, bounds, snapper)
+            print(
+                f"[interactive-drive] preloaded scene "
+                f"{Path(str(scene_path)).name} variant={variant!r}",
+                flush=True,
+            )
+
+    @staticmethod
+    def _scene_cache_key(
+        scene_path: object, variant: str, prompt_override: str | None
+    ) -> tuple[str, str, str | None]:
+        return (str(scene_path), variant, prompt_override)
+
+    def _cached_scene(
+        self, scene_path: object, variant: str, prompt_override: str | None
+    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None] | None:
+        if not self._cache_scenes:
+            return None
+        with self._scene_cache_lock:
+            return self._scene_cache.get(
+                self._scene_cache_key(scene_path, variant, prompt_override)
+            )
+
+    def _store_scene(
+        self,
+        scene_path: object,
+        variant: str,
+        prompt_override: str | None,
+        scene: SceneBundle,
+        map_bounds: MapBounds | None,
+        ground_snapper: GroundSnapper | None,
+    ) -> None:
+        if not self._cache_scenes:
+            return
+        with self._scene_cache_lock:
+            self._scene_cache[
+                self._scene_cache_key(scene_path, variant, prompt_override)
+            ] = (scene, map_bounds, ground_snapper)
+
+    def _pump_presenter_until(self, done: threading.Event) -> None:
+        """Pump events + a loading overlay until ``done`` is set or we close.
+
+        Keeps the window responsive and the loading indicator live while a
+        scene parses on the background thread, mirroring the loop's own
+        loading-phase rendering. The overlay text follows
+        :meth:`_loading_status_message` (model warmup takes priority).
+        """
+        frame = PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=self._loading_base_frame(),
+            depth_host_f32=None,
+        )
+        view_mode = self._keyboard.view_mode
+        while not done.is_set() and not self._presenter.should_close:
+            self._presenter.process_events()
+            self._presenter.present_frame(
+                replace(frame, status_message=self._loading_status_message()),
+                view_mode=view_mode,
+            )
+            time.sleep(_SCENE_LOAD_PUMP_INTERVAL_S)
+
+    def _loading_base_frame(self) -> np.ndarray:
+        if self._loading_base_rgb is None:
+            width, height = self._config.raster.resolution_wh
+            self._loading_base_rgb = np.zeros((height, width, 3), dtype=np.uint8)
+        return self._loading_base_rgb
 
     def run_scene(self) -> None:
         """Drive the current scene until the presenter closes or switches.
@@ -156,6 +373,10 @@ class InteractiveDriveApp:
             rgb_host_uint8=self._scene.initial_rgb,
             depth_host_f32=None,
         )
+        # First rollout is the scene load ("Loading scene..." / "Loading
+        # world model..."); subsequent rollouts come from a manual reset or
+        # OOB respawn, so switch the indicator to "Resetting..." for those.
+        loading_status = self._loading_status_message
         while not self._presenter.should_close:
             simulation = EgoVehicleKinematics(
                 initial_state=state_from_initial_pose(
@@ -168,7 +389,7 @@ class InteractiveDriveApp:
                     ),
                 ),
                 vehicle_config=self._config.vehicle,
-                ground_snapper=build_ground_snapper(self._scene),
+                ground_snapper=self._ground_snapper,
                 initial_timestamp_us=self._scene.initial_timestamp_us,
                 map_bounds=self._map_bounds,
                 oob_margin_m=self._config.oob_margin_m,
@@ -192,11 +413,31 @@ class InteractiveDriveApp:
                         self._config.oob_respawn_debounce_chunks
                     ),
                 ),
-                loading_status=self._loading_status_message,
+                loading_status=loading_status,
             )
             if not reset_requested:
                 break
             self._pipeline.reset()
+            loading_status = self._resetting_status_message
+            # Paint the reset indicator at once, before the next rollout's
+            # setup, so a reset shows on screen the instant it's requested
+            # rather than after the rebuild completes.
+            self._present_loading_once(loading_status)
+
+    def _present_loading_once(self, loading_status: Callable[[], str]) -> None:
+        """Render a single loading-overlay frame immediately (used on reset)."""
+        if self._scene is None:
+            return
+        self._presenter.process_events()
+        frame = PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=self._scene.initial_rgb,
+            depth_host_f32=None,
+        )
+        self._presenter.present_frame(
+            replace(frame, status_message=loading_status()),
+            view_mode=self._keyboard.view_mode,
+        )
 
     def _loading_status_message(self) -> str:
         """Phase text shown over the loading frame until the first chunk.
@@ -209,6 +450,10 @@ class InteractiveDriveApp:
             return "Loading world model..."
         return "Loading scene..."
 
+    def _resetting_status_message(self) -> str:
+        """Phase text shown while a reset / respawn re-primes the rollout."""
+        return "Resetting..."
+
     def run(self) -> None:
         """Single-scene convenience: load the configured scene, run, tear down.
 
@@ -216,13 +461,13 @@ class InteractiveDriveApp:
         The scene-switching demo loops call ``load_scene`` / ``run_scene``
         / ``shutdown`` directly so the pipeline survives across scenes.
         """
-        self.load_scene(
-            self._config.scene_path,
-            self._config.variant,
-            self._config.prompt_override,
-        )
         try:
-            self.run_scene()
+            if self.load_scene(
+                self._config.scene_path,
+                self._config.variant,
+                self._config.prompt_override,
+            ):
+                self.run_scene()
         finally:
             self.shutdown()
 
