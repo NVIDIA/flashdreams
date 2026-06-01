@@ -423,6 +423,18 @@ instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
+<section id="steering-wheel-and-game-controller">
+<h3>Steering wheel and game controller<a class="headerlink" href="#steering-wheel-and-game-controller" title="Link to this heading">¶</a></h3>
+<p>With a local window you can drive using a steering wheel or game
+controller. Any device that Ubuntu detects as a standard game controller
+or joystick works. Run the configuration tool to calibrate it; the demo loads
+the saved profile automatically on its next launch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive-configuration
+</pre></div>
+</div>
+<p>Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
+delete one, or set which is the default.</p>
+</section>
 </section>
 <section id="alternative-webrtc-server">
 <h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">¶</a></h2>
@@ -589,7 +601,10 @@ peer connection from completing. Disable the setting and reload:</p>
 <li><a class="reference internal" href="#">OmniDreams</a><ul>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
-<li><a class="reference internal" href="#launch-the-interactive-demo">Launch the interactive demo</a></li>
+<li><a class="reference internal" href="#launch-the-interactive-demo">Launch the interactive demo</a><ul>
+<li><a class="reference internal" href="#steering-wheel-and-game-controller">Steering wheel and game controller</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#alternative-webrtc-server">Alternative: WebRTC server</a></li>
 <li><a class="reference internal" href="#performance-table">Performance table</a></li>
 </ul>
