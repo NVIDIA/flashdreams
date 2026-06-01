@@ -1065,12 +1065,10 @@ def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 
 # ``_variant_from_stem`` removed in favour of the shared
-# :func:`scene_loader.variant_from_stem` -- all three discovery paths
-# (USDZ archives, unpacked scene dirs, HUD variant selector) now agree
-# on the underscore-required convention. The previous fallback that
-# accepted ``prompt1.txt`` as variant ``1`` was inconsistent with
-# ``_discover_first_images`` and silently masked the
-# ``prompt_<N>.txt`` -> ``_<N>`` bug on real scenes.
+# :func:`omnidreams.scenes.variant_from_stem` -- all three discovery paths
+# (USDZ archives, unpacked scene dirs, HUD variant selector) now agree on
+# both canonical ``prompt_<N>.txt`` names and legacy numeric
+# ``prompt<N>.txt`` names.
 
 
 def _variant_label(variant: str) -> str:

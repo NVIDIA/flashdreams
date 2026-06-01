@@ -284,6 +284,37 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
 
 
 @pytest.mark.ci_cpu
+def test_cosmos_transformer_patchify_casts_to_transformer_dtype() -> None:
+    class FakeNetwork:
+        def __init__(self) -> None:
+            self.patchify_input: torch.Tensor | None = None
+
+        def patchify_and_maybe_split_cp(
+            self, x: torch.Tensor, **_kwargs: Any
+        ) -> torch.Tensor:
+            self.patchify_input = x
+            return x
+
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    fake_network = FakeNetwork()
+    transformer.config = cast(Any, SimpleNamespace(dtype=torch.bfloat16))
+    transformer.cp_groups = HierarchicalCPGroups(rank=0)
+    transformer.network = cast(Any, fake_network)
+    transformer.flatten_thw = False
+    transformer.register_parameter(
+        "_test_device_anchor", torch.nn.Parameter(torch.empty(0, device="cpu"))
+    )
+
+    input_tensor = torch.zeros(1, 1, 1, 1, 2, 2, dtype=torch.float16)
+    output = transformer.patchify_and_maybe_split_cp(input_tensor)
+
+    assert fake_network.patchify_input is not None
+    assert fake_network.patchify_input.dtype is torch.bfloat16
+    assert output.dtype is torch.bfloat16
+
+
+@pytest.mark.ci_cpu
 def test_cosmos_transformer_checkpoint_path_none_keeps_random_init(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

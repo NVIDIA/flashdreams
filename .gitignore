@@ -123,6 +123,7 @@ compile_commands.json
 *.dump
 
 outputs/
+artifacts/
 data_local/
 credentials/*.secret
 
