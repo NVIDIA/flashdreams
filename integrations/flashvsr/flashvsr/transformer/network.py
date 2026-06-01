@@ -305,6 +305,7 @@ class SparseSelfAttention(MultiHeadAttention):
         self.register_buffer("_cu_seqlens_q", None, persistent=False)
         self.register_buffer("_head_mask_type", None, persistent=False)
         self.register_buffer("_cu_seqlens_k_table", None, persistent=False)
+        self.register_buffer("_streaming_info", None, persistent=False)
         self._chunk_tokens: Optional[int] = None
 
     def initialize_cache(
@@ -358,6 +359,9 @@ class SparseSelfAttention(MultiHeadAttention):
         )
         self._head_mask_type = torch.arange(
             1, self.n_heads + 1, device=device, dtype=torch.int32
+        )
+        self._streaming_info = torch.zeros(
+            (self.n_heads * 2,), device=device, dtype=torch.int32
         )
         self._cu_seqlens_k_table = torch.stack(
             [
@@ -503,6 +507,9 @@ class SparseSelfAttention(MultiHeadAttention):
         assert self._cu_seqlens_q is not None and self._chunk_tokens is not None, (
             "SparseSelfAttention.initialize_cache must be called before forward."
         )
+        assert self._streaming_info is not None, (
+            "SparseSelfAttention.initialize_cache must populate streaming_info."
+        )
         assert seqlen_q == self._chunk_tokens, (
             f"seqlen_q={seqlen_q} disagrees with chunk_tokens={self._chunk_tokens} "
             "registered at initialize_cache time."
@@ -520,7 +527,7 @@ class SparseSelfAttention(MultiHeadAttention):
             cu_seqlens_q,
             cu_seqlens_k,
             head_mask_type,  # already in [1, 2, ..., n_heads] post-renumber form
-            None,  # streaming_info
+            self._streaming_info,
             attention_mask,  # base_blockmask
             seqlen_q,  # max_seqlen_q_
             seqlen_kv,  # max_seqlen_k_
@@ -531,6 +538,7 @@ class SparseSelfAttention(MultiHeadAttention):
             return_attn_probs=False,
             deterministic=False,
             mode_hint="blocksparse",
+            head_mask_type_is_renumbered=True,
         )  # [seqlen_q, n, d]
 
         out = out.reshape(B * block_n, win_size, n * d)

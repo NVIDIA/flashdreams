@@ -161,6 +161,7 @@ def test_sparse_self_attention_uses_in_tree_triton_backend(monkeypatch) -> None:
         exact_streaming=False,
         return_attn_probs=False,
         mode_hint=None,
+        head_mask_type_is_renumbered=False,
     ):
         calls.append(
             {
@@ -181,6 +182,7 @@ def test_sparse_self_attention_uses_in_tree_triton_backend(monkeypatch) -> None:
                 "exact_streaming": exact_streaming,
                 "return_attn_probs": return_attn_probs,
                 "mode_hint": mode_hint,
+                "head_mask_type_is_renumbered": head_mask_type_is_renumbered,
             }
         )
         return torch.zeros_like(q)
@@ -225,7 +227,7 @@ def test_sparse_self_attention_uses_in_tree_triton_backend(monkeypatch) -> None:
     assert call["cu_seqlens_q"] == [0, 128]
     assert call["cu_seqlens_k"] == [0, 128]
     assert call["head_mask_type"] == [1]
-    assert call["streaming_info"] is None
+    assert call["streaming_info"].tolist() == [0, 0]
     assert call["base_blockmask_shape"] == (1, 1, 1, 1)
     assert call["max_seqlen_q"] == 128
     assert call["max_seqlen_k"] == 128
@@ -236,6 +238,137 @@ def test_sparse_self_attention_uses_in_tree_triton_backend(monkeypatch) -> None:
     assert call["exact_streaming"] is False
     assert call["return_attn_probs"] is False
     assert call["mode_hint"] == "blocksparse"
+    assert call["head_mask_type_is_renumbered"] is True
+
+
+@pytest.mark.parametrize(
+    ("max_seqlen_k", "seq_bucket"),
+    [
+        (27648, "long_single"),
+        (36864, "very_long_single"),
+    ],
+)
+def test_triton_blocksparse_flashvsr_single_batch_hdim128_uses_tuned_dispatch(
+    max_seqlen_k: int,
+    seq_bucket: str,
+) -> None:
+    """FlashVSR sparse inference uses the measured fast Triton path."""
+
+    triton_sparse_attn = pytest.importorskip("flashvsr.transformer.triton_sparse_attn")
+    q = torch.empty((9216, 12, 128), dtype=torch.bfloat16)
+
+    key, opts = triton_sparse_attn._dispatch_kernel_options(
+        q=q,
+        batch_size=1,
+        max_seqlen_k=max_seqlen_k,
+        exact_streaming=False,
+        mode="blocksparse",
+        has_base_blockmask=True,
+    )
+
+    assert key.seq_bucket == seq_bucket
+    assert opts.block_n_sparse == 64
+    assert opts.use_row_list_sparse is False
+    assert opts.num_warps_sparse == 4
+
+
+def test_triton_blocksparse_inference_uses_opaque_forward(monkeypatch) -> None:
+    """Compiled FlashVSR inference keeps Triton sparse attention opaque to Inductor."""
+
+    triton_sparse_attn = pytest.importorskip("flashvsr.transformer.triton_sparse_attn")
+    monkeypatch.setattr(
+        triton_sparse_attn,
+        "_validate_forward_inputs",
+        lambda **_kwargs: None,
+    )
+
+    calls = []
+
+    def fake_opaque_forward(
+        q,
+        k,
+        v,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        head_mask_type,
+        streaming_info,
+        base_blockmask,
+        max_seqlen_q_,
+        max_seqlen_k_,
+        scale,
+        is_causal,
+        exact_streaming,
+    ):
+        calls.append(
+            {
+                "q_shape": tuple(q.shape),
+                "k_shape": tuple(k.shape),
+                "v_shape": tuple(v.shape),
+                "cu_seqlens_q": cu_seqlens_q.tolist(),
+                "cu_seqlens_k": cu_seqlens_k.tolist(),
+                "head_mask_type": head_mask_type.tolist(),
+                "streaming_info": streaming_info.tolist(),
+                "base_blockmask_shape": tuple(base_blockmask.shape),
+                "max_seqlen_q": max_seqlen_q_,
+                "max_seqlen_k": max_seqlen_k_,
+                "scale": scale,
+                "is_causal": is_causal,
+                "exact_streaming": exact_streaming,
+            }
+        )
+        return torch.zeros_like(q)
+
+    monkeypatch.setattr(
+        triton_sparse_attn,
+        "_wrapped_triton_block_sparse_attn_forward",
+        fake_opaque_forward,
+    )
+
+    q = torch.empty((128, 1, 32), dtype=torch.bfloat16)
+    k = torch.empty_like(q)
+    v = torch.empty_like(q)
+    cu_seqlens = torch.tensor([0, 128], dtype=torch.int32)
+    head_mask_type = torch.tensor([1], dtype=torch.int32)
+    streaming_info = torch.zeros((2,), dtype=torch.int32)
+    base_blockmask = torch.ones((1, 1, 1, 1), dtype=torch.bool)
+
+    with torch.inference_mode():
+        out = triton_sparse_attn.block_sparse_attn_func(
+            q,
+            k,
+            v,
+            cu_seqlens,
+            cu_seqlens,
+            head_mask_type,
+            streaming_info,
+            base_blockmask,
+            128,
+            128,
+            0.0,
+            softmax_scale=None,
+            is_causal=False,
+            exact_streaming=False,
+            return_attn_probs=False,
+            mode_hint="blocksparse",
+            head_mask_type_is_renumbered=True,
+        )
+
+    assert out.shape == q.shape
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["q_shape"] == (128, 1, 32)
+    assert call["k_shape"] == (128, 1, 32)
+    assert call["v_shape"] == (128, 1, 32)
+    assert call["cu_seqlens_q"] == [0, 128]
+    assert call["cu_seqlens_k"] == [0, 128]
+    assert call["head_mask_type"] == [1]
+    assert call["streaming_info"] == [0, 0]
+    assert call["base_blockmask_shape"] == (1, 1, 1, 1)
+    assert call["max_seqlen_q"] == 128
+    assert call["max_seqlen_k"] == 128
+    assert call["scale"] == pytest.approx(32**-0.5)
+    assert call["is_causal"] is False
+    assert call["exact_streaming"] is False
 
 
 def test_build_flashvsr_v1_1_crops_misaligned_resolution_to_128_multiple() -> None:

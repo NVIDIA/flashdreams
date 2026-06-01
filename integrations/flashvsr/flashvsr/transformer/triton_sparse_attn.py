@@ -243,7 +243,8 @@ def _apply_very_long_single_profile(
     elif headdim == 128:
         if not key.exact_streaming:
             opts.block_n_stream = 128
-        opts.block_n_sparse = 128
+        opts.block_n_sparse = 64
+        opts.num_warps_sparse = 4
 
     if not key.exact_streaming and headdim >= 64:
         opts.num_stages_stream = 2
@@ -268,6 +269,15 @@ def _select_kernel_options(
         "long_batch",
         "very_long_single",
     ) and headdim in (32, 64, 128)
+    if (
+        key.mode == "blocksparse"
+        and has_base_blockmask
+        and key.batch_size == 1
+        and key.seq_bucket == "long_single"
+        and headdim == 128
+    ):
+        opts.num_warps_sparse = 4
+        use_bool_blockmask = True
     use_row_list_sparse = not use_bool_blockmask
     use_row_list_mixed = not use_bool_blockmask
     use_single_mixed = (
@@ -2172,6 +2182,108 @@ def _block_sparse_attn_fwd_core(
     return out if not return_attn_probs else (out, softmax_lse, s_dmask)
 
 
+@torch.library.custom_op(
+    "flashvsr::_triton_block_sparse_attn_forward",
+    mutates_args=(),
+    device_types="cuda",
+)
+def _triton_block_sparse_attn_forward_opaque(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    head_mask_type: torch.Tensor,
+    streaming_info: torch.Tensor,
+    base_blockmask: torch.Tensor,
+    max_seqlen_q_: int,
+    max_seqlen_k_: int,
+    scale: float,
+    is_causal: bool,
+    exact_streaming: bool,
+) -> torch.Tensor:
+    batch_size = cu_seqlens_q.numel() - 1
+    dispatch_key, opts = _dispatch_kernel_options(
+        q=q,
+        batch_size=batch_size,
+        max_seqlen_k=max_seqlen_k_,
+        exact_streaming=exact_streaming,
+        mode="blocksparse",
+        has_base_blockmask=True,
+    )
+    return _block_sparse_attn_fwd_core(
+        q=q,
+        k=k,
+        v=v,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_k=cu_seqlens_k,
+        head_mask_type=head_mask_type,
+        streaming_info=streaming_info,
+        base_blockmask=base_blockmask,
+        max_seqlen_q_=max_seqlen_q_,
+        max_seqlen_k_=max_seqlen_k_,
+        scale=scale,
+        is_causal=is_causal,
+        exact_streaming=exact_streaming,
+        return_attn_probs=False,
+        mode="blocksparse",
+        dispatch_key=dispatch_key,
+        opts=opts,
+    )
+
+
+@torch.library.register_fake("flashvsr::_triton_block_sparse_attn_forward")
+def _triton_block_sparse_attn_forward_opaque_fake(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    head_mask_type: torch.Tensor,
+    streaming_info: torch.Tensor,
+    base_blockmask: torch.Tensor,
+    max_seqlen_q_: int,
+    max_seqlen_k_: int,
+    scale: float,
+    is_causal: bool,
+    exact_streaming: bool,
+) -> torch.Tensor:
+    del (
+        k,
+        v,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        head_mask_type,
+        streaming_info,
+        base_blockmask,
+        max_seqlen_q_,
+        max_seqlen_k_,
+        scale,
+        is_causal,
+        exact_streaming,
+    )
+    return torch.empty_like(q)
+
+
+_wrapped_triton_block_sparse_attn_forward = (
+    torch.ops.flashvsr._triton_block_sparse_attn_forward
+)
+
+
+def _should_use_opaque_blocksparse_forward(
+    *,
+    mode: str,
+    base_blockmask: Optional[torch.Tensor],
+    return_attn_probs: bool,
+) -> bool:
+    return (
+        mode == "blocksparse"
+        and base_blockmask is not None
+        and not return_attn_probs
+        and not torch.is_grad_enabled()
+    )
+
+
 def block_sparse_attn_func(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -2190,6 +2302,7 @@ def block_sparse_attn_func(
     exact_streaming: bool = False,
     return_attn_probs: bool = False,
     mode_hint: Optional[str] = None,
+    head_mask_type_is_renumbered: bool = False,
 ):
     if deterministic:
         raise NotImplementedError(
@@ -2204,7 +2317,7 @@ def block_sparse_attn_func(
 
     q, k, v = [_maybe_contiguous(x) for x in (q, k, v)]
     head_mask_type = _maybe_contiguous(head_mask_type)
-    if mode in ("blocksparse", "auto"):
+    if mode in ("blocksparse", "auto") and not head_mask_type_is_renumbered:
         head_mask_type, _ = _replace_ones_with_count(head_mask_type)
 
     _validate_forward_inputs(
@@ -2233,6 +2346,28 @@ def block_sparse_attn_func(
 
     batch_size = cu_seqlens_q.numel() - 1
     scale = float(softmax_scale if softmax_scale is not None else q.shape[-1] ** (-0.5))
+
+    if _should_use_opaque_blocksparse_forward(
+        mode=mode,
+        base_blockmask=base_blockmask,
+        return_attn_probs=return_attn_probs,
+    ):
+        assert base_blockmask is not None and streaming_info is not None
+        return _wrapped_triton_block_sparse_attn_forward(
+            q,
+            k,
+            v,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            head_mask_type,
+            streaming_info,
+            base_blockmask,
+            max_seqlen_q_,
+            max_seqlen_k_,
+            scale,
+            is_causal,
+            exact_streaming,
+        )
 
     if (
         mode == "dense"
