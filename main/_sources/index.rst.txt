@@ -33,7 +33,7 @@ FlashDreams is a *high-performance inference and serving library for
 interactive autoregressive video and world models*. It is a general platform
 for real-time world-model applications across gaming, autonomous vehicles,
 robotics, simulated or virtual environments, and more, and is the
-runtime backbone of the `OmniDreams closed-loop demo at
+runtime backbone of the `NVIDIA OmniDreams closed-loop demo at
 GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
 .. raw:: html
