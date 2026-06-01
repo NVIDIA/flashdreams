@@ -128,29 +128,28 @@ Some generated samples from the above commands:
 Launch the interactive demo
 ---------------------------
 
-``interactive-drive`` runs the OmniDreams single-view pipeline in a
-single process and streams the camera view to your browser. The demo
-machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
-display server, or Vulkan toolchain required.
+``interactive-drive`` runs the OmniDreams single-view pipeline and
+streams the camera view to your browser. It needs only a CUDA-capable
+GPU — no display server or Vulkan toolchain.
 
 Requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
 and an ``HF_TOKEN`` with read access to
 `nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
 (scene USDZs) and
 `nvidia/omni-dreams-models <https://huggingface.co/nvidia/omni-dreams-models>`_
-(world-model checkpoints).
+(checkpoints).
 
 First-time setup:
 
 .. code-block:: bash
 
-   git clone git@github.com:NVIDIA/flashdreams.git
+   git clone https://github.com/NVIDIA/flashdreams.git
    cd flashdreams
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-Optionally pre-download scenes and checkpoints so the first launch
-isn't blocked on network I/O:
+Optionally pre-download scenes and checkpoints to avoid blocking the
+first launch on network I/O:
 
 .. code-block:: bash
 
@@ -162,12 +161,9 @@ Run the demo and stream to your browser:
 
    uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
 
-Then open ``http://<server-ip>:8080/`` in any browser on the same
-network and pick a scene from the picker in the bottom-right.
-
-For deployments with a desktop NVIDIA GPU that has a graphics queue,
-omit ``--stream-mjpeg`` to open the demo in a local Vulkan window
-instead:
+Then open ``http://<server-ip>:8080/`` and pick a scene from the
+bottom-right picker. On a desktop GPU with a graphics queue, omit
+``--stream-mjpeg`` to open a local Vulkan window instead:
 
 .. code-block:: bash
 
@@ -203,14 +199,10 @@ delete one, or set which is the default.
 Alternative: WebRTC server
 --------------------------
 
-For deployments that need a richer browser frontend with WebRTC's
-lower video-delivery latency and a streaming gRPC service for
-multi-client setups, the standalone server at
-``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
-the same OmniDreams pipeline. The MJPEG path above is the
-recommended starting point for most users; reach for WebRTC when you
-need bidirectional camera-control APIs or are already integrating
-the gRPC service into a larger product.
+The MJPEG path above is the recommended starting point. For lower
+video latency, a richer browser frontend, or bidirectional
+camera-control APIs, ``omnidreams.webrtc.server`` serves an HTML5
+client on the same OmniDreams pipeline.
 
 .. code-block:: bash
 
@@ -224,10 +216,23 @@ the gRPC service into a larger product.
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
 
-The server may take a few minutes to warm up. When it is ready, it prints
-``Connect via http://<server-ip>:8089/request_session``.
-Here, ``<server-ip>`` is the server IP address you are connecting to
-(can use ``localhost`` when running locally).
+The server may take a few minutes to warm up, then prints
+``Connect via http://<server-ip>:8089/request_session`` (use
+``localhost`` when running locally).
+
+.. note::
+
+   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
+   the server port is usually not reachable at the host IP directly.
+   Forward it to your local machine first, then open
+   ``http://localhost:8089/request_session``:
+
+   .. code-block:: bash
+
+      # Brev
+      brev port-forward <instance> -p 8089:8089
+      # or plain SSH
+      ssh -L 8089:localhost:8089 <user>@<host>
 
 When successfully connected, the browser-based UI looks like this:
 

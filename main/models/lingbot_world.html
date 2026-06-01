@@ -371,6 +371,28 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 <span class="w">    </span>--help
 </pre></div>
 </div>
+</section>
+<section id="what-to-expect">
+<h2>What to expect<a class="headerlink" href="#what-to-expect" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Example data</strong>: <code class="docutils literal notranslate"><span class="pre">--example-data</span> <span class="pre">True</span></code> downloads <code class="docutils literal notranslate"><span class="pre">image.jpg</span></code>,
+<code class="docutils literal notranslate"><span class="pre">intrinsics.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">poses.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">prompt.txt</span></code> from the
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">upstream examples folder</a>
+into <code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/&lt;NN&gt;/</span></code> (<code class="docutils literal notranslate"><span class="pre">&lt;NN&gt;</span></code> matches
+<code class="docutils literal notranslate"><span class="pre">--example-idx</span></code>). Cached after first run; no credentials needed.</p></li>
+<li><p><strong>Model checkpoint</strong>: ~70 GB pulled from
+<code class="docutils literal notranslate"><span class="pre">huggingface.co/robbyant/lingbot-world-fast</span></code> on first run, cached
+under <code class="docutils literal notranslate"><span class="pre">$HF_HOME</span></code>. Export <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> first.</p></li>
+<li><p><strong>Disk</strong>: keep ~200 GB free for the model + HF cache. Hosts under
+~100 GB have been seen to run out mid-load.</p></li>
+<li><p><strong>First launch</strong>: a few minutes (download + Triton autotuning +
+CUDA-graph warmup). Subsequent launches reuse the caches.</p></li>
+<li><p><strong>Outputs</strong>: <code class="docutils literal notranslate"><span class="pre">outputs/&lt;runner-slug&gt;.mp4</span></code> (16 FPS, 464×832 by
+default) and <code class="docutils literal notranslate"><span class="pre">outputs/stats_&lt;runner-slug&gt;.json</span></code>. Override with
+<code class="docutils literal notranslate"><span class="pre">--output-dir</span></code> / <code class="docutils literal notranslate"><span class="pre">--pixel-height</span></code> / <code class="docutils literal notranslate"><span class="pre">--pixel-width</span></code> / <code class="docutils literal notranslate"><span class="pre">--fps</span></code>.</p></li>
+</ul>
+<p>See <a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> for what one
+autoregressive chunk does end-to-end.</p>
 <p>Some generated samples from the above commands:</p>
 <div class="model-video-grid">
   <div class="model-video-card">
@@ -411,10 +433,25 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
 <span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span>
 </pre></div>
 </div>
-<p>The server may take a few minutes to warm up. When it is ready, it prints
-<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
-Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
-(can use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> selects which example to download
+(<code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">2</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span></code>); assets auto-download on first launch.
+The HTTP port opens only after model load + warmup — a few minutes on
+first launch, much faster afterwards. When ready the server prints
+<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> (use
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On a remote or cloud GPU instance (e.g. <a class="reference external" href="https://www.brev.dev/">Brev</a>),
+the server port is usually not reachable at the host IP directly.
+Forward it to your local machine first, then open
+<code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Brev</span>
+brev<span class="w"> </span>port-forward<span class="w"> </span>&lt;instance&gt;<span class="w"> </span>-p<span class="w"> </span><span class="m">8089</span>:8089
+<span class="c1"># or plain SSH</span>
+ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
+</pre></div>
+</div>
+</div>
 <p>When successfully connected, the browser-based UI looks like this:</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -508,6 +545,7 @@ matched settings.</p>
 <li><a class="reference internal" href="#">LingBot-World</a><ul>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
+<li><a class="reference internal" href="#what-to-expect">What to expect</a></li>
 <li><a class="reference internal" href="#launch-the-interactive-server">Launch the interactive server</a></li>
 <li><a class="reference internal" href="#profiling-benchmark">Profiling benchmark</a></li>
 </ul>

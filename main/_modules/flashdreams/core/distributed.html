@@ -309,6 +309,14 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
+<span class="c1"># Side effect: install the stdlib-``logging`` filter that demotes benign</span>
+<span class="c1"># Inductor autotuner-fallback ERROR records to WARNING so first-run</span>
+<span class="c1"># warmup doesn&#39;t look like a hard failure. Pulled in here (rather than</span>
+<span class="c1"># from ``flashdreams.core.__init__``) because every FlashDreams entry</span>
+<span class="c1"># point that talks to torch.distributed already imports this module at</span>
+<span class="c1"># process start, and the filter is process-global and idempotent.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">log_filters</span>  <span class="c1"># noqa: F401</span>
+
 <span class="n">DEFAULT_LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>
 
 

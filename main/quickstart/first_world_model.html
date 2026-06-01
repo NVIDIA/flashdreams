@@ -311,6 +311,11 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
+<p>First runs take several minutes (Triton autotuning + CUDA-graph
+warmup); subsequent runs finish in well under a minute. Output lands
+at <code class="docutils literal notranslate"><span class="pre">outputs/self-forcing-wan2.1-t2v-1.3b-taehv.mp4</span></code> (16 FPS, 480×832
+by default). See <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> for <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code>,
+measured runtimes, and multi-GPU guidance.</p>
 </section>
 <section id="run-lingbot-world-interactive-server">
 <h2>Run LingBot-World interactive server<a class="headerlink" href="#run-lingbot-world-interactive-server" title="Link to this heading">¶</a></h2>

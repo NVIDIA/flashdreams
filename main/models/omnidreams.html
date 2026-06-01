@@ -389,25 +389,24 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </div></section>
 <section id="launch-the-interactive-demo">
 <h2>Launch the interactive demo<a class="headerlink" href="#launch-the-interactive-demo" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
-single process and streams the camera view to your browser. The demo
-machine only needs a CUDA-capable GPU – no graphics-capable GPU,
-display server, or Vulkan toolchain required.</p>
+<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline and
+streams the camera view to your browser. It needs only a CUDA-capable
+GPU — no display server or Vulkan toolchain.</p>
 <p>Requires access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
 and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
 (scene USDZs) and
 <a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>
-(world-model checkpoints).</p>
+(checkpoints).</p>
 <p>First-time setup:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:NVIDIA/flashdreams.git
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/NVIDIA/flashdreams.git
 <span class="nb">cd</span><span class="w"> </span>flashdreams
 <span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
-<p>Optionally pre-download scenes and checkpoints so the first launch
-isn’t blocked on network I/O:</p>
+<p>Optionally pre-download scenes and checkpoints to avoid blocking the
+first launch on network I/O:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
 </pre></div>
 </div>
@@ -415,11 +414,9 @@ isn’t blocked on network I/O:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
 </pre></div>
 </div>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in any browser on the same
-network and pick a scene from the picker in the bottom-right.</p>
-<p>For deployments with a desktop NVIDIA GPU that has a graphics queue,
-omit <code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> to open the demo in a local Vulkan window
-instead:</p>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> and pick a scene from the
+bottom-right picker. On a desktop GPU with a graphics queue, omit
+<code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> to open a local Vulkan window instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
@@ -448,14 +445,10 @@ delete one, or set which is the default.</p>
 </section>
 <section id="alternative-webrtc-server">
 <h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">¶</a></h2>
-<p>For deployments that need a richer browser frontend with WebRTC’s
-lower video-delivery latency and a streaming gRPC service for
-multi-client setups, the standalone server at
-<code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> ships a polished HTML5 client on top of
-the same OmniDreams pipeline. The MJPEG path above is the
-recommended starting point for most users; reach for WebRTC when you
-need bidirectional camera-control APIs or are already integrating
-the gRPC service into a larger product.</p>
+<p>The MJPEG path above is the recommended starting point. For lower
+video latency, a richer browser frontend, or bidirectional
+camera-control APIs, <code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> serves an HTML5
+client on the same OmniDreams pipeline.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>omnidreams.webrtc.server<span class="w"> </span><span class="se">\</span>
@@ -466,10 +459,22 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
 </div>
 <p>Sample scene UUIDs for the interactive server are available in the
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes">nvidia/omni-dreams-scenes Hugging Face dataset</a>.</p>
-<p>The server may take a few minutes to warm up. When it is ready, it prints
-<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
-Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
-(can use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
+<p>The server may take a few minutes to warm up, then prints
+<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> (use
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On a remote or cloud GPU instance (e.g. <a class="reference external" href="https://www.brev.dev/">Brev</a>),
+the server port is usually not reachable at the host IP directly.
+Forward it to your local machine first, then open
+<code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Brev</span>
+brev<span class="w"> </span>port-forward<span class="w"> </span>&lt;instance&gt;<span class="w"> </span>-p<span class="w"> </span><span class="m">8089</span>:8089
+<span class="c1"># or plain SSH</span>
+ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
+</pre></div>
+</div>
+</div>
 <p>When successfully connected, the browser-based UI looks like this:</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
