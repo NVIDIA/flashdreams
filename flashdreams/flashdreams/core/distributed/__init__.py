@@ -97,18 +97,6 @@ def configure_loguru_for_distributed(world_rank: int | None = None) -> None:
 configure_loguru_for_distributed()
 
 
-def is_distributed_initialized() -> bool:
-    """Return True when torch distributed is available and initialized."""
-    return dist.is_available() and dist.is_initialized()
-
-
-def get_global_rank() -> int:
-    """Return the torch distributed global rank, or 0 outside distributed runs."""
-    if is_distributed_initialized():
-        return dist.get_rank()
-    return 0
-
-
 class Device:
     """Lightweight wrapper around an NVML device handle for CPU-affinity queries."""
 

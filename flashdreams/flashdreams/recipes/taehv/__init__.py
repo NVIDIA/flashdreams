@@ -155,6 +155,7 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
             )
 
     def initialize_autoregressive_cache(self) -> TAEHVCache:
+        """Return an empty streaming decoder cache."""
         return self.taehv.prepare_cache()
 
     @torch.inference_mode()
@@ -196,16 +197,22 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
 
     @property
     def temporal_compression_ratio(self) -> int:
+        """Pixel frames / latent frames in steady state (AR >= 1)."""
         return self.TEMPORAL_COMPRESSION_RATIO
 
     @property
     def spatial_compression_ratio(self) -> int:
+        """Pixel side / latent side."""
         return self.SPATIAL_COMPRESSION_RATIO
 
     def get_output_temporal_size(
         self, autoregressive_index: int, input_temporal_size: int
     ) -> int:
-        """Causal: AR 0 first latent frame decodes to a single pixel frame."""
+        """Return pixel frame count from ``input_temporal_size`` latent frames.
+
+        AR 0 applies causal padding: the first latent frame yields one pixel
+        frame, remaining frames yield ``temporal_compression_ratio`` each.
+        AR >= 1 is a plain multiply."""
         r = self.temporal_compression_ratio
         if autoregressive_index == 0:
             return 1 + (input_temporal_size - 1) * r
@@ -214,6 +221,9 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
     def get_input_temporal_size(
         self, autoregressive_index: int, output_temporal_size: int
     ) -> int:
+        """Return latent frame count needed to produce ``output_temporal_size`` pixel frames.
+
+        Inverse of :meth:`get_output_temporal_size`."""
         r = self.temporal_compression_ratio
         if autoregressive_index == 0:
             assert (output_temporal_size - 1) % r == 0, (
