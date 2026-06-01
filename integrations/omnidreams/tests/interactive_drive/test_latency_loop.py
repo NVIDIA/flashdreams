@@ -334,7 +334,7 @@ def test_input_to_present_profile_ignores_represented_frames(
 
 def test_loop_presents_backend_frames_when_available() -> None:
     """Once the pipeline has rendered frames, the loop presents them."""
-    presenter = _CountingPresenter(present_budget=2)
+    presenter = _CountingPresenter(present_budget=4)
     controls = _FakeRuntimeControls()
     initial = _make_frame()
 
@@ -348,7 +348,7 @@ def test_loop_presents_backend_frames_when_available() -> None:
     )
 
     assert result is False
-    assert len(presenter.records) == 2
+    assert len(presenter.records) == 4
     assert any(record.frame is not initial for record in presenter.records)
 
 
