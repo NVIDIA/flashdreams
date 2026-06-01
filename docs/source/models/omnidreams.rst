@@ -24,7 +24,7 @@ OmniDreams
      <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-OmniDreams is an HDMap-conditioned world model for single-view and multi-view
+OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.
 
@@ -102,7 +102,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -131,25 +131,25 @@ Launch the interactive demo
 ``interactive-drive`` runs the OmniDreams single-view pipeline in a
 single process and streams the camera view to your browser. The demo
 machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
-display server, or Vulkan toolchain required.
+display server, or Vulkan support are required.
 
-Requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
+The demo requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
 and an ``HF_TOKEN`` with read access to
 `nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
 (scene USDZs) and
 `nvidia/omni-dreams-models <https://huggingface.co/nvidia/omni-dreams-models>`_
-(world-model checkpoints).
+(checkpoints).
 
 First-time setup:
 
 .. code-block:: bash
 
-   git clone git@github.com:NVIDIA/flashdreams.git
+   git clone https://github.com/NVIDIA/flashdreams.git
    cd flashdreams
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-Optionally pre-download scenes and checkpoints so the first launch
+Optionally, pre-download scenes and checkpoints so the first launch
 isn't blocked on network I/O:
 
 .. code-block:: bash
@@ -165,23 +165,50 @@ Run the demo and stream to your browser:
 Then open ``http://<server-ip>:8080/`` in any browser on the same
 network and pick a scene from the picker in the bottom-right.
 
-For deployments with a desktop NVIDIA GPU that has a graphics queue,
-omit ``--stream-mjpeg`` to open the demo in a local Vulkan window
+For execution using a consumer NVIDIA GPU that exposes a graphics stack,
+omit the ``--stream-mjpeg`` flag to open the demo in a local Vulkan window
 instead:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+.. note::
+
+   The local window requires a display server and the system OpenGL /
+   Vulkan client libraries. On Debian/Ubuntu:
+
+   .. code-block:: bash
+
+      sudo apt install -y libx11-6 libxcb1 libgl1 libglx-mesa0 libvulkan1
+
+   A ``Failed to initialize GLFW`` error indicates the display or one of these
+   libraries are missing.
+
+Steering wheel and game controller
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A steering wheel or game controller can be used to control the local window mode.
+Any device that Ubuntu detects as a standard game controller
+or joystick is viable. We provide a configuration tool to calibrate these:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive-configuration
+
+The demo loads the saved profile automatically on subsequent launches.
+Re-run the configuration tool to specify the default profile, edit a profile
+(steering sensitivity, deadzone, buttons), or delete a profile.
+
 Alternative: WebRTC server
 --------------------------
 
-For deployments that need a richer browser frontend with WebRTC's
+For deployments that require a richer browser frontend with WebRTC's
 lower video-delivery latency and a streaming gRPC service for
 multi-client setups, the standalone server at
 ``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
 the same OmniDreams pipeline. The MJPEG path above is the
-recommended starting point for most users; reach for WebRTC when you
+recommended starting point for most users; consider WebRTC if you
 need bidirectional camera-control APIs or are already integrating
 the gRPC service into a larger product.
 
@@ -197,12 +224,26 @@ the gRPC service into a larger product.
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
 
-The server may take a few minutes to warm up. When it is ready, it prints
+The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.
 Here, ``<server-ip>`` is the server IP address you are connecting to
 (can use ``localhost`` when running locally).
 
-When successfully connected, the browser-based UI looks like this:
+.. note::
+
+   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
+   the server port is usually not reachable at the host IP directly.
+   Forward it to your local machine first, then open
+   ``http://localhost:8089/request_session``:
+
+   .. code-block:: bash
+
+      # Brev
+      brev port-forward <instance> -p 8089:8089
+      # or plain SSH
+      ssh -L 8089:localhost:8089 <user>@<host>
+
+Once successfully connected, the browser-based UI looks like this:
 
 .. raw:: html
 

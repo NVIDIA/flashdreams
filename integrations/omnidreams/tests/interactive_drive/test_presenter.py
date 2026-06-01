@@ -39,22 +39,74 @@ def _hud_presenter_without_window() -> SlangPyHudPresenter:
     return SlangPyHudPresenter.__new__(SlangPyHudPresenter)
 
 
-def test_cuda_existing_device_handles_skips_by_default(monkeypatch) -> None:
+def test_cuda_existing_device_handles_uses_current_context_by_default(
+    monkeypatch,
+) -> None:
+    presenter = _presenter_without_window()
+    handles = [object()]
+
+    class _Spy:
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            return handles
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    assert presenter._cuda_existing_device_handles() == handles
+
+
+def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
     presenter = _presenter_without_window()
 
     class _Spy:
         @staticmethod
         def get_cuda_current_context_native_handles() -> list[object]:
-            raise AssertionError("native handle query should be opt-in")
+            raise AssertionError("native handle query should be disabled")
 
     fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     assert presenter._cuda_existing_device_handles() == []
 
 
-def test_create_device_disables_cuda_interop_when_torch_cuda_is_initialized(
+def test_create_device_enables_cuda_interop_with_current_context_by_default(
+    monkeypatch,
+) -> None:
+    presenter = _presenter_without_window()
+    created_kwargs: list[dict[str, object]] = []
+
+    class _DeviceType:
+        vulkan = object()
+
+    class _Spy:
+        DeviceType = _DeviceType
+
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            return ["cuda-context"]
+
+        @staticmethod
+        def Device(**kwargs):
+            created_kwargs.append(kwargs)
+            return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    presenter._create_device()
+
+    assert created_kwargs[0]["enable_cuda_interop"] is True
+    assert created_kwargs[0]["existing_device_handles"] == ["cuda-context"]
+
+
+def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
     monkeypatch,
 ) -> None:
     presenter = _presenter_without_window()
@@ -72,15 +124,16 @@ def test_create_device_disables_cuda_interop_when_torch_cuda_is_initialized(
             return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
 
     fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     presenter._create_device()
 
     assert created_kwargs[0]["enable_cuda_interop"] is False
-    assert (
-        presenter._cuda_interop_unavailable_reason
-        == "disabled after torch CUDA initialization"
+    assert "existing_device_handles" not in created_kwargs[0]
+    assert "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP" in (
+        presenter._cuda_interop_unavailable_reason or ""
     )
 
 
@@ -305,6 +358,102 @@ def test_hud_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None
 
     assert cuda_calls == [(frame, lazy)]
     assert lazy.numpy_calls == 0
+
+
+def test_hud_world_model_loading_pumps_events_and_presents_placeholder() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[tuple[str, object]] = []
+
+    presenter.process_events = lambda: calls.append(("events", None))
+    presenter.set_engine_active = lambda active: calls.append(("active", active))
+    presenter._render_canvas = lambda status_message: calls.append(
+        ("render", status_message)
+    )
+    presenter._present_canvas = lambda **kwargs: calls.append(("present", kwargs))
+
+    presenter.present_world_model_loading()
+
+    assert calls == [
+        ("events", None),
+        ("active", True),
+        ("render", "Loading World Model"),
+        ("present", {"use_gpu_camera": False}),
+    ]
+
+
+def test_hud_resize_updates_presenter_texture_without_recreating_cuda_interop() -> None:
+    presenter = _hud_presenter_without_window()
+    configured: list[tuple[int, int]] = []
+
+    class _Interop:
+        def close(self) -> None:
+            raise AssertionError("resize should not destroy CUDA interop in place")
+
+    interop = _Interop()
+    presenter._configured_size = (1920, 1080)
+    presenter._surface_format = object()
+    presenter._display_texture = "old-texture"
+    presenter._cuda_hud_interop = interop
+    presenter._retired_cuda_hud_interops = []
+    presenter._cuda_hud_resize_logged = False
+    presenter._panel_chrome_cache_key = object()
+    presenter._panel_chrome_cache = object()
+    presenter._bev_panel_cache_key = object()
+    presenter._bev_panel_cache = object()
+    presenter._wheel_rotation_cache = {}
+    presenter._pedal_cache = {}
+    presenter._camera_fit_texture = object()
+    presenter._camera_fit_size = (1, 1)
+    presenter._configure_surface = lambda width, height: configured.append(
+        (width, height)
+    )
+    presenter._build_display_texture = lambda width, height: (
+        "texture",
+        width,
+        height,
+    )
+
+    assert presenter._apply_resize(1000, 700)
+
+    assert configured == [(1000, 700)]
+    assert presenter._configured_size == (1000, 700)
+    assert presenter._display_texture == ("texture", 1000, 700)
+    assert presenter._canvas.size == (1000, 700)
+    assert presenter._cuda_hud_interop is None
+    assert presenter._retired_cuda_hud_interops == [interop]
+
+
+def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._pending_resize = None
+
+    presenter._on_resize(320, 200)
+
+    assert presenter._pending_resize == (320, 200)
+
+
+def test_hud_cuda_submit_abandons_ready_buffer_if_resize_retires_interop() -> None:
+    presenter = _hud_presenter_without_window()
+    mark_calls = 0
+
+    class _Interop:
+        def ready_rgba_buffer(self):
+            return object(), object()
+
+        def mark_submitted(self, *args: object) -> None:
+            nonlocal mark_calls
+            mark_calls += 1
+
+    interop = _Interop()
+    presenter._cuda_hud_interop = interop
+
+    def sync_window_size() -> None:
+        presenter._cuda_hud_interop = None
+
+    presenter._sync_window_size = sync_window_size
+
+    assert not presenter._submit_ready_cuda_hud()
+    assert mark_calls == 0
 
 
 def test_hud_model_rgb_falls_back_to_host_when_cuda_path_declines() -> None:

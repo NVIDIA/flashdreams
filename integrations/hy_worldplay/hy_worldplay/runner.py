@@ -50,6 +50,11 @@ identical -- including no trailing period -- so UMT5 tokenization
 matches the reference output (trailing ``.`` adds an extra token and
 shifts conditioning by ~5/255)."""
 
+DEFAULT_POSE = "w-15"
+"""Default camera trajectory: 15 forward steps (+ the identity input
+frame) = 16 latents, matching the default ``num_chunk=4`` rollout. With
+``--example-data`` this is swapped for upstream's sample pose JSON."""
+
 
 # Repo root = ``<this file>.parents[3]`` (``flashdreams/integrations/hy_worldplay/hy_worldplay/runner.py``).
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -64,6 +69,11 @@ EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "data_local/hy_worldplay"
 
 _EXAMPLE_IMAGE_FILENAME = "test.png"
 """Upstream's default ``--image_path`` fixture (704x1280)."""
+
+_EXAMPLE_POSE_FILENAME = "test_forward_32_latents.json"
+"""Upstream's sample camera trajectory (``assets/pose/``); 33 entries
+(32 forward-motion latents + the identity input frame). Long enough to
+drive any ``num_chunk <= 8`` rollout via the parser's prefix slice."""
 
 
 def preprocess_first_frame(
@@ -184,13 +194,14 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     for the README demo; pass ``--image-path`` explicitly for
     production runs."""
 
-    pose: str = "w-15"
+    pose: str = DEFAULT_POSE
     """Camera trajectory as a pose-string (e.g. ``"w-15"``,
     ``"w-3, right-1, d-4"``) or the path to a JSON file produced by
     upstream's ``hyvideo/generate_custom_trajectory.py``. The parser
     prepends an identity pose for the input frame, so ``w-N`` produces
-    ``N + 1`` latents; pick ``N == num_chunk * 4 - 1`` to match the
-    rollout's latent budget."""
+    ``N + 1`` latents; the rollout consumes ``num_chunk * 4`` and a
+    longer source is prefix-sliced. With ``--example-data`` left at the
+    default, the runner swaps in upstream's sample pose JSON."""
 
     num_chunk: int = 4
     """Autoregressive chunks to roll out; each chunk emits 4 latents
@@ -340,8 +351,13 @@ class HyWorldPlayWanI2VRunner(
                     "CUDAGraphWrapper for diagnostic dumps."
                 )
 
-        if cfg.image_path is None and cfg.example_data:
-            cfg.image_path = self._fetch_example_image()
+        if cfg.example_data:
+            if cfg.image_path is None:
+                cfg.image_path = self._fetch_example_image()
+            # Swap the synthetic default pose for upstream's sample
+            # trajectory only when the user hasn't passed their own.
+            if cfg.pose == DEFAULT_POSE:
+                cfg.pose = str(self._fetch_example_pose())
         if cfg.image_path is None:
             raise ValueError(
                 "HY-WorldPlay WAN-5B is I2V only -- pass "
@@ -448,6 +464,24 @@ class HyWorldPlayWanI2VRunner(
             torch.distributed.barrier()
         return cache_dir / _EXAMPLE_IMAGE_FILENAME
 
+    def _fetch_example_pose(self) -> Path:
+        """Lazy-download upstream's sample ``assets/pose/`` trajectory on rank 0.
+
+        Symmetric to :meth:`_fetch_example_image`. The parser prefix-
+        slices this 33-entry file to the rollout's ``num_chunk * 4``
+        latent budget, so it drives any ``num_chunk <= 8`` demo run.
+        """
+        cache_dir = EXAMPLE_DATA_DIR_LOCAL
+        if self.is_rank_zero:
+            download_to_cache(
+                f"{EXAMPLE_DATA_BASE_URL}/pose/{_EXAMPLE_POSE_FILENAME}",
+                cache_dir=cache_dir,
+                filename=_EXAMPLE_POSE_FILENAME,
+            )
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+        return cache_dir / _EXAMPLE_POSE_FILENAME
+
     def _bind_action_labels(self) -> None:
         """Parse the pose string and bind per-rollout action labels on the encoder."""
         from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
@@ -538,7 +572,6 @@ class HyWorldPlayWanI2VRunner(
         """
         import math
         import os
-        from typing import Any
         from unittest.mock import patch as _mock_patch
 
         from einops import rearrange

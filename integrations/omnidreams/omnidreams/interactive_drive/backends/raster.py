@@ -20,7 +20,12 @@ class RasterRenderBackend(RenderBackend):
         self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
         self._scene: SceneBundle | None = None
 
-    def warmup(self, scene: SceneBundle) -> None:
+    def warmup_model(self) -> None:
+        # The raster backend has no model to load; all per-scene work
+        # happens in load_scene, so there is nothing to pre-warm.
+        return
+
+    def load_scene(self, scene: SceneBundle) -> None:
         self._scene = scene
         self._rasterizer.load_scene(scene)
 

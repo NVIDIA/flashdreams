@@ -114,7 +114,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">

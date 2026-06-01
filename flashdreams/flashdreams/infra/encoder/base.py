@@ -203,4 +203,5 @@ class NullEncoder(Encoder):
     """
 
     def forward(self, input: Any) -> Any:
+        """Return ``input`` unchanged."""
         return input

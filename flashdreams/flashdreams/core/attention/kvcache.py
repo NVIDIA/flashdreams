@@ -25,7 +25,7 @@ from typing_extensions import Self
 @dataclass
 class BlockKVCache:
     """
-    KV cache for causal attention with a fixed-size local window and CUDA-graph support.
+    KV cache for causal attention with a fixed-size local window, CUDA-graph compatible.
 
     Keys and values can have arbitrary shape ``[..., total_size, ...]``; the sequence
     (rolling) dimension is given by ``seq_dim`` (dimension index, can be negative).
@@ -120,6 +120,7 @@ class BlockKVCache:
 
     @classmethod
     def from_tensor(cls, k: Tensor, v: Tensor, seq_dim: int) -> Self:
+        """Build a single-chunk cache pre-filled with the given key and value tensors."""
         cache = cls(
             k_shape=k.shape,
             v_shape=v.shape,

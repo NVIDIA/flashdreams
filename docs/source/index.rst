@@ -36,20 +36,54 @@ robotics, simulated or virtual environments, and more, and is the
 runtime backbone of the `OmniDreams closed-loop demo at
 GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
-.. TODO: Add the FlashDreams teaser video here once the final asset is ready.
-.. .. raw:: html
-..
-..    <div class="video-slot">
-..      <strong>Teaser video placeholder</strong><br>
-..      Add the FlashDreams teaser video here.
-..    </div>
+.. raw:: html
+
+   <div class="fd-promo-video-wrap">
+     <video
+       class="fd-promo-video-player"
+       controls
+       playsinline
+       preload="metadata"
+       aria-label="FlashDreams quick intro video">
+       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
+     </video>
+     <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
+       <span class="fd-promo-play-icon" aria-hidden="true"></span>
+     </button>
+   </div>
+   <script>
+     (() => {
+       const script = document.currentScript;
+       const container = script ? script.previousElementSibling : null;
+       if (!container) {
+         return;
+       }
+       const video = container.querySelector(".fd-promo-video-player");
+       const playButton = container.querySelector(".fd-promo-play");
+       if (!video || !playButton) {
+         return;
+       }
+       const showOverlay = () => container.classList.remove("is-playing");
+       const hideOverlay = () => container.classList.add("is-playing");
+       playButton.addEventListener("click", () => {
+         video.controls = true;
+         const playPromise = video.play();
+         if (playPromise && typeof playPromise.catch === "function") {
+           playPromise.catch(showOverlay);
+         }
+       });
+       video.addEventListener("play", hideOverlay);
+       video.addEventListener("pause", showOverlay);
+       video.addEventListener("ended", showOverlay);
+     })();
+   </script>
 
 .. raw:: html
 
    <p class="fd-subtitle">Interactive world models</p>
 
 A world model learns to generate and evolve an environment over time. In
-practice this often means video, but the same concept can include actions,
+practice, this often means video, but the same concept can include actions,
 state, audio, sensor input, and control signals.
 
 World-model serving is the runtime pattern for putting that model inside a live
@@ -62,9 +96,10 @@ creative tools, virtual worlds, and game-like experiences.
 .. Figure creation trace: https://chatgpt.com/share/6a124478-4730-83e8-ba21-33628c8f1f3b
 .. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
    :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
+   :class: zoomable
 
-In a served world-model application, the key requirement is not only generating
-a high-quality video. The runtime must keep an interactive session responsive
+In an online world-model application, the key requirement is not only generating
+high-quality videos. The runtime must keep an interactive session responsive
 while the model continues to advance the world.
 
 .. raw:: html
@@ -126,7 +161,7 @@ while the model continues to advance the world.
 
 FlashDreams is engineered with efficiency in mind. With a bottom-up system
 design tailored to autoregressive world-model inference patterns, it delivers best-in-class
-speed across many popular open-source models and GPU architectures.
+speed across many popular open-source models and GPU architectures:
 
 .. raw:: html
 
@@ -166,7 +201,7 @@ autoregressive pass.
 
    <p class="fd-subtitle">Production-oriented interactive serving backend</p>
 
-FlashDreams also includes a production-oriented serving backend for persistent,
+FlashDreams also includes a production-oriented serving backend for persistent and
 low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
 streaming input/output. Explore the interactive demos powered by FlashDreams:
 
@@ -229,7 +264,7 @@ Start here
 
 .. toctree::
    :maxdepth: 1
-   :caption: Model cards
+   :caption: Models
    :hidden:
 
    Self-Forcing <models/self_forcing>
@@ -251,7 +286,7 @@ Start here
    Add a new method <developer_guides/new_integration>
 
 .. Temporarily commented out for internal development:
-..   Interactive serving architecture <developer_guides/interactive_serving>
+..   Interactive serving <developer_guides/interactive_serving>
 ..   Developer workflow patterns <developer_guides/usage_patterns>
 
 .. toctree::

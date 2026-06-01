@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import array
-import fcntl
 import io
 import math
 import os
@@ -14,33 +12,47 @@ import struct
 import threading
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.input.wheel_profiles import (
+    EV_ABS,
+    EV_KEY,
+    EVDEV_EVENT_FORMAT,
+    EVDEV_EVENT_SIZE,
+    AutocenterFFB,
+    AxisRange,
+    EvdevDevice,
+    WheelProfile,
+    apply_steering_curve,
+    load_wheel_profiles,
+    name_match_strength,
+    query_axis_range,
+    read_evdev_name,
+    scan_evdev_devices,
+    user_wheel_profiles_dir,
+)
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
-EVDEV_EVENT_FORMAT = "llHHi"
-EVDEV_EVENT_SIZE = struct.calcsize(EVDEV_EVENT_FORMAT)
-EV_ABS = 0x03
-EV_FF = 0x15
-FF_AUTOCENTER = 0x61
-FF_GAIN = 0x60
-EVIOCGABS = lambda axis: 0x80184540 + axis  # noqa: E731
+# The canonical implementations of these evdev helpers now live in
+# ``input/wheel_profiles.py`` so the configuration tool can share them.
+# Private aliases keep the existing call sites in this module unchanged.
+_scan_evdev_devices = scan_evdev_devices
+_read_evdev_name = read_evdev_name
+_query_axis_range = query_axis_range
 
 # Width of the right-side HUD panel that holds the steering wheel,
 # pedals, speed digit and BEV minimap. The camera area fills the rest
 # of the live screen width. Pinned at 500 px because the panel content
 # (wheel asset, pedal pngs) is asset-driven and doesn't reflow.
 HUD_PANEL_WIDTH = 500
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 0.75
 KEYBOARD_STEER_RATE_PER_S = 0.6
@@ -89,45 +101,15 @@ BEV_TILT_DEG = _BEV_DEFAULTS.tilt_deg
 
 
 @dataclass(frozen=True)
-class AxisRange:
-    minimum: int
-    maximum: int
-
-    @property
-    def center(self) -> float:
-        return (float(self.minimum) + float(self.maximum)) * 0.5
-
-    @property
-    def span(self) -> float:
-        return max(1.0, float(self.maximum - self.minimum))
-
-
-@dataclass(frozen=True)
-class EvdevDevice:
-    path: Path
-    name: str
-
-
-@dataclass(frozen=True)
-class WheelProfile:
-    name: str
-    display_name: str
-    detection_patterns: tuple[str, ...]
-    axis_map: dict[str, int]
-    inverted_pedals: bool = True
-    invert_steering: bool = False
-    ffb_enabled: bool = False
-    ffb_gain: float = 0.5
-    threshold: float = 0.12
-    is_default: bool = False
-
-
-@dataclass(frozen=True)
 class SceneOption:
     label: str
     path: Path
     variants: tuple[str, ...]
     thumbnail: Image.Image | None = None
+    # Per-variant preview thumbnails keyed by variant slug, for the variant
+    # dropdown. Variants without a dedicated ``first_image_<variant>.png``
+    # map to the default image so every row still shows a preview.
+    variant_thumbnails: dict[str, Image.Image] = field(default_factory=dict)
 
 
 @dataclass
@@ -137,6 +119,7 @@ class WheelState:
     brake: float = 0.0
     target_speed_mps: float = 0.0
     connected: bool = False
+    reverse: bool = False
 
 
 class KeyboardDriveState:
@@ -264,7 +247,13 @@ class WheelBridge:
         self._brake_axis = int(profile.axis_map["brake"])
         self._inverted_pedals = bool(profile.inverted_pedals)
         self._invert_steering = bool(profile.invert_steering)
+        self._steering_range = float(profile.steering_range)
+        self._steering_deadzone = float(profile.steering_deadzone)
         self._threshold = float(profile.threshold)
+        self._reverse_buttons = {int(b) for b in profile.reverse_buttons}
+        self._reset_buttons = {int(b) for b in profile.reset_buttons}
+        self._reverse = False
+        self._button_states: dict[int, int] = {}
         self._ffb = AutocenterFFB()
         self._axis_ranges: dict[int, AxisRange] = {}
         self._raw_axes: dict[int, int] = {}
@@ -299,7 +288,13 @@ class WheelBridge:
         self._thread.start()
         print(
             f"[demo] wheel profile={self._profile.name} device={self._device_path} "
-            f"axes={self._profile.axis_map} ranges={self._axis_ranges}",
+            f"axes={self._profile.axis_map} ranges={self._axis_ranges} "
+            f"invert_steering={self._invert_steering} "
+            f"steering_range={self._steering_range} "
+            f"steering_deadzone={self._steering_deadzone} "
+            f"inverted_pedals={self._inverted_pedals} "
+            f"reverse_buttons={sorted(self._reverse_buttons)} "
+            f"reset_buttons={sorted(self._reset_buttons)}",
             flush=True,
         )
 
@@ -343,6 +338,24 @@ class WheelBridge:
             )
             if event_type == EV_ABS:
                 self._raw_axes[int(code)] = int(value)
+            elif event_type == EV_KEY:
+                self._handle_button(int(code), int(value))
+
+    def _handle_button(self, code: int, value: int) -> None:
+        # Act on the rising edge (press) so a held button fires once.
+        # Reverse toggles a sticky flag fed into every drive command; reset
+        # is forwarded through the control sink, which owns the
+        # KeyboardState the runtime loop reads.
+        prev = self._button_states.get(code, 0)
+        self._button_states[code] = value
+        if value != 1 or prev == 1:
+            return
+        if code in self._reverse_buttons:
+            self._reverse = not self._reverse
+        elif code in self._reset_buttons:
+            request_reset = getattr(self._control, "request_reset", None)
+            if request_reset is not None:
+                request_reset()
 
     def _publish_controls(self) -> None:
         steering = self._normalize_steering(self._raw_axes[self._steering_axis])
@@ -358,8 +371,11 @@ class WheelBridge:
             self._state.throttle = throttle
             self._state.brake = brake
             self._state.target_speed_mps = target_speed
+            self._state.reverse = self._reverse
 
-        self._control.set_drive(steer=steering, throttle=throttle, brake=brake)
+        self._control.set_drive(
+            steer=steering, throttle=throttle, brake=brake, reverse=self._reverse
+        )
         self._ffb.update(abs(target_speed), gain=self._profile.ffb_gain)
 
     def _normalize_steering(self, raw: int) -> float:
@@ -367,7 +383,9 @@ class WheelBridge:
         value = (float(raw) - axis_range.center) / (axis_range.span * 0.5)
         if self._invert_steering:
             value = -value
-        return max(-1.0, min(1.0, value))
+        return apply_steering_curve(
+            value, deadzone=self._steering_deadzone, scale=self._steering_range
+        )
 
     def _normalize_pedal(self, axis: int, raw: int) -> float:
         axis_range = self._axis_ranges[axis]
@@ -387,6 +405,11 @@ class WheelBridge:
         self._last_update_s = now
         with self._state_lock:
             speed = self._state.target_speed_mps
+        # ``speed`` is signed: positive is forward, negative is reverse. The
+        # HUD shows its magnitude, so engaging reverse decelerates to 0 and
+        # then builds speed in the reverse direction (rather than the digit
+        # climbing forever while the throttle is held).
+        direction = -1.0 if self._reverse else 1.0
         if throttle > 0.01 and brake <= 0.05:
             accel = 2.0 * throttle * dt
             current = abs(speed)
@@ -396,9 +419,13 @@ class WheelBridge:
             else:
                 excess = (current - high_speed_knee) / max(1e-6, 36.0 - high_speed_knee)
                 taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
-            speed += accel * taper
+            speed += direction * accel * taper
         elif brake > 0.01:
-            speed = max(0.0, speed - 12.0 * brake * dt)
+            # Brake bleeds speed toward a stop regardless of travel direction.
+            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+        elif self._reverse:
+            # No auto-crawl in reverse; coast toward a stop.
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
         else:
             creep_target = 4.47  # 10 mph, matching the AlpaSim manual-driver creep.
             if speed < creep_target + 0.1:
@@ -407,68 +434,7 @@ class WheelBridge:
                 speed += (creep_target - speed) * 0.18 * dt
             else:
                 speed = max(0.0, speed - 0.5 * dt)
-        return max(0.0, min(36.0, speed))
-
-
-class AutocenterFFB:
-    def __init__(self) -> None:
-        self._fd: int | None = None
-        self._last_strength = -1
-        self._smoothed = 0.0
-
-    def init(self, device_path: Path, gain: float) -> None:
-        try:
-            self._fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
-            self._write_event(FF_AUTOCENTER, 0)
-            self._write_event(FF_GAIN, int(max(0.0, min(1.0, gain)) * 0xFFFF))
-            print(f"[demo] FFB autocenter enabled on {device_path}", flush=True)
-        except PermissionError:
-            print(
-                "[demo] FFB permission denied; add user to input group or adjust udev",
-                flush=True,
-            )
-            self._fd = None
-        except OSError as exc:
-            print(f"[demo] FFB unavailable on {device_path}: {exc}", flush=True)
-            self._fd = None
-
-    def update(self, speed_mps: float, *, gain: float) -> None:
-        if self._fd is None:
-            return
-        if speed_mps < 0.1:
-            target = 0.15
-        else:
-            norm = min(1.0, speed_mps / 14.0)
-            target = 0.35 + 0.65 * norm
-        self._smoothed += 0.12 * (target - self._smoothed)
-        strength = int(self._smoothed * max(0.0, min(1.0, gain)) * 0xFFFF)
-        strength = max(0, min(0xFFFF, strength))
-        if abs(strength - self._last_strength) > 500:
-            self._write_event(FF_AUTOCENTER, strength)
-            self._last_strength = strength
-
-    def cleanup(self) -> None:
-        if self._fd is None:
-            return
-        try:
-            self._write_event(FF_AUTOCENTER, 0)
-            os.close(self._fd)
-        except OSError:
-            pass
-        self._fd = None
-
-    def _write_event(self, code: int, value: int) -> None:
-        if self._fd is None:
-            return
-        now = time.time()
-        sec = int(now)
-        usec = int((now - sec) * 1_000_000)
-        try:
-            os.write(
-                self._fd, struct.pack(EVDEV_EVENT_FORMAT, sec, usec, EV_FF, code, value)
-            )
-        except OSError:
-            return
+        return max(-36.0, min(36.0, speed))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -539,6 +505,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start loading --scene immediately. By default the HUD opens on Load Scene.",
     )
     parser.add_argument(
+        "--preload-scenes",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Parse every scene in --scene-dir in the background at startup so"
+            " switching scenes skips the USDZ parse (the per-scene geometry"
+            " upload and first-chunk generation still happen on switch)."
+            " Off by default; uses more memory the more scenes are staged."
+        ),
+    )
+    parser.add_argument(
         "--cuda-visible-devices",
         default="auto",
         help=(
@@ -585,7 +562,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _maybe_autostage_scene(scene: Path) -> Path:
+def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
+    """Whether the scene picker would find any staged USDZ to offer.
+
+    Mirrors :func:`_discover_scene_options`'s directory sweep -- the
+    ``--scene-dir`` cache plus the requested scene's own folder -- so the
+    default-scene autostage can be skipped when a curated set of scenes is
+    already present.
+    """
+    for directory in (scene_dir, scene.parent):
+        resolved = _project_path(directory)
+        if resolved.is_dir() and any(resolved.glob("*.usdz")):
+            return True
+    return False
+
+
+def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) -> Path:
     """Auto-download a known scene UUID on first launch.
 
     Triggers only when ``scene`` lives under the shared scenes cache
@@ -595,6 +587,13 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     and non-clipgt filenames are returned unchanged so the demo's
     normal "file not found" error fires for them.
 
+    With ``allow_skip`` (any scene-picker mode -- HUD or MJPEG), a missing
+    default scene is also returned unchanged whenever the picker already
+    has staged scenes to offer, so a demo curated to a specific scene set
+    never blocks on the default UUID (no Hugging Face download, no early
+    exit). The run loop then backfills ``args.scene`` from the first
+    discovered scene.
+
     The explicit ``omnidreams-prepare`` script remains the way to
     pre-stage arbitrary UUIDs and to pre-warm the Cosmos-Reason1 text
     encoder; this helper just covers the "I just ran ``interactive-drive``
@@ -602,6 +601,13 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     single command.
     """
     if scene.exists():
+        return scene
+    if allow_skip and _has_discoverable_scenes(scene_dir, scene):
+        print(
+            f"[interactive-drive] default scene '{scene.name}' is not staged; "
+            f"using the scenes already present under {scene_dir} instead.",
+            flush=True,
+        )
         return scene
     cache_dir = scenes_cache_root().resolve()
     if scene.resolve().parent != cache_dir:
@@ -628,7 +634,14 @@ def _maybe_autostage_scene(scene: Path) -> Path:
 def main() -> None:
     args = build_parser().parse_args()
     if not args.synthetic_scene:
-        args.scene = _maybe_autostage_scene(args.scene)
+        # Only the bare ``--no-hud`` backend has no scene picker; the HUD
+        # and MJPEG paths both let the user pick from ``--scene-dir``, so a
+        # missing default scene there is fine as long as the directory
+        # already has other scenes staged (see _maybe_autostage_scene).
+        uses_scene_picker = args.stream_mjpeg is not None or not args.no_hud
+        args.scene = _maybe_autostage_scene(
+            args.scene, scene_dir=args.scene_dir, allow_skip=uses_scene_picker
+        )
     # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
     # MJPEG presenter (HTTP server, browser session) survives across
     # scene-change requests posted by the in-page picker. ``--no-hud``
@@ -654,23 +667,21 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     + Ludus + CUDA in one process consistently failed at the EGL or
     CUDA-GL interop layer).
 
-    The function loops over scene-change requests so the user can pick
-    a new scene from the HUD dropdown without the slangpy window
-    closing and reopening. One ``SlangPyHudPresenter`` is constructed
-    at startup and reused across many ``app.run()`` invocations -- one
-    per scene the user picks. Each iteration tears down only the
-    backend / pipeline / simulation, rebuilds them for the freshly
-    selected scene, and hands them to a new
-    :class:`InteractiveDriveApp` whose ``close_presenter_on_exit=False``
-    keeps the presenter (and therefore the window) alive across the
-    transition.
+    One ``SlangPyHudPresenter`` and one long-lived
+    :class:`InteractiveDriveApp` are constructed at startup. Building the
+    app starts the (scene-independent) model warmup on the pipeline worker
+    thread immediately, so the long weight-load + compile overlaps with
+    the user's scene-selection wait. The function then loops over
+    scene-change requests, calling ``app.load_scene`` + ``app.run_scene``
+    per scene: the warmed model stays resident, so each switch only
+    re-uploads the scene geometry instead of reloading the model, and the
+    slangpy window never closes and reopens (``close_presenter_on_exit=False``
+    keeps the presenter alive until the user actually closes the window).
 
-    The wheel is a long-lived resource too -- evdev fd, FFB context --
-    so it's constructed once and rebound to each successive
-    ``KeyboardState`` via the presenter's
-    :meth:`SlangPyHudPresenter.bind_keyboard`. We rebuild the wheel
-    bridge if the bind target differs because ``WheelBridge`` captures
-    the sink at init.
+    The wheel is a long-lived resource too -- evdev fd, FFB context -- and
+    binds once to the app's single ``KeyboardState`` via
+    :meth:`SlangPyHudPresenter.bind_keyboard`; no per-scene rebinding,
+    since the keyboard now lives for the whole session.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.slangpy_hud_presenter import (
@@ -723,68 +734,82 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         control_assets=control_assets,
         wheel=None,
     )
+
+    # Build the backend + engine ONCE, up front. Constructing the app
+    # starts the (scene-independent) model warmup on the pipeline worker
+    # thread immediately, so the long weight-load + compile overlaps with
+    # the user's scene-selection wait below instead of starting only after
+    # the first pick. The app owns one long-lived KeyboardState and rebinds
+    # the presenter to it; scenes are switched in place via
+    # ``app.load_scene`` so the warmed model is never rebuilt.
+    config, backend = _cli.prepare_config_and_backend(args)
+    app = InteractiveDriveApp(
+        config=config,
+        backend=backend,
+        presenter=presenter,
+        close_presenter_on_exit=False,
+    )
+    presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+
+    # Attach the wheel up front, bound to the app's long-lived keyboard, so
+    # the HUD's steering / pedal chrome reacts to the physical device during
+    # the initial scene-selection wait -- not only once a scene is running.
+    # The evdev reader thread starts now and runs for the process lifetime;
+    # the single keyboard means it never needs rebinding across scenes.
     wheel: Any = None
+    if wheel_selection is not None:
+        profile, device_path = wheel_selection
+        wheel = WheelBridge(
+            device_path=device_path,
+            profile=profile,
+            control=KeyboardStateDriveSink(app.keyboard),
+        )
+        wheel.start()
+        presenter.set_wheel(wheel)
 
-    def _factory(config: Any, keyboard: Any) -> Any:
-        # Called once per ``InteractiveDriveApp.__init__``. The first
-        # call lazily attaches the wheel (so the evdev reader thread
-        # only starts running once the user has actually picked a
-        # scene); subsequent calls rebind the wheel's drive sink to
-        # the new keyboard without restarting the reader.
-        nonlocal wheel
-        if wheel is None and wheel_selection is not None:
-            profile, device_path = wheel_selection
-            wheel = WheelBridge(
-                device_path=device_path,
-                profile=profile,
-                control=KeyboardStateDriveSink(keyboard),
-            )
-            wheel.start()
-            presenter.set_wheel(wheel)
-        elif wheel is not None:
-            # Rebind the wheel's drive sink to the new keyboard. We
-            # don't restart the wheel's evdev reader thread -- it's
-            # state-machine-clean and the only thing tied to keyboard
-            # is the sink it posts ``set_drive`` calls into.
-            wheel._control = KeyboardStateDriveSink(keyboard)  # noqa: SLF001 -- see comment
-        presenter.bind_keyboard(keyboard)
-        return presenter
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
 
+    # First scene: prefer the resolved ``config.scene_path`` so
+    # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
+    # default are honoured; a dropdown selection overrides it below.
+    scene_path: Any = config.scene_path
+    variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
     try:
         # Initial scene-selection wait: if the user didn't pass
-        # ``--autoload-scene``, open the HUD and let them pick a
-        # scene from the dropdown. Skipping the autoload also lets
-        # the user pick a different scene than ``--scene`` advertises
-        # without re-running the binary.
+        # ``--autoload-scene``, open the HUD and let them pick a scene from
+        # the dropdown while the model warms in the background.
         if not args.autoload_scene:
             request = presenter.wait_for_scene_selection()
             if request is None:
                 return  # window closed before any scene was loaded
             scene_path, variant = request
-            args.scene = scene_path
-            args.variant = variant
             presenter.acknowledge_scene_change(scene_path, variant)
 
         while True:
             presenter.set_engine_active(True)
-            config, backend = _cli.prepare_config_and_backend(args)
-            app = InteractiveDriveApp(
-                config=config,
-                backend=backend,
-                presenter_factory=_factory,
-                close_presenter_on_exit=False,
-            )
-            app.run()
+            # load_scene parses the USDZ on a background thread while keeping
+            # the window responsive; it returns False if the window closed
+            # (or a new scene was requested) before the parse finished, so
+            # we skip run_scene and let the pending-change check below decide
+            # whether to switch scenes or exit.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             presenter.set_engine_active(False)
             requested = presenter.pending_scene_change
             if requested is None:
-                # User closed the window (X / ESC); we're done.
+                # Window closed (X / ESC) during load or run; we're done.
                 break
-            new_scene_path, new_variant = requested
-            args.scene = new_scene_path
-            args.variant = new_variant
-            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            scene_path, variant = requested
+            presenter.acknowledge_scene_change(scene_path, variant)
     finally:
+        app.shutdown()
         presenter.close()
 
 
@@ -794,10 +819,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
     Mirrors :func:`_run_slangpy_hud`'s outer-loop structure but with a
     long-lived :class:`MJPEGStreamingPresenter` instead of a slangpy
     window. The HTTP server (and any connected browser sessions) stay
-    alive across scene transitions; only the backend / pipeline /
-    simulation get rebuilt per scene. The browser shows the loading
-    overlay during the rebuild and resumes streaming the moment the
-    new pipeline produces its first chunk.
+    alive across scene transitions; the backend / pipeline are built once
+    and only the scene (geometry + simulation) is swapped per scene. The
+    browser shows the loading overlay during the swap and resumes
+    streaming the moment the new scene produces its first chunk.
 
     Scene options come from the same discovery layer the slangpy HUD
     uses. They get serialised into a JSON-friendly shape and posted to
@@ -870,25 +895,36 @@ def _run_streaming(args: argparse.Namespace) -> None:
         thumbnails=thumbnails,
     )
 
-    def _factory(config: object, keyboard: KeyboardState) -> MJPEGStreamingPresenter:
-        # Each ``InteractiveDriveApp.__init__`` builds a fresh
-        # ``KeyboardState``; rebind so the long-lived presenter
-        # follows the new instance instead of writing into the
-        # placeholder keyboard from before the first scene loaded.
-        del config
-        presenter.bind_keyboard(keyboard)
-        return presenter
+    # Build the backend + engine once so the model warms up (on the
+    # pipeline worker thread) while the browser is still choosing the first
+    # scene. The app rebinds the presenter to its long-lived keyboard and
+    # switches scenes in place via ``app.load_scene``, keeping the warmed
+    # model resident across scene changes.
+    config, backend = _cli.prepare_config_and_backend(args)
+    app = InteractiveDriveApp(
+        config=config,
+        backend=backend,
+        presenter=presenter,
+        close_presenter_on_exit=False,
+    )
+    presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        # Don't auto-load: always wait for the browser to pick the
-        # first scene. This mirrors the slangpy HUD's ``--no-autoload-
-        # scene`` default (which is the *only* mode for the streaming
-        # path -- there's no Vulkan window to show progress in, so we
-        # would otherwise burn world-model warmup on whatever
-        # ``args.scene`` defaulted to before the user expressed any
-        # intent). The presenter publishes an idle "Select a scene to
-        # begin" overlay frame so connected browsers have something to
-        # render while the wait spins.
+        # Don't auto-load: always wait for the browser to pick the first
+        # scene. There's no Vulkan window to show progress in, so the
+        # presenter publishes an idle overlay frame ("Loading world
+        # model..." while warmup runs in the background, then "Select a
+        # scene to begin") so connected browsers have something to render
+        # while the wait spins.
         print(
             "[demo] streaming presenter waiting for first scene selection...",
             flush=True,
@@ -896,25 +932,20 @@ def _run_streaming(args: argparse.Namespace) -> None:
         request = presenter.wait_for_scene_selection()
         if request is None:
             return  # presenter closed before any selection (Ctrl-C)
-        first_scene_path, first_variant = request
-        args.scene = first_scene_path
-        args.variant = first_variant
-        presenter.acknowledge_scene_change(first_scene_path, first_variant)
+        scene_path, variant = request
+        presenter.acknowledge_scene_change(scene_path, variant)
         print(
-            f"[demo] streaming initial scene -> {first_scene_path.name} "
-            f"variant={first_variant!r}",
+            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
             flush=True,
         )
 
         while True:
-            config, backend = _cli.prepare_config_and_backend(args)
-            app = InteractiveDriveApp(
-                config=config,
-                backend=backend,
-                presenter_factory=_factory,
-                close_presenter_on_exit=False,
-            )
-            app.run()
+            # load_scene parses the USDZ on a background thread while the
+            # browser keeps receiving frames; False means the session is
+            # ending (or a new scene was requested) before the parse
+            # finished, so skip run_scene and let the check below decide.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             requested = presenter.pending_scene_change
             if requested is None:
                 # Either the process is shutting down (Ctrl-C) or the
@@ -923,16 +954,15 @@ def _run_streaming(args: argparse.Namespace) -> None:
                 # affordance, so a "no pending change" exit is
                 # treated as the end of the session.
                 break
-            new_scene_path, new_variant = requested
-            args.scene = new_scene_path
-            args.variant = new_variant
-            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            scene_path, variant = requested
+            presenter.acknowledge_scene_change(scene_path, variant)
             print(
-                f"[demo] streaming scene change -> {new_scene_path.name} "
-                f"variant={new_variant!r}",
+                f"[demo] streaming scene change -> {scene_path.name} "
+                f"variant={variant!r}",
                 flush=True,
             )
     finally:
+        app.shutdown()
         presenter.close()
 
 
@@ -973,7 +1003,11 @@ def _project_path(path: Path) -> Path:
     path = Path(path).expanduser()
     if path.is_absolute():
         return path
-    return (PROJECT_ROOT / path).resolve()
+    # Resolve relative paths against the current working directory -- the
+    # standard CLI convention, and what users expect when running from the
+    # repo root. (This previously resolved against the package directory,
+    # integrations/omnidreams, which was surprising for --scene/--scene-dir.)
+    return (Path.cwd() / path).resolve()
 
 
 def _discover_scene_options(
@@ -987,13 +1021,7 @@ def _discover_scene_options(
     if selected_scene.parent.is_dir():
         paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
     options = tuple(
-        SceneOption(
-            label=_scene_label(path),
-            path=path,
-            variants=_discover_variants(path),
-            thumbnail=_load_scene_thumbnail(path),
-        )
-        for path in sorted(paths)
+        _scene_option(path, variants=_discover_variants(path)) for path in sorted(paths)
     )
     print(
         "[demo] discovered scenes: "
@@ -1001,6 +1029,21 @@ def _discover_scene_options(
         flush=True,
     )
     return options
+
+
+def _scene_option(path: Path, *, variants: tuple[str, ...]) -> SceneOption:
+    variant_thumbnails = _load_variant_thumbnails(path, variants)
+    # Reuse the per-variant "default" thumbnail for the scene row when present
+    # so the scene and variant dropdowns agree, falling back to the standalone
+    # loader for bundles whose images don't parse into variants.
+    thumbnail = variant_thumbnails.get("default") or _load_scene_thumbnail(path)
+    return SceneOption(
+        label=_scene_label(path),
+        path=path,
+        variants=variants,
+        thumbnail=thumbnail,
+        variant_thumbnails=variant_thumbnails,
+    )
 
 
 def _scene_label(path: Path) -> str:
@@ -1031,11 +1074,36 @@ def _discover_variants(scene_path: Path) -> tuple[str, ...]:
                     variants.add(variant)
     except (OSError, zipfile.BadZipFile):
         return ("default",)
-    if not variants:
-        variants.add("default")
-    if "default" not in variants:
-        variants.add(sorted(variants)[0])
-    return tuple(sorted(variants, key=lambda value: (value != "default", value)))
+    # A bare ``default`` (prompt.txt / first_image.png) duplicates the first
+    # numbered variant, so when numbered variants exist we expose just those --
+    # "1" is then the default selection. Scenes with no numbered variants show
+    # a single "default".
+    numbered = [value for value in variants if value != "default"]
+    if numbered:
+        numbered.sort(key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else v))
+        return tuple(numbered)
+    return ("default",)
+
+
+def _resolve_scene_variant(
+    scene_options: tuple[SceneOption, ...], scene_path: Any, variant: str
+) -> str:
+    """Return a variant that actually exists for *scene_path*.
+
+    Numbered scenes no longer carry a bare ``default`` entry, so a configured
+    ``--variant default`` (or anything the scene lacks) falls back to the
+    scene's first variant rather than a selection the dropdown can't show.
+    """
+    try:
+        resolved = Path(str(scene_path)).resolve()
+    except OSError:
+        resolved = None
+    for option in scene_options:
+        if option.path == resolved or str(option.path) == str(scene_path):
+            if variant in option.variants:
+                return variant
+            return option.variants[0] if option.variants else variant
+    return variant
 
 
 def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
@@ -1055,6 +1123,45 @@ def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
                 return _make_thumbnail(image.convert("RGB"), SCENE_THUMB_SIZE)
     except (OSError, zipfile.BadZipFile):
         return None
+
+
+def _load_variant_thumbnails(
+    scene_path: Path, variants: tuple[str, ...]
+) -> dict[str, Image.Image]:
+    """Per-variant preview thumbnails for the HUD variant dropdown.
+
+    Mirrors :func:`scene_loader._discover_first_images`: a bundle may ship
+    ``first_image_<variant>.png`` per variant alongside ``first_image.png``
+    (the ``"default"`` variant). Each referenced image is decoded once;
+    variants without a dedicated image fall back to the default so every
+    dropdown row still shows a preview. Returns an empty mapping when the
+    archive has no parseable first images.
+    """
+    decoded: dict[str, Image.Image] = {}
+    try:
+        with zipfile.ZipFile(scene_path, "r") as zf:
+            names_by_variant: dict[str, str] = {}
+            for name in zf.namelist():
+                if (
+                    "/" in name
+                    or not name.startswith("first_image")
+                    or not name.endswith(".png")
+                ):
+                    continue
+                variant = _scenes.variant_from_stem(Path(name).stem, "first_image")
+                if variant is not None:
+                    names_by_variant[variant] = name
+            for variant, name in names_by_variant.items():
+                with Image.open(io.BytesIO(zf.read(name))) as image:
+                    decoded[variant] = _make_thumbnail(
+                        image.convert("RGB"), SCENE_THUMB_SIZE
+                    )
+    except (OSError, zipfile.BadZipFile):
+        return {}
+    if not decoded:
+        return {}
+    default = decoded.get("default") or next(iter(decoded.values()))
+    return {variant: decoded.get(variant, default) for variant in variants}
 
 
 def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -1081,8 +1188,24 @@ def _variant_label(variant: str) -> str:
     return labels.get(variant, variant)
 
 
+def _merged_wheel_profiles(cli_profiles_dir: Path) -> tuple[WheelProfile, ...]:
+    """Profiles from the user config dir plus any ``--wheel-profiles-dir``.
+
+    User-generated profiles (written by ``interactive-drive-configuration``)
+    live in :func:`user_wheel_profiles_dir` and take precedence over a
+    profile of the same name found in the CLI-provided directory.
+    """
+    merged: dict[str, WheelProfile] = {}
+    for profile in (
+        *load_wheel_profiles(user_wheel_profiles_dir()),
+        *load_wheel_profiles(cli_profiles_dir),
+    ):
+        merged.setdefault(profile.name.lower(), profile)
+    return tuple(merged.values())
+
+
 def _select_wheel(args: argparse.Namespace) -> tuple[WheelProfile, Path] | None:
-    profiles = _load_wheel_profiles(args.wheel_profiles_dir)
+    profiles = _merged_wheel_profiles(args.wheel_profiles_dir)
     profile = _profile_by_name(profiles, args.wheel_profile)
     device_path: Path | None = args.wheel_device
 
@@ -1136,42 +1259,12 @@ def _profile_for_device(
         return None
     fake_device = EvdevDevice(path=device_path, name=name)
     ordered = sorted(profiles, key=lambda p: p.is_default, reverse=True)
+    best: tuple[int, WheelProfile] | None = None
     for profile in ordered:
-        if _device_matches_profile(fake_device, profile):
-            return profile
-    return None
-
-
-def _load_wheel_profiles(profiles_dir: Path) -> tuple[WheelProfile, ...]:
-    profiles: list[WheelProfile] = []
-    if not profiles_dir.is_dir():
-        print(f"[demo] wheel profiles dir not found: {profiles_dir}", flush=True)
-        return tuple()
-    for path in sorted(profiles_dir.glob("*.yaml")):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        axis_map = {
-            str(key): int(value) for key, value in data.get("axis_map", {}).items()
-        }
-        pedal = data.get("pedal", {}) or {}
-        profiles.append(
-            WheelProfile(
-                name=str(data.get("name", path.stem)),
-                display_name=str(data.get("display_name", data.get("name", path.stem))),
-                detection_patterns=tuple(
-                    str(pattern) for pattern in data.get("detection_patterns", ())
-                ),
-                axis_map=axis_map,
-                inverted_pedals=bool(
-                    pedal.get("inverted", data.get("inverted_pedals", True))
-                ),
-                invert_steering=bool(data.get("invert_steering", False)),
-                ffb_enabled=bool((data.get("ffb", {}) or {}).get("enabled", False)),
-                ffb_gain=float((data.get("ffb", {}) or {}).get("gain", 0.5)),
-                threshold=float(data.get("threshold", 0.12)),
-                is_default=bool(data.get("is_default", False)),
-            )
-        )
-    return tuple(profiles)
+        strength = _profile_device_match_strength(fake_device, profile)
+        if strength > 0 and (best is None or strength > best[0]):
+            best = (strength, profile)
+    return best[1] if best is not None else None
 
 
 def _profile_by_name(
@@ -1202,14 +1295,14 @@ def _detect_wheel(
     )
     devices = _scan_evdev_devices()
     for profile in ordered_profiles:
-        for device in devices:
-            if _device_matches_profile(device, profile):
-                print(
-                    f"[demo] auto-detected wheel profile={profile.name} "
-                    f"device={device.path} name={device.name!r}",
-                    flush=True,
-                )
-                return profile, device.path
+        device = _best_device_for_profile(profile, devices)
+        if device is not None:
+            print(
+                f"[demo] auto-detected wheel profile={profile.name} "
+                f"device={device.path} name={device.name!r}",
+                flush=True,
+            )
+            return profile, device.path
     if devices:
         print(
             "[demo] evdev devices seen but no wheel profile matched: "
@@ -1220,55 +1313,43 @@ def _detect_wheel(
 
 
 def _detect_device_for_profile(profile: WheelProfile) -> EvdevDevice | None:
-    for device in _scan_evdev_devices():
-        if _device_matches_profile(device, profile):
-            return device
-    return None
+    return _best_device_for_profile(profile, _scan_evdev_devices())
 
 
-def _scan_evdev_devices() -> tuple[EvdevDevice, ...]:
-    candidates: list[Path] = []
-    by_id = Path("/dev/input/by-id")
-    if by_id.is_dir():
-        candidates.extend(
-            sorted(path for path in by_id.glob("*event*") if path.exists())
-        )
-    candidates.extend(sorted(Path("/dev/input").glob("event*")))
+def _profile_device_match_strength(device: EvdevDevice, profile: WheelProfile) -> int:
+    """Match score for *device* vs *profile*: 0 none, 1 substring, 2 exact name.
 
-    devices: list[EvdevDevice] = []
-    seen: set[Path] = set()
-    for path in candidates:
-        try:
-            resolved = path.resolve()
-        except OSError:
-            resolved = path
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        name = _read_evdev_name(path)
-        if name is not None:
-            devices.append(EvdevDevice(path=path, name=name))
-    return tuple(devices)
-
-
-def _device_matches_profile(device: EvdevDevice, profile: WheelProfile) -> bool:
-    name = device.name.lower()
-    if not any(pattern.lower() in name for pattern in profile.detection_patterns):
-        return False
+    A non-zero score also requires every axis in the profile's ``axis_map``
+    to exist on the device. The exact-name tier is what stops a profile
+    captured from e.g. ``"Wireless Controller"`` from binding a sibling node
+    (``"Wireless Controller Motion Sensors"``) whose name merely contains the
+    pattern and may even expose overlapping axes.
+    """
+    if not profile.detection_patterns:
+        return 0
     required_axes = {int(axis) for axis in profile.axis_map.values()}
-    return all(
+    if not all(
         _query_axis_range(device.path, axis) is not None for axis in required_axes
-    )
+    ):
+        return 0
+    return name_match_strength(device.name, profile.detection_patterns)
 
 
-def _read_evdev_name(path: Path) -> str | None:
-    try:
-        with path.open("rb") as handle:
-            name_buf = array.array("B", [0] * 256)
-            fcntl.ioctl(handle.fileno(), 0x80004506 + (256 << 16), name_buf)
-            return name_buf.tobytes().split(b"\x00")[0].decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+def _best_device_for_profile(
+    profile: WheelProfile, devices: tuple[EvdevDevice, ...]
+) -> EvdevDevice | None:
+    """Return the device matching *profile* best, preferring an exact name.
+
+    Among all connected devices an exact-name match always beats a substring
+    match, so the real controller node wins over a same-named sensor/touchpad
+    sibling regardless of scan order.
+    """
+    best: tuple[int, EvdevDevice] | None = None
+    for device in devices:
+        strength = _profile_device_match_strength(device, profile)
+        if strength > 0 and (best is None or strength > best[0]):
+            best = (strength, device)
+    return best[1] if best is not None else None
 
 
 def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
@@ -1352,28 +1433,12 @@ def _apply_wheel_overrides(
         if args.wheel_pedals_inverted is None
         else bool(args.wheel_pedals_inverted)
     )
-    return WheelProfile(
-        name=profile.name,
-        display_name=profile.display_name,
-        detection_patterns=profile.detection_patterns,
-        axis_map=axis_map,
-        inverted_pedals=inverted,
-        invert_steering=profile.invert_steering,
-        ffb_enabled=profile.ffb_enabled,
-        ffb_gain=profile.ffb_gain,
-        threshold=profile.threshold,
-        is_default=profile.is_default,
-    )
-
-
-def _query_axis_range(path: Path, axis: int) -> AxisRange | None:
-    try:
-        with path.open("rb") as handle:
-            payload = array.array("i", [0, 0, 0, 0, 0, 0])
-            fcntl.ioctl(handle.fileno(), EVIOCGABS(axis), payload, True)
-            return AxisRange(minimum=int(payload[1]), maximum=int(payload[2]))
-    except OSError:
-        return None
+    # Use ``replace`` so every other field is preserved. The previous manual
+    # reconstruction silently dropped any field it didn't relist -- which
+    # reset steering_range / steering_deadzone to their no-op defaults and
+    # unbound reverse/reset buttons at runtime, even though the saved
+    # profile had them.
+    return replace(profile, axis_map=axis_map, inverted_pedals=inverted)
 
 
 def _parse_axis(value: str) -> int:
