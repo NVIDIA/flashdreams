@@ -18,47 +18,31 @@ FlashDreams
 
 .. container:: fd-hero fd-hero-band
 
-   .. container:: fd-split fd-split-asymmetric-reverse
+   .. container:: fd-hero-lede
 
-      .. container:: fd-split-text
+      A high-performance inference and serving library for
+      interactive autoregressive video and world models.
 
-         .. container:: fd-hero-lede
+   .. container:: fd-cta-row
 
-            A high-performance inference and serving library for
-            interactive autoregressive video and world models.
+      .. button-ref:: get_started
+         :ref-type: doc
+         :color: primary
 
-         .. container:: fd-cta-row
+         Get started
 
-            .. button-ref:: get_started
-               :ref-type: doc
-               :color: primary
+      .. button-link:: https://github.com/NVIDIA/flashdreams
+         :color: secondary
+         :outline:
 
-               Get started
+         GitHub
 
-            .. button-link:: https://github.com/NVIDIA/flashdreams
-               :color: secondary
-               :outline:
+      .. button-ref:: community/index
+         :ref-type: doc
+         :color: secondary
+         :outline:
 
-               GitHub
-
-            .. button-ref:: community/index
-               :ref-type: doc
-               :color: secondary
-               :outline:
-
-               Community
-
-      .. container:: fd-split-visual
-
-         .. admonition:: PLACEHOLDER — hero loop
-            :class: placeholder
-
-            **What goes here:** A short looping clip of a streaming
-            recipe (for example ``self-forcing-wan2.1-t2v-1.3b-taehv``)
-            generating end-to-end, or a stylised diagram of the
-            KV cache / ring attention / CUDA-graph pipeline.
-
-            **Format:** ``_static/hero-loop.avif`` (animated AVIF, 16:9).
+         Community
 
 Why FlashDreams
 ---------------
