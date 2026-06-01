@@ -52,11 +52,11 @@ from typing import Any
 
 import numpy as np
 from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
-    _torch_cuda_initialized,
 )
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
@@ -246,15 +246,20 @@ class KeyboardStateDriveSink:
     def __init__(self, keyboard: KeyboardState) -> None:
         self._keyboard = keyboard
 
-    def set_drive(self, *, steer: float, throttle: float, brake: float) -> None:
+    def set_drive(
+        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+    ) -> None:
         # ``manual_control`` + ``steer_is_direct`` mirror what the
         # MJPEG-era ``_apply_drive_control`` set so the engine state
         # is byte-identical regardless of which transport drove it.
+        # ``reverse`` is set by a wheel/controller's bound reverse button
+        # (the keyboard path leaves it at the default ``False``).
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
             )
@@ -262,6 +267,11 @@ class KeyboardStateDriveSink:
 
     def release_all(self) -> None:
         self._keyboard.set_drive_command(None)
+
+    def request_reset(self) -> None:
+        # Lets a wheel/controller's bound reset button trigger the same
+        # rollout reset the ``R`` key does.
+        self._keyboard.request_reset()
 
     # The methods below are no-ops in-process because the slangpy HUD
     # writes pygame-style key events directly to ``KeyboardState`` from
@@ -683,19 +693,11 @@ class SlangPyHudPresenter:
 
     def _create_device(self) -> Any:
         existing_device_handles = self._cuda_existing_device_handles()
-        torch_cuda_initialized = _torch_cuda_initialized()
-        if torch_cuda_initialized and not _env_truthy(
-            "INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"
-        ):
+        enable_cuda_interop = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        if not enable_cuda_interop:
             self._cuda_interop_unavailable_reason = (
-                "disabled after torch CUDA initialization"
+                f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
-        enable_cuda_interop = not _env_truthy(
-            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
-        ) and (
-            not torch_cuda_initialized
-            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-        )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -722,9 +724,7 @@ class SlangPyHudPresenter:
             )
 
     def _cuda_existing_device_handles(self) -> list[Any]:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
-            return []
-        if not _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             return []
         try:
             import torch
@@ -750,10 +750,10 @@ class SlangPyHudPresenter:
     def _create_cuda_hud_interop(
         self, width: int, height: int
     ) -> _CudaRGBInterop | None:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             print(
                 "[presenter] hud_cuda_interop=disabled by "
-                "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP; using host HUD upload",
+                f"{DISABLE_CUDA_INTEROP_ENV}; using host HUD upload",
                 flush=True,
             )
             return None
@@ -1429,6 +1429,22 @@ class SlangPyHudPresenter:
         speed_y = variant_y + bar_h + 12
         self._draw_speed(canvas, draw, center_x, speed_y, int(self._speed_mph))
 
+        # Light the reverse indicator red when reverse is engaged; the cached
+        # chrome only draws the inactive grey "R" box at the same spot.
+        if getattr(wheel_state, "reverse", False):
+            rx0, ry0 = px + 14, speed_y + 70
+            draw.rounded_rectangle(
+                (rx0, ry0, px + 54, speed_y + 102), radius=5, fill=(200, 60, 60, 255)
+            )
+            rbox = _measure_text(self._font_tiny, "R")
+            rw, rh = rbox[2] - rbox[0], rbox[3] - rbox[1]
+            draw.text(
+                (rx0 + (40 - rw) // 2 - rbox[0], ry0 + (32 - rh) // 2 - rbox[1]),
+                "R",
+                fill=(255, 255, 255),
+                font=self._font_tiny,
+            )
+
         wheel_center = (center_x, speed_y + 185)
         self._draw_wheel(canvas, draw, wheel_center, 112, wheel_state.steering)
 
@@ -2059,7 +2075,10 @@ class SlangPyHudPresenter:
         return None
 
     def _update_speed(self, wheel_state: Any) -> None:
-        target_mph = wheel_state.target_speed_mps * 2.2369362920544
+        # Magnitude: the digit shows speed, and reverse is conveyed by the
+        # "R" indicator, so a reverse target reads as a positive number that
+        # dips to 0 at the direction change.
+        target_mph = abs(wheel_state.target_speed_mps) * 2.2369362920544
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
 

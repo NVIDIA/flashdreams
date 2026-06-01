@@ -213,7 +213,7 @@ class PresentedFrame:
     # needing a second rasterizer instance. ``None`` when BEV rendering is
     # disabled, or when the world-model backend's first chunk replays the
     # debug HDMap override (BEV is not in that override set).
-    bev_host_uint8: UInt8Array | None = None
+    bev_host_uint8: Any | None = None
     status_message: str | None = None
 
 
