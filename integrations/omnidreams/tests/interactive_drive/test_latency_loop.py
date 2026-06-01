@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import os
 import time
 from dataclasses import dataclass
 
@@ -29,6 +30,25 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     QueuedFrame,
 )
+
+
+def _on_ci() -> bool:
+    """True when running under CI (GitHub Actions et al. set ``CI=true``)."""
+    return os.environ.get("CI", "").lower() == "true"
+
+
+def _backend_frame_wait_budget() -> int:
+    """Present-tick ceiling for tests that wait on the render worker thread.
+
+    These tests assert that the background pipeline worker delivered a
+    rendered frame. Paired with ``_CountingPresenter(close_on_frame=...)`` the
+    loop closes the instant that frame arrives, so this value only bounds the
+    *stall* case (a worker that never delivers). Locally a small ceiling keeps
+    a genuine stall failing fast; CI runners are heavily loaded and can starve
+    the worker thread for many present ticks, so allow a generous ceiling
+    there to absorb scheduling jitter rather than flaking on a fixed budget.
+    """
+    return 500 if _on_ci() else 16
 
 
 def _chunk_times() -> ChunkTimes:
@@ -69,9 +89,21 @@ class _PresentRecord:
 class _CountingPresenter:
     """Records every presented frame; flips ``should_close`` after a budget."""
 
-    def __init__(self, present_budget: int, *, start_closed: bool = False) -> None:
+    def __init__(
+        self,
+        present_budget: int,
+        *,
+        start_closed: bool = False,
+        close_on_frame: PresentedFrame | None = None,
+    ) -> None:
         self._budget = present_budget
         self._closed = start_closed
+        # When set, close as soon as a frame that is *not* this one is
+        # presented -- i.e. the render worker delivered a backend frame. Lets
+        # timing tests wait on the worker instead of racing a fixed present
+        # budget, which flaked under CI load. ``present_budget`` then just
+        # bounds the stall case.
+        self._close_on_frame = close_on_frame
         self.records: list[_PresentRecord] = []
         self.process_events_calls = 0
 
@@ -84,7 +116,10 @@ class _CountingPresenter:
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         self.records.append(_PresentRecord(frame=frame, view_mode=view_mode))
-        if len(self.records) >= self._budget:
+        backend_frame_arrived = (
+            self._close_on_frame is not None and frame is not self._close_on_frame
+        )
+        if backend_frame_arrived or len(self.records) >= self._budget:
             self._closed = True
 
     def close(self) -> None:
@@ -96,8 +131,10 @@ class _CountingPresenter:
 
 
 class _PreparingPresenter(_CountingPresenter):
-    def __init__(self, present_budget: int) -> None:
-        super().__init__(present_budget=present_budget)
+    def __init__(
+        self, present_budget: int, *, close_on_frame: PresentedFrame | None = None
+    ) -> None:
+        super().__init__(present_budget=present_budget, close_on_frame=close_on_frame)
         self.prepared_frame_ids: set[int] = set()
         self.unprepared_backend_frame_ids: set[int] = set()
 
@@ -334,9 +371,14 @@ def test_input_to_present_profile_ignores_represented_frames(
 
 def test_loop_presents_backend_frames_when_available() -> None:
     """Once the pipeline has rendered frames, the loop presents them."""
-    presenter = _CountingPresenter(present_budget=4)
-    controls = _FakeRuntimeControls()
     initial = _make_frame()
+    # Wait for the worker to deliver a backend frame rather than racing a
+    # fixed present budget (which flaked under CI load); the budget is just a
+    # stall ceiling, larger on CI.
+    presenter = _CountingPresenter(
+        present_budget=_backend_frame_wait_budget(), close_on_frame=initial
+    )
+    controls = _FakeRuntimeControls()
 
     result = _drive_loop(
         presenter=presenter,
@@ -348,14 +390,15 @@ def test_loop_presents_backend_frames_when_available() -> None:
     )
 
     assert result is False
-    assert len(presenter.records) == 4
     assert any(record.frame is not initial for record in presenter.records)
 
 
 def test_loop_prepares_backend_frames_before_presenting_them() -> None:
-    presenter = _PreparingPresenter(present_budget=6)
-    controls = _FakeRuntimeControls()
     initial = _make_frame()
+    presenter = _PreparingPresenter(
+        present_budget=_backend_frame_wait_budget(), close_on_frame=initial
+    )
+    controls = _FakeRuntimeControls()
 
     _drive_loop(
         presenter=presenter,
@@ -407,7 +450,9 @@ def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(
     monkeypatch.setattr(ChunkTimes, "create", capturing_create)
 
     initial = _make_frame()
-    presenter = _CountingPresenter(present_budget=3)
+    presenter = _CountingPresenter(
+        present_budget=_backend_frame_wait_budget(), close_on_frame=initial
+    )
     controls = _FakeRuntimeControls()
     _drive_loop(
         presenter=presenter,
