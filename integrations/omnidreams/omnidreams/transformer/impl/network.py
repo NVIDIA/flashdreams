@@ -24,6 +24,7 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.core.attention import KVRange
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
@@ -51,10 +52,12 @@ class CosmosDiTNetworkCache:
         return self.block_caches[index]
 
     def before_update(self, chunk_idx: int) -> None:
+        """Advance + roll every block's self-attn cache for ``chunk_idx``."""
         for block_cache in self.block_caches:
             block_cache.before_update(chunk_idx)
 
     def after_update(self, chunk_idx: int) -> None:
+        """Finalize every block's self-attn cursor for ``chunk_idx``."""
         for block_cache in self.block_caches:
             block_cache.after_update(chunk_idx)
 
@@ -422,7 +425,14 @@ class CosmosDiTNetwork(nn.Module):
         # cross attn
         context: Tensor,
     ) -> CosmosDiTNetworkCache:
-        """Build a fresh autoregressive cache for the DiT given the chunk geometry."""
+        """Build a fresh autoregressive cache for the DiT.
+
+        Every block's self-attn :class:`RollingBlockKVCache` is sized from
+        ``chunk_size`` / ``window_size`` / ``sink_size`` and is self-contained;
+        all blocks (and the cond/uncond CFG branches) are built identically so
+        they advance in lock-step. The threaded ``self_attn_range`` is read from
+        the first block (``block_caches[0].self_attn``).
+        """
         if self.config.use_crossattn_projection:
             context = self.crossattn_proj(context)
 
@@ -441,6 +451,7 @@ class CosmosDiTNetwork(nn.Module):
         rope_freqs: Tensor,  # [L, 1, 1, D]
         cache: CosmosDiTNetworkCache,
         condition_video_input_mask: Tensor,
+        self_attn_range: KVRange,
         current_chunk_idx: int = 0,
         hdmap_condition: Tensor | None = None,
         view_indices: Tensor | None = None,
@@ -454,12 +465,27 @@ class CosmosDiTNetwork(nn.Module):
             rope_freqs: RoPE cosine/sine embeddings of shape ``[L, 1, 1, D]``.
             cache: Per-block autoregressive cache produced by :meth:`initialize_cache`.
             condition_video_input_mask: Patchified condition mask, same shape as ``x``.
-            current_chunk_idx: Current chunk index in autoregressive inference.
+            self_attn_range: Branchless self-attn cache write/read pair
+                (see :class:`Block.forward`). Precomputed in
+                :meth:`RollingBlockKVCache.before_update` and read via
+                :attr:`RollingBlockKVCache.range`. All blocks share the
+                same value because their per-block self-attention
+                caches have identical geometry; threaded through the
+                traced graph as a fixed-arity tuple of two Python ints.
+                The per-block caches' cursors (``before_update`` /
+                ``after_update``) are advanced by the owning
+                ``CosmosTransformerCache`` at the AR-step boundary, outside this
+                graph-captured forward.
+            current_chunk_idx: Chunk index for the streaming cache update;
+                consulted only when ``eager_mode=True``.
             hdmap_condition: Optional HDMap tokens of shape ``[B, V, T, HW, D]`` or ``[B, V, L, D]``.
             view_indices: Optional view indices of shape ``[B, V]``.
-            eager_mode: ``True`` runs cache pre/post-update inside the forward;
-                ``False`` expects the caller to drive ``before_update`` / ``after_update``
-                outside the (graph-captured) network.
+            eager_mode: ``True`` drives ``before_update`` / ``after_update``
+                on the cache inside this forward; ``False`` expects the caller
+                to drive them outside the (graph-captured) network. NOTE:
+                slated for removal in a follow-up PR (see
+                ``eager-mode-removal-HANDOFF.md``); production uses
+                ``eager_mode=False``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
             "We expect to have called update_parameters_after_loading_checkpoint() after loading the checkpoint"
@@ -504,10 +530,13 @@ class CosmosDiTNetwork(nn.Module):
         else:
             view_embedding_proj = None
 
-        # In non-eager mode the caller drives ``before_update``/``after_update``
-        # outside the (graph-captured) network forward.
+        # In non-eager mode the caller drives ``before_update`` /
+        # ``after_update`` outside the (graph-captured) network forward and
+        # passes the precomputed ``self_attn_range`` in.
         if eager_mode:
             cache.before_update(current_chunk_idx)
+            self_attn_range = cache.block_caches[0].self_attn.range
+
         for block_idx, block in enumerate(self.blocks):
             assert isinstance(block, Block)
             x = block(
@@ -517,6 +546,7 @@ class CosmosDiTNetwork(nn.Module):
                 adaln_lora=adaln_lora,
                 cache=cache[block_idx],
                 view_embedding_proj=view_embedding_proj,
+                self_attn_range=self_attn_range,
             )
         if eager_mode:
             cache.after_update(current_chunk_idx)

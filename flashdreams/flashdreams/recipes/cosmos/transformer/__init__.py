@@ -487,6 +487,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             timesteps=timesteps,
             rope_freqs=cache.rope_freqs,
             cache=network_cache,
+            self_attn_range=network_cache.block_caches[0].self_attn.range,
             current_chunk_idx=ar_idx,
             eager_mode=False,
         )

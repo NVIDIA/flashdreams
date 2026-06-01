@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 import torch
 
-from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.core.attention.kvcache import PrefixBlockKVCache
 from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
 from flashdreams.recipes.wan.transformer.wan21 import (
@@ -107,7 +107,7 @@ def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:
 
     cache_k = torch.randn(1, 3, 1, 4)
     cache_v = torch.randn(1, 3, 1, 4)
-    cache = BlockKVCache.from_tensor(cache_k.clone(), cache_v, seq_dim=1)
+    cache = PrefixBlockKVCache.from_tensor(cache_k.clone(), cache_v, seq_dim=1)
     before = cache._k.clone()
 
     def _fake_apply_rope_freqs(x, freqs, interleaved=False):
@@ -119,6 +119,7 @@ def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:
         cache,
         rope_freqs_q=torch.zeros(3, 1, 1, 4),
         rope_freqs_k=torch.zeros(3, 1, 1, 4),
+        kv_range=cache.range,
     )
 
     torch.testing.assert_close(cache._k, before)

@@ -24,7 +24,13 @@ import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
+from flashdreams.core.attention import (
+    BlockKVCache,
+    ContextParallelAttention,
+    KVRange,
+    PrefixBlockKVCache,
+    RollingBlockKVCache,
+)
 from flashdreams.core.attention.rope import apply_rope_freqs
 
 
@@ -280,21 +286,15 @@ class MultiHeadAttention(nn.Module):
         """World size of the context-parallel group (1 if disabled)."""
         return self.attn_op.context_parallel_size()
 
-    def _compute_or_update_kv_cache(
+    def _project_kv(
         self,
         context: Tensor,
-        kv_cache: BlockKVCache | None = None,
         rope_freqs: Tensor | None = None,
-    ) -> BlockKVCache:
-        """Compute K/V from ``context`` and optionally merge into ``kv_cache``.
+    ) -> tuple[Tensor, Tensor]:
+        """Project ``context`` into cache-shaped K/V ``[batch, L, n, d]``.
 
-        Args:
-            context: Source for K/V projections, shape ``[..., L, n * d]``.
-            kv_cache: Existing cache to update; ``None`` allocates a new one.
-            rope_freqs: RoPE frequencies, shape ``[L, 1, 1, d // 2]``.
-
-        Returns:
-            Cache containing the merged keys and values.
+        Single source for the K/V projection shared by :meth:`compute_kv`
+        (prefix fill) and :meth:`update_kv` (rolling in-place write).
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
@@ -305,34 +305,34 @@ class MultiHeadAttention(nn.Module):
         v = self.v_proj(context).reshape(batch_size, L, n, d)
         if rope_freqs is not None:
             k = apply_rope_freqs(k, rope_freqs)
-
-        if kv_cache is None:
-            kv_cache = BlockKVCache.from_tensor(k, v, seq_dim=-3)
-        else:
-            kv_cache.update(k, v)
-        return kv_cache
+        return k, v
 
     def compute_kv(
         self,
         x: Tensor,
         rope_freqs: Tensor | None = None,
-    ) -> BlockKVCache:
-        """Build a new KV cache from ``x``."""
-        return self._compute_or_update_kv_cache(x, None, rope_freqs)
+    ) -> PrefixBlockKVCache:
+        """Build a one-shot prefix KV cache from ``x`` (cross-attn prefix fill)."""
+        k, v = self._project_kv(x, rope_freqs)
+        return PrefixBlockKVCache.from_tensor(k, v, seq_dim=-3)
 
     def update_kv(
         self,
         x: Tensor,
-        kv_cache: BlockKVCache,
+        kv_cache: RollingBlockKVCache,
+        kv_range: KVRange,
         rope_freqs: Tensor | None = None,
-    ) -> BlockKVCache:
-        """Append K/V computed from ``x`` into an existing ``kv_cache``."""
-        return self._compute_or_update_kv_cache(x, kv_cache, rope_freqs)
+    ) -> RollingBlockKVCache:
+        """Branchlessly write K/V computed from ``x`` into ``kv_cache`` at ``write_start``."""
+        k, v = self._project_kv(x, rope_freqs)
+        kv_cache.update_at(k, v, kv_range.write_start)
+        return kv_cache
 
     def apply_kv(
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
+        kv_range: KVRange,
         rope_freqs: Tensor | None = None,
     ) -> Tensor:
         """Run attention using ``x`` as queries and ``kv_cache`` as K/V source.
@@ -340,6 +340,8 @@ class MultiHeadAttention(nn.Module):
         Args:
             x: Query tensor of shape [..., L, n * d].
             kv_cache: KV cache for inference.
+            kv_range: Branchless write/read pair supplied by the caller; only
+                ``valid_len`` (the read length) is consumed here.
             rope_freqs: RoPE frequencies, shape [L, 1, 1, d // 2].
 
         Returns:
@@ -355,34 +357,12 @@ class MultiHeadAttention(nn.Module):
         if rope_freqs is not None:
             q = apply_rope_freqs(q, rope_freqs)
 
-        cached_k = kv_cache.cached_k()
-        cached_v = kv_cache.cached_v()
+        cached_k = kv_cache.cached_k_at(kv_range.valid_len)
+        cached_v = kv_cache.cached_v_at(kv_range.valid_len)
 
         out = self.attn_op(q, cached_k, cached_v)
         out = out.reshape(batch_shape + (L, n * d))
         return self.output_proj(out)
-
-    def forward(
-        self,
-        x: Tensor,
-        kv_cache: BlockKVCache,
-        rope_freqs: Tensor | None = None,
-        update_kv_cache: bool = True,
-    ) -> Tensor:
-        """Optionally refresh cache from ``x`` and run attention.
-
-        Args:
-            x: Query tensor and, when updating, the source for new K/V ([..., L, n * d]).
-            kv_cache: Cache read by attention; written when ``update_kv_cache`` is True.
-            rope_freqs: Optional RoPE frequencies for Q and (when updating) K.
-            update_kv_cache: If False, only run attention against the existing cache.
-
-        Returns:
-            Projected output tensor of shape [..., L, query_dim].
-        """
-        if update_kv_cache:
-            kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.apply_kv(x, kv_cache, rope_freqs)
 
 
 class SelfAttention(MultiHeadAttention):
@@ -396,7 +376,7 @@ class SelfAttention(MultiHeadAttention):
         sink_size: int,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> BlockKVCache:
+    ) -> RollingBlockKVCache:
         """Initialize KV cache for streaming self-attention.
 
         Args:
@@ -408,10 +388,10 @@ class SelfAttention(MultiHeadAttention):
             dtype: Data type for cache tensors.
 
         Returns:
-            An initialized ``BlockKVCache``.
+            An initialized ``RollingBlockKVCache``.
         """
         total_size = sink_size + window_size
-        return BlockKVCache(
+        return RollingBlockKVCache(
             k_shape=(batch_size, total_size, self.n_heads, self.head_dim),
             v_shape=(batch_size, total_size, self.n_heads, self.head_dim),
             seq_dim=-3,
@@ -425,11 +405,16 @@ class SelfAttention(MultiHeadAttention):
     def forward(
         self,
         x: Tensor,
-        kv_cache: BlockKVCache,
+        kv_cache: RollingBlockKVCache,
+        kv_range: KVRange,
         rope_freqs: Tensor,
     ) -> Tensor:
-        """Same as base ``forward`` with ``update_kv_cache=True``."""
-        return super().forward(x, kv_cache, rope_freqs=rope_freqs, update_kv_cache=True)
+        """Refresh the cache from ``x`` (``update_kv``) and run attention (``apply_kv``).
+
+        ``kv_range`` carries the branchless write offset and read length.
+        """
+        self.update_kv(x, kv_cache, kv_range, rope_freqs)
+        return self.apply_kv(x, kv_cache, kv_range, rope_freqs)
 
 
 class CrossAttention(MultiHeadAttention):
@@ -438,7 +423,7 @@ class CrossAttention(MultiHeadAttention):
     def initialize_cache(
         self,
         context: Tensor,  # [..., L, D]
-    ) -> BlockKVCache:
+    ) -> PrefixBlockKVCache:
         """Initialize cross-attention cache from the provided context."""
         cache = self.compute_kv(context)
         return cache
@@ -446,18 +431,22 @@ class CrossAttention(MultiHeadAttention):
     def forward(
         self,
         x: Tensor,
-        kv_cache: BlockKVCache,
+        kv_cache: PrefixBlockKVCache,
     ) -> Tensor:
-        """Attend with queries from ``x``; populate or roll ``kv_cache`` outside this call."""
-        return super().forward(x, kv_cache, rope_freqs=None, update_kv_cache=False)
+        """Attend with queries from ``x`` against the prefix ``kv_cache``.
+
+        The prefix cache is filled once via :meth:`compute_kv` and never updated,
+        so its :attr:`PrefixBlockKVCache.range` is constant.
+        """
+        return self.apply_kv(x, kv_cache, kv_range=kv_cache.range)
 
 
 @dataclass
 class BlockCache:
     """Per-block cache container for self-attention and cross-attention."""
 
-    self_attn: BlockKVCache
-    cross_attn: BlockKVCache
+    self_attn: RollingBlockKVCache
+    cross_attn: PrefixBlockKVCache
 
     def before_update(self, chunk_idx: int) -> None:
         """Run cache pre-update hook for the current chunk."""
@@ -582,6 +571,7 @@ class Block(nn.Module):
         emb: Tensor,
         cache: BlockCache,
         rope_freqs: Tensor,
+        self_attn_range: KVRange,
         adaln_lora: Tensor | None = None,
     ) -> Tensor:
         """Run the full block update for one denoising step.
@@ -591,6 +581,8 @@ class Block(nn.Module):
             emb: Timestep embedding with shape ``[..., L or 1, D]``.
             cache: KV cache container for this block.
             rope_freqs: RoPE frequencies with shape ``[L, 1, 1, D]``.
+            self_attn_range: Branchless self-attn cache write/read pair,
+                unpacked at :meth:`SelfAttention.forward`.
             adaln_lora: Optional AdaLN LoRA embedding with shape
                 ``[..., L or 1, 3 * D]``.
 
@@ -628,6 +620,7 @@ class Block(nn.Module):
             normed_x,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
+            kv_range=self_attn_range,
         )
         x = x + gate_self * attn_out
 

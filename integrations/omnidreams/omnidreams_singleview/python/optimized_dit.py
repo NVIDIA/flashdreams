@@ -13,19 +13,19 @@ the diffusion infra and stay unchanged.
 
 Streaming-cache lifecycle. ``native_extension.optimized_dit_forward``
 writes per-layer self-attn K/V in-place at ``self_attn_write_start``
-but does NOT call the cache's ``before_update`` / ``after_update``
-(the upstream ``net.forward(eager_mode=True)`` does). We wrap the C++
-call so the ``BlockKVCache`` state machine evolves the same way:
-
-  * before_update(chunk_idx) -> compute write_start -> C++ call ->
-    after_update(chunk_idx)
+but does NOT call the cache's ``before_update`` / ``after_update``.
+Neither does this shim: like the upstream PyTorch network forward, it
+leaves the ``RollingBlockKVCache`` state machine untouched. The cursor is
+advanced once per AR step at the boundary by
+``CosmosTransformerCache.start`` / ``.finalize``; ``predict_flow`` just
+reads the precomputed ``self_attn.write_start`` (from the first block's
+self-attn cache) and hands it to the C++ launcher.
 
 For the multi-step scheduler loop (one call per denoising step plus
-one finalize call) this is correct because
-``BlockKVCache.before_update`` is a no-op when
-``chunk_idx == _prev_chunk_idx``: only the first call per AR step
-advances the cursor; subsequent calls overwrite the rightmost slot
-with refined K/V from a less-noisy x0.
+one finalize call) this is correct because the boundary
+``before_update`` is a no-op when ``chunk_idx == _prev_chunk_idx``:
+only the first call per AR step advances the cursor; subsequent calls
+overwrite the rightmost slot with refined K/V from a less-noisy x0.
 
 Memory. We snapshot ``self.network.state_dict()`` lazily on the first
 ``predict_flow`` call to hand to the C++ side. Lazy because
@@ -103,7 +103,14 @@ class _CosmosCacheTensorLists:
     v_self: list[Tensor]
 
 
-def _clone_block_kv_cache(cache: Any) -> Any:
+def _clone_rolling_kv_cache(cache: Any) -> Any:
+    """Clone a self-contained :class:`RollingBlockKVCache` (geometry + cursor + buffers).
+
+    The clone is fully decoupled from ``cache`` (its own cursor) but starts at
+    the same cursor position, so a captured template reproduces the source
+    state. ``before_update`` / ``after_update`` then advance the clone's own
+    cursor; ``predict_flow`` reads ``block_caches[0].self_attn.range``.
+    """
     cloned = type(cache)(
         k_shape=tuple(cache.k_shape),
         v_shape=tuple(cache.v_shape),
@@ -117,17 +124,33 @@ def _clone_block_kv_cache(cache: Any) -> Any:
     cloned._prev_chunk_idx = cache._prev_chunk_idx
     cloned._curr_chunk_idx = cache._curr_chunk_idx
     cloned._n_cached = cache._n_cached
+    cloned._needs_buffer_roll = cache._needs_buffer_roll
+    cloned.write_start = cache.write_start
+    cloned.valid_len = cache.valid_len
     cloned._k.copy_(cache._k)
     cloned._v.copy_(cache._v)
     return cloned
 
 
+def _clone_prefix_kv_cache(cache: Any) -> Any:
+    """Clone an immutable :class:`PrefixBlockKVCache` (independent per block).
+
+    Prefix caches have no cursor, so the clone is just a fresh tensor copy
+    (``from_tensor`` allocates a new buffer and copies the K/V into it).
+    """
+    return type(cache).from_tensor(cache._k, cache._v, seq_dim=cache.seq_dim)
+
+
 def _clone_network_cache(cache: CosmosDiTNetworkCache) -> CosmosDiTNetworkCache:
+    # Each self-attn cache is self-contained (its own cursor); the clone copies
+    # its geometry + cursor + buffers. Cross-attn (prefix) caches are
+    # independent tensor copies. The clones advance in lock-step with the live
+    # caches because they share geometry + chunk sequence.
     return CosmosDiTNetworkCache(
         block_caches=[
             type(block)(
-                self_attn=_clone_block_kv_cache(block.self_attn),
-                cross_attn=_clone_block_kv_cache(block.cross_attn),
+                self_attn=_clone_rolling_kv_cache(block.self_attn),
+                cross_attn=_clone_prefix_kv_cache(block.cross_attn),
             )
             for block in cache.block_caches
         ]
@@ -596,33 +619,6 @@ def _roll_fp8_cache_left_like_block_cache(
     dst_end = int(block_cache.sink_size + tokens_to_keep)
     tensor[_seq_slice(tensor.ndim, actual_seq_dim, dst_start, dst_end)].copy_(
         tensor[_seq_slice(tensor.ndim, actual_seq_dim, src_start, src_end)].clone()
-    )
-
-
-def compute_self_attn_write_start(self_attn_cache: Any) -> int:
-    """The cursor optimized_dit_forward writes K/V at. Three cases
-    (matching ``BlockKVCache.update``):
-
-      * steady-state: write at the rightmost slot, after the left-roll;
-      * filling, advancing chunk: append at ``_n_cached``;
-      * filling, same chunk: overwrite the just-written rightmost slot.
-        This last case fires when ``predict_flow`` runs multiple times
-        per AR step (once per scheduler step).
-
-    Must be called AFTER ``before_update(chunk_idx)`` so
-    ``_curr_chunk_idx`` is set and any steady-state roll has already
-    happened.
-    """
-    if self_attn_cache.is_steady_state():
-        total_size = self_attn_cache._k.shape[self_attn_cache.seq_dim]
-        return int(total_size - self_attn_cache.chunk_size)
-    if self_attn_cache._curr_chunk_idx == self_attn_cache._prev_chunk_idx + 1:
-        return int(self_attn_cache._n_cached)
-    if self_attn_cache._curr_chunk_idx == self_attn_cache._prev_chunk_idx:
-        return int(self_attn_cache._n_cached - self_attn_cache.chunk_size)
-    raise RuntimeError(
-        f"Unexpected cache state: _curr_chunk_idx={self_attn_cache._curr_chunk_idx} "
-        f"vs _prev_chunk_idx={self_attn_cache._prev_chunk_idx}"
     )
 
 
@@ -1650,19 +1646,18 @@ class OptimizedDiTExecutor:
         # which ``DiffusionModel.generate`` invokes around the scheduler
         # loop. ``predict_flow`` is called MULTIPLE times per AR step
         # (one per scheduler timestep) and the inner network just
-        # overwrites the rightmost slot each call (see the
-        # ``filling-same-chunk`` and ``steady-state`` branches in
-        # ``compute_self_attn_write_start``). An older revision of this
-        # shim wrapped the ``optimized_dit_forward`` call in
-        # ``before_update`` / ``after_update`` and tripped
-        # ``BlockKVCache.before_update``'s "Must call after_update()
-        # before before_update()" assert on the second scheduler
-        # timestep of every AR step. We just consume the post-
-        # ``before_update`` state directly here -- the C++ launcher
-        # writes K/V in place at ``write_start``, and the boundary
-        # ``finalize`` advances the state machine once.
-        net_cache = cache.network_cache
-        write_start = compute_self_attn_write_start(net_cache.block_caches[0].self_attn)
+        # overwrites the rightmost slot each call (the per-cache branchless
+        # ``write_start`` was precomputed once per AR step by ``before_update``
+        # in ``CosmosTransformerCache.start``, identical across blocks since
+        # they share geometry + chunk sequence). An older revision of this shim
+        # wrapped the ``optimized_dit_forward`` call in ``before_update`` /
+        # ``after_update`` and tripped ``RollingBlockKVCache.before_update``'s
+        # "Must call after_update() before before_update()" assert on the second
+        # scheduler timestep of every AR step. We just read the precomputed
+        # ``write_start`` from the first self-attn cache here -- the C++ launcher
+        # writes K/V in place at that offset, and the boundary ``finalize``
+        # advances the cursors once.
+        write_start = cache.network_cache.block_caches[0].self_attn.write_start
         kv_lists = self._ensure_kv_tensor_lists(cache=cache)
 
         # Upstream single-view CosmosTransformer flattens THW to [B, V, L, D].
@@ -1773,6 +1768,5 @@ class OptimizedDiTExecutor:
 
 __all__ = [
     "OptimizedDiTExecutor",
-    "compute_self_attn_write_start",
     "prepare_cosmos_streaming_weights",
 ]

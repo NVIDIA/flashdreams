@@ -79,7 +79,9 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
     """Long-lived AR cache for the Cosmos transformer."""
 
     network_cache: CosmosDiTNetworkCache
-    """Per-block self-attn KV + (text-only) cross-attn KV."""
+    """Per-block self-attn KV + (text-only) cross-attn KV. Each self-attn cache
+    is a self-contained :class:`RollingBlockKVCache`; all blocks (and the
+    cond/uncond branches) advance in lock-step."""
 
     network_cache_uncond: CosmosDiTNetworkCache | None = None
     """Unconditional cache for CFG; ``None`` disables CFG."""
@@ -113,11 +115,15 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
 
     def start(self, autoregressive_index: int) -> None:
         # Hoist per-block KV pre-update and the RoPE shift out of the
-        # (graph-captured) network forward. ``predict_flow`` runs with
-        # ``eager_mode=False``; the cond/uncond passes share ``rope_freqs``.
+        # (graph-captured) network forward: the network never advances the
+        # caches itself, so we drive ``before_update`` here (and
+        # ``after_update`` in ``finalize``). Cond/uncond share ``rope_freqs``.
         self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
 
         self.autoregressive_index = autoregressive_index
+        # Advance + roll every block's self-attn cache (cond + uncond) for this
+        # chunk; they march in lock-step. Readers fetch the branchless pair from
+        # the first cache (``network_cache.block_caches[0].self_attn.range``).
         self.network_cache.before_update(autoregressive_index)
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.before_update(autoregressive_index)
@@ -690,6 +696,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             current_chunk_idx=ar_idx,
             hdmap_condition=input,
             view_indices=cache.view_indices,
+            self_attn_range=network_cache.block_caches[0].self_attn.range,
             eager_mode=False,
         )
 
