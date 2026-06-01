@@ -104,6 +104,28 @@ To inspect all supported CLI arguments and their default values, run:
        lingbot-world-fast \
        --help
 
+What to expect
+--------------
+
+- **Example data**: ``--example-data True`` downloads ``image.jpg``,
+  ``intrinsics.npy``, ``poses.npy``, ``prompt.txt`` from the
+  `upstream examples folder <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_
+  into ``assets/example_data/lingbot_world/<NN>/`` (``<NN>`` matches
+  ``--example-idx``). Cached after first run; no credentials needed.
+- **Model checkpoint**: ~70 GB pulled from
+  ``huggingface.co/robbyant/lingbot-world-fast`` on first run, cached
+  under ``$HF_HOME``. Export ``HF_TOKEN`` first.
+- **Disk**: keep ~200 GB free for the model + HF cache. Hosts under
+  ~100 GB have been seen to run out mid-load.
+- **First launch**: a few minutes (download + Triton autotuning +
+  CUDA-graph warmup). Subsequent launches reuse the caches.
+- **Outputs**: ``outputs/<runner-slug>.mp4`` (16 FPS, 464×832 by
+  default) and ``outputs/stats_<runner-slug>.json``. Override with
+  ``--output-dir`` / ``--pixel-height`` / ``--pixel-width`` / ``--fps``.
+
+See :doc:`/developer_guides/inference_pipeline_overview` for what one
+autoregressive chunk does end-to-end.
+
 Some generated samples from the above commands:
 
 .. raw:: html
@@ -152,10 +174,26 @@ Spin up the interactive LingBot-World server via WebRTC:
        --config_name lingbot-world-fast-taehv-window15-sink3 \
        --example-idx 0
 
-The server may take a few minutes to warm up. When it is ready, it prints
-``Connect via http://<server-ip>:8089/request_session``.
-Here, ``<server-ip>`` is the server IP address you are connecting to
-(can use ``localhost`` when running locally).
+``--example-idx`` selects which example to download
+(``0``, ``1``, ``2``, ``5``); assets auto-download on first launch.
+The HTTP port opens only after model load + warmup — a few minutes on
+first launch, much faster afterwards. When ready the server prints
+``Connect via http://<server-ip>:8089/request_session`` (use
+``localhost`` when running locally).
+
+.. note::
+
+   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
+   the server port is usually not reachable at the host IP directly.
+   Forward it to your local machine first, then open
+   ``http://localhost:8089/request_session``:
+
+   .. code-block:: bash
+
+      # Brev
+      brev port-forward <instance> -p 8089:8089
+      # or plain SSH
+      ssh -L 8089:localhost:8089 <user>@<host>
 
 When successfully connected, the browser-based UI looks like this:
 
