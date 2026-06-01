@@ -155,13 +155,13 @@ Unlike the TC decoder file the DiT references reach back into
 package import out of the editable `diffsynth` install (`uv pip
 install --no-deps -e ./FlashVSR` in `run.sh`).
 
-## Sparse attention shim
+## Sparse attention baseline dependency
 
 Upstream FlashVSR imports `block_sparse_attn` for Locality-Constrained
-Sparse Attention. `changes.patch` adds a small compatibility package to
-the cloned upstream tree so that import path routes to flashdreams'
-in-tree Triton sparse-attention backend. The parity-check venv therefore
-does not build the external Block-Sparse-Attention CUDA extension.
+Sparse Attention. The parity-check venv installs the upstream external
+package so the baseline keeps the implementation it originally has. The
+FlashDreams candidate uses the in-tree Triton sparse-attention backend
+through `flashvsr.transformer.network`.
 
 ## Isolation
 

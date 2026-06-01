@@ -16,7 +16,7 @@
 """Triton forward implementation for FlashVSR block-sparse attention."""
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, overload
 
 import torch
 
@@ -322,6 +322,14 @@ def _dispatch_kernel_options(
 
 def _round_multiple(x: int, m: int) -> int:
     return (x + m - 1) // m * m
+
+
+@overload
+def _maybe_contiguous(x: torch.Tensor) -> torch.Tensor: ...
+
+
+@overload
+def _maybe_contiguous(x: None) -> None: ...
 
 
 def _maybe_contiguous(x: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
@@ -1656,7 +1664,7 @@ def _block_sparse_attn_fwd_core(
     cu_seqlens_q: torch.Tensor,
     cu_seqlens_k: torch.Tensor,
     head_mask_type: torch.Tensor,
-    streaming_info: Optional[torch.Tensor],
+    streaming_info: torch.Tensor,
     base_blockmask: Optional[torch.Tensor],
     max_seqlen_q_: int,
     max_seqlen_k_: int,
@@ -1888,7 +1896,7 @@ def _block_sparse_attn_fwd_core(
             num_warps=num_warps_sparse,
             num_stages=num_stages_sparse,
         )
-    elif use_single_mixed:
+    elif use_single_mixed and base_blockmask is not None:
         mixed_blockmask = (
             _convert_blockmask_row_reverse(base_blockmask)
             if use_row_list_mixed

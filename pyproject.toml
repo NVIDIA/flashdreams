@@ -89,8 +89,6 @@ exclude = [
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
     "integrations/hy_worldplay/tests/parity_check/**",
-    # Triton JIT kernels use a DSL that ty cannot model as normal Python.
-    "integrations/flashvsr/flashvsr/transformer/triton_sparse_attn.py",
 ]
 
 [tool.ty.rules]
@@ -102,7 +100,7 @@ invalid-method-override = "ignore"
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
 # imports as Any.
-replace-imports-with-any = ["transformer_engine.**", "triton.**"]
+replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"

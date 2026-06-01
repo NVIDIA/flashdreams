@@ -146,16 +146,15 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 echo "[setup] uv pip install --no-deps -e ${REPO_DIR} (registers diffsynth in venv)"
 ( cd "${SCRIPT_DIR}" && uv pip install --no-deps -e "${REPO_DIR}" )
 
-# ---------------------------------------------------------- sparse-attn shim
-# ``changes.patch`` adds a small ``block_sparse_attn`` compatibility package
-# to the cloned upstream tree. It keeps upstream FlashVSR's import path intact
-# while routing calls to flashdreams' in-tree Triton backend, so this parity
-# venv no longer builds the external Block-Sparse-Attention CUDA extension.
+# ------------------------------------------------ sparse-attn baseline dependency
+# Keep upstream FlashVSR's sparse-attention import path backed by the original
+# external package. The FlashDreams candidate imports its in-tree Triton backend
+# through ``flashvsr.transformer.network`` instead.
 if ! ( cd "${SCRIPT_DIR}" && \
     uv run python -c "import torch; import block_sparse_attn" \
     >/dev/null 2>&1 ); then
     cat <<EOF >&2
-[setup] ERROR: upstream ``block_sparse_attn`` compatibility shim is not importable.
+[setup] ERROR: upstream ``block_sparse_attn`` package is not importable.
         Re-run the smoke check directly for the actual error:
 
             ( cd "${SCRIPT_DIR}" && uv run python -c \\
