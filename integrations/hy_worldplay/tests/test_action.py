@@ -92,12 +92,32 @@ def test_pose_data_returns_w2c_K_action() -> None:
     assert float(K[0, 1, 2]) == pytest.approx(0.5)
 
 
-def test_pose_data_length_mismatch_raises() -> None:
-    """Pose script with the wrong frame count must surface clearly."""
+def test_pose_data_too_short_raises() -> None:
+    """A pose source with fewer entries than the rollout needs must surface clearly."""
     from hy_worldplay._pose import parse_pose_action_labels
 
+    # "w-3" -> 3 motions + 1 identity = 4 entries; the rollout wants 10.
     with pytest.raises(ValueError, match="pose corresponds to"):
         parse_pose_action_labels("w-3", n_latents=10)
+
+
+def test_pose_data_longer_source_is_prefix_sliced() -> None:
+    """A pose source longer than ``n_latents`` is accepted; the first N poses are used.
+
+    Lets upstream's fixed-length sample (e.g. the 33-entry
+    ``test_forward_32_latents.json``) drive a shorter ``num_chunk`` run
+    without bespoke trimming -- mirrors vendor's prefix-slice behaviour.
+    """
+    from hy_worldplay._pose import parse_pose_action_labels, parse_pose_data
+
+    # "w-15" -> 15 motions + 1 identity = 16 entries; ask for only 4.
+    w2c, K, action = parse_pose_data("w-15", n_latents=4)
+    assert w2c.shape == (4, 4, 4)
+    assert K.shape == (4, 3, 3)
+    assert action.shape == (4,)
+    # The sliced prefix is identical to parsing a matching-length script.
+    exact = parse_pose_action_labels("w-3", n_latents=4)
+    assert action.tolist() == exact.tolist()
 
 
 def test_pose_data_rejects_unknown_action() -> None:
