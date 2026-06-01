@@ -423,6 +423,16 @@ instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The local window needs a display server (X11) and the system OpenGL /
+Vulkan client libraries. On Debian/Ubuntu:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>libx11-6<span class="w"> </span>libxcb1<span class="w"> </span>libgl1<span class="w"> </span>libglx-mesa0<span class="w"> </span>libvulkan1
+</pre></div>
+</div>
+<p>A <code class="docutils literal notranslate"><span class="pre">Failed</span> <span class="pre">to</span> <span class="pre">initialize</span> <span class="pre">GLFW</span></code> error means the display or one of these
+libraries is missing.</p>
+</div>
 <section id="steering-wheel-and-game-controller">
 <h3>Steering wheel and game controller<a class="headerlink" href="#steering-wheel-and-game-controller" title="Link to this heading">¶</a></h3>
 <p>With a local window you can drive using a steering wheel or game
