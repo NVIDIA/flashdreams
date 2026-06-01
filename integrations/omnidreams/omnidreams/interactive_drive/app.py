@@ -378,14 +378,8 @@ class InteractiveDriveApp:
                 initial_state=state_from_initial_pose(
                     initial_rig_to_world=self._scene.initial_rig_to_world,
                     initial_yaw_rad=self._scene.initial_yaw_rad,
-                    # The interactive demo is always hands-on-the-wheel, so
-                    # every rollout starts from a stop. Seeding the ego with
-                    # the clip's recorded speed (``scene.initial_speed_mps``)
-                    # only happened on the very first rollout -- before any
-                    # drive command flips ``manual_control`` true -- which made
-                    # the demo "launch" at highway speed until the first reset
-                    # rebuilt the sim at rest. Starting at 0 makes the initial
-                    # load behave identically to a reset.
+                    # Always start at rest so the initial load matches a
+                    # reset, rather than launching at the clip's recorded speed.
                     initial_speed_mps=0.0,
                 ),
                 vehicle_config=self._config.vehicle,
