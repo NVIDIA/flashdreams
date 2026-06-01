@@ -19,6 +19,7 @@
 
 #include "dit_streaming/streaming_dit_bindings.h"
 #include "native_primitives.h"
+#include "vae_streaming/vae_streaming_bindings.h"
 
 #ifndef OMNIDREAMS_SINGLEVIEW_WITH_CUDA
 #error "OmniDreams single-view native extension requires CUDA"
@@ -89,4 +90,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
   module.def("build_info", &build_info);
   omnidreams_singleview::bind_native_primitives(module);
   omnidreams_singleview::bind_optimized_dit(module);
+  omnidreams_singleview::bind_vae_streaming(module);
 }

@@ -81,13 +81,17 @@ uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --example-data \
     --ckpt-path /path/to/models/wan_distilled_model/model.pt \
     --num-chunk 1 \
-    --pose "w-3" \
     --output-dir outputs
 ```
 
-`--example-data` lazy-downloads upstream's `assets/img/test.png`
-into `data_local/hy_worldplay/` (gitignored) and uses it as the
-first frame. Pass `--image-path <path>` instead for a custom input.
+`--example-data` lazy-downloads upstream's sample first frame
+(`assets/img/test.png`) and camera trajectory
+(`assets/pose/test_forward_32_latents.json`) into
+`data_local/hy_worldplay/` (gitignored) and uses them as the input
+image + pose. Pass `--image-path <path>` and/or `--pose <script|json>`
+to override either; the pose source is prefix-sliced to the rollout's
+`num_chunk * 4` latent budget, so the 33-entry sample drives any
+`num-chunk` up to 8.
 
 `--ckpt-path` is optional. Without it the pipeline loads the base
 Wan 2.2 TI2V-5B safetensors and HY's conditioners stay zero-init

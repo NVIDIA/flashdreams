@@ -99,7 +99,7 @@ def test_service_get_version_returns_package_version(
     engine = _DummyEngine()
     service = WorldModelService(engine=engine)  # ty:ignore[invalid-argument-type]
 
-    response = service.get_version(common_pb2.Empty(), None)  # ty:ignore[invalid-argument-type]
+    response = service.get_version(common_pb2.Empty(), None)
 
     assert response.version_id == "1.2.3rc4"
     assert response.git_hash == ""

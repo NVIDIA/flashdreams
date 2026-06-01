@@ -99,6 +99,44 @@ To inspect all supported CLI arguments and their default values, run:
        self-forcing-wan2.1-t2v-1.3b \
        --help
 
+What to expect
+--------------
+
+- **Default prompt**: omitting ``--prompt`` uses a Tokyo street-scene
+  default. Override with an inline string or a path to a ``.txt`` file.
+- **Total blocks**: ``--total-blocks N`` runs ``N`` autoregressive
+  chunks. Commands here use ``7`` for a fast demo; the config default
+  is ``60`` for full rollouts. See
+  :doc:`/developer_guides/inference_pipeline_overview` for what one
+  chunk does end-to-end.
+- **Outputs**: ``outputs/<runner-slug>.mp4`` (16 FPS, 480×832 by
+  default) and ``outputs/stats_<runner-slug>.json``. Override with
+  ``--output-dir`` / ``--pixel-height`` / ``--pixel-width`` / ``--fps``.
+
+Measured runtimes on H100 80GB with ``--total-blocks 7``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 32 32
+
+   * - Setup
+     - First run (cold)
+     - Subsequent runs
+   * - 1× H100 PCIe
+     - ~6.9 min
+     - ~42 s
+   * - 4× H100 HBM3 (``torchrun --nproc_per_node=4``)
+     - ~8.6 min
+     - ~73 s
+
+Cold runs are dominated by the first two AR blocks (Triton autotuning +
+CUDA-graph warmup); steady-state blocks are sub-second.
+
+Per-block steady-state on 4 GPUs is ~2× faster (~251 ms vs ~500 ms),
+but per-rank autotune + NCCL overhead makes 4 GPUs end-to-end slower
+than 1 GPU at ``--total-blocks 7``. Multi-GPU pays off once steady-state
+dominates warmup — use it for ``--total-blocks 60+``.
+
 Some generated samples from the above commands:
 
 .. raw:: html

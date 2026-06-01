@@ -12,10 +12,16 @@ from typing import Any
 import numpy as np
 import torch
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
+from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
+_LIGHTVAE_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+_LIGHTVAE_PERF_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
+_LIGHTVAE_NATIVE_PERF_RECIPE = (
+    "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf"
+)
 
 
 def _select_config_name(manifest: WorldModelManifest) -> str:
@@ -53,7 +59,7 @@ def _select_config_name(manifest: WorldModelManifest) -> str:
             raise ValueError(
                 "The light-VAE flashdreams recipe currently supports 8-frame chunks."
             )
-        return "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+        return _LIGHTVAE_RECIPE
     if manifest.num_frames_per_block == 8:
         return "omnidreams-sv-2steps-chunk2-loc6-vae-vae"
     if manifest.num_frames_per_block == 12:
@@ -90,15 +96,12 @@ def _build_pipeline_config(
     # global instances, so use ``derive_config`` to get a deep-copied
     # override-applied instance instead of mutating the global.
     transformer_overrides = _transformer_overrides(manifest)
-    base_config_name = (
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
-        if config_name == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
-        else config_name
-    )
+    base_config_name = _base_config_name(config_name, manifest)
     base = OMNIDREAMS_CONFIGS[base_config_name]
     config = derive_config(
         base,
         enable_sync_and_profile=bool(profile.enabled),
+        **_native_vae_overrides(manifest),
         diffusion_model=dict(
             seed=seed,
             transformer=transformer_overrides,
@@ -129,10 +132,41 @@ def _build_pipeline_config(
     print(
         "[flashdreams-session] resolved pipeline config\n"
         f"selected_recipe={config_name}\n"
+        f"base_recipe={base_config_name}\n"
         f"{config}",
         flush=True,
     )
     return config
+
+
+def _base_config_name(config_name: str, manifest: WorldModelManifest) -> str:
+    if manifest.native_vae_encoder != "disabled":
+        if config_name != _LIGHTVAE_RECIPE:
+            raise ValueError("native_vae_encoder=fp8 requires light_vae=true.")
+        return _LIGHTVAE_NATIVE_PERF_RECIPE
+    if config_name == _LIGHTVAE_RECIPE:
+        return _LIGHTVAE_PERF_RECIPE
+    return config_name
+
+
+def _native_vae_overrides(manifest: WorldModelManifest) -> dict[str, object]:
+    if manifest.native_vae_encoder == "disabled":
+        return {}
+    if manifest.native_vae_encoder != "fp8":
+        raise ValueError(
+            f"Unsupported native_vae_encoder={manifest.native_vae_encoder!r}"
+        )
+
+    common: dict[str, object] = {
+        "native_vae_acceleration": "required",
+        "native_vae_backend": "fp8",
+    }
+    if manifest.native_vae_fp8_state_path is not None:
+        common["native_vae_fp8_state_path"] = str(manifest.native_vae_fp8_state_path)
+    return {
+        "image_encoder": dict(common),
+        "encoder": dict(common),
+    }
 
 
 def _transformer_overrides(manifest: WorldModelManifest) -> dict[str, object]:
@@ -287,27 +321,76 @@ class FlashdreamsWorldModelSession:
             )
         return self._pipeline
 
-    def warmup(
+    @property
+    def can_prewarm(self) -> bool:
+        # The non-factory offload path defers its build to the first
+        # prepare_for_scene so the one-shot encoders are freed before the
+        # AR pipeline is allocated (peak-VRAM ordering); every other path
+        # builds the pipeline eagerly with no scene needed.
+        return self._pipeline_factory is not None or not self._offload_text_encoder
+
+    def warmup_model(self) -> None:
+        """Build the scene-independent diffusion pipeline (weights + compile).
+
+        Called once per process. The non-factory offload path returns here
+        and builds lazily in :meth:`prepare_for_scene` instead, so per-scene
+        embeddings are computed and the one-shot encoders freed before the
+        AR pipeline is allocated.
+        """
+        start = time.perf_counter()
+        if self._pipeline_factory is not None:
+            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
+        elif self._offload_text_encoder:
+            return
+        else:
+            config = _build_pipeline_config(self.manifest, self._profile_config)
+            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+        self._validate_chunk_sizes()
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        print(
+            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
+            flush=True,
+        )
+
+    def prepare_for_scene(
         self, *, initial_rgb: object | None = None, prompt: str | None = None
     ) -> None:
-        start = time.perf_counter()
-        if self._pipeline_factory is None:
-            config = _build_pipeline_config(self.manifest, self._profile_config)
-            if self._offload_text_encoder:
-                if initial_rgb is None or prompt is None:
-                    raise RuntimeError(
-                        "offload_text_encoder warmup requires the scene initial_rgb and prompt."
-                    )
-                self._precomputed_embeddings = _precompute_embeddings_from_config(
-                    config,
-                    self.manifest,
-                    initial_rgb=initial_rgb,
-                    prompt=prompt,
-                )
-                config = replace(config, text_encoder=None, image_encoder=None)
-            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
-        else:
-            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
+        """Per-scene conditioning prep, run on every scene (re)load.
+
+        Default path: a no-op. The pipeline keeps its text/image encoders
+        and re-embeds the current prompt in ``initialize_cache`` on every
+        rollout, so switching scenes needs no model-side work here.
+
+        Offload path: the one-shot encoders are freed to save VRAM, so a
+        new scene's prompt/first-frame cannot reuse the previous scene's
+        cached embeddings. The factory (test) path recomputes them lazily
+        on the next ``start``; the real path rebuilds the pipeline per
+        scene (precompute embeddings -> free encoders -> build pipeline) to
+        keep peak VRAM low. This is the only path that does not keep the
+        model resident across scene changes.
+        """
+        if not self._offload_text_encoder:
+            return
+        self._precomputed_embeddings = None
+        if self._pipeline_factory is not None:
+            return
+        if initial_rgb is None or prompt is None:
+            raise RuntimeError(
+                "offload_text_encoder requires the scene initial_rgb and prompt."
+            )
+        self._release_pipeline()
+        config = _build_pipeline_config(self.manifest, self._profile_config)
+        self._precomputed_embeddings = _precompute_embeddings_from_config(
+            config,
+            self.manifest,
+            initial_rgb=initial_rgb,
+            prompt=prompt,
+        )
+        config = replace(config, text_encoder=None, image_encoder=None)
+        self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+        self._validate_chunk_sizes()
+
+    def _validate_chunk_sizes(self) -> None:
         first_chunk_frames = self.pipeline.get_num_frames(0)
         # Flashdreams indexes the first post-initial chunk as AR step 1; this
         # is the steady-state frame count that interactive-drive loops over.
@@ -322,15 +405,23 @@ class FlashdreamsWorldModelSession:
                 "flashdreams steady-state chunk size does not match the manifest: "
                 f"{steady_chunk_frames} vs {self.manifest.num_frames_per_block}"
             )
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-        print(f"[flashdreams-session] warmup runtime_ms={elapsed_ms:.1f}", flush=True)
+
+    def _release_pipeline(self) -> None:
+        if self._pipeline is None:
+            return
+        self._pipeline = None
+        gc.collect()
+        device = torch.device(self.manifest.device)
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+            torch.cuda.empty_cache()
 
     def start(
         self,
         initial_rgb: object,
         condition_frames: list[object],
         prompt: str,
-    ) -> list[np.ndarray]:
+    ) -> list[object]:
         expected_frames = self.pipeline.get_num_frames(0)
         if len(condition_frames) != expected_frames:
             raise ValueError(
@@ -346,13 +437,15 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
+            model_frames = self._video_tensor_to_frames(video)
+            _synchronize_cuda_frame_event(model_frames)
         self._pending_finalization_index = 0
         self._next_block_index = 1
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         print(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}", flush=True)
-        return self._video_tensor_to_host_frames(video)
+        return model_frames
 
-    def continue_generation(self, condition_frames: list[object]) -> list[np.ndarray]:
+    def continue_generation(self, condition_frames: list[object]) -> list[object]:
         if self._cache is None:
             raise RuntimeError("start() must be called before continue_generation()")
         expected_frames = self.pipeline.get_num_frames(self._next_block_index)
@@ -372,6 +465,8 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
+            model_frames = self._video_tensor_to_frames(video)
+            _synchronize_cuda_frame_event(model_frames)
         block_index = self._next_block_index
         self._pending_finalization_index = block_index
         self._next_block_index += 1
@@ -381,7 +476,7 @@ class FlashdreamsWorldModelSession:
                 f"[flashdreams-session] continue block_index={block_index} total_ms={elapsed_ms:.1f}",
                 flush=True,
             )
-        return self._video_tensor_to_host_frames(video)
+        return model_frames
 
     def reset(self) -> None:
         self._cache = None
@@ -455,6 +550,10 @@ class FlashdreamsWorldModelSession:
         return _initial_rgb_tensor(initial_rgb, device=self.pipeline.device)
 
     def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
+        cuda_video = _condition_cuda_video(condition_frames)
+        if cuda_video is not None:
+            tensor = cuda_video.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
+            return self._to_model_range(tensor)
         video = np.stack([_rgb_hwc_uint8(frame) for frame in condition_frames], axis=0)
         tensor = torch.from_numpy(np.ascontiguousarray(video))
         tensor = tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
@@ -464,7 +563,7 @@ class FlashdreamsWorldModelSession:
         return _to_model_range(tensor, device=self.pipeline.device)
 
     @staticmethod
-    def _video_tensor_to_host_frames(video: torch.Tensor) -> list[np.ndarray]:
+    def _video_tensor_to_frames(video: torch.Tensor) -> list[object]:
         if video.ndim != 6:
             raise ValueError(
                 f"Expected [B,V,T,3,H,W] video tensor, got shape {tuple(video.shape)}"
@@ -473,11 +572,132 @@ class FlashdreamsWorldModelSession:
         if frames.dtype != torch.uint8:
             frames = frames.clamp(-1.0, 1.0)
             frames = ((frames + 1.0) * 127.5).round().to(torch.uint8)
-        frames = frames.permute(0, 2, 3, 1).detach().cpu().numpy()
-        return [np.ascontiguousarray(frame, dtype=np.uint8) for frame in frames]
+        frames = frames.permute(0, 2, 3, 1).contiguous()
+        source_event = None
+        if frames.is_cuda:
+            source_event = torch.cuda.Event()
+            source_event.record(torch.cuda.current_stream(frames.device))
+        return [
+            _LazyRGBFrame(frames, frame_index, source_event=source_event)
+            for frame_index in range(frames.shape[0])
+        ]
+
+
+class _LazyRGBFrame:
+    """Defer GPU-to-host copies until the presenter consumes each frame."""
+
+    def __init__(
+        self,
+        frames_hwc_uint8: torch.Tensor,
+        frame_index: int,
+        *,
+        source_event: object | None = None,
+    ) -> None:
+        self._frames_hwc_uint8: torch.Tensor | None = frames_hwc_uint8
+        self._frame_index = int(frame_index)
+        self._source_event = source_event
+        self._host: np.ndarray | None = None
+        self._prefetch: CudaHostPrefetch | None = None
+
+    def prefetch_to_numpy(self) -> None:
+        if (
+            self._host is not None
+            or self._prefetch is not None
+            or self._frames_hwc_uint8 is None
+        ):
+            return
+        frame = self._frames_hwc_uint8[self._frame_index].detach()
+        prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
+        if prefetch.start():
+            self._prefetch = prefetch
+
+    def to_numpy(self) -> np.ndarray:
+        if self._host is None:
+            if self._prefetch is not None:
+                self._host = self._prefetch.to_numpy()
+                self._prefetch = None
+                self._frames_hwc_uint8 = None
+                return self._host
+            if self._frames_hwc_uint8 is None:
+                raise RuntimeError(
+                    "Lazy RGB frame lost its source tensor before materialization."
+                )
+            frame = self._frames_hwc_uint8[self._frame_index].detach().cpu().numpy()
+            self._host = np.ascontiguousarray(frame, dtype=np.uint8)
+            self._frames_hwc_uint8 = None
+        return self._host
+
+    def to_cuda_tensor(self) -> torch.Tensor:
+        if self._frames_hwc_uint8 is None:
+            raise RuntimeError("Lazy RGB frame was already materialized on the host.")
+        return self._frames_hwc_uint8[self._frame_index]
+
+    def to_cuda_event(self) -> object | None:
+        if self._frames_hwc_uint8 is None:
+            return None
+        return self._source_event
+
+    def __array__(
+        self,
+        dtype: object | None = None,
+        copy: bool | None = None,
+    ) -> np.ndarray:
+        array = self.to_numpy()
+        if dtype is not None:
+            array = array.astype(dtype, copy=False)
+        if copy:
+            return np.array(array, copy=True)
+        return array
 
 
 def _rgb_hwc_uint8(frame: object) -> np.ndarray:
     return np.ascontiguousarray(
         np.array(np.asarray(frame, dtype=np.uint8)[..., :3], copy=True)
     )
+
+
+def _condition_cuda_video(condition_frames: Sequence[object]) -> torch.Tensor | None:
+    tensors: list[torch.Tensor] = []
+    device: torch.device | None = None
+    for frame in condition_frames:
+        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
+        if not callable(to_cuda_tensor):
+            return None
+        try:
+            tensor = to_cuda_tensor()
+        except RuntimeError:
+            return None
+        if (
+            not torch.is_tensor(tensor)
+            or not tensor.is_cuda
+            or tensor.dtype != torch.uint8
+            or tensor.ndim != 3
+            or tensor.shape[-1] < 3
+        ):
+            return None
+        if device is None:
+            device = tensor.device
+        elif tensor.device != device:
+            return None
+
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is not None:
+            torch.cuda.current_stream(tensor.device).wait_event(event)
+        rgb = tensor[..., :3]
+        tensors.append(rgb if rgb.is_contiguous() else rgb.contiguous())
+
+    if not tensors:
+        return None
+    return torch.stack(tensors, dim=0)
+
+
+def _synchronize_cuda_frame_event(frames: Sequence[object]) -> None:
+    for frame in frames:
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is None:
+            continue
+        synchronize = getattr(event, "synchronize", None)
+        if callable(synchronize):
+            synchronize()

@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
+import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
+import pytest
 import torch
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _build_pipeline_config,
+    _LazyRGBFrame,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -110,13 +114,43 @@ def test_build_pipeline_config_uses_manifest_native_dit_overrides() -> None:
     assert transformer_config.native_dit_sparge_hybrid_phase == 1
 
 
+def test_build_pipeline_config_can_select_native_vae_encoder() -> None:
+    config = _build_pipeline_config(
+        replace(
+            _manifest(),
+            native_vae_encoder="fp8",
+            native_vae_fp8_state_path=Path("/tmp/lightvae-fp8-state.pt"),
+        ),
+        profile=WorldModelProfileConfig(),
+    )
+
+    assert (
+        config.name == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf"
+    )
+    assert config.image_encoder.native_vae_acceleration == "required"
+    assert config.image_encoder.native_vae_backend == "fp8"
+    assert (
+        config.image_encoder.native_vae_fp8_state_path == "/tmp/lightvae-fp8-state.pt"
+    )
+    assert config.encoder.native_vae_acceleration == "required"
+    assert config.encoder.native_vae_backend == "fp8"
+
+
+def test_native_vae_encoder_requires_light_vae_recipe() -> None:
+    with pytest.raises(ValueError, match="native_vae_encoder=fp8 requires light_vae"):
+        _build_pipeline_config(
+            replace(_manifest(), light_vae=False, native_vae_encoder="fp8"),
+            profile=WorldModelProfileConfig(),
+        )
+
+
 def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
     fake_pipeline = _FakePipeline()
     session = FlashdreamsWorldModelSession(
         _manifest(),
         pipeline_factory=lambda manifest, profile: fake_pipeline,
     )
-    session.warmup()
+    session.warmup_model()
 
     initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
     first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
@@ -140,6 +174,41 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
     assert fake_pipeline.finalize_calls == [(0, "cache"), (1, "cache")]
 
 
+def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) -> None:
+    fake_pipeline = _FakePipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    session.warmup_model()
+    sync_calls: list[list[object]] = []
+
+    def fake_sync(frames: list[object]) -> None:
+        sync_calls.append(frames)
+
+    monkeypatch.setattr(adapter_module, "_synchronize_cuda_frame_event", fake_sync)
+
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+    next_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(8)]
+
+    first = session.start(initial_rgb, first_condition_frames, "demo prompt")
+    second = session.continue_generation(next_condition_frames)
+
+    assert sync_calls == [first, second]
+
+
+def test_lazy_rgb_frame_exposes_tensor_before_host_materialization() -> None:
+    frames = torch.arange(2 * 2 * 3 * 3, dtype=torch.uint8).reshape(2, 2, 3, 3)
+    lazy = _LazyRGBFrame(frames, frame_index=1)
+
+    tensor = lazy.to_cuda_tensor()
+
+    assert torch.equal(tensor, frames[1])
+    assert lazy.to_cuda_event() is None
+    assert np.array_equal(lazy.to_numpy(), frames[1].numpy())
+
+
 def test_session_offload_reuses_precomputed_embeddings_after_reset() -> None:
     fake_pipeline = _FakePipeline()
     session = FlashdreamsWorldModelSession(
@@ -147,7 +216,7 @@ def test_session_offload_reuses_precomputed_embeddings_after_reset() -> None:
         offload_text_encoder=True,
         pipeline_factory=lambda manifest, profile: fake_pipeline,
     )
-    session.warmup()
+    session.warmup_model()
 
     initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
     first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]

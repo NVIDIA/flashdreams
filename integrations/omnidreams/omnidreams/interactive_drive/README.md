@@ -13,8 +13,8 @@ matter most:
 This sample uses the flashdreams Alpadreams pipeline for world-model inference,
 uses Ludus to render the HD map view, and uses SlangPy for local windowing.
 
-Runs on Windows or Linux with a native host toolchain; the prebuilt Docker
-image option is Linux-only.
+Runs on Windows or Linux with a native host toolchain; the optional
+Docker path is Linux-only.
 
 The implementation is intentionally narrow:
 
@@ -70,28 +70,28 @@ on the host (see the [flashdreams root README](../../../../README.md) for the re
 hardware and CUDA setup). No additional work in this step — proceed to
 step 3 from the flashdreams workspace root.
 
-#### Option B — Docker (prebuilt `flashdreams` image)
+#### Option B — Docker (build a local image)
 
-If you'd rather skip installing CUDA, SDL, and the EGL toolchain on the host,
-the prebuilt `flashdreams` image gives you an end-to-end Linux environment.
-Additional prerequisites:
+If you'd rather skip installing CUDA, SDL, and the EGL toolchain on the
+host, the bundled `docker/Dockerfile` builds an end-to-end Linux
+environment locally. See [`docker/README.md`](../../../../docker/README.md)
+for the full build docs; the short version is below. Additional
+prerequisites:
 
 - Linux host (Wayland-based local windowing assumes Linux; Windows users
   should use the native path above)
 - Docker + `nvidia-container-toolkit`
-- GitHub PAT with `read:packages` for `ghcr.io/nvidia/flashdreams`
 
-1. **Pull the image.**
+1. **Build the image** from the `flashdreams` repo root:
 
    ```bash
-   echo "$GITHUB_PAT" | docker login ghcr.io -u <github-username> --password-stdin
-   docker pull ghcr.io/nvidia/flashdreams:base-v0.3-20260430-7985764
+   docker build -t flashdreams:local -f docker/Dockerfile .
    ```
 
-2. **Launch the container** from the `flashdreams` repo root. The repo
-   bind-mount lands at `/workspace/flashdreams` and the workdir leaves
-   you at the flashdreams workspace root (the same place you'd run uv
-   from on a native host):
+2. **Launch the container** from the same `flashdreams` repo root. The
+   repo bind-mount lands at `/workspace/flashdreams` and the workdir
+   leaves you at the flashdreams workspace root (the same place you'd
+   run uv from on a native host):
 
    ```bash
    docker run --rm -it \
@@ -108,7 +108,7 @@ Additional prerequisites:
      -e WAYLAND_DISPLAY=wayland-0 \
      -e XDG_RUNTIME_DIR=/run/user/0 \
      -e SDL_VIDEODRIVER=wayland \
-     ghcr.io/nvidia/flashdreams:base-v0.3-20260430-7985764 \
+     flashdreams:local \
      bash
    ```
 
@@ -271,6 +271,36 @@ to bind a known device path directly use `--wheel-device /dev/input/eventX`;
 to disable wheel input entirely use `--no-wheel`. No profiles ship with the
 repo — keyboard-only driving works fine without one.
 
+**Generate an input profile (wheel or game controller).** Instead of
+hand-writing that YAML, run the calibration wizard:
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive-configuration
+```
+
+It shows a live panel -- a steering-wheel and pedal visualization plus a
+per-axis activity strip -- so you can confirm the right device and watch each
+control move. It then listens while you move each control to capture the
+correct axes and directions (self-centering sticks and force-feedback wheels
+work because it peak-holds each axis' range rather than snapshotting after you
+let go), lets you bind reverse / reset buttons and test force feedback, then
+writes the profile to
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
+`~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
+automatically through the same `--wheel-profile auto` detection. The wizard
+supports both steering wheels (with pedals) and game controllers (analog
+stick plus triggers); the generated file stays on your machine and is never
+committed. It needs a graphical session and read access to `/dev/input/*`
+(add your user to the `input` group if no devices are found).
+
+The opening screen also lists your saved profiles so you can edit their
+settings (display name, steering range and deadzone, inversion, force
+feedback, detection patterns), choose which one is the default, or delete
+them. Steering range and deadzone are most useful for game controllers,
+whose sticks are sensitive and tend to drift -- lower the range to make
+steering less twitchy and raise the deadzone to ignore a drifting stick at
+rest.
+
 ### `--no-hud`: bare backend, local Vulkan window
 
 This is the lighter-weight path that matches the older standalone
@@ -347,6 +377,23 @@ Then open `http://localhost:8080/`.
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
+The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
+stay CUDA-backed for world-model conditioning, and both Vulkan presenters use
+SlangPy CUDA interop for generated RGB frames when the model output is still on
+CUDA:
+
+```bash
+OMNIDREAMS_TRUESIGHT=1 \
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive
+```
+
+Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
+path for both HDMap raster conditioning and presenter CUDA interop. In HUD mode,
+chrome is still rendered with PIL on the CPU, then uploaded as an alpha overlay;
+the generated camera frame stays lazy on CUDA and is resized/composited into the
+shared presentation buffer on the CUDA stream. Use `--no-hud` with the same
+environment variable for the bare presenter.
+
 Controls (apply in all three modes):
 
 - `W` throttle
@@ -363,6 +410,30 @@ Controls (apply in all three modes):
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.
+
+### Generated-frame e2e profiling
+
+Set `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1` to log generated-frame
+input-to-present timing while the demo runs:
+
+```bash
+INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
+  OMNIDREAMS_TRUESIGHT=1 \
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive --autoload-scene
+```
+
+The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames
+consumed from the model pipeline queue, so loading-frame or hold-frame
+re-presents are excluded. `avg_adj_control_to_present_ms` subtracts the
+intentional per-frame spacing inside a generated chunk; the raw value is also
+printed for debugging. Set
+`INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S` to adjust the report
+period; the default is `2`.
+
+For HUD-specific render timing, set `INTERACTIVE_DRIVE_PROFILE_HUD=1`. The
+`[profile] hud ...` line breaks `present_frame` into stages such as PIL chrome
+rendering, full-window overlay extraction, CUDA enqueue, and Vulkan submission.
+Set `INTERACTIVE_DRIVE_PROFILE_HUD_INTERVAL_S` to adjust its report period.
 
 ### Rollout drift and resets
 
