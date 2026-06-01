@@ -17,6 +17,11 @@ from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
+_LIGHTVAE_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+_LIGHTVAE_PERF_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
+_LIGHTVAE_NATIVE_PERF_RECIPE = (
+    "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf"
+)
 
 
 def _select_config_name(manifest: WorldModelManifest) -> str:
@@ -54,7 +59,7 @@ def _select_config_name(manifest: WorldModelManifest) -> str:
             raise ValueError(
                 "The light-VAE flashdreams recipe currently supports 8-frame chunks."
             )
-        return "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+        return _LIGHTVAE_RECIPE
     if manifest.num_frames_per_block == 8:
         return "omnidreams-sv-2steps-chunk2-loc6-vae-vae"
     if manifest.num_frames_per_block == 12:
@@ -91,15 +96,12 @@ def _build_pipeline_config(
     # global instances, so use ``derive_config`` to get a deep-copied
     # override-applied instance instead of mutating the global.
     transformer_overrides = _transformer_overrides(manifest)
-    base_config_name = (
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
-        if config_name == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
-        else config_name
-    )
+    base_config_name = _base_config_name(config_name, manifest)
     base = OMNIDREAMS_CONFIGS[base_config_name]
     config = derive_config(
         base,
         enable_sync_and_profile=bool(profile.enabled),
+        **_native_vae_overrides(manifest),
         diffusion_model=dict(
             seed=seed,
             transformer=transformer_overrides,
@@ -130,10 +132,41 @@ def _build_pipeline_config(
     print(
         "[flashdreams-session] resolved pipeline config\n"
         f"selected_recipe={config_name}\n"
+        f"base_recipe={base_config_name}\n"
         f"{config}",
         flush=True,
     )
     return config
+
+
+def _base_config_name(config_name: str, manifest: WorldModelManifest) -> str:
+    if manifest.native_vae_encoder != "disabled":
+        if config_name != _LIGHTVAE_RECIPE:
+            raise ValueError("native_vae_encoder=fp8 requires light_vae=true.")
+        return _LIGHTVAE_NATIVE_PERF_RECIPE
+    if config_name == _LIGHTVAE_RECIPE:
+        return _LIGHTVAE_PERF_RECIPE
+    return config_name
+
+
+def _native_vae_overrides(manifest: WorldModelManifest) -> dict[str, object]:
+    if manifest.native_vae_encoder == "disabled":
+        return {}
+    if manifest.native_vae_encoder != "fp8":
+        raise ValueError(
+            f"Unsupported native_vae_encoder={manifest.native_vae_encoder!r}"
+        )
+
+    common: dict[str, object] = {
+        "native_vae_acceleration": "required",
+        "native_vae_backend": "fp8",
+    }
+    if manifest.native_vae_fp8_state_path is not None:
+        common["native_vae_fp8_state_path"] = str(manifest.native_vae_fp8_state_path)
+    return {
+        "image_encoder": dict(common),
+        "encoder": dict(common),
+    }
 
 
 def _transformer_overrides(manifest: WorldModelManifest) -> dict[str, object]:
