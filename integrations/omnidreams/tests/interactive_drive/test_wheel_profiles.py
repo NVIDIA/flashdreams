@@ -128,11 +128,14 @@ def test_name_match_strength_prefers_exact() -> None:
     # sibling motion-sensor node whose name merely contains the pattern.
     assert name_match_strength("Wireless Controller", ["Wireless Controller"]) == 2
     assert (
-        name_match_strength("Wireless Controller Motion Sensors", ["Wireless Controller"])
+        name_match_strength(
+            "Wireless Controller Motion Sensors", ["Wireless Controller"]
+        )
         == 1
     )
     assert (
-        name_match_strength("Wireless Controller Touchpad", ["Wireless Controller"]) == 1
+        name_match_strength("Wireless Controller Touchpad", ["Wireless Controller"])
+        == 1
     )
     # Substring patterns still work for longer names; case-insensitive.
     assert name_match_strength("Generic Racing Wheel FFB", ["Racing Wheel"]) == 1

@@ -21,7 +21,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import yaml
-
 from omnidreams.interactive_drive.input.wheel_profiles import (
     AutocenterFFB,
     EvdevDevice,
@@ -145,7 +144,9 @@ class ConfigApp:
 
         live = ttk.LabelFrame(self.root, text="Live inputs", padding=(8, 4))
         live.pack(side="bottom", fill="x", padx=12, pady=(0, 4))
-        ttk.Label(live, textvariable=self.activity_var, foreground="#2f8f2f").pack(anchor="w")
+        ttk.Label(live, textvariable=self.activity_var, foreground="#2f8f2f").pack(
+            anchor="w"
+        )
         # Fixed-size canvas: a steering-wheel + pedal visualization plus a
         # compact per-axis activity strip. Its dimensions are fixed, so the
         # widgets above never shift when it starts drawing on device select.
@@ -161,7 +162,9 @@ class ConfigApp:
             header, textvariable=self.title_var, font=("TkDefaultFont", 15, "bold")
         ).pack(anchor="w")
         self.step_var = tk.StringVar()
-        ttk.Label(header, textvariable=self.step_var, foreground="#888").pack(anchor="w")
+        ttk.Label(header, textvariable=self.step_var, foreground="#888").pack(
+            anchor="w"
+        )
 
         self.content = ttk.Frame(self.root, padding=(16, 4))
         self.content.pack(side="top", fill="both", expand=True)
@@ -245,34 +248,50 @@ class ConfigApp:
                 row = ttk.Frame(saved)
                 row.pack(fill="x", pady=2)
                 tag = "  [default]" if profile.is_default else ""
-                ttk.Label(row, text=f"{profile.display_name}{tag}", width=30, anchor="w").pack(side="left")
+                ttk.Label(
+                    row, text=f"{profile.display_name}{tag}", width=30, anchor="w"
+                ).pack(side="left")
                 ttk.Button(
-                    row, text="Edit", width=6,
+                    row,
+                    text="Edit",
+                    width=6,
                     command=lambda p=path, pr=profile: self._start_edit(p, pr),
                 ).pack(side="left", padx=2)
                 ttk.Button(
-                    row, text=("Unset default" if profile.is_default else "Make default"),
-                    width=13, command=lambda p=path, pr=profile: self._toggle_default(p, pr),
+                    row,
+                    text=("Unset default" if profile.is_default else "Make default"),
+                    width=13,
+                    command=lambda p=path, pr=profile: self._toggle_default(p, pr),
                 ).pack(side="left", padx=2)
                 ttk.Button(
-                    row, text="Delete", width=7,
+                    row,
+                    text="Delete",
+                    width=7,
                     command=lambda p=path, pr=profile: self._delete_profile(p, pr),
                 ).pack(side="left", padx=2)
 
         ttk.Label(
-            self.content, text="Create a new profile", font=("TkDefaultFont", 11, "bold")
+            self.content,
+            text="Create a new profile",
+            font=("TkDefaultFont", 11, "bold"),
         ).pack(anchor="w", pady=(6, 2))
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text="Pick the device type, then click Next to detect and calibrate it.",
         ).pack(anchor="w", pady=(0, 6))
         ttk.Radiobutton(
-            self.content, text="Steering wheel + pedals", value="wheel",
+            self.content,
+            text="Steering wheel + pedals",
+            value="wheel",
             variable=self.device_type_var,
         ).pack(anchor="w")
         ttk.Radiobutton(
-            self.content, text="Game controller / gamepad (stick + triggers)",
-            value="controller", variable=self.device_type_var,
+            self.content,
+            text="Game controller / gamepad (stick + triggers)",
+            value="controller",
+            variable=self.device_type_var,
         ).pack(anchor="w")
 
     # -- existing-profile management + editor ---------------------------
@@ -351,7 +370,9 @@ class ConfigApp:
             except OSError:
                 self.session = None
         ttk.Label(
-            self.content, foreground="#2f8f2f", wraplength=680,
+            self.content,
+            foreground="#2f8f2f",
+            wraplength=680,
             text=(
                 f"Live preview from {device.name} -- operate the controls to see the feel."
                 if device is not None
@@ -362,11 +383,14 @@ class ConfigApp:
         form = ttk.Frame(self.content)
         form.pack(fill="x")
         ttk.Label(form, text="Display name").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(form, textvariable=self._edit_display_name, width=44).grid(row=0, column=1, sticky="w")
+        ttk.Entry(form, textvariable=self._edit_display_name, width=44).grid(
+            row=0, column=1, sticky="w"
+        )
 
         axis_map = profile.axis_map
         ttk.Label(
-            self.content, foreground="#666",
+            self.content,
+            foreground="#666",
             text=(
                 "Axes (recalibrate by creating a new profile): "
                 f"steering 0x{axis_map.get('steering', 0):02x}, "
@@ -375,18 +399,31 @@ class ConfigApp:
             ),
         ).pack(anchor="w", pady=(4, 6))
 
-        ttk.Checkbutton(self.content, text="Invert steering", variable=self._edit_invert_steer).pack(anchor="w")
-        ttk.Checkbutton(self.content, text="Invert pedals", variable=self._edit_invert_pedals).pack(anchor="w")
+        ttk.Checkbutton(
+            self.content, text="Invert steering", variable=self._edit_invert_steer
+        ).pack(anchor="w")
+        ttk.Checkbutton(
+            self.content, text="Invert pedals", variable=self._edit_invert_pedals
+        ).pack(anchor="w")
         self._slider_row("Steering range (sensitivity)", self._edit_range, 0.1, 1.0)
         self._slider_row("Steering deadzone", self._edit_deadzone, 0.0, 0.3)
         ffb_row = ttk.Frame(self.content)
         ffb_row.pack(fill="x", pady=2)
-        ttk.Checkbutton(ffb_row, text="Force feedback", variable=self._edit_ffb).pack(side="left")
+        ttk.Checkbutton(ffb_row, text="Force feedback", variable=self._edit_ffb).pack(
+            side="left"
+        )
         ttk.Scale(
-            ffb_row, from_=0.0, to=1.0, orient="horizontal", length=200, variable=self._edit_ffb_gain
+            ffb_row,
+            from_=0.0,
+            to=1.0,
+            orient="horizontal",
+            length=200,
+            variable=self._edit_ffb_gain,
         ).pack(side="left", padx=8)
 
-        ttk.Label(self.content, text="Detection patterns (one per line):").pack(anchor="w", pady=(6, 0))
+        ttk.Label(self.content, text="Detection patterns (one per line):").pack(
+            anchor="w", pady=(6, 0)
+        )
         self._edit_patterns = tk.Text(self.content, height=3, width=60)
         self._edit_patterns.pack(anchor="w", pady=2)
         self._edit_patterns.insert("1.0", "\n".join(profile.detection_patterns))
@@ -395,7 +432,8 @@ class ConfigApp:
             self.content, text="Use as the default profile", variable=self._edit_default
         ).pack(anchor="w", pady=(6, 0))
         ttk.Button(
-            self.content, text="Delete this profile",
+            self.content,
+            text="Delete this profile",
             command=lambda: self._delete_profile(path, profile),
         ).pack(anchor="w", pady=(10, 0))
 
@@ -423,7 +461,9 @@ class ConfigApp:
         )
         update_profile_file(path, updated)
         if updated.is_default:
-            for other_path, other in load_wheel_profile_files(user_wheel_profiles_dir()):
+            for other_path, other in load_wheel_profile_files(
+                user_wheel_profiles_dir()
+            ):
                 if other_path != path and other.is_default:
                     update_profile_file(other_path, replace(other, is_default=False))
         messagebox.showinfo("Saved", f"Updated {path.name}.")
@@ -432,7 +472,9 @@ class ConfigApp:
     def _build_device(self) -> None:
         self.title_var.set("Select your device")
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text=(
                 "Pick your device, then operate any control -- the Live inputs panel "
                 "below updates so you can confirm you chose the right one (some "
@@ -490,9 +532,13 @@ class ConfigApp:
 
     def _build_controls(self) -> None:
         self.title_var.set("Calibrate controls")
-        self.invert_pedals_var = tk.BooleanVar(value=self.state.get("inverted_pedals", True))
+        self.invert_pedals_var = tk.BooleanVar(
+            value=self.state.get("inverted_pedals", True)
+        )
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text=(
                 "For each control: click Start listening, then move it a little -- "
                 "it auto-detects the axis (one at a time)."
@@ -505,23 +551,34 @@ class ConfigApp:
         self._steering_section(steer, "wheel" if is_wheel else "stick")
         thr = ttk.LabelFrame(self.content, text="Throttle", padding=(10, 6))
         thr.pack(fill="x", pady=3)
-        self._pedal_section(thr, "throttle", "throttle pedal" if is_wheel else "throttle trigger")
+        self._pedal_section(
+            thr, "throttle", "throttle pedal" if is_wheel else "throttle trigger"
+        )
         brk = ttk.LabelFrame(self.content, text="Brake", padding=(10, 6))
         brk.pack(fill="x", pady=3)
-        self._pedal_section(brk, "brake", "brake pedal" if is_wheel else "brake trigger")
+        self._pedal_section(
+            brk, "brake", "brake pedal" if is_wheel else "brake trigger"
+        )
         # Single shared pedal-invert flag (the schema stores one for both
         # pedals). Auto-set from calibration; here as a manual safety net.
         ttk.Checkbutton(
             self.content,
             text="Invert pedals (toggle if pressing throttle/brake reads backwards)",
-            variable=self.invert_pedals_var, command=self._apply_pedal_invert,
+            variable=self.invert_pedals_var,
+            command=self._apply_pedal_invert,
         ).pack(anchor="w", pady=(6, 0))
 
     def _steering_section(self, parent, control: str) -> None:
-        self.invert_steering_var = tk.BooleanVar(value=self.state.get("invert_steering", False))
-        self._steering_axis_choice = tk.StringVar(value=self.state.get("_steering_axis_label", ""))
+        self.invert_steering_var = tk.BooleanVar(
+            value=self.state.get("invert_steering", False)
+        )
+        self._steering_axis_choice = tk.StringVar(
+            value=self.state.get("_steering_axis_label", "")
+        )
         result = tk.StringVar(value=self.state.get("_steering_summary", ""))
-        ttk.Label(parent, text=f"Click Start, then turn the {control} a little to the LEFT.").pack(anchor="w")
+        ttk.Label(
+            parent, text=f"Click Start, then turn the {control} a little to the LEFT."
+        ).pack(anchor="w")
 
         def on_detect(axis: int, base: int, peak: int) -> None:
             rng = self.session.axis_ranges[axis]
@@ -542,17 +599,23 @@ class ConfigApp:
         row.pack(anchor="w", fill="x", pady=4)
         self._record_button(row, "steering", on_detect, result)
         self._axis_override(row, self._steering_axis_choice)
-        ttk.Label(parent, textvariable=result, foreground="#2f6fbf", wraplength=660).pack(anchor="w")
+        ttk.Label(
+            parent, textvariable=result, foreground="#2f6fbf", wraplength=660
+        ).pack(anchor="w")
         ttk.Checkbutton(
-            parent, text="Invert steering (toggle if left/right feels reversed)",
-            variable=self.invert_steering_var, command=self._apply_invert,
+            parent,
+            text="Invert steering (toggle if left/right feels reversed)",
+            variable=self.invert_steering_var,
+            command=self._apply_invert,
         ).pack(anchor="w")
 
     def _pedal_section(self, parent, key: str, control: str) -> None:
         axis_choice = tk.StringVar(value=self.state.get(f"_{key}_axis_label", ""))
         result = tk.StringVar(value=self.state.get(f"_{key}_summary", ""))
         setattr(self, f"_{key}_axis_choice", axis_choice)
-        ttk.Label(parent, text=f"Click Start, then press the {control} a little.").pack(anchor="w")
+        ttk.Label(parent, text=f"Click Start, then press the {control} a little.").pack(
+            anchor="w"
+        )
 
         def on_detect(axis: int, base: int, peak: int) -> None:
             inverted = bool(infer_pedal_inverted(base, peak))
@@ -574,7 +637,9 @@ class ConfigApp:
         row.pack(anchor="w", fill="x", pady=4)
         self._record_button(row, key, on_detect, result)
         self._axis_override(row, axis_choice)
-        ttk.Label(parent, textvariable=result, foreground="#2f6fbf", wraplength=660).pack(anchor="w")
+        ttk.Label(
+            parent, textvariable=result, foreground="#2f6fbf", wraplength=660
+        ).pack(anchor="w")
 
     def _record_button(self, parent, key: str, on_detect, result_var) -> None:
         """A Start/cancel listening toggle.
@@ -590,7 +655,9 @@ class ConfigApp:
 
         def toggle() -> None:
             if self.session is None:
-                messagebox.showwarning("No device", "Go back and select a device first.")
+                messagebox.showwarning(
+                    "No device", "Go back and select a device first."
+                )
                 return
             if self._recording_key == key:
                 self._recording_key = None
@@ -623,12 +690,16 @@ class ConfigApp:
         labels = [_axis_label(code) for code in codes] or ["(none)"]
         if not choice_var.get():
             choice_var.set(labels[0])
-        ttk.OptionMenu(parent, choice_var, choice_var.get(), *labels).pack(side="left", padx=6)
+        ttk.OptionMenu(parent, choice_var, choice_var.get(), *labels).pack(
+            side="left", padx=6
+        )
 
     def _build_buttons(self) -> None:
         self.title_var.set("Bind buttons (optional)")
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text=(
                 "Optionally bind one button to toggle reverse and one to reset / "
                 "respawn. Click Bind, then press the button on your device. Leave "
@@ -643,13 +714,16 @@ class ConfigApp:
             row = ttk.Frame(frame)
             row.pack(anchor="w", fill="x")
             ttk.Button(
-                row, text=f"Bind {label.split()[0].lower()} button",
+                row,
+                text=f"Bind {label.split()[0].lower()} button",
                 command=lambda k=key: self._start_button_listen(k),
             ).pack(side="left")
-            ttk.Button(row, text="Clear", command=lambda k=key: self._clear_button(k)).pack(
-                side="left", padx=8
+            ttk.Button(
+                row, text="Clear", command=lambda k=key: self._clear_button(k)
+            ).pack(side="left", padx=8)
+            ttk.Label(frame, textvariable=result, foreground="#2f6fbf").pack(
+                anchor="w", pady=(4, 0)
             )
-            ttk.Label(frame, textvariable=result, foreground="#2f6fbf").pack(anchor="w", pady=(4, 0))
 
     def _button_summary(self, key: str) -> str:
         codes = self.state.get(f"{key}_buttons", ())
@@ -678,7 +752,9 @@ class ConfigApp:
         self.ffb_enabled_var = tk.BooleanVar(value=self.state.get("ffb_enabled", True))
         self.ffb_gain_var = tk.DoubleVar(value=self.state.get("ffb_gain", 0.6))
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text=(
                 "Autocenter force feedback makes the wheel resist turning and return "
                 "to center, scaled by speed. Enable it and test the feel; leave it "
@@ -686,20 +762,27 @@ class ConfigApp:
             ),
         ).pack(anchor="w", pady=(0, 10))
         ttk.Checkbutton(
-            self.content, text="Enable autocenter force feedback",
+            self.content,
+            text="Enable autocenter force feedback",
             variable=self.ffb_enabled_var,
         ).pack(anchor="w")
         gain_row = ttk.Frame(self.content)
         gain_row.pack(anchor="w", pady=8, fill="x")
         ttk.Label(gain_row, text="Gain").pack(side="left")
         ttk.Scale(
-            gain_row, from_=0.0, to=1.0, orient="horizontal", length=300,
+            gain_row,
+            from_=0.0,
+            to=1.0,
+            orient="horizontal",
+            length=300,
             variable=self.ffb_gain_var,
         ).pack(side="left", padx=8)
         test_row = ttk.Frame(self.content)
         test_row.pack(anchor="w", pady=4)
         ttk.Button(test_row, text="Test", command=self._ffb_test).pack(side="left")
-        ttk.Button(test_row, text="Stop", command=self._ffb_stop).pack(side="left", padx=8)
+        ttk.Button(test_row, text="Stop", command=self._ffb_stop).pack(
+            side="left", padx=8
+        )
 
     def _ffb_test(self) -> None:
         if self.session is None:
@@ -727,7 +810,9 @@ class ConfigApp:
         device = self.state.get("device")
         default_name = device.name if device else "My device"
         controller = self.state.get("device_type") == "controller"
-        self.display_name_var = tk.StringVar(value=self.state.get("display_name", default_name))
+        self.display_name_var = tk.StringVar(
+            value=self.state.get("display_name", default_name)
+        )
         self.profile_name_var = tk.StringVar(
             value=self.state.get("name", profile_filename(default_name)[:-5])
         )
@@ -746,28 +831,40 @@ class ConfigApp:
         self.state["steering_deadzone"] = float(self.steering_deadzone_var.get())
         self.steering_range_var.trace_add(
             "write",
-            lambda *_: self.state.__setitem__("steering_range", float(self.steering_range_var.get())),
+            lambda *_: self.state.__setitem__(
+                "steering_range", float(self.steering_range_var.get())
+            ),
         )
         self.steering_deadzone_var.trace_add(
             "write",
-            lambda *_: self.state.__setitem__("steering_deadzone", float(self.steering_deadzone_var.get())),
+            lambda *_: self.state.__setitem__(
+                "steering_deadzone", float(self.steering_deadzone_var.get())
+            ),
         )
 
         form = ttk.Frame(self.content)
         form.pack(fill="x")
         ttk.Label(form, text="Display name").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(form, textvariable=self.display_name_var, width=46).grid(row=0, column=1, sticky="w")
+        ttk.Entry(form, textvariable=self.display_name_var, width=46).grid(
+            row=0, column=1, sticky="w"
+        )
         ttk.Label(form, text="Profile name").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(form, textvariable=self.profile_name_var, width=46).grid(row=1, column=1, sticky="w")
+        ttk.Entry(form, textvariable=self.profile_name_var, width=46).grid(
+            row=1, column=1, sticky="w"
+        )
 
         ttk.Label(
             self.content, text="Steering feel (turn the device to preview):"
         ).pack(anchor="w", pady=(8, 0))
-        self._slider_row("Steering range (sensitivity)", self.steering_range_var, 0.1, 1.0)
+        self._slider_row(
+            "Steering range (sensitivity)", self.steering_range_var, 0.1, 1.0
+        )
         self._slider_row("Steering deadzone", self.steering_deadzone_var, 0.0, 0.3)
 
         ttk.Label(
-            self.content, wraplength=680, justify="left",
+            self.content,
+            wraplength=680,
+            justify="left",
             text=(
                 "\nDetection patterns -- one per line. The device is auto-selected at "
                 "launch when its name contains any of these."
@@ -776,10 +873,13 @@ class ConfigApp:
         self.patterns_text = tk.Text(self.content, height=3, width=62)
         self.patterns_text.pack(anchor="w", pady=4)
         existing = self.state.get("detection_patterns")
-        self.patterns_text.insert("1.0", "\n".join(existing) if existing else (device.name if device else ""))
+        self.patterns_text.insert(
+            "1.0", "\n".join(existing) if existing else (device.name if device else "")
+        )
 
         ttk.Checkbutton(
-            self.content, text="Use as the default profile",
+            self.content,
+            text="Use as the default profile",
             variable=self.is_default_var,
         ).pack(anchor="w", pady=6)
 
@@ -788,7 +888,9 @@ class ConfigApp:
         profile = self._compose_profile()
         self.state["_profile"] = profile
         preview = yaml.safe_dump(
-            wheel_profile_to_yaml_dict(profile), sort_keys=False, default_flow_style=False
+            wheel_profile_to_yaml_dict(profile),
+            sort_keys=False,
+            default_flow_style=False,
         )
         ttk.Label(
             self.content,
@@ -812,13 +914,22 @@ class ConfigApp:
             return True, ""
         if step == "controls":
             for axis_key, human in (
-                ("steering", "steering"), ("throttle", "throttle"), ("brake", "brake")
+                ("steering", "steering"),
+                ("throttle", "throttle"),
+                ("brake", "brake"),
             ):
                 if f"{axis_key}_axis" not in self.state:
-                    return False, f"Calibrate {human} first (Start listening, move it, Stop)."
-            self.state["steering_axis"] = _axis_from_label(self._steering_axis_choice.get())
+                    return (
+                        False,
+                        f"Calibrate {human} first (Start listening, move it, Stop).",
+                    )
+            self.state["steering_axis"] = _axis_from_label(
+                self._steering_axis_choice.get()
+            )
             self.state["invert_steering"] = bool(self.invert_steering_var.get())
-            self.state["throttle_axis"] = _axis_from_label(self._throttle_axis_choice.get())
+            self.state["throttle_axis"] = _axis_from_label(
+                self._throttle_axis_choice.get()
+            )
             self.state["brake_axis"] = _axis_from_label(self._brake_axis_choice.get())
             self.state["inverted_pedals"] = bool(self.invert_pedals_var.get())
             return True, ""
@@ -1007,8 +1118,13 @@ class ConfigApp:
         if not editing and step == "buttons":
             held = sorted(c for c, v in self.session.buttons().items() if v == 1)
             canvas.create_text(
-                10, _CANVAS_H - 8, anchor="w", fill="#666", font=("TkFixedFont", 8),
-                text="Buttons held: " + (", ".join(str(c) for c in held) if held else "(none)"),
+                10,
+                _CANVAS_H - 8,
+                anchor="w",
+                fill="#666",
+                font=("TkFixedFont", 8),
+                text="Buttons held: "
+                + (", ".join(str(c) for c in held) if held else "(none)"),
             )
 
     def _sim_values(self, axes: dict, ranges: dict) -> tuple[float, float, float]:
@@ -1056,11 +1172,19 @@ class ConfigApp:
             y = cy - r * math.cos(a)
             is_top = spoke == 0
             canvas.create_line(
-                cx, cy, x, y, fill="#76b900" if is_top else "#bbb", width=5 if is_top else 3
+                cx,
+                cy,
+                x,
+                y,
+                fill="#76b900" if is_top else "#bbb",
+                width=5 if is_top else 3,
             )
         canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#555", outline="")
         canvas.create_text(
-            cx, cy + r + 14, fill="#666", text=f"{int(round(steer * _WHEEL_MAX_DEG)):+d}\u00b0"
+            cx,
+            cy + r + 14,
+            fill="#666",
+            text=f"{int(round(steer * _WHEEL_MAX_DEG)):+d}\u00b0",
         )
 
     def _draw_pedal(self, canvas, x: int, value: float, label: str, color: str) -> None:
@@ -1068,14 +1192,33 @@ class ConfigApp:
         value = max(0.0, min(1.0, value))
         canvas.create_rectangle(x, top, x + width, bottom, outline="#999")
         fill_h = value * (bottom - top)
-        canvas.create_rectangle(x, bottom - fill_h, x + width, bottom, fill=color, outline="")
-        canvas.create_text(x + width / 2, top - 8, fill="#666", font=("TkDefaultFont", 8), text=f"{int(value * 100)}%")
-        canvas.create_text(x + width / 2, bottom + 14, fill="#666", font=("TkDefaultFont", 8), text=label)
+        canvas.create_rectangle(
+            x, bottom - fill_h, x + width, bottom, fill=color, outline=""
+        )
+        canvas.create_text(
+            x + width / 2,
+            top - 8,
+            fill="#666",
+            font=("TkDefaultFont", 8),
+            text=f"{int(value * 100)}%",
+        )
+        canvas.create_text(
+            x + width / 2,
+            bottom + 14,
+            fill="#666",
+            font=("TkDefaultFont", 8),
+            text=label,
+        )
 
     def _draw_axis_strip(self, canvas, x0: int, axes: dict, ranges: dict) -> None:
         bar_x, bar_w, row_h = x0 + 52, 150, 16
         canvas.create_text(
-            x0, 6, anchor="w", fill="#888", font=("TkDefaultFont", 8, "bold"), text="Axes"
+            x0,
+            6,
+            anchor="w",
+            fill="#888",
+            font=("TkDefaultFont", 8, "bold"),
+            text="Axes",
         )
         for i, code in enumerate(sorted(ranges)):
             if i >= 8:
@@ -1084,10 +1227,26 @@ class ConfigApp:
             value = axes.get(code, rng.minimum)
             frac = max(0.0, min(1.0, (value - rng.minimum) / rng.span))
             y = 20 + i * row_h
-            canvas.create_text(x0, y, anchor="w", fill="#666", font=("TkFixedFont", 8), text=f"0x{code:02x}")
+            canvas.create_text(
+                x0,
+                y,
+                anchor="w",
+                fill="#666",
+                font=("TkFixedFont", 8),
+                text=f"0x{code:02x}",
+            )
             canvas.create_rectangle(bar_x, y - 5, bar_x + bar_w, y + 5, outline="#aaa")
-            canvas.create_rectangle(bar_x, y - 5, bar_x + frac * bar_w, y + 5, fill="#5a9bd5", outline="")
-            canvas.create_text(bar_x + bar_w + 6, y, anchor="w", fill="#666", font=("TkFixedFont", 8), text=str(value))
+            canvas.create_rectangle(
+                bar_x, y - 5, bar_x + frac * bar_w, y + 5, fill="#5a9bd5", outline=""
+            )
+            canvas.create_text(
+                bar_x + bar_w + 6,
+                y,
+                anchor="w",
+                fill="#666",
+                font=("TkFixedFont", 8),
+                text=str(value),
+            )
 
     def _on_close(self) -> None:
         self._ffb_stop()
