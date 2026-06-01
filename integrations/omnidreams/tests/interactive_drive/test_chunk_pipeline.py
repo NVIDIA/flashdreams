@@ -31,7 +31,8 @@ def _chunk_times(chunk_size: int) -> ChunkTimes:
 
 def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     backend = FakeVideoModelBackend(frames_per_render=3)
-    pipeline = ChunkPipeline(backend, minimal_scene())
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
     chunk_times = _chunk_times(chunk_size=3)
     pipeline.request_pose_chunk(
         ChunkRequest(trajectory=make_trajectory(3), chunk_times=chunk_times)
@@ -47,12 +48,14 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     assert chunk_times.chunk_render_start_time is not None
     assert chunk_times.chunk_ready_time is not None
     assert chunk_times.frames[0].image_ready_time is not None
-    assert backend.warmup_calls == 1
+    assert backend.warmup_model_calls == 1
+    assert backend.load_scene_calls == 1
 
 
 def test_chunk_pipeline_reset_invokes_backend_reset() -> None:
     backend = FakeVideoModelBackend(frames_per_render=1)
-    pipeline = ChunkPipeline(backend, minimal_scene())
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
     chunk_times = _chunk_times(chunk_size=1)
     pipeline.request_pose_chunk(
         ChunkRequest(trajectory=make_trajectory(1), chunk_times=chunk_times)
@@ -61,5 +64,23 @@ def test_chunk_pipeline_reset_invokes_backend_reset() -> None:
     pipeline.reset()
     pipeline.shutdown()
 
-    assert backend.warmup_calls == 1
+    assert backend.warmup_model_calls == 1
     assert backend.reset_calls == 1
+
+
+def test_chunk_pipeline_reuses_model_across_scene_changes() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=1)
+    pipeline = ChunkPipeline(backend)
+    assert pipeline.model_ready.wait(timeout=1.0)
+    for _ in range(3):
+        pipeline.request_scene(minimal_scene())
+        chunk_times = _chunk_times(chunk_size=1)
+        pipeline.request_pose_chunk(
+            ChunkRequest(trajectory=make_trajectory(1), chunk_times=chunk_times)
+        )
+        pipeline.frame_queue.get(timeout=1.0)
+    pipeline.shutdown()
+
+    # The model is warmed exactly once even though the scene changed twice.
+    assert backend.warmup_model_calls == 1
+    assert backend.load_scene_calls == 3

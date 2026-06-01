@@ -570,15 +570,21 @@ class MJPEGStreamingPresenter:
         # Scene-change request channel mirroring the slangpy HUD's
         # ``pending_scene_change`` flag. ``should_close`` returns True
         # when this is non-None so the runtime loop unwinds; the demo
-        # wrapper then tears down the backend, calls
-        # ``acknowledge_scene_change``, and re-enters with a fresh sim.
+        # wrapper then calls ``acknowledge_scene_change`` and re-enters
+        # the long-lived engine with the new scene (model stays resident).
         self._pending_scene_change: tuple[Path, str] | None = None
-        # Pre-cached idle "Select a scene" overlay. Lazy-initialised on
+        # Pre-cached idle overlay frames keyed by message. Lazily filled on
         # the first call to :meth:`_publish_idle_frame`. Cached so the
-        # heartbeat republish in ``wait_for_scene_selection`` doesn't
-        # redo the PIL text render every 2 s while the user is
-        # deciding what to load.
-        self._idle_frame_cache: np.ndarray | None = None
+        # heartbeat republish in ``wait_for_scene_selection`` doesn't redo
+        # the PIL text render every 2 s; keyed by message so the "Loading
+        # world model..." (warmup) and "Select a scene to begin driving"
+        # (ready) variants are each rendered at most once.
+        self._idle_frame_cache_by_message: dict[str, np.ndarray] = {}
+        # Model-warmup status, wired by the demo via :meth:`set_model_status`
+        # (mirrors the slangpy HUD). Defaults inert so the idle overlay
+        # reads "Select a scene to begin driving" if never wired.
+        self._model_can_prewarm = False
+        self._model_ready_probe: Callable[[], bool] = lambda: True
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
@@ -626,7 +632,7 @@ class MJPEGStreamingPresenter:
         # There's no window to close. The app loop runs until the
         # simulation thread finishes, the user Ctrl-C's the process,
         # or a /scene/select request flips the pending-change channel
-        # so the demo wrapper can rebuild the backend with a new scene.
+        # so the demo wrapper can switch the long-lived engine to a new scene.
         return self._stop_event.is_set() or self._pending_scene_change is not None
 
     @property
@@ -635,8 +641,8 @@ class MJPEGStreamingPresenter:
 
         Set by the ``/scene/select`` endpoint and cleared by
         :meth:`acknowledge_scene_change`. The demo wrapper polls this
-        between ``app.run()`` invocations to drive the scene-change
-        loop without tearing down the HTTP server / browser session.
+        between scenes to drive the scene-change loop without tearing
+        down the HTTP server / browser session.
         """
         return self._pending_scene_change
 
@@ -644,6 +650,20 @@ class MJPEGStreamingPresenter:
         """Clear the pending scene change after the demo wrapper has applied it."""
         del scene_path, variant  # accepted for symmetry with the slangpy HUD API
         self._pending_scene_change = None
+
+    def set_model_status(
+        self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
+    ) -> None:
+        """Wire the idle overlay text to model-warmup progress.
+
+        Mirrors :meth:`SlangPyHudPresenter.set_model_status`. When
+        ``can_prewarm`` is True the idle "select a scene" frame published
+        during :meth:`wait_for_scene_selection` reads "Loading world
+        model..." until ``ready_probe`` returns True, then falls back to
+        the normal "Select a scene to begin driving" prompt.
+        """
+        self._model_can_prewarm = bool(can_prewarm)
+        self._model_ready_probe = ready_probe
 
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
         """Block until the browser POSTs a scene selection.
@@ -682,33 +702,38 @@ class MJPEGStreamingPresenter:
                 return self._pending_scene_change
 
     def _publish_idle_frame(self) -> None:
-        """Stream the cached black 'select a scene' placeholder frame.
+        """Stream the cached black placeholder frame.
 
-        The PIL render is memoised on :attr:`_idle_frame_cache` so the
-        heartbeat in :meth:`wait_for_scene_selection` doesn't pay the
-        text-overlay cost on every tick -- the placeholder is identical
-        every time so a single render is sufficient. Each publish call
-        still bumps :attr:`_frame_count` so connected MJPEG handlers
-        wake up and push the frame out to the browser, which is what
-        actually matters for late-arriving clients.
+        While the model is still pre-warming (see :meth:`set_model_status`)
+        the overlay reads "Loading world model..."; otherwise it reads
+        "Select a scene to begin driving". Each variant's PIL render is
+        memoised so the heartbeat in :meth:`wait_for_scene_selection`
+        doesn't pay the text-overlay cost on every tick. Each publish call
+        still bumps :attr:`_frame_count` so connected MJPEG handlers wake
+        up and push the frame out to the browser, which is what actually
+        matters for late-arriving clients.
         """
-        if self._idle_frame_cache is None:
+        message = (
+            "Loading world model..."
+            if self._model_can_prewarm and not self._model_ready_probe()
+            else "Select a scene to begin driving"
+        )
+        cached = self._idle_frame_cache_by_message.get(message)
+        if cached is None:
             base = np.zeros(
                 (self._raster.height, self._raster.width, 3), dtype=np.uint8
             )
-            self._idle_frame_cache = render_loading_overlay(
-                base, message="Select a scene to begin driving"
-            )
-        self._publish(self._idle_frame_cache)
+            cached = render_loading_overlay(base, message=message)
+            self._idle_frame_cache_by_message[message] = cached
+        self._publish(cached)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Re-target the presenter at a fresh ``KeyboardState``.
+        """Re-target the presenter at ``keyboard``.
 
-        ``InteractiveDriveApp`` constructs a new ``KeyboardState`` per
-        rollout; the demo wrapper reuses the same MJPEG presenter
-        across scene-change iterations, so the presenter has to follow
-        each new keyboard. The keyboard-drive integrator captures the
-        keyboard reference internally, so it gets rebuilt here.
+        :class:`InteractiveDriveApp` owns one long-lived ``KeyboardState``
+        and binds the injected presenter to it at construction. The
+        keyboard-drive integrator captures the keyboard reference
+        internally, so it gets rebuilt here.
         """
         self._keyboard = keyboard
         self._keyboard_drive = self._keyboard_drive_factory(
@@ -1013,8 +1038,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             """Mark ``?scene=PATH&variant=NAME`` as the next scene to load.
 
             Sets the presenter's ``pending_scene_change`` channel; the
-            demo wrapper picks it up between ``app.run()`` iterations
-            and rebuilds the backend with the new scene. Validates the
+            demo wrapper picks it up between scenes and switches the
+            long-lived engine to the new scene. Validates the
             requested scene against the presenter's ``_scenes`` list so a
             stale browser tab can't smuggle in an arbitrary path. The
             ``variant`` query parameter is optional: when omitted (or

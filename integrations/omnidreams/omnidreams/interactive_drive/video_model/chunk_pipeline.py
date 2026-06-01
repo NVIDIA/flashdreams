@@ -20,13 +20,17 @@ from omnidreams.interactive_drive.types import (
 class VideoModelBackend(Protocol):
     """Video-model interface called from the pipeline worker thread.
 
-    Backends are *cold* after construction: ``warmup`` must be called before
-    any ``render_chunk``. :class:`ChunkPipeline` is the only thing that calls
-    ``warmup``, on its worker thread, before processing requests; callers
-    outside the pipeline never see a cold backend.
+    Backends are *cold* after construction. :class:`ChunkPipeline` calls
+    ``warmup_model`` once on its worker thread (model load/compile,
+    scene-independent), then ``load_scene`` for each scene before any
+    ``render_chunk`` against it. Callers outside the pipeline never see a
+    cold backend, and switching scenes re-runs only ``load_scene`` -- the
+    warmed model stays resident.
     """
 
-    def warmup(self, scene: SceneBundle) -> None: ...
+    def warmup_model(self) -> None: ...
+
+    def load_scene(self, scene: SceneBundle) -> None: ...
 
     def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk: ...
 
@@ -61,9 +65,8 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 
 class ChunkPipeline:
-    def __init__(self, backend: VideoModelBackend, scene: SceneBundle) -> None:
+    def __init__(self, backend: VideoModelBackend) -> None:
         self._backend = backend
-        self._scene = scene
         # TODO: replace the loop's chunk-level ``chunks_outstanding`` gate with
         # frame-level in-flight tracking (frames requested - frames consumed,
         # alpasim style) and surface a hook here so callers gate at the
@@ -76,6 +79,10 @@ class ChunkPipeline:
         # caller's thread instead of silently leaking the worker.
         self._worker_error_lock = threading.Lock()
         self._worker_error: BaseException | None = None
+        # Set once ``warmup_model`` finishes on the worker thread (or fails).
+        # Lets callers overlap the scene-selection wait with the model load
+        # and show a "ready" affordance once the model is resident.
+        self._model_ready = threading.Event()
         self._thread = threading.Thread(
             target=self._worker,
             name="interactive_drive-chunk-pipeline",
@@ -84,9 +91,31 @@ class ChunkPipeline:
         self._thread.start()
 
     @property
+    def model_ready(self) -> threading.Event:
+        """Event set when scene-independent model warmup has completed."""
+        return self._model_ready
+
+    @property
     def frame_queue(self) -> "queue.Queue[QueuedFrame]":
         self._raise_worker_error_if_any()
         return self._frame_queue
+
+    def request_scene(self, scene: SceneBundle) -> None:
+        """Bind ``scene`` on the worker thread. Non-blocking.
+
+        Enqueued FIFO behind warmup and any in-flight renders, so a scene
+        picked before warmup finishes simply waits for the model load. The
+        worker runs ``backend.load_scene`` (geometry upload + rollout
+        restart); the warmed model stays resident, so switching scenes
+        never re-pays the warmup/compile cost.
+        """
+        self._raise_worker_error_if_any()
+
+        def load_scene_command(backend: VideoModelBackend) -> bool:
+            backend.load_scene(scene)
+            return True
+
+        self._command_queue.put(load_scene_command)
 
     def request_pose_chunk(self, request: ChunkRequest) -> None:
         self._raise_worker_error_if_any()
@@ -136,12 +165,13 @@ class ChunkPipeline:
         try:
             warmup_start = time.perf_counter()
             print("[chunk-pipeline] warmup start", flush=True)
-            self._backend.warmup(self._scene)
+            self._backend.warmup_model()
             warmup_elapsed_ms = (time.perf_counter() - warmup_start) * 1000.0
             print(
                 f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
                 flush=True,
             )
+            self._model_ready.set()
             while True:
                 command = self._command_queue.get()
                 if not command(self._backend):
@@ -149,6 +179,9 @@ class ChunkPipeline:
         except BaseException as exc:
             with self._worker_error_lock:
                 self._worker_error = exc
+            # Unblock anyone waiting on warmup; the error resurfaces on the
+            # next public call via _raise_worker_error_if_any.
+            self._model_ready.set()
 
     def _raise_worker_error_if_any(self) -> None:
         with self._worker_error_lock:
