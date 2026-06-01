@@ -963,6 +963,7 @@ class OmnidreamsWebRTCSessionManager:
         offer_sdp: str,
         offer_type: str,
         rtc_configuration: RTCConfiguration | None = None,
+        enable_liveness_watchdog: bool = True,
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
             raise SessionBusyError("An Omnidreams session is already active.")
@@ -989,9 +990,10 @@ class OmnidreamsWebRTCSessionManager:
             last_client_message_at=loop.time(),
         )
         self._active_session = managed_session
-        managed_session.liveness_task = asyncio.create_task(
-            self._client_liveness_watchdog(managed_session=managed_session)
-        )
+        if enable_liveness_watchdog:
+            managed_session.liveness_task = asyncio.create_task(
+                self._client_liveness_watchdog(managed_session=managed_session)
+            )
 
         @peer_connection.on("datachannel")
         def on_datachannel(channel: Any) -> None:
@@ -1088,6 +1090,7 @@ class OmnidreamsWebRTCSessionManager:
                 offer_sdp=offer_sdp,
                 offer_type=offer_type,
                 rtc_configuration=RTCConfiguration(iceServers=[]),
+                enable_liveness_watchdog=False,
             )
 
     async def close_active_session(self) -> None:
