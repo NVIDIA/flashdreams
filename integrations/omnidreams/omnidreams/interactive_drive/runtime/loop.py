@@ -5,6 +5,7 @@ import os
 import queue
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -439,11 +440,17 @@ def _drain_pipeline_frames(
     presenter: PresenterBackend,
     view_mode: str,
 ) -> None:
+    current_generation = pipeline.current_generation
     while True:
         try:
             queued_frame = pipeline.frame_queue.get_nowait()
         except queue.Empty:
             return
+        if queued_frame.generation != current_generation:
+            # Stale frame from a rollout / scene the user has moved past (a
+            # reset or scene switch bumped the pipeline generation); drop it
+            # so we don't flash old content over the new load.
+            continue
         _prepare_queued_frame(queued_frame, presenter, view_mode)
         ready_frames.append(queued_frame)
 
@@ -456,6 +463,7 @@ def run_main_loop(
     simulation: SimulationBackend,
     pipeline: ChunkPipeline,
     config: LoopConfig,
+    loading_status: Callable[[], str | None] | None = None,
 ) -> bool:
     """Drive the request -> render -> present pipeline.
 
@@ -467,8 +475,15 @@ def run_main_loop(
     ``initial_presented_frame`` seeds ``last_presented_frame`` so the loop
     has a single uniform ``present_frame`` path: while the pipeline is
     warming up or hasn't produced a chunk yet, the loop keeps re-presenting
-    whatever it last presented, which is the loading-overlay frame the
-    caller pre-rendered.
+    whatever it last presented, which is the loading frame the caller
+    seeded.
+
+    ``loading_status`` is an optional per-tick text provider polled only
+    while no real frame has been produced yet (the loading phase). The
+    caller uses it to surface the current phase -- "Loading world model..."
+    while the model warms, "Loading scene..." once it's resident and the
+    picked scene is uploading -- as a status overlay over the loading
+    frame. The OOB warning still takes precedence when both apply.
 
     Returns ``True`` if the loop exited because the user requested a reset
     (caller should call ``pipeline.reset`` and re-run the loop with a fresh
@@ -547,12 +562,24 @@ def run_main_loop(
             last_presented_frame = queued_frame.frame
             state.frame_count += 1
         else:
-            # Re-present the last frame with whatever OOB overlay is current
-            # for this tick; the merged frame is local to this call so the
-            # cached ``last_presented_frame`` stays unmodified for the next
+            # Re-present the last frame with whatever overlay is current for
+            # this tick. The OOB warning wins; otherwise, while no real
+            # frame has been produced yet (``frame_count == 0``), surface
+            # the loading-phase status from ``loading_status`` -- "Loading
+            # world model..." until the model is resident, then "Loading
+            # scene..." while the picked scene uploads and its first chunk
+            # renders. The merged frame is local to this call so the cached
+            # ``last_presented_frame`` stays unmodified for the next
             # iteration.
+            overlay = state.oob_message
+            if (
+                overlay is None
+                and loading_status is not None
+                and state.frame_count == 0
+            ):
+                overlay = loading_status()
             presenter.present_frame(
-                _frame_with_overlay(last_presented_frame, state.oob_message),
+                _frame_with_overlay(last_presented_frame, overlay),
                 view_mode=view_mode,
             )
 

@@ -53,7 +53,6 @@ _query_axis_range = query_axis_range
 # of the live screen width. Pinned at 500 px because the panel content
 # (wheel asset, pedal pngs) is asset-driven and doesn't reflow.
 HUD_PANEL_WIDTH = 500
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 0.75
 KEYBOARD_STEER_RATE_PER_S = 0.6
@@ -502,6 +501,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start loading --scene immediately. By default the HUD opens on Load Scene.",
     )
     parser.add_argument(
+        "--preload-scenes",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Parse every scene in --scene-dir in the background at startup so"
+            " switching scenes skips the USDZ parse (the per-scene geometry"
+            " upload and first-chunk generation still happen on switch)."
+            " Off by default; uses more memory the more scenes are staged."
+        ),
+    )
+    parser.add_argument(
         "--cuda-visible-devices",
         default="auto",
         help=(
@@ -548,7 +558,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _maybe_autostage_scene(scene: Path) -> Path:
+def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
+    """Whether the scene picker would find any staged USDZ to offer.
+
+    Mirrors :func:`_discover_scene_options`'s directory sweep -- the
+    ``--scene-dir`` cache plus the requested scene's own folder -- so the
+    default-scene autostage can be skipped when a curated set of scenes is
+    already present.
+    """
+    for directory in (scene_dir, scene.parent):
+        resolved = _project_path(directory)
+        if resolved.is_dir() and any(resolved.glob("*.usdz")):
+            return True
+    return False
+
+
+def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) -> Path:
     """Auto-download a known scene UUID on first launch.
 
     Triggers only when ``scene`` lives under the shared scenes cache
@@ -558,6 +583,13 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     and non-clipgt filenames are returned unchanged so the demo's
     normal "file not found" error fires for them.
 
+    With ``allow_skip`` (any scene-picker mode -- HUD or MJPEG), a missing
+    default scene is also returned unchanged whenever the picker already
+    has staged scenes to offer, so a demo curated to a specific scene set
+    never blocks on the default UUID (no Hugging Face download, no early
+    exit). The run loop then backfills ``args.scene`` from the first
+    discovered scene.
+
     The explicit ``omnidreams-prepare`` script remains the way to
     pre-stage arbitrary UUIDs and to pre-warm the Cosmos-Reason1 text
     encoder; this helper just covers the "I just ran ``interactive-drive``
@@ -565,6 +597,13 @@ def _maybe_autostage_scene(scene: Path) -> Path:
     single command.
     """
     if scene.exists():
+        return scene
+    if allow_skip and _has_discoverable_scenes(scene_dir, scene):
+        print(
+            f"[interactive-drive] default scene '{scene.name}' is not staged; "
+            f"using the scenes already present under {scene_dir} instead.",
+            flush=True,
+        )
         return scene
     cache_dir = scenes_cache_root().resolve()
     if scene.resolve().parent != cache_dir:
@@ -591,7 +630,14 @@ def _maybe_autostage_scene(scene: Path) -> Path:
 def main() -> None:
     args = build_parser().parse_args()
     if not args.synthetic_scene:
-        args.scene = _maybe_autostage_scene(args.scene)
+        # Only the bare ``--no-hud`` backend has no scene picker; the HUD
+        # and MJPEG paths both let the user pick from ``--scene-dir``, so a
+        # missing default scene there is fine as long as the directory
+        # already has other scenes staged (see _maybe_autostage_scene).
+        uses_scene_picker = args.stream_mjpeg is not None or not args.no_hud
+        args.scene = _maybe_autostage_scene(
+            args.scene, scene_dir=args.scene_dir, allow_skip=uses_scene_picker
+        )
     # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
     # MJPEG presenter (HTTP server, browser session) survives across
     # scene-change requests posted by the in-page picker. ``--no-hud``
@@ -617,23 +663,21 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     + Ludus + CUDA in one process consistently failed at the EGL or
     CUDA-GL interop layer).
 
-    The function loops over scene-change requests so the user can pick
-    a new scene from the HUD dropdown without the slangpy window
-    closing and reopening. One ``SlangPyHudPresenter`` is constructed
-    at startup and reused across many ``app.run()`` invocations -- one
-    per scene the user picks. Each iteration tears down only the
-    backend / pipeline / simulation, rebuilds them for the freshly
-    selected scene, and hands them to a new
-    :class:`InteractiveDriveApp` whose ``close_presenter_on_exit=False``
-    keeps the presenter (and therefore the window) alive across the
-    transition.
+    One ``SlangPyHudPresenter`` and one long-lived
+    :class:`InteractiveDriveApp` are constructed at startup. Building the
+    app starts the (scene-independent) model warmup on the pipeline worker
+    thread immediately, so the long weight-load + compile overlaps with
+    the user's scene-selection wait. The function then loops over
+    scene-change requests, calling ``app.load_scene`` + ``app.run_scene``
+    per scene: the warmed model stays resident, so each switch only
+    re-uploads the scene geometry instead of reloading the model, and the
+    slangpy window never closes and reopens (``close_presenter_on_exit=False``
+    keeps the presenter alive until the user actually closes the window).
 
-    The wheel is a long-lived resource too -- evdev fd, FFB context --
-    so it's constructed once and rebound to each successive
-    ``KeyboardState`` via the presenter's
-    :meth:`SlangPyHudPresenter.bind_keyboard`. We rebuild the wheel
-    bridge if the bind target differs because ``WheelBridge`` captures
-    the sink at init.
+    The wheel is a long-lived resource too -- evdev fd, FFB context -- and
+    binds once to the app's single ``KeyboardState`` via
+    :meth:`SlangPyHudPresenter.bind_keyboard`; no per-scene rebinding,
+    since the keyboard now lives for the whole session.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.slangpy_hud_presenter import (
@@ -686,68 +730,82 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         control_assets=control_assets,
         wheel=None,
     )
-    # Attach the wheel up front, bound to the placeholder keyboard, so the
-    # HUD's steering / pedal chrome reacts to the physical device during the
-    # initial "Load Scene" wait -- not only once a scene is running. The
-    # evdev reader thread starts now; the per-run factory below just rebinds
-    # its drive sink to each run's KeyboardState.
+
+    # Build the backend + engine ONCE, up front. Constructing the app
+    # starts the (scene-independent) model warmup on the pipeline worker
+    # thread immediately, so the long weight-load + compile overlaps with
+    # the user's scene-selection wait below instead of starting only after
+    # the first pick. The app owns one long-lived KeyboardState and rebinds
+    # the presenter to it; scenes are switched in place via
+    # ``app.load_scene`` so the warmed model is never rebuilt.
+    config, backend = _cli.prepare_config_and_backend(args)
+    app = InteractiveDriveApp(
+        config=config,
+        backend=backend,
+        presenter=presenter,
+        close_presenter_on_exit=False,
+    )
+    presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+
+    # Attach the wheel up front, bound to the app's long-lived keyboard, so
+    # the HUD's steering / pedal chrome reacts to the physical device during
+    # the initial scene-selection wait -- not only once a scene is running.
+    # The evdev reader thread starts now and runs for the process lifetime;
+    # the single keyboard means it never needs rebinding across scenes.
     wheel: Any = None
     if wheel_selection is not None:
         profile, device_path = wheel_selection
         wheel = WheelBridge(
             device_path=device_path,
             profile=profile,
-            control=KeyboardStateDriveSink(placeholder_keyboard),
+            control=KeyboardStateDriveSink(app.keyboard),
         )
         wheel.start()
         presenter.set_wheel(wheel)
 
-    def _factory(config: Any, keyboard: Any) -> Any:
-        # Called once per ``InteractiveDriveApp.__init__``. Rebind the
-        # wheel's drive sink to this run's KeyboardState (the reader thread
-        # started above keeps running, state-machine-clean -- the only thing
-        # tied to the keyboard is the sink it posts ``set_drive`` into), then
-        # point the presenter at the new keyboard.
-        if wheel is not None:
-            wheel._control = KeyboardStateDriveSink(keyboard)  # noqa: SLF001 -- see comment
-        presenter.bind_keyboard(keyboard)
-        return presenter
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
 
+    # First scene: prefer the resolved ``config.scene_path`` so
+    # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
+    # default are honoured; a dropdown selection overrides it below.
+    scene_path: Any = config.scene_path
+    variant = config.variant
     try:
         # Initial scene-selection wait: if the user didn't pass
-        # ``--autoload-scene``, open the HUD and let them pick a
-        # scene from the dropdown. Skipping the autoload also lets
-        # the user pick a different scene than ``--scene`` advertises
-        # without re-running the binary.
+        # ``--autoload-scene``, open the HUD and let them pick a scene from
+        # the dropdown while the model warms in the background.
         if not args.autoload_scene:
             request = presenter.wait_for_scene_selection()
             if request is None:
                 return  # window closed before any scene was loaded
             scene_path, variant = request
-            args.scene = scene_path
-            args.variant = variant
             presenter.acknowledge_scene_change(scene_path, variant)
 
         while True:
             presenter.set_engine_active(True)
-            config, backend = _cli.prepare_config_and_backend(args)
-            app = InteractiveDriveApp(
-                config=config,
-                backend=backend,
-                presenter_factory=_factory,
-                close_presenter_on_exit=False,
-            )
-            app.run()
+            # load_scene parses the USDZ on a background thread while keeping
+            # the window responsive; it returns False if the window closed
+            # (or a new scene was requested) before the parse finished, so
+            # we skip run_scene and let the pending-change check below decide
+            # whether to switch scenes or exit.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             presenter.set_engine_active(False)
             requested = presenter.pending_scene_change
             if requested is None:
-                # User closed the window (X / ESC); we're done.
+                # Window closed (X / ESC) during load or run; we're done.
                 break
-            new_scene_path, new_variant = requested
-            args.scene = new_scene_path
-            args.variant = new_variant
-            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            scene_path, variant = requested
+            presenter.acknowledge_scene_change(scene_path, variant)
     finally:
+        app.shutdown()
         presenter.close()
 
 
@@ -757,10 +815,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
     Mirrors :func:`_run_slangpy_hud`'s outer-loop structure but with a
     long-lived :class:`MJPEGStreamingPresenter` instead of a slangpy
     window. The HTTP server (and any connected browser sessions) stay
-    alive across scene transitions; only the backend / pipeline /
-    simulation get rebuilt per scene. The browser shows the loading
-    overlay during the rebuild and resumes streaming the moment the
-    new pipeline produces its first chunk.
+    alive across scene transitions; the backend / pipeline are built once
+    and only the scene (geometry + simulation) is swapped per scene. The
+    browser shows the loading overlay during the swap and resumes
+    streaming the moment the new scene produces its first chunk.
 
     Scene options come from the same discovery layer the slangpy HUD
     uses. They get serialised into a JSON-friendly shape and posted to
@@ -833,25 +891,36 @@ def _run_streaming(args: argparse.Namespace) -> None:
         thumbnails=thumbnails,
     )
 
-    def _factory(config: object, keyboard: KeyboardState) -> MJPEGStreamingPresenter:
-        # Each ``InteractiveDriveApp.__init__`` builds a fresh
-        # ``KeyboardState``; rebind so the long-lived presenter
-        # follows the new instance instead of writing into the
-        # placeholder keyboard from before the first scene loaded.
-        del config
-        presenter.bind_keyboard(keyboard)
-        return presenter
+    # Build the backend + engine once so the model warms up (on the
+    # pipeline worker thread) while the browser is still choosing the first
+    # scene. The app rebinds the presenter to its long-lived keyboard and
+    # switches scenes in place via ``app.load_scene``, keeping the warmed
+    # model resident across scene changes.
+    config, backend = _cli.prepare_config_and_backend(args)
+    app = InteractiveDriveApp(
+        config=config,
+        backend=backend,
+        presenter=presenter,
+        close_presenter_on_exit=False,
+    )
+    presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+
+    if args.preload_scenes:
+        app.preload_scenes(
+            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            for opt in scene_options
+        )
+        # Lock scene selection until every scene is cached so the user only
+        # ever hits the instant (cache-hit) switch path.
+        presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        # Don't auto-load: always wait for the browser to pick the
-        # first scene. This mirrors the slangpy HUD's ``--no-autoload-
-        # scene`` default (which is the *only* mode for the streaming
-        # path -- there's no Vulkan window to show progress in, so we
-        # would otherwise burn world-model warmup on whatever
-        # ``args.scene`` defaulted to before the user expressed any
-        # intent). The presenter publishes an idle "Select a scene to
-        # begin" overlay frame so connected browsers have something to
-        # render while the wait spins.
+        # Don't auto-load: always wait for the browser to pick the first
+        # scene. There's no Vulkan window to show progress in, so the
+        # presenter publishes an idle overlay frame ("Loading world
+        # model..." while warmup runs in the background, then "Select a
+        # scene to begin") so connected browsers have something to render
+        # while the wait spins.
         print(
             "[demo] streaming presenter waiting for first scene selection...",
             flush=True,
@@ -859,25 +928,20 @@ def _run_streaming(args: argparse.Namespace) -> None:
         request = presenter.wait_for_scene_selection()
         if request is None:
             return  # presenter closed before any selection (Ctrl-C)
-        first_scene_path, first_variant = request
-        args.scene = first_scene_path
-        args.variant = first_variant
-        presenter.acknowledge_scene_change(first_scene_path, first_variant)
+        scene_path, variant = request
+        presenter.acknowledge_scene_change(scene_path, variant)
         print(
-            f"[demo] streaming initial scene -> {first_scene_path.name} "
-            f"variant={first_variant!r}",
+            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
             flush=True,
         )
 
         while True:
-            config, backend = _cli.prepare_config_and_backend(args)
-            app = InteractiveDriveApp(
-                config=config,
-                backend=backend,
-                presenter_factory=_factory,
-                close_presenter_on_exit=False,
-            )
-            app.run()
+            # load_scene parses the USDZ on a background thread while the
+            # browser keeps receiving frames; False means the session is
+            # ending (or a new scene was requested) before the parse
+            # finished, so skip run_scene and let the check below decide.
+            if app.load_scene(scene_path, variant, args.prompt):
+                app.run_scene()
             requested = presenter.pending_scene_change
             if requested is None:
                 # Either the process is shutting down (Ctrl-C) or the
@@ -886,16 +950,15 @@ def _run_streaming(args: argparse.Namespace) -> None:
                 # affordance, so a "no pending change" exit is
                 # treated as the end of the session.
                 break
-            new_scene_path, new_variant = requested
-            args.scene = new_scene_path
-            args.variant = new_variant
-            presenter.acknowledge_scene_change(new_scene_path, new_variant)
+            scene_path, variant = requested
+            presenter.acknowledge_scene_change(scene_path, variant)
             print(
-                f"[demo] streaming scene change -> {new_scene_path.name} "
-                f"variant={new_variant!r}",
+                f"[demo] streaming scene change -> {scene_path.name} "
+                f"variant={variant!r}",
                 flush=True,
             )
     finally:
+        app.shutdown()
         presenter.close()
 
 
@@ -936,7 +999,11 @@ def _project_path(path: Path) -> Path:
     path = Path(path).expanduser()
     if path.is_absolute():
         return path
-    return (PROJECT_ROOT / path).resolve()
+    # Resolve relative paths against the current working directory -- the
+    # standard CLI convention, and what users expect when running from the
+    # repo root. (This previously resolved against the package directory,
+    # integrations/omnidreams, which was surprising for --scene/--scene-dir.)
+    return (Path.cwd() / path).resolve()
 
 
 def _discover_scene_options(

@@ -53,7 +53,11 @@ class WorldModelRenderBackend(RenderBackend):
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
 
-    def warmup(self, scene: SceneBundle) -> None:
+    @property
+    def can_prewarm(self) -> bool:
+        return self._session.can_prewarm
+
+    def warmup_model(self) -> None:
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(
                 "World-model manifest resolution does not match the renderer resolution: "
@@ -72,22 +76,34 @@ class WorldModelRenderBackend(RenderBackend):
             raise ValueError(
                 "The flashdreams world-model path is locked to a 5-frame first chunk."
             )
+        start = time.perf_counter()
+        self._session.warmup_model()
+        print(
+            f"[world-model] model warmup session_ms={(time.perf_counter() - start) * 1000.0:.1f}",
+            flush=True,
+        )
 
+    def load_scene(self, scene: SceneBundle) -> None:
         self._scene = scene
+        self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames = self._load_debug_condition_frames(
             self._manifest.debug_condition_frame_dir
         )
-        warmup_start = time.perf_counter()
-        rasterizer_start = warmup_start
+        load_start = time.perf_counter()
         self._rasterizer.load_scene(scene)
         rasterizer_end = time.perf_counter()
-        self._session.warmup(initial_rgb=scene.initial_rgb, prompt=scene.prompt)
-        session_end = time.perf_counter()
+        # Per-scene conditioning prep. On the default path this is a no-op
+        # (the prompt is re-embedded per rollout in the session); under
+        # --offload-text-encoder it (re)builds the per-scene embeddings.
+        self._session.prepare_for_scene(
+            initial_rgb=scene.initial_rgb, prompt=scene.prompt
+        )
+        prepare_end = time.perf_counter()
         print(
-            "[world-model] warmup "
-            f"rasterizer_ms={(rasterizer_end - rasterizer_start) * 1000.0:.1f} "
-            f"session_ms={(session_end - rasterizer_end) * 1000.0:.1f} "
-            f"total_ms={(session_end - warmup_start) * 1000.0:.1f}",
+            "[world-model] load_scene "
+            f"rasterizer_ms={(rasterizer_end - load_start) * 1000.0:.1f} "
+            f"prepare_ms={(prepare_end - rasterizer_end) * 1000.0:.1f} "
+            f"total_ms={(prepare_end - load_start) * 1000.0:.1f}",
             flush=True,
         )
 

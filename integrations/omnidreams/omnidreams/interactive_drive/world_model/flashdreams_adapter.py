@@ -321,27 +321,76 @@ class FlashdreamsWorldModelSession:
             )
         return self._pipeline
 
-    def warmup(
+    @property
+    def can_prewarm(self) -> bool:
+        # The non-factory offload path defers its build to the first
+        # prepare_for_scene so the one-shot encoders are freed before the
+        # AR pipeline is allocated (peak-VRAM ordering); every other path
+        # builds the pipeline eagerly with no scene needed.
+        return self._pipeline_factory is not None or not self._offload_text_encoder
+
+    def warmup_model(self) -> None:
+        """Build the scene-independent diffusion pipeline (weights + compile).
+
+        Called once per process. The non-factory offload path returns here
+        and builds lazily in :meth:`prepare_for_scene` instead, so per-scene
+        embeddings are computed and the one-shot encoders freed before the
+        AR pipeline is allocated.
+        """
+        start = time.perf_counter()
+        if self._pipeline_factory is not None:
+            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
+        elif self._offload_text_encoder:
+            return
+        else:
+            config = _build_pipeline_config(self.manifest, self._profile_config)
+            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+        self._validate_chunk_sizes()
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        print(
+            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
+            flush=True,
+        )
+
+    def prepare_for_scene(
         self, *, initial_rgb: object | None = None, prompt: str | None = None
     ) -> None:
-        start = time.perf_counter()
-        if self._pipeline_factory is None:
-            config = _build_pipeline_config(self.manifest, self._profile_config)
-            if self._offload_text_encoder:
-                if initial_rgb is None or prompt is None:
-                    raise RuntimeError(
-                        "offload_text_encoder warmup requires the scene initial_rgb and prompt."
-                    )
-                self._precomputed_embeddings = _precompute_embeddings_from_config(
-                    config,
-                    self.manifest,
-                    initial_rgb=initial_rgb,
-                    prompt=prompt,
-                )
-                config = replace(config, text_encoder=None, image_encoder=None)
-            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
-        else:
-            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
+        """Per-scene conditioning prep, run on every scene (re)load.
+
+        Default path: a no-op. The pipeline keeps its text/image encoders
+        and re-embeds the current prompt in ``initialize_cache`` on every
+        rollout, so switching scenes needs no model-side work here.
+
+        Offload path: the one-shot encoders are freed to save VRAM, so a
+        new scene's prompt/first-frame cannot reuse the previous scene's
+        cached embeddings. The factory (test) path recomputes them lazily
+        on the next ``start``; the real path rebuilds the pipeline per
+        scene (precompute embeddings -> free encoders -> build pipeline) to
+        keep peak VRAM low. This is the only path that does not keep the
+        model resident across scene changes.
+        """
+        if not self._offload_text_encoder:
+            return
+        self._precomputed_embeddings = None
+        if self._pipeline_factory is not None:
+            return
+        if initial_rgb is None or prompt is None:
+            raise RuntimeError(
+                "offload_text_encoder requires the scene initial_rgb and prompt."
+            )
+        self._release_pipeline()
+        config = _build_pipeline_config(self.manifest, self._profile_config)
+        self._precomputed_embeddings = _precompute_embeddings_from_config(
+            config,
+            self.manifest,
+            initial_rgb=initial_rgb,
+            prompt=prompt,
+        )
+        config = replace(config, text_encoder=None, image_encoder=None)
+        self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+        self._validate_chunk_sizes()
+
+    def _validate_chunk_sizes(self) -> None:
         first_chunk_frames = self.pipeline.get_num_frames(0)
         # Flashdreams indexes the first post-initial chunk as AR step 1; this
         # is the steady-state frame count that interactive-drive loops over.
@@ -356,8 +405,16 @@ class FlashdreamsWorldModelSession:
                 "flashdreams steady-state chunk size does not match the manifest: "
                 f"{steady_chunk_frames} vs {self.manifest.num_frames_per_block}"
             )
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-        print(f"[flashdreams-session] warmup runtime_ms={elapsed_ms:.1f}", flush=True)
+
+    def _release_pipeline(self) -> None:
+        if self._pipeline is None:
+            return
+        self._pipeline = None
+        gc.collect()
+        device = torch.device(self.manifest.device)
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+            torch.cuda.empty_cache()
 
     def start(
         self,
