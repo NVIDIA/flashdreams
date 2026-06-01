@@ -1049,8 +1049,8 @@ def _scene_option(path: Path, *, variants: tuple[str, ...]) -> SceneOption:
 def _scene_label(path: Path) -> str:
     scene_names = {
         "clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4": "Quiet Suburban Boulevard",
-        "clipgt-7bd1eb2f-c375-44ee-b4ca-55473e0773a9": "Late Night Arrival in the Neighborhood",
-        "clipgt-e2993759-36e1-4d97-868f-e2a737f1eb68": "Afternoon Commute Past the Park",
+        "clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4-snow": "Quiet Suburban Boulevard with snow",
+        "clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4-rain": "Quiet Suburban Boulevard with rain",
     }
     scene_id = path.stem
     return scene_names.get(scene_id, scene_id)
