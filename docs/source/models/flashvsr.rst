@@ -77,7 +77,7 @@ on top of ``uv run flashdreams-run`` (taking 4 GPUs as an example):
 
    Multi-GPU is supported only by the dense ``flashvsr-v1.1-full-attn`` preset.
    The ``flashvsr-v1.1-sparse-ratio-*`` presets are single-GPU only because
-   their ``block_sparse_attn`` backend is not context-parallel aware.
+   their Triton sparse-attention backend is not context-parallel aware.
 
 We provide the following variants:
 

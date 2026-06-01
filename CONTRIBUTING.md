@@ -320,8 +320,8 @@ the declared minimums. This means:
 
 ## Speeding up local builds
 
-The first `uv sync` in a fresh environment compiles several CUDA
-extensions from source (transformer-engine, block-sparse-attn). On a
+The first `uv sync` in a fresh environment compiles CUDA extensions
+from source, including transformer-engine. On a
 workstation this can take 30+ minutes. The environment variables below --
 the same ones used in CI -- dramatically reduce that time by limiting
 compilation to your GPU's architecture and controlling parallelism.
@@ -345,24 +345,16 @@ CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
 
 # Only compile CUDA kernels for YOUR GPU (instead of all supported archs)
 export NVTE_CUDA_ARCHS="${CUDA_ARCH}"              # transformer-engine
-export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}" # block-sparse-attn
 
 # Limit parallel nvcc jobs to avoid OOM (each job uses ~9GB peak memory).
 # Set this to (available_RAM_GB / 9), capped at your CPU core count.
 export MAX_JOBS=8
-
-# If you don't need block-sparse-attn CUDA kernels at all (e.g. only
-# running CPU tests or working on non-FlashVSR code), skip the build
-# entirely:
-# export BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD=TRUE
 ```
 
 | Variable | Effect | Typical speedup |
 |----------|--------|-----------------|
 | `NVTE_CUDA_ARCHS` | Restricts transformer-engine compilation to listed SM arch(es) | ~10min -> ~1min |
-| `BLOCK_SPARSE_ATTN_CUDA_ARCHS` | Restricts block-sparse-attn compilation to listed SM arch(es) | ~80min -> ~8min |
 | `MAX_JOBS` | Caps parallel nvcc processes (prevents OOM) | Avoids killed builds |
-| `BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD` | Skips block-sparse-attn CUDA compilation entirely | ~80min -> seconds |
 
 ### Putting it together
 
@@ -373,7 +365,6 @@ A typical developer `.envrc` (if using [direnv](https://direnv.net/)):
 export CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
   | head -1 | tr -d '.')
 export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
-export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
 export MAX_JOBS=8
 ```
 

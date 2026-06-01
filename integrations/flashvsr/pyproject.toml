@@ -30,7 +30,6 @@ dependencies = [
     "opencv-python>=4.8",
     "Pillow>=10",
     "protobuf>=6.31.1",
-    "block-sparse-attn==0.0.2",
 ]
 
 [tool.uv]
@@ -38,13 +37,6 @@ managed = true
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-# Upstream Block-Sparse-Attention is not on PyPI. Install from the public
-# GitHub repo at v0.0.2.post1 -- the latest tag of the ``__version__ = "0.0.2"``
-# series (``.post1`` is a small ``__init__.py`` cleanup), so the ``==0.0.2``
-# pin above still resolves. Its ``setup.py`` ``import torch`` at build time, so
-# this dep is also listed in ``no-build-isolation-package`` in the
-# workspace-root ``pyproject.toml``.
-block-sparse-attn = { git = "https://github.com/mit-han-lab/Block-Sparse-Attention", tag = "v0.0.2.post1" }
 
 [project.optional-dependencies]
 dev = [

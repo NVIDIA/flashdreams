@@ -378,3 +378,24 @@ diff --git a/setup.py b/setup.py
      install_requires = []
  
  setup(
+diff --git a/block_sparse_attn/__init__.py b/block_sparse_attn/__init__.py
+new file mode 100644
+--- /dev/null
++++ b/block_sparse_attn/__init__.py
+@@ -0,0 +1,6 @@
++"""Compatibility shim for upstream FlashVSR's sparse-attention import."""
++
++from .block_sparse_attn_interface import block_sparse_attn_func
++
++
++__all__ = ["block_sparse_attn_func"]
+diff --git a/block_sparse_attn/block_sparse_attn_interface.py b/block_sparse_attn/block_sparse_attn_interface.py
+new file mode 100644
+--- /dev/null
++++ b/block_sparse_attn/block_sparse_attn_interface.py
+@@ -0,0 +1,5 @@
++"""Route upstream FlashVSR sparse-attention calls to flashdreams' Triton backend."""
++
++from flashvsr.transformer.triton_sparse_attn import block_sparse_attn_func
++
++__all__ = ["block_sparse_attn_func"]

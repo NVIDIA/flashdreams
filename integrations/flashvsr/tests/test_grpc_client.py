@@ -55,18 +55,7 @@ def test_build_chunk_request_raw_display_only() -> None:
     assert request.display_only
 
 
-def test_attention_mode_auto_falls_back_to_full(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(grpc_server, "_block_sparse_attn_available", lambda: False)
-
-    assert grpc_server._resolve_attention_mode("auto") == "full"
-
-
-def test_attention_mode_sparse_requires_extension(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(grpc_server, "_block_sparse_attn_available", lambda: False)
-
-    with pytest.raises(RuntimeError, match="block_sparse_attn"):
-        grpc_server._resolve_attention_mode("sparse")
+def test_attention_mode_auto_uses_sparse() -> None:
+    assert grpc_server._resolve_attention_mode("auto") == "sparse"
+    assert grpc_server._resolve_attention_mode("sparse") == "sparse"
+    assert grpc_server._resolve_attention_mode("full") == "full"

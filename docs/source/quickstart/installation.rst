@@ -77,7 +77,6 @@ slow. Set these variables to only compile for your local GPU architecture:
 
    CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.')
    export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
-   export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
    export MAX_JOBS=8
 
 See the `Contributing Guide <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds>`_
