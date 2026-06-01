@@ -16,22 +16,23 @@
       }
 
       .opening-logo {
-        width: 1440px;
+        width: 1728px;
         height: auto;
         filter: drop-shadow(0 10px 52px rgba(118, 185, 0, 0.22));
       }
 
       .opening-copy {
-        max-width: 1420px;
+        max-width: calc(100% - 96px);
         text-align: center;
         color: var(--fg-dim);
-        font-size: 48px;
-        font-weight: 700;
+        font-size: 72px;
+        font-weight: 500;
         font-style: italic;
         line-height: 1.08;
         letter-spacing: -0.03em;
         text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
-        min-height: 140px;
+        min-height: 170px;
+        white-space: nowrap;
       }
 
       .typing-cursor {
@@ -46,7 +47,7 @@
     <div
       id="root"
       data-composition-id="scene-opening"
-      data-duration="4.5"
+      data-duration="5.5"
       data-width="1920"
       data-height="1080"
     >
@@ -54,7 +55,7 @@
         id="opening-stage"
         class="clip opening-stage bg-green-glow"
         data-start="0"
-        data-duration="4.5"
+        data-duration="5.5"
         data-track-index="0"
       >
         <img
