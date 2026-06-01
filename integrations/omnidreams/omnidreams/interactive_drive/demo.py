@@ -116,6 +116,7 @@ class WheelState:
     brake: float = 0.0
     target_speed_mps: float = 0.0
     connected: bool = False
+    reverse: bool = False
 
 
 class KeyboardDriveState:
@@ -367,6 +368,7 @@ class WheelBridge:
             self._state.throttle = throttle
             self._state.brake = brake
             self._state.target_speed_mps = target_speed
+            self._state.reverse = self._reverse
 
         self._control.set_drive(
             steer=steering, throttle=throttle, brake=brake, reverse=self._reverse
@@ -400,6 +402,11 @@ class WheelBridge:
         self._last_update_s = now
         with self._state_lock:
             speed = self._state.target_speed_mps
+        # ``speed`` is signed: positive is forward, negative is reverse. The
+        # HUD shows its magnitude, so engaging reverse decelerates to 0 and
+        # then builds speed in the reverse direction (rather than the digit
+        # climbing forever while the throttle is held).
+        direction = -1.0 if self._reverse else 1.0
         if throttle > 0.01 and brake <= 0.05:
             accel = 2.0 * throttle * dt
             current = abs(speed)
@@ -409,9 +416,13 @@ class WheelBridge:
             else:
                 excess = (current - high_speed_knee) / max(1e-6, 36.0 - high_speed_knee)
                 taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
-            speed += accel * taper
+            speed += direction * accel * taper
         elif brake > 0.01:
-            speed = max(0.0, speed - 12.0 * brake * dt)
+            # Brake bleeds speed toward a stop regardless of travel direction.
+            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+        elif self._reverse:
+            # No auto-crawl in reverse; coast toward a stop.
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
         else:
             creep_target = 4.47  # 10 mph, matching the AlpaSim manual-driver creep.
             if speed < creep_target + 0.1:
@@ -420,7 +431,7 @@ class WheelBridge:
                 speed += (creep_target - speed) * 0.18 * dt
             else:
                 speed = max(0.0, speed - 0.5 * dt)
-        return max(0.0, min(36.0, speed))
+        return max(-36.0, min(36.0, speed))
 
 
 def build_parser() -> argparse.ArgumentParser:
