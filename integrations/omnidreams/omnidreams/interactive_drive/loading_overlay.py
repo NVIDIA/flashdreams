@@ -3,16 +3,18 @@
 
 """Shared ``Loading...`` overlay used while the backend is warming up.
 
-:class:`omnidreams.interactive_drive.app.InteractiveDriveApp` pre-renders this once at
-startup into a :class:`~omnidreams.interactive_drive.types.PresentedFrame` and seeds
-:func:`~omnidreams.interactive_drive.runtime.loop.run_main_loop` with it as the
-``initial_presented_frame``. The loop re-presents that frame on every
-display tick until the pipeline produces its first chunk (~60 s for the
-world-model backend due to HF download + torch.compile), so the user
-sees a high-contrast "Loading world model..." box instead of a frozen
-initial camera frame and reasonably assuming the demo has hung.
+Renders a high-contrast callout box with a status message over a base
+camera frame. Used as the status-overlay renderer for the loading phase:
+:func:`~omnidreams.interactive_drive.runtime.loop.run_main_loop` polls a
+``loading_status`` provider while no generated chunk has arrived yet and
+surfaces its message ("Loading world model..." until the model is
+resident, then "Loading scene..." while the picked scene uploads) over
+the seeded initial frame, so the user sees progress instead of a frozen
+frame and reasonably assuming the demo has hung. The MJPEG streaming
+presenter reuses this for its own status / idle overlays.
 
-PIL + ImageDraw.textbbox isn't cheap but it's called once per session.
+PIL + ImageDraw.textbbox isn't cheap, so it's only invoked on loading
+ticks (a few seconds), never in the steady-state present path.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
-from omnidreams.interactive_drive.app import InteractiveDriveApp, PresenterFactory
+from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.backends.raster import RasterRenderBackend
 from omnidreams.interactive_drive.backends.world_model import WorldModelRenderBackend
@@ -391,13 +391,12 @@ def prepare_config_and_backend(
 ) -> tuple[AppConfig, RenderBackend]:
     """Build the :class:`AppConfig` and :class:`RenderBackend` for ``args``.
 
-    Split out of :func:`run` so the slangpy HUD path in
-    :mod:`omnidreams.interactive_drive.demo` can call this in a loop -- once per
-    scene change -- while keeping the same window / presenter alive
-    across runs. The HUD's outer loop tears down the old backend with
-    ``backend.close()``, calls this to build a fresh one for the
-    newly-selected scene, then constructs a new
-    :class:`InteractiveDriveApp` over the same presenter.
+    Split out of :func:`run` so the demo wrappers in
+    :mod:`omnidreams.interactive_drive.demo` can build the backend once, up
+    front, and hand it to a single long-lived
+    :class:`InteractiveDriveApp` that switches scenes in place via
+    ``app.load_scene`` -- keeping the warmed model resident instead of
+    rebuilding it on every scene click.
     """
     # Stamp the resolved HF org into the env var BEFORE we touch anything
     # that fetches (manifest loader, scene staging, world-model build).
@@ -495,18 +494,15 @@ def prepare_config_and_backend(
     return config, backend
 
 
-def run(
-    args: argparse.Namespace, *, presenter_factory: PresenterFactory | None = None
-) -> None:
+def run(args: argparse.Namespace) -> None:
     """Execute the interactive-drive backend with the given parsed args.
 
-    Convenience wrapper used by the ``--no-hud`` path that doesn't need
-    to switch scenes mid-run. The slangpy HUD path drives
-    :func:`prepare_config_and_backend` directly so it can rebuild the
-    backend per scene click without recreating the presenter.
+    Convenience wrapper used by the ``--no-hud`` path that doesn't need to
+    switch scenes mid-run. The slangpy HUD / streaming paths in
+    :mod:`omnidreams.interactive_drive.demo` build one long-lived
+    :class:`InteractiveDriveApp` and call ``load_scene`` / ``run_scene``
+    per scene so the warmed model survives across scene clicks.
     """
     config, backend = prepare_config_and_backend(args)
-    app = InteractiveDriveApp(
-        config=config, backend=backend, presenter_factory=presenter_factory
-    )
+    app = InteractiveDriveApp(config=config, backend=backend)
     app.run()

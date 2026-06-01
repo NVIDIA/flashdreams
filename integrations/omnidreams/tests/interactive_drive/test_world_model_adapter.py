@@ -150,7 +150,7 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
         _manifest(),
         pipeline_factory=lambda manifest, profile: fake_pipeline,
     )
-    session.warmup()
+    session.warmup_model()
 
     initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
     first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
@@ -180,7 +180,7 @@ def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) 
         _manifest(),
         pipeline_factory=lambda manifest, profile: fake_pipeline,
     )
-    session.warmup()
+    session.warmup_model()
     sync_calls: list[list[object]] = []
 
     def fake_sync(frames: list[object]) -> None:
@@ -216,7 +216,7 @@ def test_session_offload_reuses_precomputed_embeddings_after_reset() -> None:
         offload_text_encoder=True,
         pipeline_factory=lambda manifest, profile: fake_pipeline,
     )
-    session.warmup()
+    session.warmup_model()
 
     initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
     first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
