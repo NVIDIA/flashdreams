@@ -36,13 +36,47 @@ robotics, simulated or virtual environments, and more, and is the
 runtime backbone of the `OmniDreams closed-loop demo at
 GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
-.. TODO: Add the FlashDreams teaser video here once the final asset is ready.
-.. .. raw:: html
-..
-..    <div class="video-slot">
-..      <strong>Teaser video placeholder</strong><br>
-..      Add the FlashDreams teaser video here.
-..    </div>
+.. raw:: html
+
+   <div class="fd-promo-video-wrap">
+     <video
+       class="fd-promo-video-player"
+       controls
+       playsinline
+       preload="metadata"
+       aria-label="FlashDreams quick intro video">
+       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
+     </video>
+     <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
+       <span class="fd-promo-play-icon" aria-hidden="true"></span>
+     </button>
+   </div>
+   <script>
+     (() => {
+       const script = document.currentScript;
+       const container = script ? script.previousElementSibling : null;
+       if (!container) {
+         return;
+       }
+       const video = container.querySelector(".fd-promo-video-player");
+       const playButton = container.querySelector(".fd-promo-play");
+       if (!video || !playButton) {
+         return;
+       }
+       const showOverlay = () => container.classList.remove("is-playing");
+       const hideOverlay = () => container.classList.add("is-playing");
+       playButton.addEventListener("click", () => {
+         video.controls = true;
+         const playPromise = video.play();
+         if (playPromise && typeof playPromise.catch === "function") {
+           playPromise.catch(showOverlay);
+         }
+       });
+       video.addEventListener("play", hideOverlay);
+       video.addEventListener("pause", showOverlay);
+       video.addEventListener("ended", showOverlay);
+     })();
+   </script>
 
 .. raw:: html
 
