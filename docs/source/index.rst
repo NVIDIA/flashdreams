@@ -25,7 +25,7 @@ FlashDreams
 
    .. container:: fd-cta-row
 
-      .. button-ref:: get_started
+      .. button-ref:: quickstart/index
          :ref-type: doc
          :color: primary
 
@@ -160,12 +160,12 @@ lives on the :doc:`benchmarks page <benchmarks>`.
 Try FlashDreams
 ---------------
 
-The :doc:`Get Started guide <get_started>` walks from a fresh
+The :doc:`Get Started guide </quickstart/index>` walks from a fresh
 checkout to a generated frame on a single GPU.
 
 .. container:: fd-cta-row
 
-   .. button-ref:: get_started
+   .. button-ref:: quickstart/index
       :ref-type: doc
       :color: primary
 
@@ -286,7 +286,7 @@ invocation, the checkpoint source, and the per-recipe knobs.
    :hidden:
    :maxdepth: 1
 
-   Get Started <get_started>
+   Get Started <quickstart/index>
    Documentation <documentation>
    benchmarks
    community/index
