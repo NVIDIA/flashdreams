@@ -134,8 +134,8 @@ def test_name_match_strength_prefers_exact() -> None:
     assert (
         name_match_strength("Wireless Controller Touchpad", ["Wireless Controller"]) == 1
     )
-    # Substring patterns still work for brand-style names; case-insensitive.
-    assert name_match_strength("Fanatec FANATEC Wheel", ["Fanatec"]) == 1
+    # Substring patterns still work for longer names; case-insensitive.
+    assert name_match_strength("Generic Racing Wheel FFB", ["Racing Wheel"]) == 1
     assert name_match_strength("wireless controller", ["Wireless Controller"]) == 2
     assert name_match_strength("Something Else", ["Wireless Controller"]) == 0
 

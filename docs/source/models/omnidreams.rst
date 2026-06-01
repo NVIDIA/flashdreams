@@ -173,6 +173,20 @@ instead:
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+Steering wheel and game controller
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With a local window you can drive using a steering wheel or game
+controller. Run the configuration tool to calibrate your device; the demo
+loads the saved profile automatically on its next launch:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive-configuration
+
+Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
+delete one, or set which is the default.
+
 Alternative: WebRTC server
 --------------------------
 
