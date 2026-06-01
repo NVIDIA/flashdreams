@@ -7,6 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,12 @@ from PIL import Image
 _GROUND_MESH_NAME = "mesh_ground.ply"
 
 
+@dataclass(frozen=True)
+class _PromptEntry:
+    archive_name: str
+    text: str
+
+
 def _read_yaml(zf: zipfile.ZipFile, name: str) -> dict[str, Any]:
     return yaml.safe_load(zf.read(name))
 
@@ -85,24 +92,87 @@ def _load_initial_image(
 
 def _load_prompt(zf: zipfile.ZipFile, variant: str, prompt_override: str | None) -> str:
     if prompt_override is not None:
+        _log_prompt_selection(
+            zf,
+            variant=variant,
+            selected_variant="override",
+            source="--prompt",
+            prompt=prompt_override,
+            available_variants=(),
+            ignored_files=(),
+        )
         return prompt_override
-    prompts = _discover_prompts(zf)
-    return prompts.get(variant, prompts.get("default", ""))
+    prompt_entries, ignored_files = _discover_prompt_entries(zf)
+    selected_variant = variant if variant in prompt_entries else None
+    if selected_variant is None and "default" in prompt_entries:
+        selected_variant = "default"
+    prompt_entry = (
+        prompt_entries[selected_variant] if selected_variant is not None else None
+    )
+    prompt = "" if prompt_entry is None else prompt_entry.text
+    _log_prompt_selection(
+        zf,
+        variant=variant,
+        selected_variant=selected_variant,
+        source="<none>" if prompt_entry is None else prompt_entry.archive_name,
+        prompt=prompt,
+        available_variants=tuple(sorted(prompt_entries.keys())),
+        ignored_files=ignored_files,
+    )
+    return prompt
 
 
 def _discover_prompts(zf: zipfile.ZipFile) -> dict[str, str]:
-    prompts: dict[str, str] = {}
+    prompt_entries, _ = _discover_prompt_entries(zf)
+    return {variant: entry.text for variant, entry in prompt_entries.items()}
+
+
+def _discover_prompt_entries(
+    zf: zipfile.ZipFile,
+) -> tuple[dict[str, _PromptEntry], tuple[str, ...]]:
+    prompts: dict[str, _PromptEntry] = {}
+    ignored_files: list[str] = []
     for name in zf.namelist():
         if "/" in name or not name.startswith("prompt") or not name.endswith(".txt"):
             continue
         variant = variant_from_stem(Path(name).stem, "prompt")
         if variant is None:
+            ignored_files.append(name)
             continue
-        prompts[variant] = zf.read(name).decode("utf-8").strip()
+        prompts[variant] = _PromptEntry(
+            archive_name=name,
+            text=zf.read(name).decode("utf-8").strip(),
+        )
     if "default" not in prompts and prompts:
         first_key = sorted(prompts.keys())[0]
         prompts["default"] = prompts[first_key]
-    return prompts
+    return prompts, tuple(sorted(ignored_files))
+
+
+def _log_prompt_selection(
+    zf: zipfile.ZipFile,
+    *,
+    variant: str,
+    selected_variant: str | None,
+    source: str,
+    prompt: str,
+    available_variants: tuple[str, ...],
+    ignored_files: tuple[str, ...],
+) -> None:
+    scene_name = Path(str(zf.filename)).name if zf.filename is not None else "<archive>"
+    prompt_text = " ".join(prompt.split())
+    print(
+        "[scene_loader] prompt "
+        f"scene={scene_name!r} "
+        f"requested_variant={variant!r} "
+        f"selected_variant={selected_variant or '<none>'!r} "
+        f"source={source!r} "
+        f"available_variants={available_variants or '<none>'!r} "
+        f"ignored_files={ignored_files or '<none>'!r} "
+        f"length={len(prompt)} "
+        f"text={prompt_text!r}",
+        flush=True,
+    )
 
 
 def _discover_first_images(zf: zipfile.ZipFile) -> dict[str, str]:

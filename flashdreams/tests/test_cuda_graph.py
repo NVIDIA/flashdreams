@@ -16,8 +16,9 @@ pytestmark = pytest.mark.ci_cpu
 def test_failed_capture_does_not_store_invalid_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state = {
+    state: dict[str, Any] = {
         "capture_attempts": 0,
+        "capture_error_mode": "",
         "in_capture": False,
         "replays": 0,
     }
@@ -27,11 +28,13 @@ def test_failed_capture_does_not_store_invalid_graph(
             state["replays"] += 1
 
     class FakeGraphContext:
-        def __init__(self, graph: FakeGraph) -> None:
+        def __init__(self, graph: FakeGraph, capture_error_mode: str) -> None:
             self.graph = graph
+            self.capture_error_mode = capture_error_mode
 
         def __enter__(self) -> None:
             del self.graph
+            state["capture_error_mode"] = self.capture_error_mode
             state["capture_attempts"] += 1
             state["in_capture"] = True
 
@@ -39,8 +42,12 @@ def test_failed_capture_does_not_store_invalid_graph(
             state["in_capture"] = False
             return False
 
-    def fake_graph(graph: FakeGraph) -> FakeGraphContext:
-        return FakeGraphContext(graph)
+    def fake_graph(
+        graph: FakeGraph,
+        *,
+        capture_error_mode: str = "global",
+    ) -> FakeGraphContext:
+        return FakeGraphContext(graph, capture_error_mode)
 
     def fn(x: torch.Tensor) -> torch.Tensor:
         if state["in_capture"] and state["capture_attempts"] == 1:
@@ -63,3 +70,4 @@ def test_failed_capture_does_not_store_invalid_graph(
     assert out.item() == 3
     assert isinstance(wrapper._graph, FakeGraph)
     assert state["replays"] == 1
+    assert state["capture_error_mode"] == "thread_local"

@@ -85,31 +85,25 @@ html_theme_options = {
         "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, benchmarks, community index/faq/support,
-    # quickstart, per-model pages) render without a right sidebar; the
-    # reference-docs side (`api/*`, the Documentation tab umbrella, the
-    # developer guides) keeps the in-page TOC. `community/contributing`
-    # also keeps the right page-TOC — the page is included from the
-    # repo-root CONTRIBUTING.md and has enough sections that an in-page
-    # TOC is a real wayfinding aid — but it suppresses the left section-
-    # nav (see `html_sidebars` below) because there's no useful sibling
-    # tree to show. Patterns must be non-overlapping — pydata warns on
-    # any page that matches more than one — so each section is
-    # enumerated explicitly rather than using a `**` catch-all, and
-    # `community/*` is split into its individual pages so
-    # `community/contributing` can opt into a different sidebar shape
-    # than its siblings without overlapping a wildcard.
+    # layout pages (homepage, benchmarks, community, get_started, per-
+    # model pages) render without a right sidebar; the reference-docs
+    # side (`api/*`, the Documentation tab umbrella, the developer
+    # guides) keeps the in-page TOC. Patterns must be non-overlapping —
+    # pydata warns on any page that matches more than one — so each
+    # community page is enumerated explicitly rather than using
+    # `community/*`.
     "secondary_sidebar_items": {
         "index": [],
-        "benchmarks/*": [],
+        "benchmarks": [],
         "community/index": [],
+        "community/contribute": [],
+        "community/discord": [],
         "community/faq": [],
         "community/support": [],
-        "community/contributing": ["page-toc"],
-        "quickstart/*": [],
+        "get_started": [],
         "developer_guides/*": ["page-toc"],
         "models/*": [],
-        "documentation/*": ["page-toc"],
+        "documentation": ["page-toc"],
         "api/*": ["page-toc"],
     },
     "pygments_light_style": "tango",
@@ -158,42 +152,33 @@ html_theme_options = {
     # toctree entries appear there. Sub-pages live in each section's
     # own toctree, which drives the left sidebar instead.
     "show_nav_level": 1,
-    # Six top-level sections in the master toctree (Benchmarks,
-    # Quickstart, Developer Guides, Models, CLI/API References,
-    # Community); promote them all into the primary navbar instead
-    # of bucketing into "More".
+    # Four top-level entries in the master toctree (Get Started,
+    # Documentation, Benchmarks, Community); 4 <= 6 so all four
+    # promote into the primary navbar instead of bucketing into
+    # "More".
     "header_links_before_dropdown": 6,
 }
 
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
 # Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, benchmarks, community index/faq/support, quickstart,
-# per-model pages) get no left sidebar — section wayfinding lives in
-# the section-index page's hero + tile grid instead. The reference-
-# docs side (`api/*`, the Documentation tab umbrella, the developer
-# guides) keeps the section nav tree.
-#
-# `community/contributing` is the odd one out: it renders on the
-# docs-scaffold side (article container + right page TOC) but with
-# NO left section-nav. The page is included verbatim from the repo-
-# root CONTRIBUTING.md and is self-navigating via its in-page TOC,
-# and the rest of the community section is marketing-layout, so
-# there's no useful sibling-tree to surface in a left rail.
-# `community/*` is enumerated explicitly so this single page can
-# opt into a different sidebar shape than its siblings without
-# overlapping a wildcard.
+# (homepage, benchmarks, community, get_started, per-model pages)
+# get no left sidebar — section wayfinding lives in the section-
+# index page's hero + tile grid instead. The reference-docs side
+# (`api/*`, the Documentation tab umbrella, the developer guides)
+# keeps the section nav tree.
 html_sidebars = {
     "index": [],
-    "benchmarks/*": [],
+    "benchmarks": [],
     "community/index": [],
+    "community/contribute": [],
+    "community/discord": [],
     "community/faq": [],
     "community/support": [],
-    "community/contributing": [],
-    "quickstart/*": [],
+    "get_started": [],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],
-    "documentation/*": ["sidebar-nav-bs"],
+    "documentation": [],
     "api/*": ["sidebar-nav-bs"],
 }
 

@@ -71,7 +71,8 @@ uv run flashdreams-run --help
 # Per-runner help: every overridable field is a CLI flag.
 uv run flashdreams-run lingbot-world-fast --help
 
-# Single-GPU demo with the bundled example assets (lazy-synced from S3).
+# Single-GPU demo with the bundled example assets (lazy-downloaded
+# from the upstream LingBot-World GitHub examples folder on first run).
 uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
 
 # Custom inputs (production layout).
@@ -167,13 +168,16 @@ Then open:
 
 ### Runtime requirements
 
-- CUDA-capable GPU for Lingbot inference.
-- `HF_TOKEN` exported for HuggingFace model access.
-- Lingbot example assets available under `assets/example_data/lingbot_world`:
-  - `image.jpg`
-  - `intrinsics.npy`
-  - `poses.npy` (optional but recommended for world-scale normalization)
-  - `prompt.txt`
+- CUDA-capable GPU.
+- `HF_TOKEN` exported. The `robbyant/lingbot-world-fast` checkpoint
+  (~70 GB) is pulled from HuggingFace on first run and cached under
+  `$HF_HOME`.
+- ~200 GB free disk for the model + HF cache.
+- Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`,
+  `prompt.txt`) auto-download from the upstream
+  [`Robbyant/lingbot-world`](https://github.com/Robbyant/lingbot-world/tree/main/examples)
+  examples folder into `assets/example_data/lingbot_world/<NN>/` on
+  first launch (`<NN>` is the `--example-idx`: `00`, `01`, `02`, `05`).
 
 ### DataChannel message format
 

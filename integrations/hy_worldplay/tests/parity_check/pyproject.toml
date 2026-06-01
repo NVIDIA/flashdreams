@@ -1,0 +1,95 @@
+[project]
+name = "hy-worldplay-parity-check"
+version = "0.0.0"
+description = "Isolated venv for the HY-WorldPlay WAN-5B parity-check benchmark AND the in-tree plugin CLI."
+# Match flashdreams' supported Python range exactly (it pins 3.12).
+requires-python = ">=3.12,<3.13"
+
+# Phase 2b.6.2 (close commit) trimmed this sub-venv from a two-jobs-
+# in-one stack to a thin "run the in-tree native plugin" stack. The
+# sub-venv now exists primarily to keep the heavyweight upstream
+# deps out of the repo-root ``uv.lock``. Job inventory:
+#
+#   1. Run the in-tree native plugin --
+#      ``flashdreams-run hy-worldplay-wan-i2v-5b`` -- against the
+#      stable pinned ``torch==2.11.*`` so parity numbers stay
+#      reproducible. (The native runner stays on flashdreams' own
+#      transformer + attention, so it does NOT need sageattention,
+#      cloudpickle, accelerate, or upstream's ``transformers==4.57.6``
+#      pin.)
+#   2. Provide a working ``cd HY-WorldPlay && torchrun wan/generate.py``
+#      harness *iff* the four heavy deps are re-installed manually
+#      (e.g. when re-baselining for a future 2b.6.1 Option-A refactor).
+#      ``run.sh`` documents the manual ``uv pip install`` step;
+#      production parity numbers come from the native path.
+#
+# The plugin workspace member (``flashdreams-hy-worldplay``) only
+# carries the lightweight config / runner shim, so installing it here
+# adds the ``hy_worldplay`` import path without re-resolving anything
+# heavy.
+#
+# flashdreams brings in torch, transformers, einops, ftfy, huggingface-hub,
+# numpy, tqdm, safetensors, etc. The native runner's video / VAE / camera
+# stack adds just a few extras on top. Transitive deps come along via
+# these top-level entries:
+#
+#   * diffusers              -- AutoencoderKLWan + scheduler (the native
+#                               recipe builds the VAE through diffusers'
+#                               state-dict transform).
+#   * scipy                  -- camera trajectory math (Rotation, etc.)
+#   * moviepy                -- optional WASD overlay on chunk outputs
+#   * imageio[ffmpeg]        -- export_to_video MP4 writer backend
+#   * opencv-python-headless -- image preprocessing in the runner
+#   * easydict / lmdb / filelock / pyyaml / loguru / omegaconf / regex
+#                             / remote-pdb / pillow / safetensors / numpy
+#                             / ftfy / einops / tqdm
+#                            -- transitively required by ``hy_worldplay``
+#                               or by ``flashdreams.recipes.wan`` runtime.
+dependencies = [
+    "flashdreams",
+    # Plugin workspace member -- adds the ``hy_worldplay`` import path
+    # and registers the ``flashdreams.runner_configs`` entry-point so
+    # ``flashdreams-run hy-worldplay-wan-i2v-5b`` works from inside
+    # this venv without any extra ``uv pip install`` step. Wired in
+    # via the path source below.
+    "flashdreams-hy-worldplay",
+    # Pinned to match the flashdreams root ``uv.lock`` (currently 2.11.0+cu130).
+    # *Must* stay in lockstep with whatever the flashdreams main venv resolves
+    # to -- otherwise the parity venv ends up on a different cuBLAS / cuDNN /
+    # bf16 reduction path and the upstream baseline drifts from the plugin
+    # output despite both being bit-exact within their own venv.
+    # See ``integrations/hy_worldplay/README.md`` "Parity caveats" for the
+    # diagnostic that surfaced this (torch 2.11 vs 2.12 -> mean |Δ| ≈ 5/255).
+    # Bump this in lockstep with ``flashdreams/uv.lock``.
+    "torch==2.11.*",
+    "diffusers>=0.34",
+    "easydict",
+    "filelock",
+    "imageio[ffmpeg]>=2.31",
+    "lmdb",
+    "loguru>=0.7",
+    "moviepy>=1.0,<2",
+    "numpy>=1.24",
+    "omegaconf",
+    "opencv-python-headless",
+    "pillow",
+    "pyyaml",
+    "regex",
+    "remote-pdb",
+    "safetensors>=0.4",
+    "scipy>=1.11",
+    "tqdm>=4.60",
+    "ftfy>=6.0",
+    "einops>=0.7",
+]
+
+[tool.uv.sources]
+# Neither package is on PyPI; install both from the local source tree.
+# Paths are relative to this directory:
+#   flashdreams              -> ../../../../flashdreams
+#   flashdreams-hy-worldplay -> ../..   (i.e. integrations/hy_worldplay)
+# The workspace member declares ``flashdreams = { workspace = true }`` in
+# its own pyproject; the top-level path source here takes precedence in
+# this resolution context (which is *outside* the flashdreams workspace).
+flashdreams = { path = "../../../../flashdreams", editable = true }
+flashdreams-hy-worldplay = { path = "../..", editable = true }

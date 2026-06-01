@@ -7,6 +7,7 @@ import numpy as np
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
+from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     SceneBundle,
@@ -183,6 +184,35 @@ def build_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
     return GroundSnapper(scene.ground_mesh_vertices, scene.ground_mesh_faces)
 
 
+def build_map_bounds(scene: SceneBundle) -> MapBounds | None:
+    """Compute OOB bounds from every spatial layer in ``scene``.
+
+    Decoupled from :func:`build_ground_snapper` because the OOB check
+    cares about the union of all geometry (lane markers, vehicle
+    tracks, polygons, ground), not just the ground mesh -- many scenes
+    ship a ground mesh that's a small strip representing only the road
+    surface, which would respawn the user the moment they drove onto a
+    sidewalk. Logs the resulting AABB so it's easy to confirm the
+    bounds match the scene's playable area.
+    """
+    bounds = MapBounds.from_scene(scene)
+    if bounds is None:
+        print(
+            "[ego_vehicle_kinematics] scene has no spatial geometry; "
+            "OOB respawn will not fire.",
+            flush=True,
+        )
+        return None
+    print(
+        f"[ego_vehicle_kinematics] map bounds: "
+        f"x=[{bounds.x_min:.1f}, {bounds.x_max:.1f}] ({bounds.width_m:.1f} m), "
+        f"y=[{bounds.y_min:.1f}, {bounds.y_max:.1f}] ({bounds.height_m:.1f} m). "
+        "Adds 50 m margin + 100 m warning zone for OOB.",
+        flush=True,
+    )
+    return bounds
+
+
 class EgoVehicleKinematics:
     def __init__(
         self,
@@ -190,15 +220,54 @@ class EgoVehicleKinematics:
         vehicle_config: VehicleConfig,
         ground_snapper: GroundSnapper | None,
         initial_timestamp_us: int,
+        map_bounds: MapBounds | None = None,
+        oob_margin_m: float = 50.0,
+        oob_warning_zone_m: float = 100.0,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
         self._ground_snapper = ground_snapper
         self._next_timestamp_us = initial_timestamp_us
+        self._map_bounds = map_bounds
+        self._oob_margin_m = float(oob_margin_m)
+        self._oob_warning_zone_m = float(oob_warning_zone_m)
 
     @property
     def current_state(self) -> VehicleState:
         return self._state
+
+    @property
+    def last_proximity(self) -> float:
+        """Out-of-bounds proximity of the latest simulated frame.
+
+        Mirrors alpasim's ``oob_proximity`` semantics:
+
+        - ``0.0`` -- ego is more than ``oob_warning_zone_m`` (default
+          100 m) inside the scene-content AABB expanded by
+          ``oob_margin_m`` (default 50 m); solidly in-bounds.
+        - ``(0.0, 1.0]`` -- linear ramp across the warning zone as the
+          ego approaches the AABB+margin edge.
+        - ``2.0`` -- alpasim's "off map" sentinel; the ego has crossed
+          AABB+margin and the runtime loop will fire the auto-respawn.
+
+        The AABB is the union of every spatial layer in the scene
+        (lane markers, drivable triangles, polygons, vehicle tracks,
+        ground mesh) -- not just ``mesh_ground.ply``. This is critical
+        because many scenes ship a ground mesh that covers only the
+        road surface; OOB-checking against that alone would respawn
+        the user the moment they drove onto a sidewalk or shoulder.
+
+        Returns ``0.0`` when the scene has no spatial geometry to
+        compute an AABB from -- the OOB respawn path no-ops in that
+        case.
+        """
+        if self._map_bounds is None:
+            return 0.0
+        return self._map_bounds.proximity(
+            (self._state.x_m, self._state.y_m),
+            margin_m=self._oob_margin_m,
+            warning_zone_m=self._oob_warning_zone_m,
+        )
 
     def pose_chunk(
         self,

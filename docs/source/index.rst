@@ -25,7 +25,7 @@ FlashDreams
 
    .. container:: fd-cta-row
 
-      .. button-ref:: quickstart/index
+      .. button-ref:: get_started
          :ref-type: doc
          :color: primary
 
@@ -43,6 +43,48 @@ FlashDreams
          :outline:
 
          Community
+
+   .. raw:: html
+
+      <div class="fd-promo-video-wrap">
+        <video
+          class="fd-promo-video-player"
+          controls
+          playsinline
+          preload="metadata"
+          aria-label="FlashDreams quick intro video">
+          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
+        </video>
+        <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
+          <span class="fd-promo-play-icon" aria-hidden="true"></span>
+        </button>
+      </div>
+      <script>
+        (() => {
+          const script = document.currentScript;
+          const container = script ? script.previousElementSibling : null;
+          if (!container) {
+            return;
+          }
+          const video = container.querySelector(".fd-promo-video-player");
+          const playButton = container.querySelector(".fd-promo-play");
+          if (!video || !playButton) {
+            return;
+          }
+          const showOverlay = () => container.classList.remove("is-playing");
+          const hideOverlay = () => container.classList.add("is-playing");
+          playButton.addEventListener("click", () => {
+            video.controls = true;
+            const playPromise = video.play();
+            if (playPromise && typeof playPromise.catch === "function") {
+              playPromise.catch(showOverlay);
+            }
+          });
+          video.addEventListener("play", hideOverlay);
+          video.addEventListener("pause", showOverlay);
+          video.addEventListener("ended", showOverlay);
+        })();
+      </script>
 
 Why FlashDreams
 ---------------
@@ -66,7 +108,7 @@ CUDA graph after warmup, collapsing Python and launch overhead in the
 hot loop.
 
 The library is Apache-2.0 and developed in the open. The internals are
-covered in the :doc:`documentation <documentation/index>`.
+covered in the :doc:`documentation <documentation>`.
 
 Performance
 -----------
@@ -74,7 +116,7 @@ Performance
 Each tile shows per-step latency at steady state — post-warmup,
 post-graph-capture — measured against the upstream library's own
 runner on the same hardware and the same checkpoint. Full methodology
-lives on the :doc:`benchmarks page <benchmarks/index>`.
+lives on the :doc:`benchmarks page <benchmarks>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -146,12 +188,12 @@ lives on the :doc:`benchmarks page <benchmarks/index>`.
 Try FlashDreams
 ---------------
 
-The :doc:`Get Started guide <quickstart/index>` walks from a fresh
+The :doc:`Get Started guide <get_started>` walks from a fresh
 checkout to a generated frame on a single GPU.
 
 .. container:: fd-cta-row
 
-   .. button-ref:: quickstart/index
+   .. button-ref:: get_started
       :ref-type: doc
       :color: primary
 
@@ -238,7 +280,7 @@ invocation, the checkpoint source, and the per-recipe knobs.
    :hidden:
    :maxdepth: 1
 
-   Get Started <quickstart/index>
-   Documentation <documentation/index>
-   benchmarks/index
+   Get Started <get_started>
+   Documentation <documentation>
+   benchmarks
    community/index

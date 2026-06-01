@@ -119,7 +119,7 @@ After registering your method you should be able to see it in the CLI helptext a
    # Run the model
    flashdreams-run customized-method --prompt "A beautiful custom generation."
 
-To register your own models, package your code as a Python package and declare a runner entry point in its ``pyproject.toml``. FlashDreams discovers every registered runner at import time and surfaces it through the same command-line interface as the in-tree recipes — there is no central manifest to keep in sync.
+In order to extend FlashDreams and register your own models, you can package your code as a Python package and register it with FlashDreams via an entrypoint in the ``pyproject.toml`` file. FlashDreams will automatically look for all registered runners and will register them to be used by the ``flashdreams-run`` CLI.
 
 Create a ``pyproject.toml`` file. This is where the entrypoint to your method is set and also where you can specify additional dependencies required by your codebase.
 

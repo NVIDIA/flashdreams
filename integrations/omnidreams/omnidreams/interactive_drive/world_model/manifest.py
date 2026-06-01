@@ -20,6 +20,11 @@ _HF_URL_PATTERN = re.compile(
     r"^https?://(?:www\.)?huggingface\.co/[^/]+/[^/]+/(?:blob|resolve)/[^/]+/.+$",
     re.IGNORECASE,
 )
+_DEFAULT_RESOLUTION_WH = (1280, 704)
+_RESOLUTION_ALIGNMENT_PX = 16
+_NATIVE_DIT_ACCELERATION_MODES = ("auto", "disabled", "required")
+_NATIVE_DIT_BACKENDS = ("fp8_kvcache_cudnn", "bf16")
+_NATIVE_VAE_ENCODERS = ("disabled", "fp8")
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -95,22 +100,78 @@ def _resolve_manifest_path(raw_path: str | None, *, manifest_dir: Path) -> Path 
     return path
 
 
+def _parse_resolution_wh(raw: object) -> tuple[int, int]:
+    if raw is None:
+        return _DEFAULT_RESOLUTION_WH
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"resolution_wh must be [width, height], got {raw!r}")
+    width, height = int(raw[0]), int(raw[1])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"resolution_wh must be positive, got {(width, height)!r}")
+    if width % _RESOLUTION_ALIGNMENT_PX or height % _RESOLUTION_ALIGNMENT_PX:
+        raise ValueError(
+            "resolution_wh must be divisible by "
+            f"{_RESOLUTION_ALIGNMENT_PX}, got {(width, height)!r}"
+        )
+    return (width, height)
+
+
+def _parse_native_dit_acceleration(raw: object) -> str:
+    mode = "disabled" if raw is None else str(raw)
+    if mode not in _NATIVE_DIT_ACCELERATION_MODES:
+        raise ValueError(
+            "native_dit_acceleration must be one of "
+            f"{_NATIVE_DIT_ACCELERATION_MODES}, got {mode!r}"
+        )
+    return mode
+
+
+def _parse_native_dit_backend(raw: object) -> str:
+    backend = "fp8_kvcache_cudnn" if raw is None else str(raw)
+    if backend not in _NATIVE_DIT_BACKENDS:
+        raise ValueError(
+            f"native_dit_backend must be one of {_NATIVE_DIT_BACKENDS}, got {backend!r}"
+        )
+    return backend
+
+
+def _parse_native_vae_encoder(raw: object) -> str:
+    encoder = "disabled" if raw is None else str(raw)
+    if encoder not in _NATIVE_VAE_ENCODERS:
+        raise ValueError(
+            f"native_vae_encoder must be one of {_NATIVE_VAE_ENCODERS}, got {encoder!r}"
+        )
+    return encoder
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
-    resolution_wh: tuple[int, int] = (1280, 704)
+    resolution_wh: tuple[int, int] = _DEFAULT_RESOLUTION_WH
     fps: int = 30
     num_frames_per_block: int = 8
     compile_net: bool = True
     light_vae: bool = True
     encode_with_pixel_shuffle: bool = False
     local_attn_size: int = 6
+    skip_finalize_kv_cache: bool = False
     sink_size: int = 0
     denoising_steps: list[int] = field(default_factory=lambda: [1000, 500])
     upsampling_enabled: bool = False
     upsampling_scale: int = 4
     device: str = "cuda:0"
     seed_for_every_rollout: int | None = None
+    native_dit_acceleration: str = "disabled"
+    native_dit_build_root: str | None = None
+    native_dit_max_jobs: int | str | None = None
+    native_dit_verbose_build: bool = False
+    native_dit_backend: str = "fp8_kvcache_cudnn"
+    native_dit_attention_backend: str = "auto"
+    native_dit_sparge_topk: float | None = None
+    native_dit_sparge_hybrid_period: int | None = None
+    native_dit_sparge_hybrid_phase: int | None = None
+    native_vae_encoder: str = "disabled"
+    native_vae_fp8_state_path: Path | None = None
 
 
 def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
@@ -134,20 +195,21 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
                 flush=True,
             )
         raw_yaml = rewritten
-    data = yaml.safe_load(raw_yaml)
-    resolution = tuple(data.get("resolution_wh", [1280, 704]))
+    data = yaml.safe_load(raw_yaml) or {}
+    resolution = _parse_resolution_wh(data.get("resolution_wh"))
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(
             data.get("debug_condition_frame_dir"),
             manifest_dir=manifest_dir,
         ),
-        resolution_wh=(int(resolution[0]), int(resolution[1])),
+        resolution_wh=resolution,
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
         compile_net=bool(data.get("compile_net", True)),
         light_vae=bool(data.get("light_vae", True)),
         encode_with_pixel_shuffle=bool(data.get("encode_with_pixel_shuffle", False)),
         local_attn_size=int(data.get("local_attn_size", 6)),
+        skip_finalize_kv_cache=bool(data.get("skip_finalize_kv_cache", False)),
         sink_size=int(data.get("sink_size", 0)),
         denoising_steps=[int(x) for x in data.get("denoising_steps", [1000, 500])],
         upsampling_enabled=bool(data.get("upsampling_enabled", False)),
@@ -157,5 +219,39 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
             int(data["seed_for_every_rollout"])
             if data.get("seed_for_every_rollout") is not None
             else None
+        ),
+        native_dit_acceleration=_parse_native_dit_acceleration(
+            data.get("native_dit_acceleration")
+        ),
+        native_dit_build_root=(
+            str(data["native_dit_build_root"])
+            if data.get("native_dit_build_root") is not None
+            else None
+        ),
+        native_dit_max_jobs=data.get("native_dit_max_jobs"),
+        native_dit_verbose_build=bool(data.get("native_dit_verbose_build", False)),
+        native_dit_backend=_parse_native_dit_backend(data.get("native_dit_backend")),
+        native_dit_attention_backend=str(
+            data.get("native_dit_attention_backend", "auto")
+        ),
+        native_dit_sparge_topk=(
+            float(data["native_dit_sparge_topk"])
+            if data.get("native_dit_sparge_topk") is not None
+            else None
+        ),
+        native_dit_sparge_hybrid_period=(
+            int(data["native_dit_sparge_hybrid_period"])
+            if data.get("native_dit_sparge_hybrid_period") is not None
+            else None
+        ),
+        native_dit_sparge_hybrid_phase=(
+            int(data["native_dit_sparge_hybrid_phase"])
+            if data.get("native_dit_sparge_hybrid_phase") is not None
+            else None
+        ),
+        native_vae_encoder=_parse_native_vae_encoder(data.get("native_vae_encoder")),
+        native_vae_fp8_state_path=_resolve_manifest_path(
+            data.get("native_vae_fp8_state_path"),
+            manifest_dir=manifest_dir,
         ),
     )

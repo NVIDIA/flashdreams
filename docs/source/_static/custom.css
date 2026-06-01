@@ -686,9 +686,9 @@ body.fd-page-landing .fd-landing-main > section {
 
    Hidden ONLY on hero-bearing pages (landing, benchmarks index,
    community index). The prose-narrow community subpages
-   (contributing / faq / support) keep their H1 visible because
-   they don't have a hero band of their own and the H1 IS their
-   marketing title. */
+   (contribute / discord / faq / support) keep their H1 visible
+   because they don't have a hero band of their own and the H1 IS
+   their marketing title. */
 body.fd-page-landing:not(.fd-prose-narrow) .fd-landing-main > section > h1 {
     position: absolute;
     width: 1px;
@@ -1185,9 +1185,9 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 
 
 /* COMMUNITY-SUBPAGE PROSE TWEAKS ----------------------------------------
-   The community/contributing, community/faq, community/support pages
-   are heavy prose. They use the landing layout (no sidebars) but with
-   a narrower reading column so paragraphs stay legible. Re-cap the
+   The community subpages (contribute, discord, faq, support) are
+   heavy prose. They use the landing layout (no sidebars) but with a
+   narrower reading column so paragraphs stay legible. Re-cap the
    inner width and tighten the band padding to feel like a marketing-
    prose article rather than a docs page. */
 body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section {
@@ -1718,6 +1718,72 @@ body.fd-page-landing .fd-split-text .highlight {
     line-height: 1.2;
     color: var(--fd-text-muted);
     font-style: italic;
+}
+
+/* Promo video block — embedded on the landing page hero. */
+.fd-promo-video-wrap {
+    position: relative;
+    width: min(960px, 100%);
+    margin: 0.4rem auto 1.6rem;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #05070a;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+}
+
+.fd-promo-video-player {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #05070a;
+}
+
+.fd-promo-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    padding: 0;
+    background: linear-gradient(180deg, rgba(5, 7, 10, 0.1), rgba(5, 7, 10, 0.32));
+    cursor: pointer;
+    transition: opacity 0.18s ease, background 0.18s ease;
+}
+
+.fd-promo-play::before {
+    content: "";
+    position: absolute;
+    width: 78px;
+    height: 56px;
+    border-radius: 8px;
+    background: rgba(5, 7, 10, 0.78);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.fd-promo-play:hover::before,
+.fd-promo-play:focus-visible::before {
+    background: var(--fd-accent, #76b900);
+}
+
+.fd-promo-play:focus-visible {
+    outline: 3px solid var(--fd-accent, #76b900);
+    outline-offset: -6px;
+}
+
+.fd-promo-play-icon {
+    position: relative;
+    width: 0;
+    height: 0;
+    margin-left: 6px;
+    border-top: 14px solid transparent;
+    border-bottom: 14px solid transparent;
+    border-left: 22px solid #ffffff;
+}
+
+.fd-promo-video-wrap.is-playing .fd-promo-play {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .model-link-row {

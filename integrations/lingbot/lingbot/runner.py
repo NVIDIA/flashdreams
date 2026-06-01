@@ -75,7 +75,7 @@ EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 5)
 """Supported upstream example indices currently hosted under ``examples/``."""
 
 
-def _example_data_dirname(example_idx: int) -> str:
+def example_data_dirname(example_idx: int) -> str:
     """Format ``example_idx`` into the upstream folder naming convention."""
     assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
         f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
@@ -83,9 +83,19 @@ def _example_data_dirname(example_idx: int) -> str:
     return f"{example_idx:02d}"
 
 
-def _ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> Path:
-    """Download bundled GitHub example files on rank 0; barrier other ranks."""
-    example_dirname = _example_data_dirname(example_idx)
+def ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> Path:
+    """Download bundled GitHub example files on rank 0; barrier other ranks.
+
+    The runner calls this from :meth:`LingbotWorldRunner._fill_example_data_defaults`;
+    the WebRTC server calls it from its ``main()`` so the same files
+    land on disk before the server's
+    ``LingbotWebRTCSessionManager._initialize_sync`` checks for them. The
+    download itself is small (image + intrinsics + poses + prompt for
+    the chosen example), uses the public LingBot-World GitHub raw URLs,
+    and is cached at :data:`EXAMPLE_DATA_DIR_LOCAL` so repeat calls are
+    no-ops.
+    """
+    example_dirname = example_data_dirname(example_idx)
     cache_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
     if is_rank_zero:
         for filename in EXAMPLE_DATA_FILENAMES:
@@ -173,7 +183,7 @@ class LingbotWorldRunner(
     def _fill_example_data_defaults(self) -> None:
         """Lazy-download bundled assets and fill empty path defaults in-place."""
         cfg = self.config
-        example_dir = _ensure_example_data_downloaded(
+        example_dir = ensure_example_data_downloaded(
             is_rank_zero=self.is_rank_zero,
             example_idx=cfg.example_idx,
         )

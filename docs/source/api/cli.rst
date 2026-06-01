@@ -51,11 +51,11 @@ Resolve config only (no model instantiation):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --no-instantiate
+   uv run flashdreams-run --no-instantiate self-forcing-wan2.1-t2v-1.3b-taehv
 
 See also
 --------
 
-- :doc:`/quickstart/index`
+- :doc:`/get_started`
 - :doc:`/developer_guides/config_system`
 - :doc:`/api/infra`

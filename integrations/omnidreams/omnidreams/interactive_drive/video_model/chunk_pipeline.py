@@ -20,13 +20,17 @@ from omnidreams.interactive_drive.types import (
 class VideoModelBackend(Protocol):
     """Video-model interface called from the pipeline worker thread.
 
-    Backends are *cold* after construction: ``warmup`` must be called before
-    any ``render_chunk``. :class:`ChunkPipeline` is the only thing that calls
-    ``warmup``, on its worker thread, before processing requests; callers
-    outside the pipeline never see a cold backend.
+    Backends are *cold* after construction. :class:`ChunkPipeline` calls
+    ``warmup_model`` once on its worker thread (model load/compile,
+    scene-independent), then ``load_scene`` for each scene before any
+    ``render_chunk`` against it. Callers outside the pipeline never see a
+    cold backend, and switching scenes re-runs only ``load_scene`` -- the
+    warmed model stays resident.
     """
 
-    def warmup(self, scene: SceneBundle) -> None: ...
+    def warmup_model(self) -> None: ...
+
+    def load_scene(self, scene: SceneBundle) -> None: ...
 
     def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk: ...
 
@@ -52,6 +56,10 @@ class QueuedFrame:
     frame: PresentedFrame
     chunk_times: ChunkTimes
     frame_index: int
+    # Pipeline generation this frame was rendered under. A reset / scene
+    # switch bumps the generation; the loop drops frames whose generation
+    # no longer matches so stale rollout/scene frames aren't presented.
+    generation: int = 0
 
 
 # Worker commands are closures that take the backend and return ``True`` to
@@ -61,9 +69,8 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 
 class ChunkPipeline:
-    def __init__(self, backend: VideoModelBackend, scene: SceneBundle) -> None:
+    def __init__(self, backend: VideoModelBackend) -> None:
         self._backend = backend
-        self._scene = scene
         # TODO: replace the loop's chunk-level ``chunks_outstanding`` gate with
         # frame-level in-flight tracking (frames requested - frames consumed,
         # alpasim style) and surface a hook here so callers gate at the
@@ -76,6 +83,19 @@ class ChunkPipeline:
         # caller's thread instead of silently leaking the worker.
         self._worker_error_lock = threading.Lock()
         self._worker_error: BaseException | None = None
+        # Set once ``warmup_model`` finishes on the worker thread (or fails).
+        # Lets callers overlap the scene-selection wait with the model load
+        # and show a "ready" affordance once the model is resident.
+        self._model_ready = threading.Event()
+        # Monotonic generation bumped on every reset / scene switch. Renders
+        # submitted under an older generation are superseded: their frames
+        # are dropped instead of presented, so a reset or scene load doesn't
+        # first flash stale frames from the rollout it replaced. The worker
+        # can't interrupt an in-flight torch generate(), but its output is
+        # discarded -- the single-process analog of alpasim cancelling the
+        # runtime stream and clearing its frame queues on reload.
+        self._generation_lock = threading.Lock()
+        self._generation = 0
         self._thread = threading.Thread(
             target=self._worker,
             name="interactive_drive-chunk-pipeline",
@@ -84,26 +104,70 @@ class ChunkPipeline:
         self._thread.start()
 
     @property
+    def model_ready(self) -> threading.Event:
+        """Event set when scene-independent model warmup has completed."""
+        return self._model_ready
+
+    @property
+    def current_generation(self) -> int:
+        """Current generation token; frames tagged with an older value are stale."""
+        with self._generation_lock:
+            return self._generation
+
+    def _bump_generation(self) -> None:
+        with self._generation_lock:
+            self._generation += 1
+
+    @property
     def frame_queue(self) -> "queue.Queue[QueuedFrame]":
         self._raise_worker_error_if_any()
         return self._frame_queue
+
+    def request_scene(self, scene: SceneBundle) -> None:
+        """Bind ``scene`` on the worker thread. Non-blocking.
+
+        Enqueued FIFO behind warmup and any in-flight renders, so a scene
+        picked before warmup finishes simply waits for the model load. The
+        worker runs ``backend.load_scene`` (geometry upload + rollout
+        restart); the warmed model stays resident, so switching scenes
+        never re-pays the warmup/compile cost.
+        """
+        self._raise_worker_error_if_any()
+        # Supersede any in-flight / queued render so its frames are dropped
+        # rather than briefly shown over the new scene's load.
+        self._bump_generation()
+
+        def load_scene_command(backend: VideoModelBackend) -> bool:
+            backend.load_scene(scene)
+            return True
+
+        self._command_queue.put(load_scene_command)
 
     def request_pose_chunk(self, request: ChunkRequest) -> None:
         self._raise_worker_error_if_any()
 
         chunk_times = request.chunk_times
         trajectory = request.trajectory
+        submit_generation = self.current_generation
 
         def render_command(backend: VideoModelBackend) -> bool:
             chunk_times.chunk_render_start_time = time.perf_counter()
             frame_chunk = backend.render_chunk(trajectory)
             chunk_times.chunk_ready_time = time.perf_counter()
+            # Drop the output if a reset / scene switch superseded this chunk
+            # while it was queued or rendering -- its frames belong to a
+            # rollout the user has already moved on from.
+            if submit_generation != self.current_generation:
+                return True
             for frame_index, frame in enumerate(frame_chunk.frames):
                 frame_times = chunk_times.frames[frame_index]
                 frame_times.image_ready_time = time.perf_counter()
                 self._frame_queue.put(
                     QueuedFrame(
-                        frame=frame, chunk_times=chunk_times, frame_index=frame_index
+                        frame=frame,
+                        chunk_times=chunk_times,
+                        frame_index=frame_index,
+                        generation=submit_generation,
                     )
                 )
             return True
@@ -113,13 +177,16 @@ class ChunkPipeline:
     def reset(self) -> None:
         """Signal the worker to start a new rollout. Non-blocking.
 
-        The worker handles in-flight renders FIFO before processing the
-        reset, so a brief stretch of old-rollout frames may still be
-        presented before new-rollout frames arrive. That is accepted; the
-        alternative (blocking-and-draining) would freeze the display for
-        the duration of the in-flight chunk's render, which is worse UX.
+        Bumps the generation so any in-flight / queued render is superseded:
+        its frames are dropped rather than presented, so the reset doesn't
+        first replay a stretch of old-rollout frames (the single-process
+        analog of alpasim cancelling the runtime stream and clearing its
+        frame queues). The in-flight torch generate() can't be interrupted,
+        but its output is discarded; the worker still handles the reset
+        FIFO so the next rollout starts from a clean cache.
         """
         self._raise_worker_error_if_any()
+        self._bump_generation()
 
         def reset_command(backend: VideoModelBackend) -> bool:
             backend.reset()
@@ -136,12 +203,13 @@ class ChunkPipeline:
         try:
             warmup_start = time.perf_counter()
             print("[chunk-pipeline] warmup start", flush=True)
-            self._backend.warmup(self._scene)
+            self._backend.warmup_model()
             warmup_elapsed_ms = (time.perf_counter() - warmup_start) * 1000.0
             print(
                 f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
                 flush=True,
             )
+            self._model_ready.set()
             while True:
                 command = self._command_queue.get()
                 if not command(self._backend):
@@ -149,6 +217,9 @@ class ChunkPipeline:
         except BaseException as exc:
             with self._worker_error_lock:
                 self._worker_error = exc
+            # Unblock anyone waiting on warmup; the error resurfaces on the
+            # next public call via _raise_worker_error_if_any.
+            self._model_ready.set()
 
     def _raise_worker_error_if_any(self) -> None:
         with self._worker_error_lock:
