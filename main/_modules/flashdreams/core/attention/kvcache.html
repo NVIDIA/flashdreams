@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -218,7 +218,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../models/omnidreams.html">OmniDreams</a></li>
@@ -309,7 +309,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">BlockKVCache</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    KV cache for causal attention with a fixed-size local window and CUDA-graph support.</span>
+<span class="sd">    KV cache for causal attention with a fixed-size local window, CUDA-graph compatible.</span>
 
 <span class="sd">    Keys and values can have arbitrary shape ``[..., total_size, ...]``; the sequence</span>
 <span class="sd">    (rolling) dimension is given by ``seq_dim`` (dimension index, can be negative).</span>
@@ -402,8 +402,11 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span>
 
+<div class="viewcode-block" id="BlockKVCache.from_tensor">
+<a class="viewcode-back" href="../../../../api/core.html#flashdreams.core.attention.BlockKVCache.from_tensor">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_tensor</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">seq_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a single-chunk cache pre-filled with the given key and value tensors.&quot;&quot;&quot;</span>
         <span class="n">cache</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">k_shape</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
             <span class="n">v_shape</span><span class="o">=</span><span class="n">v</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
@@ -417,7 +420,8 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">cache</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
         <span class="n">cache</span><span class="o">.</span><span class="n">after_update</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="n">cache</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="k">return</span> <span class="n">cache</span>
+        <span class="k">return</span> <span class="n">cache</span></div>
+
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">v_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span>
@@ -718,5 +722,6 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../../../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../../../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../../../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

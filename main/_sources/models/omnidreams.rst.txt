@@ -24,7 +24,7 @@ OmniDreams
      <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-OmniDreams is an HDMap-conditioned world model for single-view and multi-view
+OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.
 
@@ -102,7 +102,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -128,11 +128,12 @@ Some generated samples from the above commands:
 Launch the interactive demo
 ---------------------------
 
-``interactive-drive`` runs the OmniDreams single-view pipeline and
-streams the camera view to your browser. It needs only a CUDA-capable
-GPU — no display server or Vulkan toolchain.
+``interactive-drive`` runs the OmniDreams single-view pipeline in a
+single process and streams the camera view to your browser. The demo
+machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
+display server, or Vulkan support are required.
 
-Requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
+The demo requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
 and an ``HF_TOKEN`` with read access to
 `nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
 (scene USDZs) and
@@ -148,8 +149,8 @@ First-time setup:
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-Optionally pre-download scenes and checkpoints to avoid blocking the
-first launch on network I/O:
+Optionally, pre-download scenes and checkpoints so the first launch
+isn't blocked on network I/O:
 
 .. code-block:: bash
 
@@ -161,9 +162,12 @@ Run the demo and stream to your browser:
 
    uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
 
-Then open ``http://<server-ip>:8080/`` and pick a scene from the
-bottom-right picker. On a desktop GPU with a graphics queue, omit
-``--stream-mjpeg`` to open a local Vulkan window instead:
+Then open ``http://<server-ip>:8080/`` in any browser on the same
+network and pick a scene from the picker in the bottom-right.
+
+For execution using a consumer NVIDIA GPU that exposes a graphics stack,
+omit the ``--stream-mjpeg`` flag to open the demo in a local Vulkan window
+instead:
 
 .. code-block:: bash
 
@@ -171,38 +175,42 @@ bottom-right picker. On a desktop GPU with a graphics queue, omit
 
 .. note::
 
-   The local window needs a display server (X11) and the system OpenGL /
+   The local window requires a display server and the system OpenGL /
    Vulkan client libraries. On Debian/Ubuntu:
 
    .. code-block:: bash
 
       sudo apt install -y libx11-6 libxcb1 libgl1 libglx-mesa0 libvulkan1
 
-   A ``Failed to initialize GLFW`` error means the display or one of these
-   libraries is missing.
+   A ``Failed to initialize GLFW`` error indicates the display or one of these
+   libraries are missing.
 
 Steering wheel and game controller
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-With a local window you can drive using a steering wheel or game
-controller. Any device that Ubuntu detects as a standard game controller
-or joystick works. Run the configuration tool to calibrate it; the demo loads
-the saved profile automatically on its next launch:
+A steering wheel or game controller can be used to control the local window mode.
+Any device that Ubuntu detects as a standard game controller
+or joystick is viable. We provide a configuration tool to calibrate these:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams interactive-drive-configuration
 
-Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
-delete one, or set which is the default.
+The demo loads the saved profile automatically on subsequent launches.
+Re-run the configuration tool to specify the default profile, edit a profile
+(steering sensitivity, deadzone, buttons), or delete a profile.
 
 Alternative: WebRTC server
 --------------------------
 
-The MJPEG path above is the recommended starting point. For lower
-video latency, a richer browser frontend, or bidirectional
-camera-control APIs, ``omnidreams.webrtc.server`` serves an HTML5
-client on the same OmniDreams pipeline.
+For deployments that require a richer browser frontend with WebRTC's
+lower video-delivery latency and a streaming gRPC service for
+multi-client setups, the standalone server at
+``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
+the same OmniDreams pipeline. The MJPEG path above is the
+recommended starting point for most users; consider WebRTC if you
+need bidirectional camera-control APIs or are already integrating
+the gRPC service into a larger product.
 
 .. code-block:: bash
 
@@ -216,9 +224,10 @@ client on the same OmniDreams pipeline.
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
 
-The server may take a few minutes to warm up, then prints
-``Connect via http://<server-ip>:8089/request_session`` (use
-``localhost`` when running locally).
+The server may take a few minutes to warm up. Once ready, it prints
+``Connect via http://<server-ip>:8089/request_session``.
+Here, ``<server-ip>`` is the server IP address you are connecting to
+(can use ``localhost`` when running locally).
 
 .. note::
 
@@ -234,7 +243,7 @@ The server may take a few minutes to warm up, then prints
       # or plain SSH
       ssh -L 8089:localhost:8089 <user>@<host>
 
-When successfully connected, the browser-based UI looks like this:
+Once successfully connected, the browser-based UI looks like this:
 
 .. raw:: html
 

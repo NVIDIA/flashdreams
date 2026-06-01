@@ -16,16 +16,16 @@
 Add a new method
 ===================================
 
-Before you start adding a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to get a big picture of the system architecture.
+Before starting to add a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to obtain an overview of the system's architecture.
 
-FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a *standalone repository* that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory of this repository.
+FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a *standalone repository* that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage to maintain methods externally rather than pushing changes directly into the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory of this repository.
 
-However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the :mod:`TAEHV decoder <flashdreams.recipes.taehv>`), we encourage you to submit a PR to enable others to benefit from them.
+However, if any new features requires modifications to the core FlashDreams infra or introduce generally useful components (such as the :mod:`TAEHV decoder <flashdreams.recipes.taehv>`), we encourage you to submit a PR to enable others to benefit from them.
 
 File structure
 --------------
 
-We recommend the following file structure for your new method:
+We recommend the following file structure for new methods:
 
 .. code-block:: text
 
@@ -41,7 +41,10 @@ We recommend the following file structure for your new method:
     │   └── ...
     └── pyproject.toml
 
-Add optional files only when you need to customize the behavior beyond what we carry in FlashDreams. Most integrations can use the base :class:`~flashdreams.infra.pipeline.StreamInferencePipeline` directly and only provide model components plus config literals. As explained in :doc:`/developer_guides/config_system`, a method typically defines a pipeline config and a runner config. The runner handles CLI-facing I/O and runtime loops.
+Add optional files are only if customization beyond what is available in FlashDreams is required.
+Most integrations can use the base :class:`~flashdreams.infra.pipeline.StreamInferencePipeline` directly and only provide model components plus config literals.
+As explained in :doc:`/developer_guides/config_system`, a method typically defines a pipeline config and a runner config.
+The runner handles CLI-facing I/O and runtime loops.
 
 .. code-block:: python
    :caption: customized_method/runner.py
@@ -61,16 +64,16 @@ Add optional files only when you need to customize the behavior beyond what we c
        def run(self) -> None:
            cfg = self.config
 
-           # 1. Initialize the autoregressive cache.
+           # 1. Initialize the autoregressive cache
            cache = self.pipeline.initialize_cache(text=[cfg.prompt])
 
-           # 2. Drive the autoregressive rollout.
+           # 2. Drive the autoregressive rollout
            for i in range(cfg.total_blocks):
                video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
                self.pipeline.finalize(autoregressive_index=i, cache=cache)
 
            if self.is_rank_zero:
-               # 3. Write outputs only on the main process.
+               # 3. Write outputs only on the main process
                ...
 
 .. code-block:: python
@@ -101,27 +104,29 @@ Add optional files only when you need to customize the behavior beyond what we c
    )
 
 
-You can use the existing integrations under the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `LingBot-World <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
+Existing integrations under the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ can be used as a minimal guide.
+These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like.
+Examples are often the best way to learn; take a look at the `LingBot-World <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in a custom project.
 
-Registering your method
------------------------
+Registering methods
+-------------------
 
-After registering your method you should be able to see it in the CLI helptext and run it, leveraging the existing CLI for complete command line control:
+After registering a method one should be able to see it in the CLI helptext and run it, leveraging the existing CLI for complete command line control:
 
 .. code-block:: bash
 
-   # List all available models, including your new one
+   # List all available models, including new ones
    flashdreams-run --help
 
-   # See configurable parameters for your new model
+   # See configurable parameters for new models
    flashdreams-run customized-method --help
 
-   # Run the model
+   # Run the new model
    flashdreams-run customized-method --prompt "A beautiful custom generation."
 
-In order to extend FlashDreams and register your own models, you can package your code as a Python package and register it with FlashDreams via an entrypoint in the ``pyproject.toml`` file. FlashDreams will automatically look for all registered runners and will register them to be used by the ``flashdreams-run`` CLI.
+In order to extend FlashDreams and register own models, one can package code as a Python package and register it with FlashDreams via an entrypoint in the ``pyproject.toml`` file. FlashDreams will automatically search for all registered runners and will register them to be used by the ``flashdreams-run`` CLI.
 
-Create a ``pyproject.toml`` file. This is where the entrypoint to your method is set and also where you can specify additional dependencies required by your codebase.
+A ``pyproject.toml`` file is where the entrypoint to custom methods is specified and additional dependencies are specified. For example:
 
 .. code-block:: toml
    :caption: pyproject.toml
@@ -131,7 +136,7 @@ Create a ``pyproject.toml`` file. This is where the entrypoint to your method is
    version = "0.1.0"
 
    dependencies = [
-       "flashdreams", # you may want to consider pinning the version, ie "flashdreams==0.1.0"
+       "flashdreams", # consider pinning the version, ie "flashdreams==0.1.0"
        "mediapy>=1.1",
    ]
 
@@ -147,15 +152,16 @@ Finally, run the following to register the method:
 
    pip install -e .
 
-When developing a new method, you don't always want to install your code as a package. Instead, you may use the ``FLASHDREAMS_RUNNER_CONFIGS`` environment variable to temporarily register your custom method.
+When developing a new methods they don't always need to be installed as a package. Instead, the ``FLASHDREAMS_RUNNER_CONFIGS`` environment variable can be usedto temporarily register custom custom method.
 
 .. code-block:: bash
 
    export FLASHDREAMS_RUNNER_CONFIGS="customized-method=customized_method.config:RUNNER_CONFIGS"
 
-The ``FLASHDREAMS_RUNNER_CONFIGS`` environment variable additionally accepts a function (a zero-arg callable) to temporarily register your custom runner if construction has side effects you want to defer until CLI time.
+The ``FLASHDREAMS_RUNNER_CONFIGS`` environment variable additionally accepts a function (a zero-arg callable) to temporarily register custom runners if construction has side effects to be deferred until CLI time.
 
 Adding to the FlashDreams documentation
 ---------------------------------------
 
-We invite researchers to contribute their own integrations to our official codebase and documentation. You can find more information on how to do this in the repository's `CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`_. See the existing model pages under the `docs/source/models/ <https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models>`_ directory (e.g., :doc:`/models/self_forcing`) as templates for documenting your new method.
+We invite researchers to contribute their own integrations to our official codebase and documentation. More information on how to do this can be found in the repository's `CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`_.
+See the existing model pages under the `docs/source/models/ <https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models>`_ (e.g., :doc:`/models/self_forcing`) as templates for documenting new methods.

@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">OmniDreams</a></li>
@@ -296,7 +296,7 @@ SPDX-License-Identifier: Apache-2.0
   <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
   <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
   <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>OmniDreams is an HDMap-conditioned world model for single-view and multi-view
+</div><p>OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
@@ -365,7 +365,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </pre></div>
 </div>
 <p>Some generated samples from the above commands:</p>
-<div class="model-video-grid">
+<div class="model-video-grid zoomable">
   <div class="model-video-card">
     <!-- <div class="model-video-placeholder">Video placeholder</div> -->
     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -389,10 +389,11 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </div></section>
 <section id="launch-the-interactive-demo">
 <h2>Launch the interactive demo<a class="headerlink" href="#launch-the-interactive-demo" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline and
-streams the camera view to your browser. It needs only a CUDA-capable
-GPU — no display server or Vulkan toolchain.</p>
-<p>Requires access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
+<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
+single process and streams the camera view to your browser. The demo
+machine only needs a CUDA-capable GPU – no graphics-capable GPU,
+display server, or Vulkan support are required.</p>
+<p>The demo requires access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
 and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
 (scene USDZs) and
@@ -405,8 +406,8 @@ and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</sp
 uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
-<p>Optionally pre-download scenes and checkpoints to avoid blocking the
-first launch on network I/O:</p>
+<p>Optionally, pre-download scenes and checkpoints so the first launch
+isn’t blocked on network I/O:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
 </pre></div>
 </div>
@@ -414,41 +415,47 @@ first launch on network I/O:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
 </pre></div>
 </div>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> and pick a scene from the
-bottom-right picker. On a desktop GPU with a graphics queue, omit
-<code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> to open a local Vulkan window instead:</p>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in any browser on the same
+network and pick a scene from the picker in the bottom-right.</p>
+<p>For execution using a consumer NVIDIA GPU that exposes a graphics stack,
+omit the <code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> flag to open the demo in a local Vulkan window
+instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The local window needs a display server (X11) and the system OpenGL /
+<p>The local window requires a display server and the system OpenGL /
 Vulkan client libraries. On Debian/Ubuntu:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>libx11-6<span class="w"> </span>libxcb1<span class="w"> </span>libgl1<span class="w"> </span>libglx-mesa0<span class="w"> </span>libvulkan1
 </pre></div>
 </div>
-<p>A <code class="docutils literal notranslate"><span class="pre">Failed</span> <span class="pre">to</span> <span class="pre">initialize</span> <span class="pre">GLFW</span></code> error means the display or one of these
-libraries is missing.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">Failed</span> <span class="pre">to</span> <span class="pre">initialize</span> <span class="pre">GLFW</span></code> error indicates the display or one of these
+libraries are missing.</p>
 </div>
 <section id="steering-wheel-and-game-controller">
 <h3>Steering wheel and game controller<a class="headerlink" href="#steering-wheel-and-game-controller" title="Link to this heading">¶</a></h3>
-<p>With a local window you can drive using a steering wheel or game
-controller. Any device that Ubuntu detects as a standard game controller
-or joystick works. Run the configuration tool to calibrate it; the demo loads
-the saved profile automatically on its next launch:</p>
+<p>A steering wheel or game controller can be used to control the local window mode.
+Any device that Ubuntu detects as a standard game controller
+or joystick is viable. We provide a configuration tool to calibrate these:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive-configuration
 </pre></div>
 </div>
-<p>Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
-delete one, or set which is the default.</p>
+<p>The demo loads the saved profile automatically on subsequent launches.
+Re-run the configuration tool to specify the default profile, edit a profile
+(steering sensitivity, deadzone, buttons), or delete a profile.</p>
 </section>
 </section>
 <section id="alternative-webrtc-server">
 <h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">¶</a></h2>
-<p>The MJPEG path above is the recommended starting point. For lower
-video latency, a richer browser frontend, or bidirectional
-camera-control APIs, <code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> serves an HTML5
-client on the same OmniDreams pipeline.</p>
+<p>For deployments that require a richer browser frontend with WebRTC’s
+lower video-delivery latency and a streaming gRPC service for
+multi-client setups, the standalone server at
+<code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> ships a polished HTML5 client on top of
+the same OmniDreams pipeline. The MJPEG path above is the
+recommended starting point for most users; consider WebRTC if you
+need bidirectional camera-control APIs or are already integrating
+the gRPC service into a larger product.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
 uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>omnidreams.webrtc.server<span class="w"> </span><span class="se">\</span>
@@ -459,9 +466,10 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
 </div>
 <p>Sample scene UUIDs for the interactive server are available in the
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes">nvidia/omni-dreams-scenes Hugging Face dataset</a>.</p>
-<p>The server may take a few minutes to warm up, then prints
-<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> (use
-<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
+<p>The server may take a few minutes to warm up. Once ready, it prints
+<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
+Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
+(can use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>On a remote or cloud GPU instance (e.g. <a class="reference external" href="https://www.brev.dev/">Brev</a>),
@@ -475,7 +483,7 @@ ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>
 </pre></div>
 </div>
 </div>
-<p>When successfully connected, the browser-based UI looks like this:</p>
+<p>Once successfully connected, the browser-based UI looks like this:</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-webrtc-recording-0529.mp4" type="video/mp4">
@@ -640,5 +648,6 @@ peer connection from completing. Disable the setting and reload:</p>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

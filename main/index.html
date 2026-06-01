@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="models/omnidreams.html">OmniDreams</a></li>
@@ -345,16 +345,16 @@ GTC 2026</a>.</p>
     video.addEventListener("ended", showOverlay);
   })();
 </script><p class="fd-subtitle">Interactive world models</p><p>A world model learns to generate and evolve an environment over time. In
-practice this often means video, but the same concept can include actions,
+practice, this often means video, but the same concept can include actions,
 state, audio, sensor input, and control signals.</p>
 <p>World-model serving is the runtime pattern for putting that model inside a live
 application. Instead of producing one static video, the system keeps a session
 alive while input, model state, GPU inference, and output evolve together. This
 is useful for interactive simulation, robotics, autonomy, healthcare workflows,
 creative tools, virtual worlds, and game-like experiences.</p>
-<img alt="Offline one-shot video inference compared with online autoregressive world-model serving." src="_images/compare-offline-online-video-model-v2.jpg" />
-<p>In a served world-model application, the key requirement is not only generating
-a high-quality video. The runtime must keep an interactive session responsive
+<img alt="Offline one-shot video inference compared with online autoregressive world-model serving." class="zoomable" src="_images/compare-offline-online-video-model-v2.jpg" />
+<p>In an online world-model application, the key requirement is not only generating
+high-quality videos. The runtime must keep an interactive session responsive
 while the model continues to advance the world.</p>
 <div class="fd-highlight-grid">
   <div class="fd-highlight-card">
@@ -399,7 +399,7 @@ while the model continues to advance the world.</p>
   </p>
 </details><p class="fd-subtitle">Best-in-class inference speed</p><p>FlashDreams is engineered with efficiency in mind. With a bottom-up system
 design tailored to autoregressive world-model inference patterns, it delivers best-in-class
-speed across many popular open-source models and GPU architectures.</p>
+speed across many popular open-source models and GPU architectures:</p>
 <div class="fd-highlight-grid fd-kpi-grid">
   <a class="fd-highlight-link" href="models/self_forcing.html#profiling-benchmark">
     <div class="fd-highlight-card">
@@ -429,7 +429,7 @@ speed across many popular open-source models and GPU architectures.</p>
 optimization stack applies naturally to bidirectional inference (e.g.,
 <a class="reference internal" href="models/wan21.html"><span class="doc">Wan2.1</span></a>) by treating it as a single-rollout
 autoregressive pass.</p>
-<p class="fd-subtitle">Production-oriented interactive serving backend</p><p>FlashDreams also includes a production-oriented serving backend for persistent,
+<p class="fd-subtitle">Production-oriented interactive serving backend</p><p>FlashDreams also includes a production-oriented serving backend for persistent and
 low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
 streaming input/output. Explore the interactive demos powered by FlashDreams:</p>
 <div class="fd-highlight-grid">
@@ -553,5 +553,6 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="_static/copybutton.js?v=fd10adb8"></script>
     <script src="_static/design-tabs.js?v=f930bc37"></script>
+    <script src="_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

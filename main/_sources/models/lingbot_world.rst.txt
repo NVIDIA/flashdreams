@@ -63,7 +63,7 @@ To run LingBot-World, launch one of the registered runner slugs via
        --pixel-height 464 --pixel-width 832 \
        --total-blocks 21
 
-Sample data are downloaded from the
+Sample data is downloaded from the
 `LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
@@ -130,7 +130,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">

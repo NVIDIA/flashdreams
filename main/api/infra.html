@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -878,9 +878,8 @@ loops; pure ODE solvers ignore it.</p></li>
 <dt class="sig sig-object py" id="flashdreams.infra.diffusion.scheduler.Scheduler.add_noise">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">add_noise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">clean_input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git5cd392b ))"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">timestep</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git5cd392b ))"><span class="pre">Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/generated/torch.Generator.html#torch.Generator" title="(in PyTorch main (2.13.0a0+git5cd392b ))"><span class="pre">Generator</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.13.0a0+git5cd392b ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/diffusion/scheduler/base.html#Scheduler.add_noise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise" title="Link to this definition">¶</a></dt>
 <dd><p>Apply the forward corruption <code class="docutils literal notranslate"><span class="pre">x_t</span> <span class="pre">=</span> <span class="pre">(1</span> <span class="pre">-</span> <span class="pre">sigma(t))</span> <span class="pre">*</span> <span class="pre">x_0</span> <span class="pre">+</span> <span class="pre">sigma(t)</span> <span class="pre">*</span> <span class="pre">eps</span></code>.</p>
-<p>Timestep value semantics are scheduler-specific: FlowMatch snaps to
-the nearest entry of its 1000-step training table; FlowUniPC
-requires exact membership in its inference schedule.</p>
+<p>Timestep value semantics are scheduler-specific: all schedulers snap
+to the nearest entry of their inference schedule.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1260,15 +1259,7 @@ encoded tensors straight to the diffusion model.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.infra.encoder.NullEncoder.forward">
 <span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/infra/encoder/base.html#NullEncoder.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.infra.encoder.NullEncoder.forward" title="Link to this definition">¶</a></dt>
-<dd><p>Define the computation performed at every call.</p>
-<p>Should be overridden by all subclasses.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although the recipe for forward pass needs to be defined within
-this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
-instead of this since the former takes care of running the
-registered hooks while the latter silently ignores them.</p>
-</div>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">input</span></code> unchanged.</p>
 </dd></dl>
 
 </dd></dl>
@@ -1623,5 +1614,6 @@ buffers carried across AR steps).</p>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

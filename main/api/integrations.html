@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -1180,9 +1180,9 @@ pass an <code class="docutils literal notranslate"><span class="pre">image</span
 transformer’s <code class="docutils literal notranslate"><span class="pre">batch_shape</span></code>.</p></li>
 <li><p><strong>image</strong> – First-frame pixels of shape <code class="docutils literal notranslate"><span class="pre">[*batch_shape,</span> <span class="pre">1,</span> <span class="pre">3,</span> <span class="pre">H,</span> <span class="pre">W]</span></code>
 in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>. Required for I2V (<code class="docutils literal notranslate"><span class="pre">self.encoder</span></code> is set),
-forbidden for T2V. <code class="docutils literal notranslate"><span class="pre">H</span></code> / <code class="docutils literal notranslate"><span class="pre">W</span></code> must equal
-<code class="docutils literal notranslate"><span class="pre">height</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code> and likewise
-for <code class="docutils literal notranslate"><span class="pre">W</span></code>.</p></li>
+forbidden for T2V. <code class="docutils literal notranslate"><span class="pre">H</span></code> and <code class="docutils literal notranslate"><span class="pre">W</span></code> must equal
+<code class="docutils literal notranslate"><span class="pre">height</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code> and
+<code class="docutils literal notranslate"><span class="pre">width</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code>, respectively.</p></li>
 <li><p><strong>height</strong> – Pre-patchify latent height (post-VAE). Optional for
 I2V — derived from <code class="docutils literal notranslate"><span class="pre">image</span></code> when omitted; required for T2V.</p></li>
 <li><p><strong>width</strong> – Pre-patchify latent width (post-VAE). Same rules as
@@ -1636,9 +1636,9 @@ pass an <code class="docutils literal notranslate"><span class="pre">image</span
 transformer’s <code class="docutils literal notranslate"><span class="pre">batch_shape</span></code>.</p></li>
 <li><p><strong>image</strong> – First-frame pixels of shape <code class="docutils literal notranslate"><span class="pre">[*batch_shape,</span> <span class="pre">1,</span> <span class="pre">3,</span> <span class="pre">H,</span> <span class="pre">W]</span></code>
 in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code>. Required for I2V (<code class="docutils literal notranslate"><span class="pre">self.encoder</span></code> is set),
-forbidden for T2V. <code class="docutils literal notranslate"><span class="pre">H</span></code> / <code class="docutils literal notranslate"><span class="pre">W</span></code> must equal
-<code class="docutils literal notranslate"><span class="pre">height</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code> and likewise
-for <code class="docutils literal notranslate"><span class="pre">W</span></code>.</p></li>
+forbidden for T2V. <code class="docutils literal notranslate"><span class="pre">H</span></code> and <code class="docutils literal notranslate"><span class="pre">W</span></code> must equal
+<code class="docutils literal notranslate"><span class="pre">height</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code> and
+<code class="docutils literal notranslate"><span class="pre">width</span> <span class="pre">*</span> <span class="pre">decoder.spatial_compression_ratio</span></code>, respectively.</p></li>
 <li><p><strong>height</strong> – Pre-patchify latent height (post-VAE). Optional for
 I2V — derived from <code class="docutils literal notranslate"><span class="pre">image</span></code> when omitted; required for T2V.</p></li>
 <li><p><strong>width</strong> – Pre-patchify latent width (post-VAE). Same rules as
@@ -1776,8 +1776,7 @@ extra on the eager seed/tail chunks.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">
 <span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">TAEHVCache</span></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache" title="Link to this definition">¶</a></dt>
-<dd><p>Build a fresh per-rollout cache.</p>
-<p>Override to return the decoder’s concrete cache type.</p>
+<dd><p>Return an empty streaming decoder cache.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1802,44 +1801,29 @@ extra on the eager seed/tail chunks.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.temporal_compression_ratio">
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">temporal_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.temporal_compression_ratio" title="Link to this definition">¶</a></dt>
-<dd><p>Pixel frames ÷ latent frames in steady state (AR ≥ 1).</p>
-<p>AR 0 typically yields fewer pixel frames per latent frame
-because of causal first-frame padding; that asymmetry lives
-inside <a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size" title="flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a> /
-<a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size" title="flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_input_temporal_size()</span></code></a>.</p>
+<dd><p>Pixel frames / latent frames in steady state (AR &gt;= 1).</p>
 </dd></dl>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio">
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">spatial_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio" title="Link to this definition">¶</a></dt>
-<dd><p>Pixel side ÷ latent side. Constant across AR steps.</p>
+<dd><p>Pixel side / latent side.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size">
 <span class="sig-name descname"><span class="pre">get_output_temporal_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.get_output_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size" title="Link to this definition">¶</a></dt>
-<dd><p>Causal: AR 0 first latent frame decodes to a single pixel frame.</p>
+<dd><p>Return pixel frame count from <code class="docutils literal notranslate"><span class="pre">input_temporal_size</span></code> latent frames.</p>
+<p>AR 0 applies causal padding: the first latent frame yields one pixel
+frame, remaining frames yield <code class="docutils literal notranslate"><span class="pre">temporal_compression_ratio</span></code> each.
+AR &gt;= 1 is a plain multiply.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size">
 <span class="sig-name descname"><span class="pre">get_input_temporal_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.get_input_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size" title="Link to this definition">¶</a></dt>
-<dd><p>Latent frame count needed to produce <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> pixels.</p>
-<p>Inverse of <a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size" title="flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a>. Implementations
-should assert <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> is achievable at this AR
-step (i.e. divisible by the right ratio after subtracting any
-causal padding).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>autoregressive_index</strong> – AR step index (0-based).</p></li>
-<li><p><strong>output_temporal_size</strong> – Desired number of pixel frames.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Number of latent frames needed at this step.</p>
-</dd>
-</dl>
+<dd><p>Return latent frame count needed to produce <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> pixel frames.</p>
+<p>Inverse of <a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size" title="flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a>.</p>
 </dd></dl>
 
 </dd></dl>
@@ -2135,5 +2119,6 @@ causal padding).</p>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

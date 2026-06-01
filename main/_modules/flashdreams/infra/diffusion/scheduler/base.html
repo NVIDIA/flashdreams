@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -218,7 +218,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../../models/omnidreams.html">OmniDreams</a></li>
@@ -390,9 +390,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.</span>
 
-<span class="sd">        Timestep value semantics are scheduler-specific: FlowMatch snaps to</span>
-<span class="sd">        the nearest entry of its 1000-step training table; FlowUniPC</span>
-<span class="sd">        requires exact membership in its inference schedule.</span>
+<span class="sd">        Timestep value semantics are scheduler-specific: all schedulers snap</span>
+<span class="sd">        to the nearest entry of their inference schedule.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
 </div>
 
@@ -441,5 +440,6 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../../../../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../../../../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../../../../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

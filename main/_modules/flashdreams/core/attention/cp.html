@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -218,7 +218,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../models/omnidreams.html">OmniDreams</a></li>
@@ -352,6 +352,14 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">method</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;ring&quot;</span><span class="p">,</span> <span class="s2">&quot;ulysses&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ring&quot;</span><span class="p">,</span>
         <span class="n">convert_to_fp32</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Configure context-parallel attention method and backend.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            qkv_format: Layout of the QKV tensors; ``&quot;bhsd&quot;`` or ``&quot;bshd&quot;``.</span>
+<span class="sd">            backend: SDPA backend; ``&quot;cudnn&quot;`` or ``&quot;flash&quot;``.</span>
+<span class="sd">            method: Context-parallelism strategy; ``&quot;ring&quot;`` or ``&quot;ulysses&quot;``.</span>
+<span class="sd">            convert_to_fp32: Promote LSE accumulators to fp32 during ring merges.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="k">assert</span> <span class="n">qkv_format</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid qkv format: </span><span class="si">{</span><span class="n">qkv_format</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="k">assert</span> <span class="n">backend</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;cudnn&quot;</span><span class="p">,</span> <span class="s2">&quot;flash&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid backend: </span><span class="si">{</span><span class="n">backend</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -533,5 +541,6 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../../../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../../../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../../../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

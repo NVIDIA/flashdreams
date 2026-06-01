@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -293,16 +293,22 @@ SPDX-License-Identifier: Apache-2.0
           <section id="config-system">
 <h1>Config system<a class="headerlink" href="#config-system" title="Link to this heading">¶</a></h1>
 <p>FlashDreams configuration is built around simple, strongly-typed Python <code class="docutils literal notranslate"><span class="pre">dataclass</span></code> objects.
-This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>. It allows you to easily plug in different permutations of model components and nest configurations to define the complete inference pipeline.</p>
+This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>,
+allowing to easily compose different model components variants and nest configurations to define the complete
+inference pipeline.</p>
 <section id="base-components">
 <h2>Base components<a class="headerlink" href="#base-components" title="Link to this heading">¶</a></h2>
-<p>All configurable components in FlashDreams—such as the encoder, transformer, scheduler, and decoder—have a corresponding configuration dataclass and can be found under <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>. As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>, the main entry point for defining an integration is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
-<p>These config objects are modular and nestable. A typical pipeline config defines the architecture by composing other config dataclasses:</p>
+<p>All configurable components in FlashDreams - such as the encoder, transformer, scheduler, and decoder -
+have a corresponding configuration dataclass in <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>.
+As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>, the main entry point for defining an integration
+is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
+<p>These config objects are modular and nestable.
+A typical pipeline config defines the architecture by composing other config dataclasses:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipelineConfig</span>
 
-<span class="c1"># Define your own configs for the encoder, transformer, and decoder.</span>
+<span class="c1"># Define your own configs for the encoder, transformer, and decoder</span>
 <span class="n">MyStreamingEncoderConfig</span> <span class="o">=</span> <span class="o">...</span>
 <span class="n">MyTransformerConfig</span> <span class="o">=</span> <span class="o">...</span>
 <span class="n">MyStreamingDecoderConfig</span> <span class="o">=</span> <span class="o">...</span>
@@ -322,8 +328,9 @@ This configuration system is similar to the one employed in <a class="reference 
 </section>
 <section id="creating-new-configs">
 <h2>Creating new configs<a class="headerlink" href="#creating-new-configs" title="Link to this heading">¶</a></h2>
-<p>If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.</p>
-<p>Let’s say you want to create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>. You can create a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class. Before the model definition, you define the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code> which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
+<p>To create a brand new model component, a corresponding config with the associated parameters to be exposed has to be created.</p>
+<p>To create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>, a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class has to be defined.
+Before the model definition, the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code>, which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class, has to be defined using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">Encoder</span>
 
@@ -350,6 +357,7 @@ This configuration system is similar to the one employed in <a class="reference 
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">MyEncoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
         <span class="c1"># Build your layers using self.config.embedding_dim, etc.</span>
         <span class="o">...</span>
 
@@ -357,12 +365,14 @@ This configuration system is similar to the one employed in <a class="reference 
         <span class="o">...</span>
 </pre></div>
 </div>
-<p>Alternatively, you do not always have to write a complete configuration from scratch. You can use <a class="reference internal" href="../api/infra.html#flashdreams.infra.config.derive_config" title="flashdreams.infra.config.derive_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">flashdreams.infra.config.derive_config()</span></code></a> to create concise variants from existing configs. This allows you to inherit the base settings and only override the specific fields you want to change:</p>
+<p>Alternatively, it’s not always required to define a complete configuration from scratch.
+One can use <a class="reference internal" href="../api/infra.html#flashdreams.infra.config.derive_config" title="flashdreams.infra.config.derive_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">flashdreams.infra.config.derive_config()</span></code></a> to create concise variants from existing configs,
+allowing to inherit the base settings and to only override specific fields:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">derive_config</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">my_project.configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyBasePipelineConfig</span>
 
 <span class="c1"># Create a variant that inherits everything from MyBasePipelineConfig</span>
-<span class="c1"># but overrides the encoder&#39;s embedding dimension.</span>
+<span class="c1"># but overrides the encoder&#39;s embedding dimension</span>
 <span class="n">my_variant_config</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
     <span class="n">MyBasePipelineConfig</span><span class="p">,</span>
     <span class="n">encoder</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">embedding_dim</span><span class="o">=</span><span class="mi">1024</span><span class="p">),</span>
@@ -372,13 +382,14 @@ This configuration system is similar to the one employed in <a class="reference 
 </section>
 <section id="modifying-from-cli">
 <h2>Modifying from CLI<a class="headerlink" href="#modifying-from-cli" title="Link to this heading">¶</a></h2>
-<p>Often times, you just want to play with the parameters of an existing model without having to specify a new one. You can easily do so via the CLI, which is powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>.</p>
-<p>Because our configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> automatically generates a comprehensive command-line interface. You can use the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> (The CLI carried in FlashDreams) command to dynamically override any nested dataclass field.</p>
-<p>For example, to list out all existing configurable parameters for a model:</p>
+<p>To simply play with the parameters of an existing model without having to specify a new one, one can employ CLI arguments, which are powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>.</p>
+<p>Because the FlashDreams configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> automatically generates a comprehensive command-line interface.
+The <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> cli command can be used to dynamically override any nested dataclass field.</p>
+<p>For example, to list all existing configurable parameters for a model:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
 </pre></div>
 </div>
-<img alt="CLI helptext showing tyro dynamically parsing nested configuration arguments." src="../_images/cli-screen-shot.png" />
+<img alt="CLI helptext showing tyro dynamically parsing nested configuration arguments." class="zoomable" src="../_images/cli-screen-shot.png" />
 <p>To run the model with a modified configuration:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pipeline.diffusion-model.transformer.use-cuda-graph<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
@@ -466,5 +477,6 @@ For end-to-end examples of defining custom pipeline configurations, see <a class
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

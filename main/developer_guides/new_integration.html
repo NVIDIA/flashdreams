@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/omnidreams.html">OmniDreams</a></li>
@@ -292,12 +292,12 @@ SPDX-License-Identifier: Apache-2.0
         <article role="main" id="furo-main-content">
           <section id="add-a-new-method">
 <h1>Add a new method<a class="headerlink" href="#add-a-new-method" title="Link to this heading">¶</a></h1>
-<p>Before you start adding a new method, we highly recommend reading the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> and <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a> pages first to get a big picture of the system architecture.</p>
-<p>FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a <em>standalone repository</em> that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory of this repository.</p>
-<p>However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the <a class="reference internal" href="../api/integrations.html#module-flashdreams.recipes.taehv" title="flashdreams.recipes.taehv"><code class="xref py py-mod docutils literal notranslate"><span class="pre">TAEHV</span> <span class="pre">decoder</span></code></a>), we encourage you to submit a PR to enable others to benefit from them.</p>
+<p>Before starting to add a new method, we highly recommend reading the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> and <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a> pages first to obtain an overview of the system’s architecture.</p>
+<p>FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a <em>standalone repository</em> that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage to maintain methods externally rather than pushing changes directly into the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory of this repository.</p>
+<p>However, if any new features requires modifications to the core FlashDreams infra or introduce generally useful components (such as the <a class="reference internal" href="../api/integrations.html#module-flashdreams.recipes.taehv" title="flashdreams.recipes.taehv"><code class="xref py py-mod docutils literal notranslate"><span class="pre">TAEHV</span> <span class="pre">decoder</span></code></a>), we encourage you to submit a PR to enable others to benefit from them.</p>
 <section id="file-structure">
 <h2>File structure<a class="headerlink" href="#file-structure" title="Link to this heading">¶</a></h2>
-<p>We recommend the following file structure for your new method:</p>
+<p>We recommend the following file structure for new methods:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>customized_method/
 ├── customized_method/
 │   ├── __init__.py
@@ -311,7 +311,10 @@ SPDX-License-Identifier: Apache-2.0
 └── pyproject.toml
 </pre></div>
 </div>
-<p>Add optional files only when you need to customize the behavior beyond what we carry in FlashDreams. Most integrations can use the base <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a> directly and only provide model components plus config literals. As explained in <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a>, a method typically defines a pipeline config and a runner config. The runner handles CLI-facing I/O and runtime loops.</p>
+<p>Add optional files are only if customization beyond what is available in FlashDreams is required.
+Most integrations can use the base <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a> directly and only provide model components plus config literals.
+As explained in <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a>, a method typically defines a pipeline config and a runner config.
+The runner handles CLI-facing I/O and runtime loops.</p>
 <div class="literal-block-wrapper docutils container" id="id2">
 <div class="code-block-caption"><span class="caption-text">customized_method/runner.py</span><a class="headerlink" href="#id2" title="Link to this code">¶</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
@@ -329,16 +332,16 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span>
 
-        <span class="c1"># 1. Initialize the autoregressive cache.</span>
+        <span class="c1"># 1. Initialize the autoregressive cache</span>
         <span class="n">cache</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="p">[</span><span class="n">cfg</span><span class="o">.</span><span class="n">prompt</span><span class="p">])</span>
 
-        <span class="c1"># 2. Drive the autoregressive rollout.</span>
+        <span class="c1"># 2. Drive the autoregressive rollout</span>
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">total_blocks</span><span class="p">):</span>
             <span class="n">video_chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="o">=</span><span class="n">i</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="o">=</span><span class="n">i</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_rank_zero</span><span class="p">:</span>
-            <span class="c1"># 3. Write outputs only on the main process.</span>
+            <span class="c1"># 3. Write outputs only on the main process</span>
             <span class="o">...</span>
 </pre></div>
 </div>
@@ -371,23 +374,25 @@ SPDX-License-Identifier: Apache-2.0
 </pre></div>
 </div>
 </div>
-<p>You can use the existing integrations under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot">LingBot-World</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing">Self-Forcing</a> integrations for good references on how to extend and use FlashDreams in your own projects.</p>
+<p>Existing integrations under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> can be used as a minimal guide.
+These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like.
+Examples are often the best way to learn; take a look at the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot">LingBot-World</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing">Self-Forcing</a> integrations for good references on how to extend and use FlashDreams in a custom project.</p>
 </section>
-<section id="registering-your-method">
-<h2>Registering your method<a class="headerlink" href="#registering-your-method" title="Link to this heading">¶</a></h2>
-<p>After registering your method you should be able to see it in the CLI helptext and run it, leveraging the existing CLI for complete command line control:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all available models, including your new one</span>
+<section id="registering-methods">
+<h2>Registering methods<a class="headerlink" href="#registering-methods" title="Link to this heading">¶</a></h2>
+<p>After registering a method one should be able to see it in the CLI helptext and run it, leveraging the existing CLI for complete command line control:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all available models, including new ones</span>
 flashdreams-run<span class="w"> </span>--help
 
-<span class="c1"># See configurable parameters for your new model</span>
+<span class="c1"># See configurable parameters for new models</span>
 flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>--help
 
-<span class="c1"># Run the model</span>
+<span class="c1"># Run the new model</span>
 flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;A beautiful custom generation.&quot;</span>
 </pre></div>
 </div>
-<p>In order to extend FlashDreams and register your own models, you can package your code as a Python package and register it with FlashDreams via an entrypoint in the <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> file. FlashDreams will automatically look for all registered runners and will register them to be used by the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI.</p>
-<p>Create a <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> file. This is where the entrypoint to your method is set and also where you can specify additional dependencies required by your codebase.</p>
+<p>In order to extend FlashDreams and register own models, one can package code as a Python package and register it with FlashDreams via an entrypoint in the <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> file. FlashDreams will automatically search for all registered runners and will register them to be used by the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> file is where the entrypoint to custom methods is specified and additional dependencies are specified. For example:</p>
 <div class="literal-block-wrapper docutils container" id="id4">
 <div class="code-block-caption"><span class="caption-text">pyproject.toml</span><a class="headerlink" href="#id4" title="Link to this code">¶</a></div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project]</span>
@@ -395,7 +400,7 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
 <span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
 
 <span class="n">dependencies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="s2">&quot;flashdreams&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1"># you may want to consider pinning the version, ie &quot;flashdreams==0.1.0&quot;</span>
+<span class="w">    </span><span class="s2">&quot;flashdreams&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1"># consider pinning the version, ie &quot;flashdreams==0.1.0&quot;</span>
 <span class="w">    </span><span class="s2">&quot;mediapy&gt;=1.1&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
@@ -411,15 +416,16 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </pre></div>
 </div>
-<p>When developing a new method, you don’t always want to install your code as a package. Instead, you may use the <code class="docutils literal notranslate"><span class="pre">FLASHDREAMS_RUNNER_CONFIGS</span></code> environment variable to temporarily register your custom method.</p>
+<p>When developing a new methods they don’t always need to be installed as a package. Instead, the <code class="docutils literal notranslate"><span class="pre">FLASHDREAMS_RUNNER_CONFIGS</span></code> environment variable can be usedto temporarily register custom custom method.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">FLASHDREAMS_RUNNER_CONFIGS</span><span class="o">=</span><span class="s2">&quot;customized-method=customized_method.config:RUNNER_CONFIGS&quot;</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">FLASHDREAMS_RUNNER_CONFIGS</span></code> environment variable additionally accepts a function (a zero-arg callable) to temporarily register your custom runner if construction has side effects you want to defer until CLI time.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">FLASHDREAMS_RUNNER_CONFIGS</span></code> environment variable additionally accepts a function (a zero-arg callable) to temporarily register custom runners if construction has side effects to be deferred until CLI time.</p>
 </section>
 <section id="adding-to-the-flashdreams-documentation">
 <h2>Adding to the FlashDreams documentation<a class="headerlink" href="#adding-to-the-flashdreams-documentation" title="Link to this heading">¶</a></h2>
-<p>We invite researchers to contribute their own integrations to our official codebase and documentation. You can find more information on how to do this in the repository’s <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>. See the existing model pages under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models">docs/source/models/</a> directory (e.g., <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a>) as templates for documenting your new method.</p>
+<p>We invite researchers to contribute their own integrations to our official codebase and documentation. More information on how to do this can be found in the repository’s <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.
+See the existing model pages under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models">docs/source/models/</a> (e.g., <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a>) as templates for documenting new methods.</p>
 </section>
 </section>
 
@@ -479,7 +485,7 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
             <ul>
 <li><a class="reference internal" href="#">Add a new method</a><ul>
 <li><a class="reference internal" href="#file-structure">File structure</a></li>
-<li><a class="reference internal" href="#registering-your-method">Registering your method</a></li>
+<li><a class="reference internal" href="#registering-methods">Registering methods</a></li>
 <li><a class="reference internal" href="#adding-to-the-flashdreams-documentation">Adding to the FlashDreams documentation</a></li>
 </ul>
 </li>
@@ -499,5 +505,6 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>

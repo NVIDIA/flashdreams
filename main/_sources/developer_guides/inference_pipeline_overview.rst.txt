@@ -17,19 +17,20 @@ Inference pipeline overview
 ===================================
 
 This page outlines the major computation flow in the FlashDreams inference pipeline.
-It should help you understand the core concepts and APIs for building your own model integration,
+It outlines the core concepts and APIs for building custom model integrations,
 or modifying existing ones.
 
 .. Figure creation trace: https://chatgpt.com/share/6a14ab0f-90bc-83e8-8145-c1a03b64f43a
 
 .. image:: /_static/diagrams/flashdreams-inference-pipeline-overview.jpg
    :alt: FlashDreams autoregressive inference pipeline overview.
+   :class: zoomable
 
-The key entry point class for the inference pipeline is
-:class:`~flashdreams.infra.pipeline.StreamInferencePipeline`, which defines the
+The key entry point for the inference pipeline is the
+:class:`~flashdreams.infra.pipeline.StreamInferencePipeline` class, which defines the
 autoregressive generation loop shown in the figure. The persistent state is held in
 :class:`~flashdreams.infra.pipeline.StreamInferencePipelineCache` as a cache object,
-which is passed around and updated in each autoregressive step.
+which is shared within the pipeline and updated in each autoregressive step.
 
 .. code-block:: python
 
@@ -40,25 +41,25 @@ which is passed around and updated in each autoregressive step.
 
    pipeline: StreamInferencePipeline = ...
 
-   # One-shot encoding on global conditions, then initialize cache/state.
+   # One-shot encoding on global conditions, then initialize cache/state
    cache: StreamInferencePipelineCache = pipeline.initialize_cache(
        text=["a beautiful beach scene"],
        image=first_frame,
        ...,
    )
 
-   # Autoregressive generation loop.
+   # Autoregressive generation loop
    for autoregressive_index, control in enumerate(controls):
        current_output = pipeline.generate(autoregressive_index, cache, input=control)
        yield current_output
        pipeline.finalize(autoregressive_index, cache)
 
-The code snippet above shows the basic loop. At the top level, you first call :meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache`
-once with global conditions, such as text prompts and the first frame. Then, for each autoregressive step, call
-:meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.generate` to produce the current output chunk,
+The code snippet above shows the basic execution loop. The initial call :meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache`
+consumes global conditions, such as text prompts and the first frame. Then, for each autoregressive step,
+:meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.generate` is called to produce the current output chunk,
 followed by :meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.finalize`. This split exists because
 :meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.finalize` typically handles additional KV
-cache updates that are not in the hot path. This allows them to be offloaded to a background thread in many
+cache updates that are not in the hot path, which can be offloaded to a background thread in many
 cases to hide latency.
 
 Inside :meth:`~flashdreams.infra.pipeline.StreamInferencePipeline.generate`, the pipeline encodes the
@@ -71,7 +72,7 @@ the final output. The following snippet illustrates this internal flow:
    def generate(
        autoregressive_index: int, cache, input=None,
    ) -> torch.Tensor:
-       # 1. Convert per-step control into model conditioning.
+       # 1. Convert per-step control into model conditioning
        if input is not None:
            input = pipeline.encoder(
                input=input,
@@ -79,7 +80,7 @@ the final output. The following snippet illustrates this internal flow:
                cache=cache.encoder_cache,
            )
 
-       # 2. Run scheduler loop + DiT flow prediction.
+       # 2. Run scheduler loop + DiT flow prediction
        clean_latent, final_state = diffusion_model.generate(
            autoregressive_index=autoregressive_index,
            cache=cache.transformer_cache,
@@ -87,7 +88,7 @@ the final output. The following snippet illustrates this internal flow:
        )
        cache.final_state = final_state
 
-       # 3. Convert latent chunk to output chunk.
+       # 3. Convert latent chunk to output chunk
        if pipeline.decoder is None:
            return clean_latent
 
@@ -97,8 +98,8 @@ the final output. The following snippet illustrates this internal flow:
            cache=cache.decoder_cache,
        )
 
-In FlashDreams, these components are wired together using a configuration system. This allows you to build
-a customized pipeline by supplying different configurations for the encoder, diffusion model, and decoder.
+In FlashDreams, these components are composed using a configuration system. This allows building
+customized pipelines by supplying different configurations for the encoder, diffusion model, and decoder.
 A typical :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig` is instantiated as follows:
 
 .. code-block:: python
@@ -107,7 +108,7 @@ A typical :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig` is 
    from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
    from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 
-   # Define your own configs for the encoder, transformer, and decoder.
+   # Define your own configs for the encoder, transformer, and decoder
    CustomizedStreamingEncoderConfig = ...
    CustomizedTransformerConfig = ...
    CustomizedStreamingDecoderConfig = ...
@@ -131,7 +132,7 @@ More details on the config system can be found in :doc:`/developer_guides/config
 Examples
 --------
 
-Here is how existing models use this structure:
+Samples on how existing models use this structure:
 
 - `LingBot-World config <https://github.com/NVIDIA/flashdreams/blob/main/integrations/lingbot/lingbot/config.py>`_:
   A camera-controlled I2V model that uses the per-step camera encoder.
@@ -142,5 +143,5 @@ Here is how existing models use this structure:
 - `Wan2.1 config <https://github.com/NVIDIA/flashdreams/blob/main/integrations/wan21/wan21/config.py>`_:
   Treats a bidirectional video model as a single-rollout autoregressive model.
 
-For the detailed API documentation, check out :doc:`/api/infra`. If you are interested in implementing a new model,
+For the detailed API documentation, please reference :doc:`/api/infra`. To integrate a new model,
 please refer to :doc:`/developer_guides/new_integration`.

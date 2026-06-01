@@ -13,7 +13,7 @@
     <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=4653b603" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=7a1e636c" />
     
     
 
@@ -218,7 +218,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="../../../quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../quickstart/first_world_model.html">Launch your first model</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Model cards</span></p>
+<p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../models/self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../models/omnidreams.html">OmniDreams</a></li>
@@ -444,6 +444,7 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="TeahvVAEDecoder.initialize_autoregressive_cache">
 <a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TAEHVCache</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return an empty streaming decoder cache.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span><span class="o">.</span><span class="n">prepare_cache</span><span class="p">()</span></div>
 
 
@@ -489,10 +490,12 @@ SPDX-License-Identifier: Apache-2.0
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">temporal_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel frames / latent frames in steady state (AR &gt;= 1).&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">spatial_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel side / latent side.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span>
 
 <div class="viewcode-block" id="TeahvVAEDecoder.get_output_temporal_size">
@@ -500,7 +503,11 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">get_output_temporal_size</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">input_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Causal: AR 0 first latent frame decodes to a single pixel frame.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return pixel frame count from ``input_temporal_size`` latent frames.</span>
+
+<span class="sd">        AR 0 applies causal padding: the first latent frame yields one pixel</span>
+<span class="sd">        frame, remaining frames yield ``temporal_compression_ratio`` each.</span>
+<span class="sd">        AR &gt;= 1 is a plain multiply.&quot;&quot;&quot;</span>
         <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">input_temporal_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">r</span>
@@ -512,6 +519,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="k">def</span><span class="w"> </span><span class="nf">get_input_temporal_size</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return latent frame count needed to produce ``output_temporal_size`` pixel frames.</span>
+
+<span class="sd">        Inverse of :meth:`get_output_temporal_size`.&quot;&quot;&quot;</span>
         <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
         <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">assert</span> <span class="p">(</span><span class="n">output_temporal_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
@@ -572,5 +582,6 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../../_static/copybutton.js?v=fd10adb8"></script>
     <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../../_static/js/image_zoom.js?v=ada83164"></script>
     </body>
 </html>
