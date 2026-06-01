@@ -221,7 +221,7 @@ def test_patchify_override_is_declared_on_subclass() -> None:
     """
     from hy_worldplay._action import HyWorldPlayWan21Transformer
 
-    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
+    from flashdreams.recipes.wan.transformer.legacy import Wan21Transformer
 
     assert (
         HyWorldPlayWan21Transformer.patchify_and_maybe_split_cp
@@ -268,7 +268,7 @@ def test_predict_flow_threads_action_via_network_extra_kwargs() -> None:
     import torch
     from hy_worldplay._action import HyWorldPlayCtrl, HyWorldPlayWan21Transformer
 
-    from flashdreams.recipes.wan.transformer.wan21 import Wan21Transformer
+    from flashdreams.recipes.wan.transformer.legacy import Wan21Transformer
 
     captured: dict[str, dict] = {}
 

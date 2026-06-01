@@ -201,7 +201,7 @@ def test_hyworldplay_dit_network_use_prope_blocks_swaps_block_class() -> None:
     )
     from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
-    from flashdreams.recipes.wan.transformer.impl.network import Block
+    from flashdreams.recipes.wan.transformer.legacy import Block
 
     # Tiny but valid network config -- mirrors what
     # :class:`Wan21Transformer` would otherwise build at setup time.

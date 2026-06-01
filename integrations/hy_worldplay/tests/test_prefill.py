@@ -310,7 +310,7 @@ def test_transformer_cache_history_defaults_to_empty() -> None:
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
-    from flashdreams.recipes.wan.transformer.impl.network import (
+    from flashdreams.recipes.wan.transformer.legacy import (
         WanDiTNetworkCache,
     )
 
@@ -485,7 +485,7 @@ def test_is_first_step_of_chunk_uses_prefill_latch() -> None:
         HyWorldPlayWan21TransformerCache,
     )
 
-    from flashdreams.recipes.wan.transformer.impl.network import (
+    from flashdreams.recipes.wan.transformer.legacy import (
         WanDiTNetworkCache,
     )
 
@@ -520,7 +520,7 @@ def test_transformer_cache_start_resets_rolling_caches_on_new_chunk() -> None:
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
-    from flashdreams.recipes.wan.transformer.impl.network import (
+    from flashdreams.recipes.wan.transformer.legacy import (
         WanDiTNetworkCache,
     )
 
@@ -562,7 +562,7 @@ def test_transformer_cache_start_keeps_chunk_0_intact() -> None:
     """
     from hy_worldplay._action import HyWorldPlayWan21TransformerCache
 
-    from flashdreams.recipes.wan.transformer.impl.network import (
+    from flashdreams.recipes.wan.transformer.legacy import (
         WanDiTNetworkCache,
     )
 

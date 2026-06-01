@@ -31,19 +31,17 @@ from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrlEncoderCache,
     WanI2VCtrlEncoderConfig,
 )
-from flashdreams.recipes.wan.transformer.impl.modules import (
-    sinusoidal_embedding_1d,
-)
-from flashdreams.recipes.wan.transformer.impl.network import (
+# Legacy (pre-split) wan transformer: hy_worldplay uses the old rolling-cache
+# API + cascade. See flashdreams.recipes.wan.transformer.legacy.
+from flashdreams.recipes.wan.transformer.legacy import (
     Block,
-    WanDiTNetwork,
-    WanDiTNetworkCache,
-    WanDiTNetworkTI2V5BConfig,
-)
-from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
     Wan21TransformerCache,
     Wan21TransformerConfig,
+    WanDiTNetwork,
+    WanDiTNetworkCache,
+    WanDiTNetworkTI2V5BConfig,
+    sinusoidal_embedding_1d,
 )
 
 _HY_STABILIZATION_TIMESTEP: int = 14

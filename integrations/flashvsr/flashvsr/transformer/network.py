@@ -65,19 +65,21 @@ import torch.nn as nn
 from einops import rearrange
 from torch import Tensor
 
-from flashdreams.core.attention import BlockKVCache
+from flashdreams.core.attention.legacy_kvcache import BlockKVCache
 from flashdreams.core.attention.rope import apply_rope_freqs
-from flashdreams.recipes.wan.transformer.impl.modules import (
+
+# Legacy (pre-split) wan transformer: flashvsr's sparse self-attn uses the old
+# rolling-cache API (update / cached_k / before_update). See
+# flashdreams.recipes.wan.transformer.legacy.
+from flashdreams.recipes.wan.transformer.legacy import (
     Block,
     BlockCache,
     CrossAttention,
     MultiHeadAttention,
     SelfAttention,
-    sinusoidal_embedding_1d,
-)
-from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
     WanDiTNetworkConfig,
+    sinusoidal_embedding_1d,
 )
 
 __all__ = [
