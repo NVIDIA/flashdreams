@@ -348,7 +348,8 @@ class FlashdreamsWorldModelSession:
         self._validate_chunk_sizes()
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         print(
-            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}", flush=True
+            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
+            flush=True,
         )
 
     def prepare_for_scene(

@@ -1544,7 +1544,9 @@ class SlangPyHudPresenter:
             fill=NVIDIA_GREEN + (255,),
         )
         if self._engine_active:
-            scene_label_full = f"Running {self._scene_label_fn(self._current_scene)}\u2026"
+            scene_label_full = (
+                f"Running {self._scene_label_fn(self._current_scene)}\u2026"
+            )
         elif self._scene_selection_locked():
             scene_label_full = "Preloading scenes\u2026"
         else:

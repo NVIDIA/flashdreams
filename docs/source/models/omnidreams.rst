@@ -173,6 +173,18 @@ instead:
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+.. note::
+
+   The local window needs a display server (X11) and the system OpenGL /
+   Vulkan client libraries. On Debian/Ubuntu:
+
+   .. code-block:: bash
+
+      sudo apt install -y libx11-6 libxcb1 libgl1 libglx-mesa0 libvulkan1
+
+   A ``Failed to initialize GLFW`` error means the display or one of these
+   libraries is missing.
+
 Steering wheel and game controller
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

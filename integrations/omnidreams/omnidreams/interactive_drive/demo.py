@@ -53,7 +53,6 @@ _query_axis_range = query_axis_range
 # of the live screen width. Pinned at 500 px because the panel content
 # (wheel asset, pedal pngs) is asset-driven and doesn't reflow.
 HUD_PANEL_WIDTH = 500
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 0.75
 KEYBOARD_STEER_RATE_PER_S = 0.6
@@ -932,8 +931,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
         scene_path, variant = request
         presenter.acknowledge_scene_change(scene_path, variant)
         print(
-            f"[demo] streaming initial scene -> {scene_path.name} "
-            f"variant={variant!r}",
+            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
             flush=True,
         )
 
@@ -1001,7 +999,11 @@ def _project_path(path: Path) -> Path:
     path = Path(path).expanduser()
     if path.is_absolute():
         return path
-    return (PROJECT_ROOT / path).resolve()
+    # Resolve relative paths against the current working directory -- the
+    # standard CLI convention, and what users expect when running from the
+    # repo root. (This previously resolved against the package directory,
+    # integrations/omnidreams, which was surprising for --scene/--scene-dir.)
+    return (Path.cwd() / path).resolve()
 
 
 def _discover_scene_options(

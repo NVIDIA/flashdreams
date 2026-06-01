@@ -224,9 +224,7 @@ class InteractiveDriveApp:
         self._pipeline.request_scene(self._scene)
         return True
 
-    def preload_scenes(
-        self, specs: Iterable[tuple[object, str, str | None]]
-    ) -> None:
+    def preload_scenes(self, specs: Iterable[tuple[object, str, str | None]]) -> None:
         """Parse scene bundles in the background so later switches are instant.
 
         ``specs`` is an iterable of ``(scene_path, variant, prompt_override)``.
@@ -258,9 +256,7 @@ class InteractiveDriveApp:
         """True while --preload-scenes is still parsing scenes in the background."""
         return self._preload_started and not self._preload_done.is_set()
 
-    def _preload_worker(
-        self, pending: list[tuple[object, str, str | None]]
-    ) -> None:
+    def _preload_worker(self, pending: list[tuple[object, str, str | None]]) -> None:
         for scene_path, variant, prompt_override in pending:
             key = self._scene_cache_key(scene_path, variant, prompt_override)
             with self._scene_cache_lock:
