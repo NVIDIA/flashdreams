@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=14fded7a" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=4653b603" />
     
     
 
@@ -306,7 +306,45 @@ for real-time world-model applications across gaming, autonomous vehicles,
 robotics, simulated or virtual environments, and more, and is the
 runtime backbone of the <a class="reference external" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams closed-loop demo at
 GTC 2026</a>.</p>
-<p class="fd-subtitle">Interactive world models</p><p>A world model learns to generate and evolve an environment over time. In
+<div class="fd-promo-video-wrap">
+  <video
+    class="fd-promo-video-player"
+    controls
+    playsinline
+    preload="metadata"
+    aria-label="FlashDreams quick intro video">
+    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
+  </video>
+  <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
+    <span class="fd-promo-play-icon" aria-hidden="true"></span>
+  </button>
+</div>
+<script>
+  (() => {
+    const script = document.currentScript;
+    const container = script ? script.previousElementSibling : null;
+    if (!container) {
+      return;
+    }
+    const video = container.querySelector(".fd-promo-video-player");
+    const playButton = container.querySelector(".fd-promo-play");
+    if (!video || !playButton) {
+      return;
+    }
+    const showOverlay = () => container.classList.remove("is-playing");
+    const hideOverlay = () => container.classList.add("is-playing");
+    playButton.addEventListener("click", () => {
+      video.controls = true;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(showOverlay);
+      }
+    });
+    video.addEventListener("play", hideOverlay);
+    video.addEventListener("pause", showOverlay);
+    video.addEventListener("ended", showOverlay);
+  })();
+</script><p class="fd-subtitle">Interactive world models</p><p>A world model learns to generate and evolve an environment over time. In
 practice this often means video, but the same concept can include actions,
 state, audio, sensor input, and control signals.</p>
 <p>World-model serving is the runtime pattern for putting that model inside a live
