@@ -249,10 +249,10 @@ Start here
 
    Inference pipeline overview <developer_guides/inference_pipeline_overview>
    Config system <developer_guides/config_system>
-   Interactive serving <developer_guides/interactive_serving>
    Add a new method <developer_guides/new_integration>
 
 .. Temporarily commented out for internal development:
+..   Interactive serving <developer_guides/interactive_serving>
 ..   Developer workflow patterns <developer_guides/usage_patterns>
 
 .. toctree::
