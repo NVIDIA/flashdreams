@@ -87,7 +87,7 @@ class TeahvVAEDecoderConfig(DecoderConfig):
     use_cuda_graph: bool = True
     """Wrap the decoder forward in a CUDA graph for replay."""
 
-    use_compile: bool = True
+    use_compile: bool = False
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
