@@ -237,6 +237,71 @@ body.index .content h1 {
     height: auto;
 }
 
+.fd-promo-video-wrap {
+    position: relative;
+    width: min(960px, 100%);
+    margin: 0.4rem auto 1.6rem;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #05070a;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+}
+
+.fd-promo-video-player {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #05070a;
+}
+
+.fd-promo-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    padding: 0;
+    background: linear-gradient(180deg, rgba(5, 7, 10, 0.1), rgba(5, 7, 10, 0.32));
+    cursor: pointer;
+    transition: opacity 0.18s ease, background 0.18s ease;
+}
+
+.fd-promo-play::before {
+    content: "";
+    position: absolute;
+    width: 78px;
+    height: 56px;
+    border-radius: 8px;
+    background: rgba(5, 7, 10, 0.78);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.fd-promo-play:hover::before,
+.fd-promo-play:focus-visible::before {
+    background: #76b900;
+}
+
+.fd-promo-play:focus-visible {
+    outline: 3px solid #76b900;
+    outline-offset: -6px;
+}
+
+.fd-promo-play-icon {
+    position: relative;
+    width: 0;
+    height: 0;
+    margin-left: 6px;
+    border-top: 14px solid transparent;
+    border-bottom: 14px solid transparent;
+    border-left: 22px solid #ffffff;
+}
+
+.fd-promo-video-wrap.is-playing .fd-promo-play {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .model-link-row {
     display: flex;
     flex-wrap: wrap;
