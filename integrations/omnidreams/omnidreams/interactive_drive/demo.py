@@ -12,7 +12,7 @@ import struct
 import threading
 import time
 import zipfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +106,10 @@ class SceneOption:
     path: Path
     variants: tuple[str, ...]
     thumbnail: Image.Image | None = None
+    # Per-variant preview thumbnails keyed by variant slug, for the variant
+    # dropdown. Variants without a dedicated ``first_image_<variant>.png``
+    # map to the default image so every row still shows a preview.
+    variant_thumbnails: dict[str, Image.Image] = field(default_factory=dict)
 
 
 @dataclass
@@ -776,7 +780,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
     # default are honoured; a dropdown selection overrides it below.
     scene_path: Any = config.scene_path
-    variant = config.variant
+    variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
     try:
         # Initial scene-selection wait: if the user didn't pass
         # ``--autoload-scene``, open the HUD and let them pick a scene from
@@ -1017,13 +1021,7 @@ def _discover_scene_options(
     if selected_scene.parent.is_dir():
         paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
     options = tuple(
-        SceneOption(
-            label=_scene_label(path),
-            path=path,
-            variants=_discover_variants(path),
-            thumbnail=_load_scene_thumbnail(path),
-        )
-        for path in sorted(paths)
+        _scene_option(path, variants=_discover_variants(path)) for path in sorted(paths)
     )
     print(
         "[demo] discovered scenes: "
@@ -1031,6 +1029,21 @@ def _discover_scene_options(
         flush=True,
     )
     return options
+
+
+def _scene_option(path: Path, *, variants: tuple[str, ...]) -> SceneOption:
+    variant_thumbnails = _load_variant_thumbnails(path, variants)
+    # Reuse the per-variant "default" thumbnail for the scene row when present
+    # so the scene and variant dropdowns agree, falling back to the standalone
+    # loader for bundles whose images don't parse into variants.
+    thumbnail = variant_thumbnails.get("default") or _load_scene_thumbnail(path)
+    return SceneOption(
+        label=_scene_label(path),
+        path=path,
+        variants=variants,
+        thumbnail=thumbnail,
+        variant_thumbnails=variant_thumbnails,
+    )
 
 
 def _scene_label(path: Path) -> str:
@@ -1061,11 +1074,36 @@ def _discover_variants(scene_path: Path) -> tuple[str, ...]:
                     variants.add(variant)
     except (OSError, zipfile.BadZipFile):
         return ("default",)
-    if not variants:
-        variants.add("default")
-    if "default" not in variants:
-        variants.add(sorted(variants)[0])
-    return tuple(sorted(variants, key=lambda value: (value != "default", value)))
+    # A bare ``default`` (prompt.txt / first_image.png) duplicates the first
+    # numbered variant, so when numbered variants exist we expose just those --
+    # "1" is then the default selection. Scenes with no numbered variants show
+    # a single "default".
+    numbered = [value for value in variants if value != "default"]
+    if numbered:
+        numbered.sort(key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else v))
+        return tuple(numbered)
+    return ("default",)
+
+
+def _resolve_scene_variant(
+    scene_options: tuple[SceneOption, ...], scene_path: Any, variant: str
+) -> str:
+    """Return a variant that actually exists for *scene_path*.
+
+    Numbered scenes no longer carry a bare ``default`` entry, so a configured
+    ``--variant default`` (or anything the scene lacks) falls back to the
+    scene's first variant rather than a selection the dropdown can't show.
+    """
+    try:
+        resolved = Path(str(scene_path)).resolve()
+    except OSError:
+        resolved = None
+    for option in scene_options:
+        if option.path == resolved or str(option.path) == str(scene_path):
+            if variant in option.variants:
+                return variant
+            return option.variants[0] if option.variants else variant
+    return variant
 
 
 def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
@@ -1085,6 +1123,45 @@ def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
                 return _make_thumbnail(image.convert("RGB"), SCENE_THUMB_SIZE)
     except (OSError, zipfile.BadZipFile):
         return None
+
+
+def _load_variant_thumbnails(
+    scene_path: Path, variants: tuple[str, ...]
+) -> dict[str, Image.Image]:
+    """Per-variant preview thumbnails for the HUD variant dropdown.
+
+    Mirrors :func:`scene_loader._discover_first_images`: a bundle may ship
+    ``first_image_<variant>.png`` per variant alongside ``first_image.png``
+    (the ``"default"`` variant). Each referenced image is decoded once;
+    variants without a dedicated image fall back to the default so every
+    dropdown row still shows a preview. Returns an empty mapping when the
+    archive has no parseable first images.
+    """
+    decoded: dict[str, Image.Image] = {}
+    try:
+        with zipfile.ZipFile(scene_path, "r") as zf:
+            names_by_variant: dict[str, str] = {}
+            for name in zf.namelist():
+                if (
+                    "/" in name
+                    or not name.startswith("first_image")
+                    or not name.endswith(".png")
+                ):
+                    continue
+                variant = _scenes.variant_from_stem(Path(name).stem, "first_image")
+                if variant is not None:
+                    names_by_variant[variant] = name
+            for variant, name in names_by_variant.items():
+                with Image.open(io.BytesIO(zf.read(name))) as image:
+                    decoded[variant] = _make_thumbnail(
+                        image.convert("RGB"), SCENE_THUMB_SIZE
+                    )
+    except (OSError, zipfile.BadZipFile):
+        return {}
+    if not decoded:
+        return {}
+    default = decoded.get("default") or next(iter(decoded.values()))
+    return {variant: decoded.get(variant, default) for variant in variants}
 
 
 def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:

@@ -397,6 +397,7 @@ class SlangPyHudPresenter:
         self._wheel_rotation_cache: _LRUCache = _LRUCache(maxsize=480)
         self._pedal_cache: _LRUCache = _LRUCache(maxsize=16)
         self._scene_thumb_cache: dict[Any, Image.Image | None] = {}
+        self._variant_thumb_cache: dict[tuple[Any, str], Image.Image | None] = {}
         self._bev_panel_cache_key: tuple[int, int, int] | None = None
         self._bev_panel_cache: Image.Image | None = None
 
@@ -1585,7 +1586,9 @@ class SlangPyHudPresenter:
             fill=TEXT_COLOR,
             font=self._font_small,
         )
-        if has_multiple_variants:
+        # Only advertise the dropdown affordance when a scene is loaded; the
+        # header isn't clickable otherwise (see _handle_click).
+        if has_multiple_variants and self._engine_active:
             v_arrow = "\u25b2" if self._variant_dropdown_open else "\u25bc"
             d.text(
                 (margin + header_w - 24, variant_y + 6),
@@ -2068,7 +2071,10 @@ class SlangPyHudPresenter:
         if scene_option is None or len(scene_option.variants) <= 1:
             return
         vx, vy, vr, vb = self._variant_header_rect
-        item_h = 34
+        # Taller rows when the scene ships per-variant previews, matching the
+        # scene dropdown; fall back to compact text-only rows otherwise.
+        has_thumbs = bool(scene_option.variant_thumbnails)
+        item_h = 80 if has_thumbs else 34
         items_top = vb + 2
         bg = (
             vx,
@@ -2087,12 +2093,23 @@ class SlangPyHudPresenter:
                 draw.rectangle(rect, fill=ACTIVE_BG + (255,))
             elif variant == self._hovered_variant:
                 draw.rectangle(rect, fill=HOVER_BG + (255,))
+            text_x = rect[0] + 12
+            text_y = top + item_h // 2 - 8
+            if has_thumbs:
+                thumb = self._get_variant_thumbnail(scene_option, variant)
+                if thumb is not None:
+                    tw, th = thumb.size
+                    tx = rect[0] + 6
+                    ty = top + max(0, (item_h - th) // 2)
+                    canvas.paste(thumb, (tx, ty))
+                    draw.rectangle(
+                        (tx, ty, tx + tw, ty + th), outline=(60, 60, 80, 255), width=1
+                    )
+                    text_x = tx + tw + 10
             label = _truncate_text_to_width(
-                self._font_tiny, variant, max(0, rect[2] - rect[0] - 24)
+                self._font_tiny, variant, max(0, rect[2] - text_x - 8)
             )
-            draw.text(
-                (rect[0] + 12, top + 7), label, fill=TEXT_COLOR, font=self._font_tiny
-            )
+            draw.text((text_x, text_y), label, fill=TEXT_COLOR, font=self._font_tiny)
 
     def _get_scene_thumbnail(self, scene: Any) -> Image.Image | None:
         if scene.path in self._scene_thumb_cache:
@@ -2104,6 +2121,16 @@ class SlangPyHudPresenter:
         if thumb.mode != "RGBA":
             thumb = thumb.convert("RGBA")
         self._scene_thumb_cache[scene.path] = thumb
+        return thumb
+
+    def _get_variant_thumbnail(self, scene: Any, variant: str) -> Image.Image | None:
+        key = (scene.path, variant)
+        if key in self._variant_thumb_cache:
+            return self._variant_thumb_cache[key]
+        thumb = scene.variant_thumbnails.get(variant)
+        if thumb is not None and thumb.mode != "RGBA":
+            thumb = thumb.convert("RGBA")
+        self._variant_thumb_cache[key] = thumb
         return thumb
 
     def _current_scene_option(self) -> Any:
@@ -2318,9 +2345,14 @@ class SlangPyHudPresenter:
             self._panel_chrome_cache_key = None
             return
 
+        # The variant dropdown is only meaningful once a scene is actually
+        # loaded/running. Before that (the initial selection wait and the gap
+        # between scene switches) the engine is inactive, so ignore clicks on
+        # the variant header.
         current_scene_option = self._current_scene_option()
         if (
-            self._variant_header_rect
+            self._engine_active
+            and self._variant_header_rect
             and _rect_contains(self._variant_header_rect, pos)
             and current_scene_option is not None
             and len(current_scene_option.variants) > 1
@@ -2411,6 +2443,10 @@ class SlangPyHudPresenter:
         state set via :meth:`set_model_status`.
         """
         self._engine_active = bool(active)
+        if not self._engine_active:
+            # No scene loaded -> the variant dropdown isn't selectable, so a
+            # previously-open one must not linger into the no-scene state.
+            self._variant_dropdown_open = False
         # Drop the chrome cache so the panel is redrawn promptly --
         # the cache key includes scene/variant/dropdown state but not
         # engine activity, and the camera placeholder lives outside
