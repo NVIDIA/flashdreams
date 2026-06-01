@@ -63,7 +63,7 @@ To run LingBot-World, launch one of the registered runner slugs via
        --pixel-height 464 --pixel-width 832 \
        --total-blocks 21
 
-Sample data are downloaded from the
+Sample data is downloaded from the
 `LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.

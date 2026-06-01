@@ -49,7 +49,7 @@ GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
    <p class="fd-subtitle">Interactive world models</p>
 
 A world model learns to generate and evolve an environment over time. In
-practice this often means video, but the same concept can include actions,
+practice, this often means video, but the same concept can include actions,
 state, audio, sensor input, and control signals.
 
 World-model serving is the runtime pattern for putting that model inside a live
@@ -64,8 +64,8 @@ creative tools, virtual worlds, and game-like experiences.
    :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
    :class: zoomable
 
-In a served world-model application, the key requirement is not only generating
-a high-quality video. The runtime must keep an interactive session responsive
+In an online world-model application, the key requirement is not only generating
+high-quality videos. The runtime must keep an interactive session responsive
 while the model continues to advance the world.
 
 .. raw:: html
@@ -127,7 +127,7 @@ while the model continues to advance the world.
 
 FlashDreams is engineered with efficiency in mind. With a bottom-up system
 design tailored to autoregressive world-model inference patterns, it delivers best-in-class
-speed across many popular open-source models and GPU architectures.
+speed across many popular open-source models and GPU architectures:
 
 .. raw:: html
 
@@ -167,7 +167,7 @@ autoregressive pass.
 
    <p class="fd-subtitle">Production-oriented interactive serving backend</p>
 
-FlashDreams also includes a production-oriented serving backend for persistent,
+FlashDreams also includes a production-oriented serving backend for persistent and
 low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
 streaming input/output. Explore the interactive demos powered by FlashDreams:
 
@@ -230,7 +230,7 @@ Start here
 
 .. toctree::
    :maxdepth: 1
-   :caption: Model cards
+   :caption: Models
    :hidden:
 
    Self-Forcing <models/self_forcing>
@@ -249,7 +249,7 @@ Start here
 
    Inference pipeline overview <developer_guides/inference_pipeline_overview>
    Config system <developer_guides/config_system>
-   Interactive serving architecture <developer_guides/interactive_serving>
+   Interactive serving <developer_guides/interactive_serving>
    Add a new method <developer_guides/new_integration>
 
 .. Temporarily commented out for internal development:
