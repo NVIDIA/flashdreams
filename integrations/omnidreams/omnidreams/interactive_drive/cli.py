@@ -38,7 +38,7 @@ _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
 # UUID of the scene staged by ``omnidreams-prepare`` when no
 # ``--scene-uuid`` is specified and used as the demo's ``--scene``
 # default.
-DEFAULT_SCENE_UUID = "01d503d4-449b-46fc-8d78-9085e70d3554"
+DEFAULT_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
 # Default scene path: shared cache dir under ``$FLASHDREAMS_CACHE_DIR/
 # omnidreams-scenes/clipgt-<uuid>.usdz``. The desktop demo and the
