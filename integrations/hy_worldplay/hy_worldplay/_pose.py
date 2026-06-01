@@ -192,8 +192,9 @@ def parse_pose_data(
             * A pose-script string like ``"w-3, right-0.5, d-4"``.
             * A pre-parsed mapping with the same shape as the JSON file.
         n_latents: Number of latent frames the rollout will produce
-            (``len_t`` times the AR-step count). The parsed pose script
-            must produce exactly this many entries.
+            (``len_t`` times the AR-step count). The pose source must
+            produce *at least* this many entries; any extra trailing
+            poses are ignored (the first ``n_latents`` are used).
         third_person: When ``True``, only emit translation classes for
             frames with small yaw / pitch (matches upstream's ``tps`` flag).
 
@@ -223,11 +224,17 @@ def parse_pose_data(
         )
 
     keys = list(pose_json.keys())
-    if len(keys) != n_latents:
+    if len(keys) < n_latents:
         raise ValueError(
-            f"pose corresponds to {len(keys)} latents, but n_latents={n_latents}. "
-            "Pass a pose script of matching length or adjust n_latents."
+            f"pose corresponds to {len(keys)} latents, but the rollout needs "
+            f"n_latents={n_latents}. Pass a longer pose script/file or reduce "
+            "num_chunk."
         )
+    # A pose source longer than the rollout is fine: take the first
+    # ``n_latents`` poses. This is vendor's prefix-slice behaviour and
+    # lets upstream's fixed-length sample (e.g. the 33-entry
+    # ``test_forward_32_latents.json``) drive a shorter ``num_chunk`` run.
+    keys = keys[:n_latents]
 
     c2w_list: list[np.ndarray] = []
     K_list: list[np.ndarray] = []

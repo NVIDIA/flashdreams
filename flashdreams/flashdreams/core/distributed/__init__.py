@@ -27,6 +27,14 @@ import torch
 import torch.distributed as dist
 from loguru import logger
 
+# Side effect: install the stdlib-``logging`` filter that demotes benign
+# Inductor autotuner-fallback ERROR records to WARNING so first-run
+# warmup doesn't look like a hard failure. Pulled in here (rather than
+# from ``flashdreams.core.__init__``) because every FlashDreams entry
+# point that talks to torch.distributed already imports this module at
+# process start, and the filter is process-global and idempotent.
+from flashdreams.core import log_filters  # noqa: F401
+
 DEFAULT_LOG_LEVEL = "INFO"
 
 

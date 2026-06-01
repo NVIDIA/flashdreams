@@ -13,8 +13,8 @@ matter most:
 This sample uses the flashdreams Alpadreams pipeline for world-model inference,
 uses Ludus to render the HD map view, and uses SlangPy for local windowing.
 
-Runs on Windows or Linux with a native host toolchain; the prebuilt Docker
-image option is Linux-only.
+Runs on Windows or Linux with a native host toolchain; the optional
+Docker path is Linux-only.
 
 The implementation is intentionally narrow:
 
@@ -70,28 +70,28 @@ on the host (see the [flashdreams root README](../../../../README.md) for the re
 hardware and CUDA setup). No additional work in this step — proceed to
 step 3 from the flashdreams workspace root.
 
-#### Option B — Docker (prebuilt `flashdreams` image)
+#### Option B — Docker (build a local image)
 
-If you'd rather skip installing CUDA, SDL, and the EGL toolchain on the host,
-the prebuilt `flashdreams` image gives you an end-to-end Linux environment.
-Additional prerequisites:
+If you'd rather skip installing CUDA, SDL, and the EGL toolchain on the
+host, the bundled `docker/Dockerfile` builds an end-to-end Linux
+environment locally. See [`docker/README.md`](../../../../docker/README.md)
+for the full build docs; the short version is below. Additional
+prerequisites:
 
 - Linux host (Wayland-based local windowing assumes Linux; Windows users
   should use the native path above)
 - Docker + `nvidia-container-toolkit`
-- GitHub PAT with `read:packages` for `ghcr.io/nvidia/flashdreams`
 
-1. **Pull the image.**
+1. **Build the image** from the `flashdreams` repo root:
 
    ```bash
-   echo "$GITHUB_PAT" | docker login ghcr.io -u <github-username> --password-stdin
-   docker pull ghcr.io/nvidia/flashdreams:base-v0.3-20260430-7985764
+   docker build -t flashdreams:local -f docker/Dockerfile .
    ```
 
-2. **Launch the container** from the `flashdreams` repo root. The repo
-   bind-mount lands at `/workspace/flashdreams` and the workdir leaves
-   you at the flashdreams workspace root (the same place you'd run uv
-   from on a native host):
+2. **Launch the container** from the same `flashdreams` repo root. The
+   repo bind-mount lands at `/workspace/flashdreams` and the workdir
+   leaves you at the flashdreams workspace root (the same place you'd
+   run uv from on a native host):
 
    ```bash
    docker run --rm -it \
@@ -108,7 +108,7 @@ Additional prerequisites:
      -e WAYLAND_DISPLAY=wayland-0 \
      -e XDG_RUNTIME_DIR=/run/user/0 \
      -e SDL_VIDEODRIVER=wayland \
-     ghcr.io/nvidia/flashdreams:base-v0.3-20260430-7985764 \
+     flashdreams:local \
      bash
    ```
 

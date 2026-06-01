@@ -138,13 +138,13 @@ and an ``HF_TOKEN`` with read access to
 `nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
 (scene USDZs) and
 `nvidia/omni-dreams-models <https://huggingface.co/nvidia/omni-dreams-models>`_
-(world-model checkpoints).
+(checkpoints).
 
 First-time setup:
 
 .. code-block:: bash
 
-   git clone git@github.com:NVIDIA/flashdreams.git
+   git clone https://github.com/NVIDIA/flashdreams.git
    cd flashdreams
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
@@ -228,6 +228,20 @@ The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.
 Here, ``<server-ip>`` is the server IP address you are connecting to
 (can use ``localhost`` when running locally).
+
+.. note::
+
+   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
+   the server port is usually not reachable at the host IP directly.
+   Forward it to your local machine first, then open
+   ``http://localhost:8089/request_session``:
+
+   .. code-block:: bash
+
+      # Brev
+      brev port-forward <instance> -p 8089:8089
+      # or plain SSH
+      ssh -L 8089:localhost:8089 <user>@<host>
 
 Once successfully connected, the browser-based UI looks like this:
 
