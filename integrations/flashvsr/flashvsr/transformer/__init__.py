@@ -40,11 +40,11 @@ from torch import Tensor
 
 from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
-from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
-from flashdreams.recipes.wan.transformer.wan21 import (
+from flashdreams.recipes.wan.transformer.legacy import (
     Wan21Transformer,
     Wan21TransformerCache,
     Wan21TransformerConfig,
+    WanDiTNetworkConfig,
 )
 from flashvsr.transformer.network import (
     _SELF_ATTN_WINDOW,

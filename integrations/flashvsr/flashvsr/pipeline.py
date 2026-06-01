@@ -34,7 +34,7 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.infra.profiler import EventProfiler, record_event
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerCache
+from flashdreams.recipes.wan.transformer.legacy import Wan21TransformerCache
 from flashvsr.decoder import (
     FlashVSRDecoder,
     FlashVSRDecoderCache,

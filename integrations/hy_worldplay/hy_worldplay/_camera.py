@@ -27,9 +27,13 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
+from flashdreams.core.attention import ContextParallelAttention
+from flashdreams.core.attention.legacy_kvcache import BlockKVCache
 from flashdreams.core.attention.rope import apply_rope_freqs
-from flashdreams.recipes.wan.transformer.impl.modules import (
+
+# Legacy (pre-split) wan transformer: hy_worldplay's PRoPE self-attn uses the
+# old rolling-cache API. See flashdreams.recipes.wan.transformer.legacy.
+from flashdreams.recipes.wan.transformer.legacy import (
     Block,
     BlockCache,
     SelfAttention,
