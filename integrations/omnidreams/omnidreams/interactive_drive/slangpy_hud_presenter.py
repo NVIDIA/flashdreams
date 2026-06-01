@@ -30,15 +30,15 @@ the chrome, and the presentation all live in one Python process here:
 * Scene / variant changes from the dropdown signal the engine to
   exit by setting ``_pending_scene_change`` and flipping the close
   flag. The demo's outer loop in
-  :func:`omnidreams.interactive_drive.demo._run_slangpy_hud` then tears down the
-  current backend (``backend.close()``), builds a new one for the
-  newly-selected scene, and runs a fresh :class:`InteractiveDriveApp`
-  over this same presenter -- the slangpy window survives the
-  transition so the user sees a continuous HUD instead of a
-  close-and-reopen flash. The previous incarnation of this code used
-  ``os.execv`` for the same effect; the in-process path is faster
-  (~hundreds of ms vs ~1-2 s for a full process restart) and avoids
-  the visual interruption.
+  :func:`omnidreams.interactive_drive.demo._run_slangpy_hud` then calls
+  ``app.load_scene`` on the single long-lived
+  :class:`InteractiveDriveApp` and re-enters ``app.run_scene`` over this
+  same presenter. The warmed world model stays resident across the
+  switch (only the per-scene geometry is re-uploaded), so the slangpy
+  window survives the transition and the user sees a continuous HUD
+  instead of the close-and-reopen flash -- and minutes of model reload --
+  the older teardown/rebuild (and the ``os.execv`` path before it)
+  incurred.
 """
 
 from __future__ import annotations
@@ -48,15 +48,16 @@ import math as _math
 import os
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
-    _torch_cuda_initialized,
 )
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
@@ -246,15 +247,20 @@ class KeyboardStateDriveSink:
     def __init__(self, keyboard: KeyboardState) -> None:
         self._keyboard = keyboard
 
-    def set_drive(self, *, steer: float, throttle: float, brake: float) -> None:
+    def set_drive(
+        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+    ) -> None:
         # ``manual_control`` + ``steer_is_direct`` mirror what the
         # MJPEG-era ``_apply_drive_control`` set so the engine state
         # is byte-identical regardless of which transport drove it.
+        # ``reverse`` is set by a wheel/controller's bound reverse button
+        # (the keyboard path leaves it at the default ``False``).
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
             )
@@ -262,6 +268,11 @@ class KeyboardStateDriveSink:
 
     def release_all(self) -> None:
         self._keyboard.set_drive_command(None)
+
+    def request_reset(self) -> None:
+        # Lets a wheel/controller's bound reset button trigger the same
+        # rollout reset the ``R`` key does.
+        self._keyboard.request_reset()
 
     # The methods below are no-ops in-process because the slangpy HUD
     # writes pygame-style key events directly to ``KeyboardState`` from
@@ -443,20 +454,33 @@ class SlangPyHudPresenter:
         self._current_scene = args.scene
         self._selected_variant = args.variant
         self._has_camera_frame = False
-        # ``_engine_active`` is False during the initial "Load Scene"
+        # ``_engine_active`` is False during the initial scene-selection
         # wait (when the user hasn't picked a scene yet AND
-        # ``--autoload-scene`` was off) and during the brief reload gap
-        # between scene changes. Drives the camera-area placeholder
-        # text: "Load Scene" when False, "Loading World Model" /
-        # "Loading Scene..." when True. Toggled by the demo wrapper
-        # via :meth:`set_engine_active` around each ``app.run()``.
+        # ``--autoload-scene`` was off) and during the brief gap between
+        # scene changes. Drives the camera-area placeholder text together
+        # with the model-warmup state below. Toggled by the demo wrapper
+        # via :meth:`set_engine_active` around each scene's run.
         self._engine_active = False
+        # Model-warmup status, wired by the demo via :meth:`set_model_status`.
+        # ``_model_can_prewarm`` is True when the model loads at startup
+        # (so the selection wait shows "Loading world model..." instead of
+        # "Load Scene"); ``_model_ready_probe`` returns True once warmup
+        # has finished. Defaults are inert so a presenter used without the
+        # wiring (or before it) behaves like the old "Load Scene" prompt.
+        self._model_can_prewarm = False
+        self._model_ready_probe: Callable[[], bool] = lambda: True
+        # Scene-selection lock, wired by the demo via
+        # :meth:`set_scene_selection_locked` when --preload-scenes is on.
+        # While the probe returns True the scene/variant dropdowns ignore
+        # clicks and the placeholder shows a "Preloading scenes..." hint, so
+        # the user can't pick a scene until every scene is cached.
+        self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
 
         # Scene-change request set by the dropdown click handlers. The
-        # outer demo loop checks this after each ``app.run()`` returns:
-        # if non-None, it tears down the current backend, builds a new
-        # one for the requested scene, and runs the engine again over
-        # the SAME presenter so the slangpy window stays alive.
+        # outer demo loop checks this after each ``app.run_scene`` returns:
+        # if non-None, it calls ``app.load_scene`` for the requested scene
+        # and re-enters the engine over the SAME presenter so the slangpy
+        # window (and the warmed model) stay alive.
         self._pending_scene_change: tuple[Any, str] | None = None
 
         self._key_codes = self._build_key_codes()
@@ -683,19 +707,11 @@ class SlangPyHudPresenter:
 
     def _create_device(self) -> Any:
         existing_device_handles = self._cuda_existing_device_handles()
-        torch_cuda_initialized = _torch_cuda_initialized()
-        if torch_cuda_initialized and not _env_truthy(
-            "INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"
-        ):
+        enable_cuda_interop = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        if not enable_cuda_interop:
             self._cuda_interop_unavailable_reason = (
-                "disabled after torch CUDA initialization"
+                f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
-        enable_cuda_interop = not _env_truthy(
-            "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"
-        ) and (
-            not torch_cuda_initialized
-            or _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES")
-        )
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -722,9 +738,7 @@ class SlangPyHudPresenter:
             )
 
     def _cuda_existing_device_handles(self) -> list[Any]:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
-            return []
-        if not _env_truthy("INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             return []
         try:
             import torch
@@ -750,10 +764,10 @@ class SlangPyHudPresenter:
     def _create_cuda_hud_interop(
         self, width: int, height: int
     ) -> _CudaRGBInterop | None:
-        if _env_truthy("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP"):
+        if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
             print(
                 "[presenter] hud_cuda_interop=disabled by "
-                "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP; using host HUD upload",
+                f"{DISABLE_CUDA_INTEROP_ENV}; using host HUD upload",
                 flush=True,
             )
             return None
@@ -1221,14 +1235,15 @@ class SlangPyHudPresenter:
                 self._draw_camera(canvas, self._latest_camera_pil, camera_area)
             camera_drawn = True
         if not camera_drawn:
-            # Three states:
-            #   - engine off (initial wait when ``--autoload-scene`` is
-            #     False, or the brief gap between scene switches):
-            #     "Load Scene" + dropdown hint.
-            #   - engine on but no frames yet (warmup): "Loading World Model".
-            #   - engine on, mid-rollout, transient empty queue: same as
-            #     warmup; the cached ``_latest_camera_pil`` covers the
-            #     normal case so this branch only fires before first frame.
+            # Placeholder states:
+            #   - engine off, model still warming (pre-warm overlapping the
+            #     selection wait): "Loading world model..." + dropdown hint.
+            #   - engine off, model warm (or pre-warm disabled): "Ready -
+            #     pick a scene" / "Load Scene" + dropdown hint.
+            #   - engine on, model not ready yet (user picked mid-warmup):
+            #     "Loading World Model".
+            #   - engine on, model warm, no frame yet (geometry upload +
+            #     first chunk): "Loading Scene...".
             # Wipe the camera area so the previous tick's placeholder
             # text / camera frame doesn't ghost behind the new
             # placeholder. Cheap relative to the full-screen clear we
@@ -1236,8 +1251,15 @@ class SlangPyHudPresenter:
             # *and* only on placeholder ticks rather than always.
             draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             if not self._engine_active:
-                placeholder = "Load Scene"
-            elif self._has_camera_frame:
+                if self._model_can_prewarm and not self._model_ready_probe():
+                    placeholder = "Loading world model..."
+                elif self._scene_selection_locked():
+                    placeholder = "Preloading scenes..."
+                elif self._model_can_prewarm:
+                    placeholder = "Ready - pick a scene"
+                else:
+                    placeholder = "Load Scene"
+            elif not self._model_ready_probe():
                 placeholder = "Loading World Model"
             else:
                 placeholder = "Loading Scene..."
@@ -1328,8 +1350,18 @@ class SlangPyHudPresenter:
             fill=TEXT_COLOR,
             font=self._font_large,
         )
-        if message in ("Load Scene", "Loading Scene..."):
-            hint = "Pick a scene from the panel on the right"
+        if message in (
+            "Load Scene",
+            "Loading Scene...",
+            "Loading world model...",
+            "Ready - pick a scene",
+            "Preloading scenes...",
+        ):
+            hint = (
+                "Preloading scenes, please wait..."
+                if self._scene_selection_locked()
+                else "Pick a scene from the panel on the right"
+            )
             hbox = _measure_text(self._font_small, hint)
             hw = hbox[2] - hbox[0]
             draw.text(
@@ -1429,6 +1461,22 @@ class SlangPyHudPresenter:
         speed_y = variant_y + bar_h + 12
         self._draw_speed(canvas, draw, center_x, speed_y, int(self._speed_mph))
 
+        # Light the reverse indicator red when reverse is engaged; the cached
+        # chrome only draws the inactive grey "R" box at the same spot.
+        if getattr(wheel_state, "reverse", False):
+            rx0, ry0 = px + 14, speed_y + 70
+            draw.rounded_rectangle(
+                (rx0, ry0, px + 54, speed_y + 102), radius=5, fill=(200, 60, 60, 255)
+            )
+            rbox = _measure_text(self._font_tiny, "R")
+            rw, rh = rbox[2] - rbox[0], rbox[3] - rbox[1]
+            draw.text(
+                (rx0 + (40 - rw) // 2 - rbox[0], ry0 + (32 - rh) // 2 - rbox[1]),
+                "R",
+                fill=(255, 255, 255),
+                font=self._font_tiny,
+            )
+
         wheel_center = (center_x, speed_y + 185)
         self._draw_wheel(canvas, draw, wheel_center, 112, wheel_state.steering)
 
@@ -1466,6 +1514,9 @@ class SlangPyHudPresenter:
             self._variant_dropdown_open,
             has_multiple_variants,
             self._engine_active,
+            # Scene header reads "Preloading scenes..." while locked, so the
+            # lock state has to invalidate the cached chrome too.
+            self._scene_selection_locked(),
         )
         if key == self._panel_chrome_cache_key and self._panel_chrome_cache is not None:
             return self._panel_chrome_cache
@@ -1492,11 +1543,14 @@ class SlangPyHudPresenter:
             (margin + 8, header_y + 11, margin + 18, header_y + 21),
             fill=NVIDIA_GREEN + (255,),
         )
-        scene_label_full = (
-            f"Running {self._scene_label_fn(self._current_scene)}\u2026"
-            if self._engine_active
-            else "Select Scene"
-        )
+        if self._engine_active:
+            scene_label_full = (
+                f"Running {self._scene_label_fn(self._current_scene)}\u2026"
+            )
+        elif self._scene_selection_locked():
+            scene_label_full = "Preloading scenes\u2026"
+        else:
+            scene_label_full = "Select Scene"
         scene_label_max_w = header_w - 26 - 30  # 26 left for dot, 30 right for arrow
         scene_label = _truncate_text_to_width(
             self._font_small, scene_label_full, scene_label_max_w
@@ -2059,7 +2113,10 @@ class SlangPyHudPresenter:
         return None
 
     def _update_speed(self, wheel_state: Any) -> None:
-        target_mph = wheel_state.target_speed_mps * 2.2369362920544
+        # Magnitude: the digit shows speed, and reverse is conveyed by the
+        # "R" indicator, so a reverse target reads as a positive number that
+        # dips to 0 at the direction change.
+        target_mph = abs(wheel_state.target_speed_mps) * 2.2369362920544
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
 
@@ -2224,6 +2281,11 @@ class SlangPyHudPresenter:
                     break
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
+        # While scenes are still preloading, the scene/variant dropdowns are
+        # locked (the only mouse-clickable HUD elements), so ignore clicks
+        # until every scene is cached and selection is instant.
+        if self._scene_selection_locked():
+            return
         # Variant dropdown sits on top of the scene dropdown items, so
         # check it first.
         if self._variant_dropdown_open:
@@ -2286,14 +2348,14 @@ class SlangPyHudPresenter:
         """Tell the engine to exit while keeping the window alive.
 
         Sets ``_pending_scene_change`` and flips the close flag so
-        :func:`run_main_loop` exits, ``app.run()`` tears the current
-        backend down, and the demo's outer scene-change loop in
+        :func:`run_main_loop` exits, ``app.run_scene`` returns, and the
+        demo's outer scene-change loop in
         :func:`omnidreams.interactive_drive.demo._run_slangpy_hud` picks the
-        request up. That loop builds a fresh backend for the new
-        scene and constructs a new :class:`InteractiveDriveApp` over
-        this same presenter, so the slangpy swapchain / window survives
-        the change without the close-and-reopen flash the previous
-        ``os.execv``-based path produced.
+        request up. That loop calls ``app.load_scene`` for the new scene
+        and re-enters ``app.run_scene`` over this same presenter, so the
+        slangpy swapchain / window (and the resident model) survive the
+        change without the close-and-reopen flash -- or model reload --
+        the older teardown/rebuild and ``os.execv`` paths produced.
         """
         self._args.scene = scene_path
         self._args.variant = variant
@@ -2310,13 +2372,43 @@ class SlangPyHudPresenter:
         """``(scene_path, variant)`` if a dropdown click is pending, else None."""
         return self._pending_scene_change
 
-    def set_engine_active(self, active: bool) -> None:
-        """Toggle the camera-area placeholder text.
+    def set_model_status(
+        self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
+    ) -> None:
+        """Wire the camera-placeholder text to model-warmup progress.
 
-        ``active=False`` → "Load Scene" + dropdown hint (initial wait
-        and the brief gap between scene switches). ``active=True`` →
-        "Loading World Model" / "Loading Scene...". The demo's outer
-        loop calls this around each ``app.run()``.
+        ``can_prewarm`` is True when the model loads at startup (the
+        default world-model path), so the selection wait reads "Loading
+        world model..." then "Ready - pick a scene" once warmup finishes.
+        False (e.g. ``--offload-text-encoder``, which only builds after the
+        first scene is known) keeps the plain "Load Scene" prompt.
+        ``ready_probe`` returns True once warmup has completed; it is
+        polled each render tick, so the text updates live mid-wait.
+        """
+        self._model_can_prewarm = bool(can_prewarm)
+        self._model_ready_probe = ready_probe
+
+    def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
+        """Gate scene/variant selection while ``probe()`` returns True.
+
+        Used with --preload-scenes so the user can't pick a scene until
+        every scene has finished preloading (and would therefore hit the
+        instant cache path). While locked the dropdowns ignore clicks and
+        the camera placeholder shows a "Preloading scenes..." hint.
+        """
+        self._scene_selection_locked_probe = probe
+
+    def _scene_selection_locked(self) -> bool:
+        return self._scene_selection_locked_probe()
+
+    def set_engine_active(self, active: bool) -> None:
+        """Toggle the scene-running chrome and placeholder text.
+
+        ``active=False`` is the initial selection wait and the brief gap
+        between scene switches; ``active=True`` is a scene running (or
+        loading). The demo's outer loop calls this around each scene's
+        run. The exact placeholder string also depends on the model-warmup
+        state set via :meth:`set_model_status`.
         """
         self._engine_active = bool(active)
         # Drop the chrome cache so the panel is redrawn promptly --
@@ -2358,13 +2450,13 @@ class SlangPyHudPresenter:
             self.set_engine_active(prior_engine_active)
 
     def acknowledge_scene_change(self, scene_path: Any, variant: str) -> None:
-        """Accept the scene change and prepare the presenter for the next ``app.run()``.
+        """Accept the scene change and prepare the presenter for the next scene.
 
-        Called by the demo's outer loop after it's torn down the old
-        backend and built a new one. Resets the close flag, clears
-        cached per-scene state (camera frames, BEV, dropdowns), and
-        updates ``_current_scene`` / ``_selected_variant`` so the
-        chrome reflects the new selection.
+        Called by the demo's outer loop just before it calls
+        ``app.load_scene`` for the newly-selected scene. Resets the close
+        flag, clears cached per-scene state (camera frames, BEV,
+        dropdowns), and updates ``_current_scene`` / ``_selected_variant``
+        so the chrome reflects the new selection.
         """
         self._pending_scene_change = None
         self._should_close_flag = False
@@ -2392,24 +2484,26 @@ class SlangPyHudPresenter:
     def set_wheel(self, wheel: Any | None) -> None:
         """Attach (or detach) a :class:`WheelBridge` after construction.
 
-        The demo wrapper attaches the wheel lazily on the first
-        ``app.run()`` so the evdev reader thread doesn't start during
-        the initial "Load Scene" wait. Without this hook the presenter
-        would still see ``self._wheel = None`` from its constructor
-        even after the wheel was created, and chrome rendering would
-        always fall through to the keyboard-drive smoother.
+        The demo wrapper builds the wheel just after the engine (so its
+        drive sink targets the app's keyboard) and attaches it here, before
+        the scene-selection wait, so the HUD's steering / pedal chrome
+        reacts to the physical device while the user is still picking a
+        scene. Without this hook the presenter would still see
+        ``self._wheel = None`` from its constructor even after the wheel
+        was created, and chrome rendering would always fall through to the
+        keyboard-drive smoother.
         """
         self._wheel = wheel
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Rebind to a fresh ``KeyboardState`` for a new ``app.run()`` cycle.
+        """Rebind to the engine's ``KeyboardState``.
 
-        :class:`InteractiveDriveApp` constructs its own ``KeyboardState``
-        per run, so when the demo loop reuses this presenter across
-        scenes the previous run's keyboard becomes stale. Update our
-        reference + the ``KeyboardDriveState`` smoother that wraps it
-        so subsequent ``set_key`` / ``set_drive_command`` calls land
-        on the engine's actual state object.
+        :class:`InteractiveDriveApp` owns one long-lived ``KeyboardState``
+        and calls this once at construction to point the injected
+        presenter at it. Update our reference + the ``KeyboardDriveState``
+        smoother that wraps it so subsequent ``set_key`` /
+        ``set_drive_command`` calls land on the engine's actual state
+        object.
         """
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 

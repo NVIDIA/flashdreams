@@ -271,6 +271,36 @@ to bind a known device path directly use `--wheel-device /dev/input/eventX`;
 to disable wheel input entirely use `--no-wheel`. No profiles ship with the
 repo — keyboard-only driving works fine without one.
 
+**Generate an input profile (wheel or game controller).** Instead of
+hand-writing that YAML, run the calibration wizard:
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive-configuration
+```
+
+It shows a live panel -- a steering-wheel and pedal visualization plus a
+per-axis activity strip -- so you can confirm the right device and watch each
+control move. It then listens while you move each control to capture the
+correct axes and directions (self-centering sticks and force-feedback wheels
+work because it peak-holds each axis' range rather than snapshotting after you
+let go), lets you bind reverse / reset buttons and test force feedback, then
+writes the profile to
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
+`~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
+automatically through the same `--wheel-profile auto` detection. The wizard
+supports both steering wheels (with pedals) and game controllers (analog
+stick plus triggers); the generated file stays on your machine and is never
+committed. It needs a graphical session and read access to `/dev/input/*`
+(add your user to the `input` group if no devices are found).
+
+The opening screen also lists your saved profiles so you can edit their
+settings (display name, steering range and deadzone, inversion, force
+feedback, detection patterns), choose which one is the default, or delete
+them. Steering range and deadzone are most useful for game controllers,
+whose sticks are sensitive and tend to drift -- lower the range to make
+steering less twitchy and raise the deadzone to ignore a drifting stick at
+rest.
+
 ### `--no-hud`: bare backend, local Vulkan window
 
 This is the lighter-weight path that matches the older standalone
@@ -347,22 +377,22 @@ Then open `http://localhost:8080/`.
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
-Both Vulkan presenters can use SlangPy CUDA interop for generated RGB frames
-when the model output is still on CUDA. Because Torch usually owns the CUDA
-context before the presenter is constructed, this path follows upstream and is
-opt-in:
+The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
+stay CUDA-backed for world-model conditioning, and both Vulkan presenters use
+SlangPy CUDA interop for generated RGB frames when the model output is still on
+CUDA:
 
 ```bash
-INTERACTIVE_DRIVE_ENABLE_CUDA_CONTEXT_HANDLES=1 \
-  OMNIDREAMS_TRUESIGHT=1 \
+OMNIDREAMS_TRUESIGHT=1 \
   uv run --no-sync --package flashdreams-omnidreams interactive-drive
 ```
 
-Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the host-upload
-fallback. In HUD mode, chrome is still rendered with PIL on the CPU, then
-uploaded as an alpha overlay; the generated camera frame stays lazy on CUDA and
-is resized/composited into the shared presentation buffer on the CUDA stream.
-Use `--no-hud` with the same environment variables for the bare presenter.
+Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
+path for both HDMap raster conditioning and presenter CUDA interop. In HUD mode,
+chrome is still rendered with PIL on the CPU, then uploaded as an alpha overlay;
+the generated camera frame stays lazy on CUDA and is resized/composited into the
+shared presentation buffer on the CUDA stream. Use `--no-hud` with the same
+environment variable for the bare presenter.
 
 Controls (apply in all three modes):
 

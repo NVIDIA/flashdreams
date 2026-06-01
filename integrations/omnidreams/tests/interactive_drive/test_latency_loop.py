@@ -166,7 +166,8 @@ def _drive_loop(
     initial: PresentedFrame,
     frame_interval_s: float,
 ) -> bool:
-    pipeline = ChunkPipeline(backend, minimal_scene())
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
     try:
         return run_main_loop(
             presenter=presenter,

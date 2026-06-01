@@ -24,6 +24,7 @@ _DEFAULT_RESOLUTION_WH = (1280, 704)
 _RESOLUTION_ALIGNMENT_PX = 16
 _NATIVE_DIT_ACCELERATION_MODES = ("auto", "disabled", "required")
 _NATIVE_DIT_BACKENDS = ("fp8_kvcache_cudnn", "bf16")
+_NATIVE_VAE_ENCODERS = ("disabled", "fp8")
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -134,6 +135,15 @@ def _parse_native_dit_backend(raw: object) -> str:
     return backend
 
 
+def _parse_native_vae_encoder(raw: object) -> str:
+    encoder = "disabled" if raw is None else str(raw)
+    if encoder not in _NATIVE_VAE_ENCODERS:
+        raise ValueError(
+            f"native_vae_encoder must be one of {_NATIVE_VAE_ENCODERS}, got {encoder!r}"
+        )
+    return encoder
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
@@ -160,6 +170,8 @@ class WorldModelManifest:
     native_dit_sparge_topk: float | None = None
     native_dit_sparge_hybrid_period: int | None = None
     native_dit_sparge_hybrid_phase: int | None = None
+    native_vae_encoder: str = "disabled"
+    native_vae_fp8_state_path: Path | None = None
 
 
 def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
@@ -236,5 +248,10 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
             int(data["native_dit_sparge_hybrid_phase"])
             if data.get("native_dit_sparge_hybrid_phase") is not None
             else None
+        ),
+        native_vae_encoder=_parse_native_vae_encoder(data.get("native_vae_encoder")),
+        native_vae_fp8_state_path=_resolve_manifest_path(
+            data.get("native_vae_fp8_state_path"),
+            manifest_dir=manifest_dir,
         ),
     )

@@ -39,22 +39,74 @@ def _hud_presenter_without_window() -> SlangPyHudPresenter:
     return SlangPyHudPresenter.__new__(SlangPyHudPresenter)
 
 
-def test_cuda_existing_device_handles_skips_by_default(monkeypatch) -> None:
+def test_cuda_existing_device_handles_uses_current_context_by_default(
+    monkeypatch,
+) -> None:
+    presenter = _presenter_without_window()
+    handles = [object()]
+
+    class _Spy:
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            return handles
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    assert presenter._cuda_existing_device_handles() == handles
+
+
+def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
     presenter = _presenter_without_window()
 
     class _Spy:
         @staticmethod
         def get_cuda_current_context_native_handles() -> list[object]:
-            raise AssertionError("native handle query should be opt-in")
+            raise AssertionError("native handle query should be disabled")
 
     fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     assert presenter._cuda_existing_device_handles() == []
 
 
-def test_create_device_disables_cuda_interop_when_torch_cuda_is_initialized(
+def test_create_device_enables_cuda_interop_with_current_context_by_default(
+    monkeypatch,
+) -> None:
+    presenter = _presenter_without_window()
+    created_kwargs: list[dict[str, object]] = []
+
+    class _DeviceType:
+        vulkan = object()
+
+    class _Spy:
+        DeviceType = _DeviceType
+
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            return ["cuda-context"]
+
+        @staticmethod
+        def Device(**kwargs):
+            created_kwargs.append(kwargs)
+            return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    presenter._create_device()
+
+    assert created_kwargs[0]["enable_cuda_interop"] is True
+    assert created_kwargs[0]["existing_device_handles"] == ["cuda-context"]
+
+
+def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
     monkeypatch,
 ) -> None:
     presenter = _presenter_without_window()
@@ -72,15 +124,16 @@ def test_create_device_disables_cuda_interop_when_torch_cuda_is_initialized(
             return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
 
     fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     presenter._create_device()
 
     assert created_kwargs[0]["enable_cuda_interop"] is False
-    assert (
-        presenter._cuda_interop_unavailable_reason
-        == "disabled after torch CUDA initialization"
+    assert "existing_device_handles" not in created_kwargs[0]
+    assert "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP" in (
+        presenter._cuda_interop_unavailable_reason or ""
     )
 
 

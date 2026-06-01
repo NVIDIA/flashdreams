@@ -173,6 +173,33 @@ instead:
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+.. note::
+
+   The local window needs a display server (X11) and the system OpenGL /
+   Vulkan client libraries. On Debian/Ubuntu:
+
+   .. code-block:: bash
+
+      sudo apt install -y libx11-6 libxcb1 libgl1 libglx-mesa0 libvulkan1
+
+   A ``Failed to initialize GLFW`` error means the display or one of these
+   libraries is missing.
+
+Steering wheel and game controller
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With a local window you can drive using a steering wheel or game
+controller. Any device that Ubuntu detects as a standard game controller
+or joystick works. Run the configuration tool to calibrate it; the demo loads
+the saved profile automatically on its next launch:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive-configuration
+
+Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
+delete one, or set which is the default.
+
 Alternative: WebRTC server
 --------------------------
 
