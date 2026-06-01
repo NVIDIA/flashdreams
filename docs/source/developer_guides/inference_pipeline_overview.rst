@@ -24,6 +24,7 @@ or modifying existing ones.
 
 .. image:: /_static/diagrams/flashdreams-inference-pipeline-overview.jpg
    :alt: FlashDreams autoregressive inference pipeline overview.
+   :class: zoomable
 
 The key entry point class for the inference pipeline is
 :class:`~flashdreams.infra.pipeline.StreamInferencePipeline`, which defines the

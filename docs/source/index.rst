@@ -62,6 +62,7 @@ creative tools, virtual worlds, and game-like experiences.
 .. Figure creation trace: https://chatgpt.com/share/6a124478-4730-83e8-ba21-33628c8f1f3b
 .. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
    :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
+   :class: zoomable
 
 In a served world-model application, the key requirement is not only generating
 a high-quality video. The runtime must keep an interactive session responsive

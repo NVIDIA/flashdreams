@@ -118,6 +118,7 @@ For example, to list out all existing configurable parameters for a model:
 
 .. image:: /_static/diagrams/cli-screen-shot.png
    :alt: CLI helptext showing tyro dynamically parsing nested configuration arguments.
+   :class: zoomable
 
 
 To run the model with a modified configuration:
