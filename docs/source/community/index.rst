@@ -127,7 +127,7 @@ Contributing
          1. **Fork** ``NVIDIA/flashdreams`` and create a feature
             branch off ``main``.
          2. **Set up** your local environment — see the
-            :doc:`/get_started`.
+            :doc:`/quickstart/index`.
          3. **Run** the linters and CPU-tier tests before you push;
             the :doc:`contribute` page has the exact commands.
          4. **Sign off** every commit with ``git commit --signoff``
