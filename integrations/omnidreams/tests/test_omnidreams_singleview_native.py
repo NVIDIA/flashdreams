@@ -612,6 +612,93 @@ def test_optimized_dit_shape_ops_preserves_configured_dtype() -> None:
 
 
 @pytest.mark.ci_cpu
+def test_optimized_dit_initialize_cache_clones_self_contained_caches() -> None:
+    """``_CosmosNetworkShapeOps.initialize_cache`` clones the captured template
+    into independent, self-contained self-attn caches whose geometry matches the
+    requested rollout sizes; cross-attn caches are independent prefix copies.
+
+    Regression: the optimized FP8 path must reproduce the template's cursor in
+    each clone (so ``start()`` / ``finalize()`` advance a cursor the forward
+    reads ``write_start`` from) without sharing buffers across rollouts, and
+    must reject a rollout geometry that disagrees with the template.
+    """
+    from omnidreams.transformer.impl.modules import BlockCache
+    from omnidreams.transformer.impl.network import CosmosDiTNetworkCache
+
+    from flashdreams.core.attention import (
+        PrefixBlockKVCache,
+        RollingBlockKVCache,
+    )
+
+    optimized_dit = native.load_python_module("optimized_dit")
+
+    chunk_size, window_size, sink_size = 2, 6, 0
+    total_size = sink_size + window_size
+    n_heads, head_dim = 2, 4
+
+    def _make_block_cache() -> Any:
+        self_attn = RollingBlockKVCache(
+            k_shape=(1, total_size, n_heads, head_dim),
+            v_shape=(1, total_size, n_heads, head_dim),
+            seq_dim=1,
+            chunk_size=chunk_size,
+            window_size=window_size,
+            sink_size=sink_size,
+            device=torch.device("cpu"),
+            dtype=torch.float16,
+        )
+        cross_attn = PrefixBlockKVCache.from_tensor(
+            torch.zeros(1, chunk_size, n_heads, head_dim, dtype=torch.float16),
+            torch.zeros(1, chunk_size, n_heads, head_dim, dtype=torch.float16),
+            seq_dim=1,
+        )
+        return BlockCache(self_attn=self_attn, cross_attn=cross_attn)
+
+    def _make_shape_ops() -> Any:
+        template = CosmosDiTNetworkCache(
+            block_caches=[_make_block_cache() for _ in range(2)]
+        )
+        return optimized_dit._CosmosNetworkShapeOps(
+            SimpleNamespace(patch_temporal=1, patch_spatial=2),
+            device=torch.device("cpu"),
+            dtype=torch.bfloat16,
+            cache_templates=(template,),
+        ), template
+
+    shape_ops, template = _make_shape_ops()
+    network_cache = shape_ops.initialize_cache(
+        context=torch.zeros(1, dtype=torch.float16),
+        chunk_size=chunk_size,
+        window_size=window_size,
+        sink_size=sink_size,
+    )
+
+    assert network_cache.block_caches, "expected at least one cloned block"
+    for tmpl_block, block in zip(template.block_caches, network_cache.block_caches):
+        sa = block.self_attn
+        # Self-contained clone: matching inlined geometry + an independent buffer.
+        assert (sa.chunk_size, sa.window_size, sa.sink_size, sa.seq_dim) == (
+            chunk_size,
+            window_size,
+            sink_size,
+            1,
+        )
+        assert sa._k.data_ptr() != tmpl_block.self_attn._k.data_ptr()
+        # Cross-attn caches are immutable prefix caches (independent copies).
+        assert isinstance(block.cross_attn, PrefixBlockKVCache)
+
+    # A rollout geometry that disagrees with the captured template is rejected.
+    mismatch_ops, _ = _make_shape_ops()
+    with pytest.raises(RuntimeError, match="geometry"):
+        mismatch_ops.initialize_cache(
+            context=torch.zeros(1, dtype=torch.float16),
+            chunk_size=chunk_size,
+            window_size=window_size + 2,
+            sink_size=sink_size,
+        )
+
+
+@pytest.mark.ci_cpu
 def test_cosmos_transformer_config_defaults_to_auto_native_attention() -> None:
     from omnidreams.transformer import CosmosTransformerConfig
 

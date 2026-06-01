@@ -54,7 +54,10 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     Holds an always-present conditional network cache and an optional
     unconditional one for classifier-free guidance (``None`` disables CFG).
     Both branches own independent per-block self-attention KV buffers since
-    the residual stream diverges after the first cross-attention layer.
+    the residual stream diverges after the first cross-attention layer. Every
+    self-attn cache is a self-contained :class:`RollingBlockKVCache`; all blocks
+    (and both branches) share geometry + chunk sequence, so they advance in
+    lock-step.
     """
 
     network_cache: WanDiTNetworkCache
@@ -78,14 +81,18 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
     """Current AR step index, set by ``start``."""
 
     def start(self, autoregressive_index: int) -> None:
-        # Hoist per-block KV pre-update out of the (graph-captured) network
-        # forward; predict_flow runs with eager_mode=False so the network
-        # itself does not call before_update. Same for shift_t: tying the
-        # AR index into the captured graph as a Python int would re-trigger
+        # Hoist the KV pre-update + RoPE shift out of the (graph-captured)
+        # network forward; the network never advances the caches itself, so we
+        # drive before_update here (and after_update in finalize). Tying the AR
+        # index into the captured graph as a Python int would re-trigger
         # cat/repeat on every cond/uncond pass.
         self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
 
         self.autoregressive_index = autoregressive_index
+        # Advance + roll every block's self-attn cache (cond + uncond) for this
+        # chunk; they march in lock-step (same geometry + chunk sequence).
+        # Readers fetch the branchless pair from the first cache
+        # (``network_cache.block_caches[0].self_attn.range``).
         self.network_cache.before_update(autoregressive_index)
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.before_update(autoregressive_index)
@@ -325,9 +332,11 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
     ) -> WanDiTNetworkCache:
         """Build one network cache (cond or uncond branch).
 
-        Caller must have populated ``self._output_height/_output_width``
-        (done by :meth:`initialize_autoregressive_cache`) before invoking
-        this.
+        Caller must have populated ``self._output_height/_output_width`` (done
+        by :meth:`initialize_autoregressive_cache`) before invoking this. Every
+        block's self-attn cache is sized identically so the cond and uncond
+        branches march in lock-step. ``seq_dim`` is fixed at 1 (the sequence
+        axis of the per-block ``[B, total, n_heads, head_dim]`` K/V tensor).
         """
         assert self._output_height is not None and self._output_width is not None, (
             "_build_network_cache called before height/width were stashed."
@@ -581,6 +590,7 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             timesteps=timestep,
             cache=network_cache,
             rope_freqs=cache.rope_freqs,
+            self_attn_range=network_cache.block_caches[0].self_attn.range,
             current_chunk_idx=autoregressive_index,
             eager_mode=False,
             **network_extra_kwargs,

@@ -31,6 +31,7 @@ from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrlEncoderCache,
     WanI2VCtrlEncoderConfig,
 )
+
 # Legacy (pre-split) wan transformer: hy_worldplay uses the old rolling-cache
 # API + cascade. See flashdreams.recipes.wan.transformer.legacy.
 from flashdreams.recipes.wan.transformer.legacy import (

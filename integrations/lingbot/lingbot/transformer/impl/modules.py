@@ -23,6 +23,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.core.attention import KVRange
 from flashdreams.recipes.wan.transformer.impl.modules import (
     Block,
     BlockCache,
@@ -60,6 +61,7 @@ class CamCtrlBlock(Block):
         e: Tensor,
         cache: BlockCache,
         rope_freqs: Tensor,
+        self_attn_range: KVRange,
         plucker_embedding: Tensor,
     ) -> Tensor:
         """Run one transformer block update.
@@ -70,6 +72,8 @@ class CamCtrlBlock(Block):
             cache: KV cache container for this block.
             rope_freqs: RoPE frequencies of shape
                 ``[L, 1, 1, head_dim // 2]``.
+            self_attn_range: Branchless self-attn cache write/read pair,
+                threaded through to :meth:`SelfAttention.forward`.
             plucker_embedding: Optional camera-control Plücker embedding
                 of shape ``[..., L, D]``. ``None`` disables the camera
                 modulation (pass-through).
@@ -84,6 +88,7 @@ class CamCtrlBlock(Block):
             y,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
+            kv_range=self_attn_range,
         )
         x = x + (y * e_chunks[2])
 

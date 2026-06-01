@@ -26,6 +26,7 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.core.attention import KVRange
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
@@ -423,6 +424,7 @@ class WanDiTNetwork(nn.Module):
         timesteps: Tensor,
         cache: WanDiTNetworkCache,
         rope_freqs: Tensor,
+        self_attn_range: KVRange,
         current_chunk_idx: int = 0,
         eager_mode: bool = True,
         block_extra_kwargs: dict[str, Any] = {},
@@ -448,8 +450,14 @@ class WanDiTNetwork(nn.Module):
             rope_freqs: Full-width RoPE frequencies after CP. Standard mode
                 uses current-chunk frequencies with shape ``[L, 1, 1, d]``;
                 KV-cache-relative mode uses frequencies relative to the KV cache.
-            current_chunk_idx: Current chunk index for streaming cache update.
-            eager_mode: If ``True``, run cache before/after update hooks.
+            self_attn_range: Branchless self-attn cache write/read pair (see
+                :class:`Block.forward`); used when ``eager_mode=False``.
+            current_chunk_idx: Chunk index for the streaming cache update;
+                consulted only when ``eager_mode=True``.
+            eager_mode: ``True`` drives the cache ``before_update`` /
+                ``after_update`` inside this forward; ``False`` expects the
+                caller to drive them. Slated for removal (see
+                ``eager-mode-removal-HANDOFF.md``); production uses ``False``.
             block_extra_kwargs: Extra kwargs forwarded to each block.
 
         Returns:
@@ -510,9 +518,14 @@ class WanDiTNetwork(nn.Module):
             )  # [..., 1, D]
         block_e = torch.broadcast_to(e0, block_e_shape)
 
-        # Transformer blocks
+        # In non-eager mode the caller drives ``before_update`` /
+        # ``after_update`` outside the (graph-captured) network forward and
+        # passes the precomputed ``self_attn_range`` in.
         if eager_mode:
             cache.before_update(current_chunk_idx)
+            self_attn_range = cache.block_caches[0].self_attn.range
+
+        # Transformer blocks
         for block_idx, block in enumerate(self.blocks):
             assert isinstance(block, Block)
             x = block(
@@ -520,6 +533,7 @@ class WanDiTNetwork(nn.Module):
                 e=block_e,
                 rope_freqs=rope_freqs,
                 cache=cache[block_idx],
+                self_attn_range=self_attn_range,
                 **block_extra_kwargs,
             )
         if eager_mode:

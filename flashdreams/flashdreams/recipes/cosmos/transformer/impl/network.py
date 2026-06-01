@@ -25,6 +25,7 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.core.attention import KVRange
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
@@ -433,6 +434,7 @@ class CosmosDiTNetwork(nn.Module):
         timesteps: Tensor,
         cache: CosmosDiTNetworkCache,
         rope_freqs: Tensor,
+        self_attn_range: KVRange,
         current_chunk_idx: int = 0,
         eager_mode: bool = True,
     ) -> Tensor:
@@ -446,6 +448,8 @@ class CosmosDiTNetwork(nn.Module):
                 ``[L, 1, 1, head_dim // 2]``.
             cache: Per-block autoregressive cache produced by
                 :meth:`initialize_cache`.
+            self_attn_range: Branchless self-attn cache write/read pair (see
+                :class:`Block.forward`); used when ``eager_mode=False``.
             current_chunk_idx: Current chunk index in autoregressive inference.
             eager_mode: ``True`` runs cache pre/post-update inside the forward;
                 ``False`` expects the caller to drive ``before_update`` /
@@ -486,6 +490,8 @@ class CosmosDiTNetwork(nn.Module):
         # outside the (graph-captured) network forward.
         if eager_mode:
             cache.before_update(current_chunk_idx)
+            self_attn_range = cache.block_caches[0].self_attn.range
+
         for block_idx, block in enumerate(self.blocks):
             assert isinstance(block, Block)
             x = block(
@@ -494,6 +500,7 @@ class CosmosDiTNetwork(nn.Module):
                 rope_freqs=rope_freqs,
                 adaln_lora=adaln_lora,
                 cache=cache[block_idx],
+                self_attn_range=self_attn_range,
             )
         if eager_mode:
             cache.after_update(current_chunk_idx)

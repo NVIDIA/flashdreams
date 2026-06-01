@@ -471,6 +471,7 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
             cache=network_cache,
             rope_freqs=cache.rope_freqs,
             control=control,
+            self_attn_range=network_cache.kv_cache.range,
         )
 
     def predict_flow(

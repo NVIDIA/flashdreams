@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.core.attention import KVRange
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
     WanDiTNetworkCache,
@@ -108,6 +109,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
         timesteps: Tensor,
         cache: LingbotWorldDiTNetworkCache,
         rope_freqs: Tensor,
+        self_attn_range: KVRange,
         current_chunk_idx: int = 0,
         eager_mode: bool = True,
     ) -> Tensor:
@@ -122,6 +124,8 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             cache: Per-block KV caches.
             rope_freqs: RoPE frequencies of shape
                 ``[L, 1, 1, head_dim // 2]`` after CP.
+            self_attn_range: Branchless self-attn cache write/read pair,
+                threaded through to each block's self-attention.
             current_chunk_idx: Current chunk index for streaming cache update.
             eager_mode: If True, run cache before/after update hooks.
 
@@ -143,6 +147,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             timesteps=timesteps,
             cache=cache,
             rope_freqs=rope_freqs,
+            self_attn_range=self_attn_range,
             current_chunk_idx=current_chunk_idx,
             eager_mode=eager_mode,
             block_extra_kwargs={"plucker_embedding": plucker_embedding},
