@@ -177,8 +177,9 @@ Steering wheel and game controller
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With a local window you can drive using a steering wheel or game
-controller. Run the configuration tool to calibrate your device; the demo
-loads the saved profile automatically on its next launch:
+controller. Any device that Ubuntu detects as a standard game controller
+or joystick works. Run the configuration tool to calibrate it; the demo loads
+the saved profile automatically on its next launch:
 
 .. code-block:: bash
 
