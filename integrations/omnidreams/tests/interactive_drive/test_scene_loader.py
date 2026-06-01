@@ -3,11 +3,34 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
-from omnidreams.interactive_drive.scene_loader import load_scene_bundle
+from omnidreams.interactive_drive.scene_loader import (
+    _discover_prompts,
+    load_scene_bundle,
+)
+
+
+def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("prompt1.txt", "legacy one")
+        zf.writestr("prompt_2.txt", "canonical two")
+        zf.writestr("promptnight.txt", "ignored")
+
+    archive.seek(0)
+    with zipfile.ZipFile(archive, "r") as zf:
+        prompts = _discover_prompts(zf)
+
+    assert prompts["default"] == "legacy one"
+    assert prompts["1"] == "legacy one"
+    assert prompts["2"] == "canonical two"
+    assert "night" not in prompts
 
 
 # Opportunistic: exercises the real USDZ loader, so this test is silently

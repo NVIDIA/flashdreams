@@ -28,6 +28,7 @@ from omnidreams.transformer import (
     CosmosTransformerCache,
     CosmosTransformerConfig,
 )
+from omnidreams.vae_native import OmnidreamsWanVAEEncoderConfig
 from torch import Tensor
 
 from flashdreams.core.distributed.context_parallel import (
@@ -50,7 +51,6 @@ from flashdreams.recipes.taehv import TeahvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoder,
     WanVAEEncoder,
-    WanVAEEncoderConfig,
 )
 
 OmnidreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
@@ -58,6 +58,23 @@ OmnidreamsPipelineCache: TypeAlias = StreamInferencePipelineCache[
     CosmosTransformerCache,  # TransformerCacheT
     StreamingDecoderCache,  # StreamingDecoderCacheT
 ]
+
+
+def _validate_pixel_resolution_alignment(
+    pixel_height: int,
+    pixel_width: int,
+    *,
+    spatial_compression_ratio: int,
+    patch_spatial: int,
+) -> None:
+    required_alignment = int(spatial_compression_ratio) * int(patch_spatial)
+    if pixel_height % required_alignment or pixel_width % required_alignment:
+        raise ValueError(
+            "image pixel size "
+            f"({pixel_width}, {pixel_height}) must be divisible by "
+            f"{required_alignment} so the VAE latent is divisible by "
+            f"patch_spatial={patch_spatial}."
+        )
 
 
 @dataclass(kw_only=True)
@@ -79,8 +96,8 @@ class OmnidreamsPipelineConfig(StreamInferencePipelineConfig):
     and use ``initialize_cache_from_embeddings`` with precomputed embeddings
     to skip loading it."""
 
-    image_encoder: WanVAEEncoderConfig | None = field(
-        default_factory=WanVAEEncoderConfig
+    image_encoder: OmnidreamsWanVAEEncoderConfig | None = field(
+        default_factory=OmnidreamsWanVAEEncoderConfig
     )
     """One-shot Wan VAE first-frame encoder. Pin its checkpoint to the
     VAE the network was trained against. ``None`` skips loading."""
@@ -188,6 +205,7 @@ class OmnidreamsPipeline(
         assert isinstance(text, list) and len(text) > 0 and isinstance(text[0], list), (
             f"text must be a [B, V] nested list of prompts, got {type(text)}"
         )
+        self._validate_image_resolution(image)
 
         text_embeddings = torch.stack(
             [self.text_encoder(t) for t in text], dim=0
@@ -309,6 +327,7 @@ class OmnidreamsPipeline(
         assert isinstance(text, list) and len(text) > 0 and isinstance(text[0], list), (
             f"text must be a [B, V] nested list of prompts, got {type(text)}"
         )
+        self._validate_image_resolution(image)
         text_embeddings = torch.stack(
             [self.text_encoder(t) for t in text], dim=0
         )  # [B, V, L, D]
@@ -330,6 +349,24 @@ class OmnidreamsPipeline(
             "image_embeddings": image_embeddings.cpu(),
             "negative_text_embeddings": negative_text_embeddings,
         }
+
+    def _validate_image_resolution(self, image: Tensor) -> None:
+        transformer = self.diffusion_model.transformer
+        assert isinstance(transformer, CosmosTransformer), (
+            "OmnidreamsPipeline requires a Cosmos transformer; "
+            f"got {type(transformer).__name__}."
+        )
+        decoder = self.decoder
+        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+            "OmnidreamsPipeline requires a Wan or Taehv VAE decoder; "
+            f"got {type(decoder).__name__}."
+        )
+        _validate_pixel_resolution_alignment(
+            int(image.shape[-2]),
+            int(image.shape[-1]),
+            spatial_compression_ratio=int(decoder.spatial_compression_ratio),
+            patch_spatial=int(transformer.config.network.patch_spatial),
+        )
 
     def release_oneshot_encoders(self) -> None:
         """Free the per-rollout text and first-frame image encoders.

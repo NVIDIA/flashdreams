@@ -119,7 +119,10 @@ class Head(nn.Module):
 
         Args:
             x: Hidden states, shape ``[..., L, dim]``.
-            e: Modulation, shape ``[..., 1, dim]``.
+            e: Modulation, shape ``[..., 1, dim]`` for a scalar (per-batch)
+                timestep, or ``[..., L, 1, dim]`` for a per-token timestep
+                (Wan 2.2 TI2V 5B first-chunk path). Both shapes broadcast
+                cleanly with ``x`` once the modulation axis is squeezed.
 
         Returns:
             Patch-projected tensor, shape ``[..., L, prod(patch_size) * out_dim]``.
@@ -128,8 +131,13 @@ class Head(nn.Module):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        assert x.ndim == e.ndim, "x and e must have the same number of dimensions"
-        e_chunks = (self.modulation + e).chunk(2, dim=-2)  # [..., 1, D] each
+        # ``.chunk(2, dim=-2)`` gives ``[..., 1, D]`` (scalar mode) or
+        # ``[..., L, 1, D]`` (per-token). ``.squeeze(-2)`` collapses the
+        # modulation axis -- the result is ``[..., D]`` or ``[..., L, D]``,
+        # both of which broadcast elementwise with the ``[..., L, D]``
+        # hidden state. Scalar-mode arithmetic is bit-identical to the
+        # pre-change ``[..., 1, D]`` * ``[..., L, D]`` broadcast.
+        e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(2, dim=-2)]
         x = self.norm(x) * (1 + e_chunks[1]) + e_chunks[0]  # [..., L, D]
         x = self.head(x)
         return x
@@ -612,7 +620,11 @@ class Block(nn.Module):
 
         Args:
             x: Input tensor with shape [..., L, D].
-            e: Modulation tensor with shape [..., 6, D].
+            e: Modulation tensor with shape ``[..., 6, D]`` for a scalar
+                (per-batch) timestep, or ``[..., L, 6, D]`` for a per-token
+                timestep (Wan 2.2 TI2V 5B first-chunk path). Both shapes
+                broadcast cleanly with ``x`` once the modulation axis is
+                squeezed.
             cache: KV cache container for this block.
             rope_freqs: Full-width RoPE frequencies. Standard mode passes
                 current-chunk frequencies with shape ``[L, 1, 1, head_dim]``;
@@ -625,7 +637,13 @@ class Block(nn.Module):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        e_chunks = (self.modulation + e).chunk(6, dim=-2)  # [..., 1, D] each
+        # ``.chunk(6, dim=-2)`` gives 6 modulation tensors of shape
+        # ``[..., 1, D]`` (scalar mode) or ``[..., L, 1, D]`` (per-token).
+        # Squeezing the modulation axis yields ``[..., D]`` / ``[..., L, D]``
+        # which both broadcast elementwise with ``x``'s ``[..., L, D]``.
+        # Scalar-mode arithmetic is bit-identical to the pre-change
+        # ``[..., 1, D]`` * ``[..., L, D]`` broadcast.
+        e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(6, dim=-2)]
 
         y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]  # [..., L, D]
         y = self.self_attn(

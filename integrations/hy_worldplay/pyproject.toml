@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-hy-worldplay"
+version = "0.1.0a4"
+description = "HY-WorldPlay (HY-World 1.5) interactive world model integration for flashdreams (WAN 2.2 5B I2V variant)."
+readme = "README.md"
+requires-python = ">=3.10"
+# The upstream HY-WorldPlay model code (``hyvideo/`` and ``wan/``) lives in
+# https://github.com/Tencent-Hunyuan/HY-WorldPlay and is *not* on PyPI.
+# The recipe wrapper here only provides the flashdreams-side configs +
+# runner; the upstream tree is provisioned by the parity-check script and,
+# for in-tree slugs, must be installed separately into the venv:
+#
+#     uv pip install --no-build-isolation -e <path-to-HY-WorldPlay>
+#
+# We therefore deliberately do NOT list HY-WorldPlay as a dependency here
+# (its ``requirements.txt`` pulls heavyweight, version-pinned scientific
+# stacks that would conflict with flashdreams' resolved env).
+dependencies = [
+    "flashdreams",
+    "flashdreams-wan22",
+    "diffusers>=0.34",
+    "imageio[ffmpeg]>=2.31",
+    "mediapy>=1.1",
+    "moviepy>=1.0,<2",
+    "opencv-python-headless",
+    "scipy>=1.11",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-wan22 = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# Register the runner with ``flashdreams-run`` via the same entry-point
+# group used by ``self_forcing`` / ``causal_forcing`` / ``wan21``; the
+# CLI's plugin discovery layer
+# (``flashdreams.plugins.registry.discover_runners``) scans this group
+# at startup. The entry-point name is informational -- the registry
+# key always comes from ``cfg.runner_name``.
+#
+# Heavy upstream-execution deps (sageattention, cloudpickle, accelerate,
+# filelock, pyyaml, remote-pdb) are deliberately *not* declared here --
+# they would leak into the repo-root ``uv.lock`` and bloat the
+# resolved-env for every contributor, including those who never touch
+# HY-WorldPlay. ``flashdreams-run hy-worldplay-wan-i2v-5b`` runs from
+# the isolated parity-check sub-venv that pins all of them (see
+# ``tests/parity_check/pyproject.toml``); this workspace member only
+# carries the lightweight config / runner shim surface needed for
+# ``python -c 'import hy_worldplay'`` and the CPU-only smoke tests.
+[project.entry-points."flashdreams.runner_configs"]
+"hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
+
+[tool.setuptools.packages.find]
+include = ["hy_worldplay*"]
+exclude = ["tests"]

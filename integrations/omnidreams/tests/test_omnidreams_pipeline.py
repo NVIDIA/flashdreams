@@ -24,7 +24,10 @@ from omnidreams.config import (
     SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
 )
 from omnidreams.constants import NEGATIVE_PROMPT
-from omnidreams.pipeline import OmnidreamsPipeline
+from omnidreams.pipeline import (
+    OmnidreamsPipeline,
+    _validate_pixel_resolution_alignment,
+)
 from omnidreams.transformer import (
     CosmosTransformer,
     CosmosTransformerConfig,
@@ -50,6 +53,23 @@ def _make_uninitialized_omnidreams_pipeline() -> OmnidreamsPipeline:
     )
     pipeline.V_group = None
     return pipeline
+
+
+@pytest.mark.ci_cpu
+def test_validate_pixel_resolution_alignment_requires_vae_and_patch_multiple() -> None:
+    _validate_pixel_resolution_alignment(
+        640,
+        1168,
+        spatial_compression_ratio=8,
+        patch_spatial=2,
+    )
+    with pytest.raises(ValueError, match="divisible by 16"):
+        _validate_pixel_resolution_alignment(
+            640,
+            1164,
+            spatial_compression_ratio=8,
+            patch_spatial=2,
+        )
 
 
 @pytest.mark.ci_cpu
@@ -126,6 +146,16 @@ def test_omnidreams_initialize_cache_encodes_cfg_negative_prompt(
         captured_embeddings["negative_text_embeddings"] = negative_text_embeddings
         return object()
 
+    def skip_validate_image_resolution(
+        self: OmnidreamsPipeline, image: torch.Tensor
+    ) -> None:
+        del self, image
+
+    monkeypatch.setattr(
+        OmnidreamsPipeline,
+        "_validate_image_resolution",
+        skip_validate_image_resolution,
+    )
     monkeypatch.setattr(
         OmnidreamsPipeline,
         "initialize_cache_from_embeddings",
@@ -251,6 +281,37 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
 
     assert cache.network_cache_uncond is not None
     assert fake_network.cache_kwargs[-1]["context"] is negative_text_embeddings
+
+
+@pytest.mark.ci_cpu
+def test_cosmos_transformer_patchify_casts_to_transformer_dtype() -> None:
+    class FakeNetwork:
+        def __init__(self) -> None:
+            self.patchify_input: torch.Tensor | None = None
+
+        def patchify_and_maybe_split_cp(
+            self, x: torch.Tensor, **_kwargs: Any
+        ) -> torch.Tensor:
+            self.patchify_input = x
+            return x
+
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    fake_network = FakeNetwork()
+    transformer.config = cast(Any, SimpleNamespace(dtype=torch.bfloat16))
+    transformer.cp_groups = HierarchicalCPGroups(rank=0)
+    transformer.network = cast(Any, fake_network)
+    transformer.flatten_thw = False
+    transformer.register_parameter(
+        "_test_device_anchor", torch.nn.Parameter(torch.empty(0, device="cpu"))
+    )
+
+    input_tensor = torch.zeros(1, 1, 1, 1, 2, 2, dtype=torch.float16)
+    output = transformer.patchify_and_maybe_split_cp(input_tensor)
+
+    assert fake_network.patchify_input is not None
+    assert fake_network.patchify_input.dtype is torch.bfloat16
+    assert output.dtype is torch.bfloat16
 
 
 @pytest.mark.ci_cpu

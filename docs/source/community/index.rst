@@ -39,7 +39,7 @@ Community
 
          Browse the repo
 
-      .. button-ref:: contributing
+      .. button-ref:: contribute
          :ref-type: doc
          :color: secondary
          :outline:
@@ -57,7 +57,8 @@ Community
    :hidden:
    :maxdepth: 1
 
-   contributing
+   contribute
+   discord
    support
    faq
 
@@ -95,7 +96,7 @@ venue for real-time conversation with maintainers and other users.
          Real-time chat with maintainers and other users. The
          FlashDreams community lives on the NVIDIA Omniverse server.
 
-         `Join the Discord
+         :doc:`Read more <discord>` · `Join the Discord
          <https://discord.com/invite/nvidiaomniverse>`__
 
 Contributing
@@ -106,12 +107,12 @@ Contributing
    .. container:: fd-split-text
 
       The contribution flow is documented in full on the
-      :doc:`contributing` page. The five steps on the side are the
+      :doc:`contribute` page. The five steps on the side are the
       short version.
 
       The authoritative version — DCO details, review expectations,
       CI tier markers, the SPDX header template — lives in
-      :doc:`contributing` and the canonical `CONTRIBUTING.md
+      :doc:`contribute` and the canonical `CONTRIBUTING.md
       <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`__
       in the repo root.
 
@@ -128,7 +129,7 @@ Contributing
          2. **Set up** your local environment — see the
             :doc:`/get_started`.
          3. **Run** the linters and CPU-tier tests before you push;
-            the :doc:`contributing` page has the exact commands.
+            the :doc:`contribute` page has the exact commands.
          4. **Sign off** every commit with ``git commit --signoff``
             (DCO is a hard gate).
          5. **Open a PR** against ``main`` and fill in the template.
@@ -139,7 +140,7 @@ Frequently asked
 Answers to questions that come up repeatedly in the issue tracker
 live on the :doc:`faq` page. If a question keeps recurring in support
 channels, propose an FAQ entry via a pull request — see
-:doc:`contributing`.
+:doc:`contribute`.
 
 .. rst-class:: fd-band-accent fd-cta-banner
 
@@ -148,7 +149,7 @@ Where to next
 
 .. container:: fd-cta-row
 
-   .. button-ref:: contributing
+   .. button-ref:: contribute
       :ref-type: doc
       :color: primary
 

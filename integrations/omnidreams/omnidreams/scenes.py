@@ -161,14 +161,15 @@ def variant_from_stem(stem: str, prefix: str) -> str | None:
 
     * ``<prefix>``           -> ``"default"``  (e.g. ``prompt.txt``, ``first_image.png``)
     * ``<prefix>_<X>``       -> ``<X>``        (e.g. ``prompt_1.txt`` -> ``"1"``)
+    * ``<prefix><N>``        -> ``<N>``        (e.g. ``prompt1.txt`` -> ``"1"``)
     * anything else          -> ``None``       (rejected; caller skips it)
 
-    The trailing-suffix-without-underscore form (``prompt1.txt``,
-    ``first_image1.png``) is **rejected** so the HUD's selector and the
-    scene-loader's prompt dict agree on the variant key. Previously a
-    naive ``stem.replace(prefix, "")`` quietly mapped ``prompt_1`` to
-    ``_1`` while the HUD displayed ``1``, so the selector silently fell
-    back to the default prompt on real scenes.
+    The trailing-suffix-without-underscore form is accepted for numeric
+    legacy scene assets such as ``prompt1.txt`` while non-numeric suffixes
+    still require the underscore form. Previously a naive
+    ``stem.replace(prefix, "")`` quietly mapped ``prompt_1`` to ``_1``
+    while the HUD displayed ``1``, so the selector silently fell back to
+    the default prompt on real scenes.
 
     Used by every discovery path that walks clipgt asset names:
 
@@ -183,6 +184,10 @@ def variant_from_stem(stem: str, prefix: str) -> str | None:
         return "default"
     if stem.startswith(prefix + "_"):
         return stem[len(prefix) + 1 :]
+    if stem.startswith(prefix):
+        suffix = stem[len(prefix) :]
+        if suffix.isdecimal():
+            return suffix
     return None
 
 

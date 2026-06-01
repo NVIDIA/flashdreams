@@ -61,6 +61,9 @@ dependencies = [
     "pytest>=8.0",
 ]
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 # flashdreams is not on PyPI; install it from the local source tree
 # (../../../../flashdreams relative to this directory).
