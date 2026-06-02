@@ -13,25 +13,5 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Contributing
-============
-
-FlashDreams is developed openly on the
-`GitHub repository <https://github.com/NVIDIA/flashdreams>`_. Bug reports,
-feature requests, performance work, new model integrations, and documentation
-fixes are all welcome.
-Before you start, read the
-`CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`_
-guide.
-
-
-Reporting issues
-----------------
-
-Use `GitHub Issues <https://github.com/NVIDIA/flashdreams/issues>`_ to report
-functional defects and to request improvements. Please do not include
-confidential or customer information.
-
-Do not file security vulnerabilities as public issues. Follow the coordinated
-disclosure process in
-`SECURITY.md <https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md>`_.
+.. include:: ../../../CONTRIBUTING.md
+   :parser: myst_parser.sphinx_

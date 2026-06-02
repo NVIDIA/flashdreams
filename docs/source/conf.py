@@ -34,6 +34,11 @@ version = release if release[:1].isalpha() else f"v{release}"
 # caught early (locally and in CI).
 warningiserror = True
 
+# Auto-generate anchors for markdown headings up to H3 so cross-references
+# like `[Project governance](#project-governance)` resolve when MD is
+# included via `.. include:: ... :parser: myst_parser.sphinx_`.
+myst_heading_anchors = 3
+
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -43,6 +48,7 @@ extensions = [
     "sphinx.ext.githubpages",
     "sphinx_copybutton",
     "sphinx_design",
+    "myst_parser",
 ]
 
 intersphinx_mapping = {
