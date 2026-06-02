@@ -52,6 +52,7 @@ from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotSessionInput,
     LingbotWebRTCSessionManager,
+    normalize_prompt_text,
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -197,7 +198,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             if not isinstance(field, BodyPartReader):
                 continue
             if field.name == "prompt":
-                prompt = (await field.text()).strip()
+                prompt = normalize_prompt_text(await field.text())
                 if len(prompt) > MAX_PROMPT_CHARS:
                     raise web.HTTPBadRequest(
                         reason=f"Prompt must be <= {MAX_PROMPT_CHARS} characters."
@@ -224,7 +225,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         prompt_raw = form.get("prompt")
         image_url_raw = form.get("image_url")
         if isinstance(prompt_raw, str):
-            prompt = prompt_raw.strip()
+            prompt = normalize_prompt_text(prompt_raw)
             if len(prompt) > MAX_PROMPT_CHARS:
                 raise web.HTTPBadRequest(
                     reason=f"Prompt must be <= {MAX_PROMPT_CHARS} characters."

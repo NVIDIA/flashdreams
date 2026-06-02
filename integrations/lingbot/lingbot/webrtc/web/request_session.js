@@ -22,6 +22,9 @@ const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
 const firstFramePreview = document.getElementById("firstFramePreview")
 const sceneCard = document.getElementById("sceneCard")
+const firstFrameSourceRow = document.getElementById("firstFrameSourceRow")
+const uploadModeButton = document.getElementById("uploadModeButton")
+const urlModeButton = document.getElementById("urlModeButton")
 const firstFrameInput = document.getElementById("firstFrameInput")
 const firstFrameUrlInput = document.getElementById("firstFrameUrlInput")
 const firstFrameUrlUpdateButton = document.getElementById("firstFrameUrlUpdateButton")
@@ -61,9 +64,11 @@ let actionStarted = false
 let initialSceneLocked = false
 let promptEdited = false
 let firstFrameUrlEdited = false
+let firstFrameInputMode = "url"
 let initialScene = null
 let selectedFirstFrameUrl = null
 let selectedFirstFrameFile = null
+let firstFrameSelectionCommitted = false
 let firstFramePreviewRefreshToken = 0
 
 const metrics = {
@@ -159,10 +164,26 @@ function setVideoVisible(visible) {
 function setInitialSceneLocked(locked) {
   initialSceneLocked = locked
   sceneCard.hidden = locked
+  uploadModeButton.disabled = locked
+  urlModeButton.disabled = locked
   firstFrameInput.disabled = locked
   firstFrameUrlInput.disabled = locked
   firstFrameUrlUpdateButton.disabled = locked
   promptInput.disabled = locked
+}
+
+function setFirstFrameInputMode(mode) {
+  if (mode !== "upload" && mode !== "url") {
+    return
+  }
+  firstFrameInputMode = mode
+  firstFrameSourceRow.dataset.mode = mode
+  uploadModeButton.setAttribute("aria-pressed", mode === "upload" ? "true" : "false")
+  urlModeButton.setAttribute("aria-pressed", mode === "url" ? "true" : "false")
+}
+
+function defaultFirstFrameName() {
+  return initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image"
 }
 
 function setFirstFrameUrlStatus(message = "", state = "idle") {
@@ -190,6 +211,7 @@ function validateFirstFrameUrl(value) {
 
 function clearSelectedFirstFrameFile() {
   selectedFirstFrameFile = null
+  firstFrameSelectionCommitted = false
   firstFrameInput.value = ""
   if (selectedFirstFrameUrl) {
     URL.revokeObjectURL(selectedFirstFrameUrl)
@@ -210,7 +232,7 @@ function refreshedPreviewUrl(url) {
 
 function updateReadyPreview() {
   const canPreview = !document.body.classList.contains("has-video")
-  const hasSelectedImage = selectedFirstFrameUrl !== null
+  const hasSelectedImage = selectedFirstFrameUrl !== null && firstFrameSelectionCommitted
   const hasInitialImage = Boolean(
     initialScene && initialScene.has_first_frame && initialScene.first_frame_url
   )
@@ -238,11 +260,12 @@ function applyInitialScene(scene) {
     : (typeof scene.default_image_url === "string" ? scene.default_image_url : "")
   if (!selectedFirstFrameFile && !firstFrameUrlEdited && sceneImageUrl) {
     firstFrameUrlInput.value = sceneImageUrl
+    setFirstFrameInputMode("url")
   }
   if (!selectedFirstFrameFile) {
     firstFrameName.textContent = firstFrameUrlInput.value.trim()
       ? "Upload Image"
-      : (scene.has_first_frame ? "Example Image" : "Choose Image")
+      : defaultFirstFrameName()
   }
   if (scene.model) {
     metrics.model = scene.model
@@ -282,12 +305,14 @@ async function loadInitialScene() {
   }
 }
 
-async function uploadSessionInputIfNeeded() {
+async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
   const prompt = promptInput.value.trim()
   let imageUrl = firstFrameUrlInput.value.trim()
   const hasPrompt = promptEdited && prompt.length > 0
-  const hasImage = selectedFirstFrameFile !== null
-  const hasImageUrl = !hasImage && firstFrameUrlEdited && imageUrl.length > 0
+  const hasImage =
+    includeFirstFrame && firstFrameInputMode === "upload" && selectedFirstFrameFile !== null
+  const hasImageUrl =
+    includeFirstFrame && firstFrameInputMode === "url" && imageUrl.length > 0
   if (!hasPrompt && !hasImage && !hasImageUrl) {
     return
   }
@@ -313,7 +338,7 @@ async function uploadSessionInputIfNeeded() {
     })
     promptEdited = false
     firstFrameUrlEdited = false
-    if (hasImageUrl) {
+    if (hasImage || hasImageUrl) {
       setFirstFrameUrlStatus("Updated", "success")
     }
     return
@@ -323,7 +348,7 @@ async function uploadSessionInputIfNeeded() {
   if (hasPrompt) {
     form.append("prompt", prompt)
   }
-  if (selectedFirstFrameFile) {
+  if (hasImage) {
     form.append("image", selectedFirstFrameFile, selectedFirstFrameFile.name)
   } else if (hasImageUrl) {
     form.append("image_url", imageUrl)
@@ -340,38 +365,45 @@ async function uploadSessionInputIfNeeded() {
   applyInitialScene(await response.json())
   promptEdited = false
   firstFrameUrlEdited = false
-  if (hasImageUrl) {
+  if (hasImage || hasImageUrl) {
     setFirstFrameUrlStatus("Updated", "success")
   }
 }
 
-async function updateFirstFrameFromUrl() {
+async function updateFirstFrameInput() {
   if (initialSceneLocked) {
     return
   }
 
-  let imageUrl
-  try {
-    imageUrl = validateFirstFrameUrl(firstFrameUrlInput.value)
-  } catch (error) {
-    setFirstFrameUrlStatus(error.message, "error")
-    return
+  if (firstFrameInputMode === "upload") {
+    if (!selectedFirstFrameFile) {
+      setFirstFrameUrlStatus("Choose an image file.", "error")
+      return
+    }
+  } else {
+    let imageUrl
+    try {
+      imageUrl = validateFirstFrameUrl(firstFrameUrlInput.value)
+    } catch (error) {
+      setFirstFrameUrlStatus(error.message, "error")
+      return
+    }
+    firstFrameUrlInput.value = imageUrl
+    clearSelectedFirstFrameFile()
   }
 
-  firstFrameUrlInput.value = imageUrl
-  firstFrameUrlEdited = true
-  clearSelectedFirstFrameFile()
-  firstFrameName.textContent = "Upload Image"
   setFirstFrameUrlStatus("Updating...", "pending")
   firstFrameUrlUpdateButton.disabled = true
 
   try {
-    await uploadSessionInputIfNeeded()
+    await uploadSessionInputIfNeeded({ includeFirstFrame: true })
+    firstFrameSelectionCommitted = true
+    updateReadyPreview()
     setFirstFrameUrlStatus("Updated", "success")
-    logEvent("first frame URL updated", { source: "client" })
+    logEvent("first frame updated", { source: "client" })
   } catch (error) {
     setFirstFrameUrlStatus(error.message, "error")
-    logEvent(`first frame URL update failed: ${error.message}`, {
+    logEvent(`first frame update failed: ${error.message}`, {
       source: "client",
       level: "error",
     })
@@ -1112,6 +1144,7 @@ async function startMockSession() {
 
 function initialize() {
   document.body.dataset.status = "idle"
+  setFirstFrameInputMode("url")
   if (mockMode) {
     document.body.classList.add("mock-mode")
     connectButton.textContent = "Start Mock Session"
@@ -1130,12 +1163,31 @@ function initialize() {
 connectButton.addEventListener("click", () => {
   void connectSession()
 })
+uploadModeButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("upload")
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = defaultFirstFrameName()
+  }
+  releaseAllKeys()
+})
+urlModeButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("url")
+  releaseAllKeys()
+})
 firstFrameInput.addEventListener("change", () => {
   if (initialSceneLocked) {
     return
   }
+  setFirstFrameInputMode("upload")
   const [file] = firstFrameInput.files
   selectedFirstFrameFile = file || null
+  firstFrameSelectionCommitted = false
   if (selectedFirstFrameUrl) {
     URL.revokeObjectURL(selectedFirstFrameUrl)
     selectedFirstFrameUrl = null
@@ -1144,10 +1196,10 @@ firstFrameInput.addEventListener("change", () => {
     selectedFirstFrameUrl = URL.createObjectURL(selectedFirstFrameFile)
     firstFrameName.textContent = selectedFirstFrameFile.name
     clearFirstFrameUrlInput()
+    setFirstFrameUrlStatus("Image not updated", "pending")
   } else {
-    firstFrameName.textContent = firstFrameUrlInput.value.trim()
-      ? "Upload Image"
-      : (initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image")
+    firstFrameName.textContent = defaultFirstFrameName()
+    setFirstFrameUrlStatus()
   }
   updateReadyPreview()
 })
@@ -1155,11 +1207,15 @@ firstFrameUrlInput.addEventListener("input", () => {
   if (initialSceneLocked) {
     return
   }
+  setFirstFrameInputMode("url")
+  if (selectedFirstFrameFile) {
+    clearSelectedFirstFrameFile()
+  }
   firstFrameUrlEdited = true
   if (!selectedFirstFrameFile) {
     firstFrameName.textContent = firstFrameUrlInput.value.trim()
       ? "Upload Image"
-      : (initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image")
+      : defaultFirstFrameName()
   }
   setFirstFrameUrlStatus(
     firstFrameUrlInput.value.trim() ? "URL not updated" : "",
@@ -1167,7 +1223,7 @@ firstFrameUrlInput.addEventListener("input", () => {
   )
 })
 firstFrameUrlUpdateButton.addEventListener("click", () => {
-  void updateFirstFrameFromUrl()
+  void updateFirstFrameInput()
 })
 promptInput.addEventListener("input", () => {
   if (initialSceneLocked) {

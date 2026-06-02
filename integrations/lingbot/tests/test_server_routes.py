@@ -184,7 +184,10 @@ async def test_session_input_upload_stores_prompt_and_image() -> None:
     client = await _build_client(manager)
     try:
         form = FormData()
-        form.add_field("prompt", "turn onto a rain-soaked neon street")
+        form.add_field(
+            "prompt",
+            "turn onto a rain-soaked neon street\nwith reflective traffic lights",
+        )
         form.add_field(
             "image",
             png_bytes,
@@ -196,11 +199,17 @@ async def test_session_input_upload_stores_prompt_and_image() -> None:
         payload = await response.json()
 
         assert response.status == 200
-        assert payload["prompt"] == "turn onto a rain-soaked neon street"
+        assert (
+            payload["prompt"]
+            == "turn onto a rain-soaked neon street with reflective traffic lights"
+        )
         assert payload["input_source"] == "uploaded"
         assert len(manager.pending_inputs) == 1
         session_input = manager.pending_inputs[0]
-        assert session_input.prompt == "turn onto a rain-soaked neon street"
+        assert (
+            session_input.prompt
+            == "turn onto a rain-soaked neon street with reflective traffic lights"
+        )
         assert session_input.first_frame_image_bytes == png_bytes
         assert session_input.first_frame_content_type == "image/png"
     finally:

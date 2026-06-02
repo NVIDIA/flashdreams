@@ -237,6 +237,10 @@ class LingbotImagePayload:
     content_type: str
 
 
+def normalize_prompt_text(prompt: str) -> str:
+    return " ".join(prompt.split())
+
+
 @dataclass(slots=True)
 class LingbotStepResult:
     chunk_index: int
@@ -509,10 +513,10 @@ class LingbotInferenceRuntime:
         prompt_path = self.config.example_data_dir / self.config.prompt_filename
         if prompt_path.exists():
             with prompt_path.open("r", encoding="utf-8") as handle:
-                prompt = handle.readline().strip()
+                prompt = normalize_prompt_text(handle.readline())
             if prompt:
                 return prompt
-        return self.config.default_prompt.strip() or _DEFAULT_PROMPT
+        return normalize_prompt_text(self.config.default_prompt) or _DEFAULT_PROMPT
 
     def _load_default_first_frame_rgb(self) -> np.ndarray:
         first_frame_path = (
@@ -576,7 +580,7 @@ class LingbotInferenceRuntime:
         self, session_input: LingbotSessionInput | None
     ) -> None:
         prompt = (
-            session_input.prompt.strip()
+            normalize_prompt_text(session_input.prompt)
             if session_input is not None and session_input.prompt is not None
             else self._load_default_prompt()
         )
@@ -791,7 +795,7 @@ class LingbotWebRTCSessionManager:
     def get_initial_scene(self) -> dict[str, object]:
         pending_input = self._pending_session_input
         prompt = (
-            pending_input.prompt.strip()
+            normalize_prompt_text(pending_input.prompt)
             if pending_input is not None and pending_input.prompt is not None
             else self._runtime._load_default_prompt()
         )
@@ -883,7 +887,7 @@ class LingbotWebRTCSessionManager:
         current = self._pending_session_input
         self._pending_session_input = LingbotSessionInput(
             prompt=(
-                session_input.prompt
+                normalize_prompt_text(session_input.prompt)
                 if session_input.prompt is not None
                 else (current.prompt if current is not None else None)
             ),

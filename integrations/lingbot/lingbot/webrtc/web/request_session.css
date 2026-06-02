@@ -272,29 +272,77 @@ body[data-status="generating"] .connectButton {
 
 .firstFrameSourceRow {
   display: grid;
-  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: end;
+  grid-template-columns: 86px minmax(0, 1fr) 86px;
+  gap: 8px;
+  align-items: stretch;
+  min-height: 68px;
+  transition: grid-template-columns 160ms ease;
+}
+
+.firstFrameSourceRow[data-mode="upload"] {
+  grid-template-columns: minmax(0, 1fr) 86px 86px;
+}
+
+.sourcePane {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload,
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl {
+  border-color: rgba(142, 240, 28, 0.38);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.sourceModeButton {
+  width: 100%;
+  height: 100%;
+  min-height: 68px;
+  border: 0;
+  background: transparent;
+  color: rgba(243, 247, 240, 0.60);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sourceModeButton:hover,
+.sourceModeButton:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  outline: 0;
 }
 
 .uploadControl {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
+  min-height: 68px;
+  height: 100%;
   padding: 0 14px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 800;
 }
 
 .uploadControl:hover {
-  border-color: rgba(142, 240, 28, 0.48);
   background: rgba(142, 240, 28, 0.14);
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload .uploadControl {
+  display: flex;
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload .sourceModeButton,
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl .sourceModeButton {
+  display: none;
 }
 
 .uploadControl input {
@@ -314,11 +362,20 @@ body[data-status="generating"] .connectButton {
 
 .promptControl,
 .urlControl {
-  display: grid;
+  display: none;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 700;
+}
+
+.promptControl {
+  display: grid;
+}
+
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl .urlControl {
+  display: grid;
+  padding: 8px;
 }
 
 .promptControl textarea,
@@ -328,7 +385,7 @@ body[data-status="generating"] .connectButton {
   border-radius: 6px;
   background: rgba(4, 6, 7, 0.62);
   color: var(--text);
-  font: 0.9rem/1.35 inherit;
+  font: 0.84rem/1.3 inherit;
   padding: 10px 12px;
 }
 
@@ -336,21 +393,26 @@ body[data-status="generating"] .connectButton {
   min-height: 38px;
 }
 
-.urlInputRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+.firstFrameUpdateRow {
+  display: flex;
+  align-items: center;
+  min-height: 0;
+}
+
+.firstFrameUpdateRow:empty {
+  display: none;
 }
 
 .urlUpdateButton {
-  min-height: 38px;
-  padding: 0 14px;
+  height: 100%;
+  min-height: 68px;
+  padding: 0 10px;
   border: 1px solid rgba(142, 240, 28, 0.42);
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(142, 240, 28, 0.14);
   color: var(--text);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 800;
 }
 
@@ -386,7 +448,20 @@ body[data-status="generating"] .connectButton {
 
 @media (max-width: 560px) {
   .firstFrameSourceRow {
-    grid-template-columns: 1fr;
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .firstFrameSourceRow[data-mode="upload"] {
+    grid-template-columns: minmax(0, 1fr) 74px;
+  }
+
+  .sourceModeButton {
+    font-size: 0.72rem;
+  }
+
+  .urlUpdateButton {
+    grid-column: 1 / -1;
+    min-height: 44px;
   }
 }
 
@@ -500,13 +575,13 @@ body[data-status="generating"] .connectButton {
   align-content: start;
   gap: 6px;
   min-height: 150px;
-  max-height: 230px;
-  overflow: hidden;
+  max-height: 300px;
+  overflow: auto;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.16);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.82rem;
-  line-height: 1.35;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .logEntry {
@@ -519,9 +594,8 @@ body[data-status="generating"] .connectButton {
 
 .logEntry span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .logEntry.is-error span {
