@@ -150,3 +150,18 @@ under matched settings.
     </figcaption>
   </figure>
   <script src="../_static/js/benchmark_chart.js"></script>
+
+Citation
+--------
+
+If you use FlashVSR, please cite the original work:
+
+.. code-block:: bibtex
+
+   @inproceedings{zhuang2026flashvsr,
+     title={FlashVSR: Towards Real-time Diffusion-Based Streaming Video Super Resolution},
+     author={Zhuang, Junhao and Guo, Shi and Cai, Xin and Li, Xiaohui and Liu, Yihao and Yuan, Chun and Xue, Tianfan},
+     booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+     pages={43482--43493},
+     year={2026}
+   }

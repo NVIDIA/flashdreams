@@ -195,3 +195,19 @@ under matched settings.
      </figcaption>
    </figure>
   <script src="../_static/js/benchmark_chart.js"></script>
+
+Citation
+--------
+
+If you use Self-Forcing, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{huang2026self,
+     title={Self forcing: Bridging the train-test gap in autoregressive video diffusion},
+     author={Huang, Xun and Li, Zhengqi and He, Guande and Zhou, Mingyuan and Shechtman, Eli},
+     journal={Advances in Neural Information Processing Systems},
+     volume={38},
+     pages={167283--167308},
+     year={2026}
+   }

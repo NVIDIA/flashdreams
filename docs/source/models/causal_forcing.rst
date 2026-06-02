@@ -136,3 +136,17 @@ Some generated samples from the above commands:
        </div>
      </div>
    </div>
+
+Citation
+--------
+
+If you use Causal-Forcing, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{zhu2026causal,
+     title={Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Generation},
+     author={Zhu, Hongzhou and Zhao, Min and He, Guande and Su, Hang and Li, Chongxuan and Zhu, Jun},
+     journal={arXiv preprint arXiv:2602.02214},
+     year={2026}
+   }

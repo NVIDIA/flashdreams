@@ -112,3 +112,17 @@ Some generated samples from the above commands:
        </div>
      </div>
    </div>
+
+Citation
+--------
+
+If you use Causal Wan2.2, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{zhang2025fast,
+     title={Fast video generation with sliding tile attention},
+     author={Zhang, Peiyuan and Chen, Yongqi and Su, Runlong and Ding, Hangliang and Stoica, Ion and Liu, Zhengzhong and Zhang, Hao},
+     journal={arXiv preprint arXiv:2502.04507},
+     year={2025}
+   }

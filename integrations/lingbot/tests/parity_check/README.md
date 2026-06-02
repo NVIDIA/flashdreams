@@ -13,7 +13,7 @@ torch cuDNN attention backend.
 From this directory — i.e.
 
 ```
-/workspace/flashsim/integrations/lingbot/tests/parity_check/
+/workspace/flashdreams/integrations/lingbot/tests/parity_check/
 ```
 
 run:
