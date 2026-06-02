@@ -85,16 +85,18 @@ html_theme_options = {
         "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, benchmarks, community, quickstart, per-
-    # model pages) render without a right sidebar; the reference-docs
-    # side (`api/*`, the Documentation tab umbrella, the developer
+    # layout pages (homepage, community, quickstart, models gallery +
+    # per-model pages) render without a right sidebar; the reference-
+    # docs side (`api/*`, the Documentation tab umbrella, the developer
     # guides) keeps the in-page TOC. Patterns must be non-overlapping —
     # pydata warns on any page that matches more than one — so each
     # community page is enumerated explicitly rather than using
-    # `community/*`.
+    # `community/*`. The Benchmarks navbar tab targets `models/index`
+    # on this branch — the standalone `benchmarks.rst` page lives on
+    # `dev/aidanf/flashdreams_site/benchmarks` and is folded back in
+    # via that PR.
     "secondary_sidebar_items": {
         "index": [],
-        "benchmarks": [],
         "community/index": [],
         "community/contribute": [],
         "community/discord": [],
@@ -162,24 +164,13 @@ html_theme_options = {
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
 # Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, benchmarks, community index/faq/support, quickstart,
-# per-model pages) get no left sidebar — section wayfinding lives in
-# the section-index page's hero + tile grid instead. The reference-
-# docs side (`api/*`, the Documentation tab umbrella, the developer
+# (homepage, community, quickstart, models gallery + per-model
+# pages) get no left sidebar — section wayfinding lives in the
+# section-index page's hero + tile grid instead. The reference-docs
+# side (`api/*`, the Documentation tab umbrella, the developer
 # guides) keeps the section nav tree.
-#
-# `community/contributing` is the odd one out: it renders on the
-# docs-scaffold side (article container + right page TOC) but with
-# NO left section-nav. The page is included verbatim from the repo-
-# root CONTRIBUTING.md and is self-navigating via its in-page TOC,
-# and the rest of the community section is marketing-layout, so
-# there's no useful sibling-tree to surface in a left rail.
-# `community/*` is enumerated explicitly so this single page can
-# opt into a different sidebar shape than its siblings without
-# overlapping a wildcard.
 html_sidebars = {
     "index": [],
-    "benchmarks": [],
     "community/index": [],
     "community/contribute": [],
     "community/discord": [],

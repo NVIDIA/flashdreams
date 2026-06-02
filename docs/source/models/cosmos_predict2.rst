@@ -57,8 +57,8 @@ Installation
 Running the method
 ------------------
 
-To run Cosmos-Predict2.5, launch one of the registered runner slugs. For
-example:
+To run Cosmos-Predict2.5, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -67,8 +67,8 @@ example:
        cosmos2-t2v-2b-720p \
        --prompt "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 

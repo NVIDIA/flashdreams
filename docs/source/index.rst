@@ -130,7 +130,7 @@ Performance
 Each tile shows per-step latency at steady state — post-warmup,
 post-graph-capture — measured against the upstream library's own
 runner on the same hardware and the same checkpoint. Full methodology
-lives on the :doc:`benchmarks page <benchmarks>`.
+lives on the :doc:`benchmarks page </models/index>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -330,5 +330,5 @@ invocation, the checkpoint source, and the per-recipe knobs.
 
    Get Started <quickstart/index>
    Documentation <documentation>
-   benchmarks
+   Benchmarks <models/index>
    community/index
