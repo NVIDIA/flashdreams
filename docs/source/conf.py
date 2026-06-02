@@ -85,7 +85,7 @@ html_theme_options = {
         "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, benchmarks, community, quickstart, per-
+    # layout pages (homepage, benchmarks, community, get_started, per-
     # model pages) render without a right sidebar; the reference-docs
     # side (`api/*`, the Documentation tab umbrella, the developer
     # guides) keeps the in-page TOC. Patterns must be non-overlapping —
@@ -100,7 +100,7 @@ html_theme_options = {
         "community/discord": [],
         "community/faq": [],
         "community/support": [],
-        "quickstart/*": [],
+        "get_started": [],
         "developer_guides/*": ["page-toc"],
         "models/*": [],
         "documentation": ["page-toc"],
@@ -162,7 +162,7 @@ html_theme_options = {
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
 # Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, benchmarks, community, quickstart, per-model pages)
+# (homepage, benchmarks, community, get_started, per-model pages)
 # get no left sidebar — section wayfinding lives in the section-
 # index page's hero + tile grid instead. The reference-docs side
 # (`api/*`, the Documentation tab umbrella, the developer guides)
@@ -175,7 +175,7 @@ html_sidebars = {
     "community/discord": [],
     "community/faq": [],
     "community/support": [],
-    "quickstart/*": [],
+    "get_started": [],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],
     "documentation": [],
