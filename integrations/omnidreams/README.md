@@ -77,15 +77,19 @@ Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 From the workspace root, run:
 
 ```bash
-uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 065dcac9-ee67-4434-a835-c6b816c88e48 --port 8089
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the
-configured Hugging Face org, extracts its `clipgt-<uuid>.usdz` archive, and
-stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`). If
-`--scene-uuid` is omitted too, the server uses the default WebRTC scene. The
-runtime expects `clipgt/first_image.*` and `clipgt/prompt.txt` under the scene
-directory. Pass `--scene_dir <path>` to use a pre-staged local scene instead.
+configured Hugging Face org, extracts its `clipgt-<uuid>[-<variant>].usdz`
+archive, and stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`).
+If `--scene-uuid` is omitted too, the server uses the default WebRTC scene.
+Weather variants ship as sibling archives; pass `--scene-variant rain` (or
+`snow`) to serve one (default is the clear-weather scene). The runtime seeds
+from the scene's first ground-truth camera frame
+(`clipgt/frames/<camera>/<ts>.jpeg`, falling back to `clipgt/first_image.*`) and
+the weather-matched `clipgt/prompt<N>.txt` (falling back to `clipgt/prompt.txt`).
+Pass `--scene_dir <path>` to use a pre-staged local scene instead.
 
 ## Run gRPC server
 

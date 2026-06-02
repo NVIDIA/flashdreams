@@ -173,6 +173,10 @@ instead:
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+The local window's HUD adds a weather-variant selector (clear, rain, snow)
+next to the scene picker, so the same scene can be switched between
+conditions.
+
 .. note::
 
    The local window requires a display server and the system OpenGL /
@@ -219,10 +223,13 @@ the gRPC service into a larger product.
        -m omnidreams.webrtc.server \
        --host 0.0.0.0 --port 8089 \
        --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --scene-uuid "065dcac9-ee67-4434-a835-c6b816c88e48"
+       --scene-uuid "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
+Each scene ships clear, rain, and snow weather variants as sibling
+archives; add ``--scene-variant rain`` (or ``snow``) to serve a specific
+one (the default is the clear-weather scene).
 
 The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.

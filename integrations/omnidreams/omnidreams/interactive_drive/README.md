@@ -144,7 +144,7 @@ flashdreams convention. The `interactive-drive` extra pulls in `slangpy`
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
 uv run --package flashdreams-omnidreams omnidreams-prepare \
-  --scene-uuid clipgt-01d503d4-449b-46fc-8d78-9085e70d3554
+  --scene-uuid clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4
 ```
 
 `uv sync --extra interactive-drive` installs the full demo runtime (slangpy + Ludus
@@ -167,9 +167,12 @@ owns video checkpoint selection and cache layout for the selected recipe.
 Common `omnidreams-prepare` flags:
 
 - `--scene-uuid <clipgt-...>` — stage only one specific scene instead of
-  all of them. Useful on bandwidth-constrained links (and a good first
-  choice inside the container). Browse available UUIDs on the
+  all of them (every published weather variant of it). Useful on
+  bandwidth-constrained links (and a good first choice inside the
+  container). Browse available UUIDs on the
   [scenes dataset page](https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes).
+- `--scene-variant <default|rain|snow>` — with `--scene-uuid`, stage only
+  that weather variant instead of all of them.
 - `--skip-hf-prewarm` — skip pre-warming Hugging Face model repos;
   flashdreams will pull assets lazily on first use.
 - `--skip-text-encoder` — skip the ~14 GB text-encoder prewarm when you're
@@ -180,14 +183,16 @@ Common `omnidreams-prepare` flags:
 If `omnidreams-prepare` fails with `401`, `403`, or a gated-repo
 error, verify `HF_TOKEN` and confirm access to `nvidia/omni-dreams-scenes`.
 
-Once done, you should see this binary asset under the shared scenes cache:
+Once done, you should see the scene's variant archive(s) under the shared
+scenes cache, one per weather:
 
-- `~/.cache/flashdreams/omnidreams-scenes/clipgt-<scene-uuid>.usdz`
+- `~/.cache/flashdreams/omnidreams-scenes/clipgt-<scene-uuid>.usdz` (and
+  `-rain` / `-snow` siblings when published)
 
 That directory (`$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`) is shared
-with the WebRTC server: the desktop demo keeps the archive there and
+with the WebRTC server: the desktop demo keeps the archives there and
 the WebRTC session pipeline extracts each scene's `clipgt/` payload
-under `<uuid>/` next to it. Both demos go through the same
+under `<uuid>[-<variant>]/` next to them. Both demos go through the same
 `huggingface_hub` content-addressed cache for the actual download, so
 the HF round-trip happens at most once per scene UUID regardless of
 which demo you launch first. Hugging Face model snapshots live in the
@@ -244,7 +249,7 @@ uv run --package flashdreams-omnidreams interactive-drive
 ```
 
 The default `--scene` resolves to
-`$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/clipgt-01d503d4-449b-46fc-8d78-9085e70d3554.usdz`
+`$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz`
 (staged on first launch via the HF auto-stage flow described above);
 `--manifest` resolves to the bundled `configs/example_world_model.yaml`.
 Pass a different `--scene` or `--manifest` to override.
