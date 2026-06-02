@@ -378,9 +378,11 @@ class InteractiveDriveApp:
                 initial_state=state_from_initial_pose(
                     initial_rig_to_world=self._scene.initial_rig_to_world,
                     initial_yaw_rad=self._scene.initial_yaw_rad,
-                    # Always start at rest so the initial load matches a
-                    # reset, rather than launching at the clip's recorded speed.
-                    initial_speed_mps=0.0,
+                    # Start each rollout at a fixed 10 m/s so the ego is
+                    # already rolling on initial load (and after a manual
+                    # reset / OOB respawn), instead of launching at the
+                    # clip's full recorded speed.
+                    initial_speed_mps=10.0,
                 ),
                 vehicle_config=self._config.vehicle,
                 ground_snapper=self._ground_snapper,
