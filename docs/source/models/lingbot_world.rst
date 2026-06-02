@@ -42,7 +42,7 @@ Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a
 Requirements
 ------------
 
-- **Minimum VRAM**: ~120 GB (single 80 GB GPU may OOM).
+- **Minimum VRAM**: ~120 GB.
 - **PyTorch**: >= 2.9.
 
 Installation
