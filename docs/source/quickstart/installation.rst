@@ -85,4 +85,4 @@ for full details on each variable and recommended ``.envrc`` setup.
 
 For more environment and container details, see the project
 `README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_ and
-the model pages under :doc:`/benchmarks`.
+the model pages under :doc:`/models/index`.

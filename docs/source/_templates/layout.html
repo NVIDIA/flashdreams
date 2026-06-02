@@ -40,8 +40,8 @@ SPDX-License-Identifier: Apache-2.0
        documentation          — Documentation tab umbrella (flat hub page)
        developer_guides/*     — developer guides
 
-   Everything else (homepage, benchmarks, community, quickstart,
-   per-model pages) renders in the marketing layout.
+   Everything else (homepage, community, quickstart, models
+   gallery + per-model pages) renders in the marketing layout.
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
                           or pagename == 'documentation'
@@ -75,7 +75,7 @@ SPDX-License-Identifier: Apache-2.0
    grids on section landing pages.
 
    The marketing section landing pages themselves (`quickstart/index`,
-   `community/index`, `benchmarks`, and the root `index`) keep the
+   `community/index`, `models/index`, and the root `index`) keep the
    wider default so their hero band, asymmetric splits, and tile
    grids have room to breathe. Pages on the reference-docs side
    (`_fd_is_reference`) never get the prose-narrow flag since they
@@ -84,7 +84,7 @@ SPDX-License-Identifier: Apache-2.0
 {% block body_tag %}
   {% set _fd_prose_narrow_indices = ('community/index',
                                      'quickstart/index',
-                                     'benchmarks') %}
+                                     'models/index') %}
   {% set _fd_is_prose_narrow = (not _fd_is_reference)
                                and pagename != master_doc
                                and pagename not in _fd_prose_narrow_indices %}
