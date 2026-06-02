@@ -27,7 +27,7 @@ What hardware do I need to run FlashDreams?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FlashDreams targets recent NVIDIA data-center GPUs. The profiling
-corpus on the :doc:`benchmarks page </benchmarks>` runs across
+corpus on the :doc:`benchmarks page </models/index>` runs across
 three devices — NVIDIA H100 SXM5, GB200 NVL72, and GB300 — and the
 per-recipe latency numbers on each model page (e.g.
 :doc:`/models/self_forcing`, :doc:`/models/lingbot_world`) are sourced
@@ -37,14 +37,14 @@ Any CUDA-capable GPU with enough memory for the chosen checkpoint
 should run the streaming recipes; smaller GPUs may need to drop
 multi-GPU recipes back to a single device. See the
 :doc:`/quickstart/index` for the cheapest path to a working clip,
-and the :doc:`benchmarks page </benchmarks>` for the profiled
+and the :doc:`benchmarks page </models/index>` for the profiled
 configurations.
 
 Which model recipes ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Eight first-party integrations ship under ``integrations/`` in the
-repo. The :doc:`/benchmarks` page has the full list; in summary:
+repo. The :doc:`/models/index` page has the full list; in summary:
 
 - :doc:`/models/self_forcing` — Streaming Wan 2.1 T2V (1.3B).
 - :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).
