@@ -32,7 +32,7 @@ TI2V-5B backbone, 4-step distilled Euler).
 
    <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="../_static/videos/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
+       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
        Your browser does not support the video tag.
      </video>
    </div>
@@ -97,7 +97,7 @@ Some generated samples from the above commands:
    <div class="model-video-grid">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-01.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-01.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -106,7 +106,7 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-02.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-02.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -115,7 +115,7 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-03.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-03.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -124,7 +124,7 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="../_static/videos/hy_worldplay/hy-worldplay-wan-i2v-5b-04.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-04.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">

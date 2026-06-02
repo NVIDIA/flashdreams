@@ -137,3 +137,7 @@ AGENTS.md
 /tasks.md
 /HANDOFF.md
 /comments.md
+/comments2.md
+
+# HY-WorldPlay sample videos: hosted externally, not checked in (see PR #231 review)
+/docs/source/_static/videos/
