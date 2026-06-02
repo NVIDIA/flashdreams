@@ -59,7 +59,7 @@ or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
 
 ## Native DiT defaults
 
-OmniDreams native DiT acceleration remains gated by the pipeline config's
+NVIDIA OmniDreams native DiT acceleration remains gated by the pipeline config's
 `native_dit_acceleration` policy (`disabled`, `auto`, or `required`). When that
 native path is enabled, the default compute profile is the FP8 KV-cache backend
 with cuDNN attention:

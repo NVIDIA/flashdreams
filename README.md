@@ -17,7 +17,7 @@ SPDX-License-Identifier: Apache-2.0
 
 **FlashDreams** is a high-performance inference and serving library for
 interactive autoregressive video and world models. It began as the optimized
-runtime behind the [OmniDreams closed-loop demo for GTC 2026][omnidreams-blog]
+runtime behind the [NVIDIA OmniDreams closed-loop demo for GTC 2026][omnidreams-blog]
 and has grown into a general platform for real-time world-model applications
 across gaming, autonomous vehicles, robotics, simulated or virtual
 environments, and more.
