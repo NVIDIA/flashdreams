@@ -77,7 +77,7 @@ on top of ``uv run flashdreams-run`` (taking 4 GPUs as an example):
 
    Multi-GPU is supported only by the dense ``flashvsr-v1.1-full-attn`` preset.
    The ``flashvsr-v1.1-sparse-ratio-*`` presets are single-GPU only because
-   their ``block_sparse_attn`` backend is not context-parallel aware.
+   their Triton sparse-attention backend is not context-parallel aware.
 
 We provide the following variants:
 
@@ -135,7 +135,7 @@ under matched settings.
 
   <figure class="benchmark-figure-wrap">
     <div
-      id="lingbot-world-benchmark-chart"
+      id="flashvsr-benchmark-chart"
       class="benchmark-figure"
       data-benchmark-md-url="../_static/performance/flashvsr/perf-0527.md"
       data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
@@ -143,7 +143,7 @@ under matched settings.
     ></div>
     <figcaption>
       <p class="model-footnote">
-        This chart shows per-chunk 2x upsampling time in milliseconds on a single GB300 GPU with a chunk size of 8 frames.
+        This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
         For the official FlashVSR implementation, see
         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
       </p>

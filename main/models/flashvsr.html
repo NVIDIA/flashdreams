@@ -350,7 +350,7 @@ on top of <code class="docutils literal notranslate"><span class="pre">uv</span>
 <p class="admonition-title">Note</p>
 <p>Multi-GPU is supported only by the dense <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code> preset.
 The <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-*</span></code> presets are single-GPU only because
-their <code class="docutils literal notranslate"><span class="pre">block_sparse_attn</span></code> backend is not context-parallel aware.</p>
+their Triton sparse-attention backend is not context-parallel aware.</p>
 </div>
 <p>We provide the following variants:</p>
 <div class="table-wrapper colwidths-given docutils container">
@@ -408,7 +408,7 @@ compared to the <a class="reference external" href="https://github.com/OpenImagi
 under matched settings.</p>
 <figure class="benchmark-figure-wrap">
   <div
-    id="lingbot-world-benchmark-chart"
+    id="flashvsr-benchmark-chart"
     class="benchmark-figure"
     data-benchmark-md-url="../_static/performance/flashvsr/perf-0527.md"
     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
@@ -416,7 +416,7 @@ under matched settings.</p>
   ></div>
   <figcaption>
     <p class="model-footnote">
-      This chart shows per-chunk 2x upsampling time in milliseconds on a single GB300 GPU with a chunk size of 8 frames.
+      This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
       For the official FlashVSR implementation, see
       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
     </p>
