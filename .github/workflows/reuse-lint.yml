@@ -25,7 +25,7 @@ jobs:
         uses: fsfe/reuse-action@v5
 
   collateral:
-    name: Open-source collateral sanity check
+    name: OSRB collateral sanity check
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -62,12 +62,12 @@ jobs:
           done
           echo "OK: LICENSE and LICENSES/Apache-2.0.txt carry canonical Apache-2.0 text"
 
-      - name: Required open-source collateral present at repo root
+      - name: Required OSRB collateral present at repo root
         run: |
           set -euo pipefail
           for f in LICENSE LICENSES/Apache-2.0.txt CONTRIBUTING.md NOTICE REUSE.toml; do
             if [ ! -f "$f" ]; then
-              echo "::error::missing required open-source collateral file: $f"
+              echo "::error::missing required OSRB file: $f"
               exit 1
             fi
             echo "OK: $f"
@@ -84,7 +84,7 @@ jobs:
 
       # Inline SPDX-License-Identifier on first-party source files.
       # REUSE.toml provides aggregate coverage so 'reuse lint' is green even
-      # without inline headers, but inline tags are the preferred form
+      # without inline headers, but inline tags are the OSRB-preferred form
       # and catch new files copied in without attribution.
       #
       # Paths covered by REUSE.toml `override` annotations (vendored upstream
