@@ -33,7 +33,7 @@ https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 - **CUDA 13.x** (PyTorch `2.11.0+cu130` and the `nvidia-*-cu13` libraries are
   resolved by `uv sync`. A system CUDA toolkit is needed only for the
   developer extras and is included in `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`)
-- **Python >= 3.10** 
+- **Python >= 3.10**
 - **PyTorch >= 2.11.0+cu130** (`>= 2.9` for bare PyPI library install)
 - Linux x86-64 or arm64
 - **100 GB+ free storage space** recommended for environment and model checkpoints.
