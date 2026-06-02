@@ -20,6 +20,7 @@ NVIDIA OmniDreams
 
    <div class="model-link-row">
      <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
+     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf" target="_blank" rel="noopener noreferrer">Tech report</a>
      <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
      <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
@@ -352,3 +353,18 @@ Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
    <p class="model-footnote">
       KV-cache Update is off the hot path and excluded from Total.
    </p>
+
+Citation
+--------
+
+If you use OmniDreams, please cite the original work:
+
+.. code-block:: bibtex
+
+   @misc{nvidia2026omnidreams,
+     title={OmniDreams: Real-Time Generative Closed-Loop Autonomous Vehicle Simulation Built on NVIDIA Cosmos},
+     author={Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Wang, Jialiang and Lucas, James and Wu, Jay and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Michal and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Ren, Xuanchi and Lu, Yifan and Gojcic, Zan and Wang, Zian},
+     year={2026},
+     note={Technical report},
+     howpublished={\url{https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf}}
+   }

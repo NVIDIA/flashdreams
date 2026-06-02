@@ -38,7 +38,6 @@ from einops import rearrange
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.infra.decoder import (
@@ -51,16 +50,6 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
-
-_INTERNAL_WAN_VAE_CHECKPOINT_PATHS = {
-    "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
-    "vae": "s3://flashdreams/assets/checkpoints/autoencoders/Wan2.1_VAE.pth",
-}
-
-_PUBLIC_WAN_VAE_CHECKPOINT_PATHS = {
-    "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
-    "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
-}
 
 # Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
 # loader pulls the diffusers safetensors shard and remaps keys via
@@ -80,12 +69,11 @@ WAN22_TI2V_5B_VAE_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
 
-AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = (
-    _INTERNAL_WAN_VAE_CHECKPOINT_PATHS
-    if use_internal_storage()
-    else _PUBLIC_WAN_VAE_CHECKPOINT_PATHS
-)
-"""Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
+AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
+    "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
+    "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
+}
+"""Checkpoint paths for the Wan VAE encoder."""
 
 CACHE_T = 2
 TEMPORAL_WINDOW = 4

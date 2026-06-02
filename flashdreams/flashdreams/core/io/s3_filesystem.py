@@ -238,23 +238,3 @@ class S3StorageReader(FileSystemReader):
         super().__init__(path=path)
         self.fs = S3FileSystem(credential_path)
         self.path = self.fs.init_path(path)
-
-
-if __name__ == "__main__":
-    import time
-
-    credential_path = "credentials/s3_checkpoint.secret"
-    s3_uri = "s3://flashdreams/assets/"
-    local_path = "/tmp/flashdreams/assets/"
-    fs = S3FileSystem(credential_path)
-    paths = fs.list_files_recursive(s3_uri)
-    for path in paths:
-        print(path)
-
-    for path in paths:
-        print("downloading", path)
-        tic = time.time()
-        fs.download_to_local(os.path.join(s3_uri, path), os.path.join(local_path, path))
-        toc = time.time()
-        print("downloaded", path, "in", toc - tic, "seconds")
-        break

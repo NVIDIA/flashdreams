@@ -44,7 +44,6 @@ from omnidreams.vae_native import (
     OmnidreamsWanVAEEncoderConfig as WanVAEEncoderConfig,
 )
 
-from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import (
@@ -66,35 +65,20 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoderConfig,
 )
 
-_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
-    "1view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt",
-    "1view-vae-chunk2": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt",
-    "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
-    "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
-    "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
-    "1view-diffusion-forcing-chunk2": "s3://flashdreams/assets/checkpoints/omnidreams/16N@causal_cosmos2_2B_res720p_30fps_hdmap_hdmap_pretrained_chunk2_vae_mads1m_1080p@20260225100739_000010600.pt",
-    "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/omnidreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
-}
-
-# HF mirrors override the s3 URLs above for slugs that have been mirrored.
-# Unmirrored slugs fall through to s3 so integration configs still import; mirror
-# new slugs here as they land on HF.
-_PUBLIC_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
+AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-vae-chunk2": (
         "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/"
         "single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt"
     ),
+    # internal-only checkpoints must be provided at runtime.
+    "1view-pshuffle-chunk4": "MISSING",
+    "1view-vae-chunk3": "MISSING",
+    "4view-pshuffle-chunk4": "MISSING",
+    "4view-vae-chunk4": "MISSING",
+    "1view-diffusion-forcing-chunk2": "MISSING",
+    "1view-bidirectional-chunk48": "MISSING",
 }
-
-AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = (
-    dict(_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS)
-    if use_internal_storage()
-    else {
-        **_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS,
-        **_PUBLIC_OMNIDREAMS_CHECKPOINT_PATHS,
-    }
-)
-"""Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
+"""Checkpoint paths for the Omnidreams pipeline."""
 
 _LIGHTVAE_FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
 
