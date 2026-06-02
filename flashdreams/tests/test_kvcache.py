@@ -328,7 +328,7 @@ def test_block_kvcache_cudagraph_matches_baseline(
     window_size: int,
 ) -> None:
     """BlockKVCache with CUDA graph (steady-state path) should match baseline.
-    
+
     To print out the torch.compile events run with
 
     uv run --group test pytest flashdreams/tests/test_kvcache.py::test_block_kvcache_compile_cudagraph_matches_baseline -vv -s -o log_cli=true --log-cli-level=INFO
@@ -516,9 +516,7 @@ def test_block_kvcache_compile_cudagraph_matches_baseline(
         active_cache.update(k, v)
         return active_cache.cached_k(), active_cache.cached_v()
 
-    compiled_cache_step = torch.compile(
-        cache_step, mode="max-autotune-no-cudagraphs"
-    )
+    compiled_cache_step = torch.compile(cache_step, mode="max-autotune-no-cudagraphs")
 
     def run_cache_step(
         new_k: torch.Tensor,

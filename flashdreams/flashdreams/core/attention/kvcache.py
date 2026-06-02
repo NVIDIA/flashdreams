@@ -185,8 +185,7 @@ class BlockKVCache:
         )
         return (
             self.sink_size > 0
-            and self._curr_chunk_idx * self.chunk_size
-            < self.sink_size
+            and self._curr_chunk_idx * self.chunk_size < self.sink_size
         )
 
     def _current_write_bounds(self) -> tuple[int, int]:
