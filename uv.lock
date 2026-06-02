@@ -64,6 +64,7 @@ lint = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
+    { name = "tomli", specifier = ">=2.0" },
     { name = "ty", specifier = ">=0.0.39" },
 ]
 test = [
@@ -71,6 +72,7 @@ test = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
+    { name = "tomli", specifier = ">=2.0" },
 ]
 
 [[package]]
