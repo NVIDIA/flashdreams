@@ -125,7 +125,7 @@ class _KernelOptionBuilder:
 
 
 def _device_sm(device: torch.device) -> int:
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available() or device.type != "cuda":
         return 0
     major, minor = torch.cuda.get_device_capability(device)
     return major * 10 + minor
