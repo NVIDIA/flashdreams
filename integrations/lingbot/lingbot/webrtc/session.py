@@ -122,7 +122,6 @@ def _validate_remote_url(url: str, *, field_name: str) -> str:
     return _normalize_github_blob_url(normalized, parsed)
 
 
-
 def _read_remote_bytes(
     url: str, *, max_bytes: int, field_name: str
 ) -> tuple[bytes, str]:
