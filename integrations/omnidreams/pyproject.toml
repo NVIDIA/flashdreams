@@ -102,19 +102,6 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 [project.entry-points."flashdreams.runner_configs"]
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF"
-"omnidreams-sv-2steps-chunk2-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE"
-"omnidreams-sv-2steps-chunk3-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE"
-"omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE"
-"omnidreams-mv-2steps-chunk4-loc8-pshuffle-lighttae" = "omnidreams.config:RUNNER_MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE"
-"omnidreams-sv-35steps-chunk2-loc24-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m" = "omnidreams.config:RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M"
-"omnidreams-sv-35steps-chunk48-loc48-cosmos2-2b-res720p-30fps-hdmap-vae-mads1m" = "omnidreams.config:RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M"
-"omnidreams-experiment1-baseline" = "omnidreams.config:RUNNER_EXPERIMENT1_BASELINE"
-"omnidreams-experiment1-skip-finalize-kv-cache" = "omnidreams.config:RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE"
-"omnidreams-experiment1-skip-finalize-kv-cache-noise350" = "omnidreams.config:RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350"
-"omnidreams-experiment1-skip-finalize-kv-cache-noise250" = "omnidreams.config:RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250"
-"omnidreams-experiment1-skip-finalize-kv-cache-noise150" = "omnidreams.config:RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150"
-"omnidreams-experiment1-skip-finalize-kv-cache-noise100" = "omnidreams.config:RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100"
 
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]
