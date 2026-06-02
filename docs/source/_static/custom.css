@@ -341,7 +341,6 @@ body.index .content h1 {
     overflow: hidden;
     border: 1px solid #c9c9c9;
     background: #101214;
-    min-height: 200px;
 }
 
 .model-video-placeholder {
@@ -356,7 +355,7 @@ body.index .content h1 {
 .model-video-player {
     display: block;
     width: 100%;
-    min-height: 200px;
+    height: auto;
     background: #000;
 }
 
@@ -391,4 +390,48 @@ body.index .content h1 {
     .model-video-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* -- Image hover-to-zoom (JS-driven overlay) ----------------------------- */
+
+img.zoomable,
+.zoomable img,
+.zoomable video {
+    cursor: zoom-in;
+}
+
+.img-zoom-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.img-zoom-overlay.visible {
+    opacity: 1;
+}
+
+.img-zoom-clone {
+    max-width: 72vw;
+    max-height: 72vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+                opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    transform: scale(0.92);
+    opacity: 0;
+}
+
+.img-zoom-overlay.visible .img-zoom-clone {
+    transform: scale(1);
+    opacity: 1;
 }

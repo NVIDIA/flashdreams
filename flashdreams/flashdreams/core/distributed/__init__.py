@@ -105,18 +105,6 @@ def configure_loguru_for_distributed(world_rank: int | None = None) -> None:
 configure_loguru_for_distributed()
 
 
-def is_distributed_initialized() -> bool:
-    """Return True when torch distributed is available and initialized."""
-    return dist.is_available() and dist.is_initialized()
-
-
-def get_global_rank() -> int:
-    """Return the torch distributed global rank, or 0 outside distributed runs."""
-    if is_distributed_initialized():
-        return dist.get_rank()
-    return 0
-
-
 class Device:
     """Lightweight wrapper around an NVML device handle for CPU-affinity queries."""
 
@@ -176,7 +164,7 @@ def init() -> int | None:
         atexit.register(_safe_destroy_pg)
         configure_loguru_for_distributed(get_global_rank())
         logger.critical(
-            f"Initialized distributed training with local rank {local_rank} with timeout {timeout_seconds}",
+            f"Initialized distributed inference with local rank {local_rank} with timeout {timeout_seconds}",
         )
 
     # Bump cudaLimitMaxL2FetchGranularity (id=0x05) to 128 bytes for better bandwidth.
@@ -184,4 +172,4 @@ def init() -> int | None:
     p_value = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
     _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
     _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
-    logger.info(f"Training with {dist.get_world_size()} GPUs.")
+    logger.info(f"Inference with {dist.get_world_size()} GPUs.")

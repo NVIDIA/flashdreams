@@ -45,8 +45,6 @@ from omnidreams.pipeline import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 
-from flashdreams.core.io.internal import use_internal_storage
-from flashdreams.core.io.s3_sync import sync_s3_dir_to_local
 from flashdreams.infra.runner import Runner, RunnerConfig
 
 DEFAULT_VIDEO_HEIGHT = 704
@@ -72,16 +70,6 @@ DEFAULT_EXAMPLE_DATA_UUID_1V = "239560dc-33d1-11ef-9720-00044bcbccac"
 """Arbitrary first-alphabetically pick from the 32 single-view clips
 the dataset ships. Override with ``--example-data-uuid <uuid>``; see
 the NVIDIA Omni Dreams HF dataset's ``data/single_view`` directory."""
-
-EXAMPLE_DATA_DIR_S3 = "s3://flashdreams/assets/example_data/omnidreams"
-"""Internal-team source for both views; also the external fallback for
-multi-view (no HF mirror yet)."""
-
-EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/omnidreams"
-"""Local cache the S3 sync writes into."""
-
-S3_CREDENTIAL_PATH = _REPO_ROOT / "credentials/s3_checkpoint.secret"
-"""Required for any S3 sync (internal mode, or external multi-view)."""
 
 _CAMERA_NAMES_1V = ("camera_front_wide_120fov",)
 _CAMERA_NAMES_4V = (
@@ -152,33 +140,6 @@ def _ensure_hf_single_view_example_data_synced(
         )
     )
     return (hdmap_local,), (first_frame_local,)
-
-
-def _ensure_s3_example_data_synced(
-    num_views: int, *, is_rank_zero: bool
-) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Mirror :data:`EXAMPLE_DATA_DIR_S3` to local on rank 0 and return
-    per-camera ``(hdmap_paths, first_frame_paths)``. Requires
-    :data:`S3_CREDENTIAL_PATH`."""
-    if is_rank_zero:
-        assert S3_CREDENTIAL_PATH.exists(), (
-            f"S3 credential file not found at {S3_CREDENTIAL_PATH}. "
-            "Either populate it (see README) or unset --example-data and "
-            "pass --hdmap-video-paths / --first-frame-paths explicitly."
-        )
-    sync_s3_dir_to_local(
-        s3_dir=EXAMPLE_DATA_DIR_S3,
-        s3_credential_path=str(S3_CREDENTIAL_PATH),
-        cache_dir=str(EXAMPLE_DATA_DIR_LOCAL),
-        max_workers=10,
-        show_progress=True,
-        verify_checksum=True,
-        desc="Syncing omnidreams example data from S3",
-    )
-    names = _example_camera_names(num_views)
-    hdmap = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.mp4" for n in names)
-    first = tuple(EXAMPLE_DATA_DIR_LOCAL / f"{n}.png" for n in names)
-    return hdmap, first
 
 
 @dataclass(kw_only=True)
@@ -272,18 +233,15 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
 
     def _fill_example_data_defaults(self) -> None:
         """Lazy-fetch bundled assets and fill empty path tuples in-place.
-        External 1V uses HF; everything else (internal mode, external 4V)
-        uses S3."""
+        External 1V uses HF."""
         cfg = self.config
         num_views = self._num_views()
-        if not use_internal_storage() and num_views == 1:
+        if num_views == 1:
             hdmap, first = _ensure_hf_single_view_example_data_synced(
                 cfg.example_data_uuid
             )
         else:
-            hdmap, first = _ensure_s3_example_data_synced(
-                num_views, is_rank_zero=self.is_rank_zero
-            )
+            raise ValueError("4-view example data is not supported yet.")
         if not cfg.hdmap_video_paths:
             cfg.hdmap_video_paths = hdmap
         if not cfg.first_frame_paths:

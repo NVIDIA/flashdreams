@@ -59,8 +59,8 @@ Reference integration folders
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
 
-OmniDreams
-----------
+NVIDIA OmniDreams
+-----------------
 
 OmniDreams now ships as a plugin under ``integrations/omnidreams``; it
 registers its runners via the ``flashdreams.runner_configs`` entry-point

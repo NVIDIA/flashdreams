@@ -31,13 +31,17 @@ dependencies = [
     "pyarrow>=14.0",
     "scipy>=1.11",
     "pillow>=10.0",
-    "PyNvVideoCodec>=2.0",
     "setuptools>=69",
     "ninja>=1.13.0",
     "nvidia-nvcomp-cu12>=4.0",
 ]
 
 [project.optional-dependencies]
+video-codec = [
+    # Used by examples/render_mirror_augmented.py for GPU H.264/MP4 encoding.
+    # PyNvVideoCodec currently publishes wheels for CPython 3.10-3.12 only.
+    "PyNvVideoCodec>=2.0; python_version < '3.13'",
+]
 dev = [
     "pytest>=8.0",
     "imageio-ffmpeg>=0.5",

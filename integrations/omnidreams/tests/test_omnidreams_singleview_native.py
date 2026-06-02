@@ -157,6 +157,8 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.delenv("MAX_JOBS", raising=False)
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
 
     extension = native.load_extension(build_root=build_root)
 

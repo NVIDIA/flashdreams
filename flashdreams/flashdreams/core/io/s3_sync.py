@@ -183,15 +183,3 @@ def sync_s3_dir_to_local(
             s3_fs.close()
 
     _barrier_robust()
-
-
-if __name__ == "__main__":
-    sync_s3_dir_to_local(
-        s3_dir="s3://flashdreams/assets/example_data",
-        s3_credential_path="credentials/s3_checkpoint.secret",
-        cache_dir="/tmp/flashdreams/assets/example_data",
-        max_workers=10,
-        show_progress=True,
-        verify_checksum=True,
-        desc="Syncing from S3",
-    )

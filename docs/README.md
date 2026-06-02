@@ -48,44 +48,6 @@ Then keep this process running and open:
 
 Any changes under `docs/source/` rebuild automatically and refresh the page.
 
-## Layout
-
-```
-docs/
-└── source/
-    ├── conf.py             # Sphinx configuration (theme + extensions)
-    ├── index.rst           # overview landing page + top-level toctrees
-    ├── quickstart/
-    │   ├── index.rst
-    │   ├── installation.rst
-    │   └── first_world_model.rst
-    ├── developer_guides/
-    │   ├── offline_vs_online.rst
-    │   ├── index.rst
-    │   ├── new_integration.rst
-    │   ├── system_overview.rst
-    │   ├── usage_patterns.rst
-    │   ├── configs.rst
-    │   └── interactive_serving.rst
-    ├── api/
-    │   ├── index.rst
-    │   ├── cli.rst
-    │   ├── core.rst        # flashdreams.core (attention, distributed, …)
-    │   ├── infra.rst       # flashdreams.infra (pipeline, diffusion, …)
-    │   ├── integrations.rst     # flashdreams.recipes (wan, cosmos, …)
-    │   └── serving.rst     # serving architecture and launch patterns
-    └── models/
-        ├── index.rst
-        ├── omnidreams.rst
-        ├── self_forcing.rst
-        ├── causal_forcing.rst
-        ├── causal_wan22.rst
-        ├── lingbot_world.rst
-        ├── flashvsr.rst
-        ├── cosmos_predict2.rst
-        └── wan21.rst
-```
-
 Benchmark data now follows a JS + Markdown pipeline:
 
 - Per-model benchmark tables live in
@@ -132,12 +94,16 @@ to be present.
 
 ## Adding new content
 
-- **A new model integration** — append a section to `source/apis/integrations.rst`
-  using `.. automodule:: flashdreams.recipes.<name>`, and add a launcher
-  walk-through to `source/models/<name>.rst`. Wire the new file into
-  the models toctree in `source/models/index.rst`.
+- **A new model integration** — follow
+  `source/developer_guides/new_integration.rst`, add a model card at
+  `source/models/<name>.rst`, and wire it into the models toctree in
+  `source/index.rst` (and `source/models/index.rst` if you use that
+  index page for grouped links).
 - **A new infra component** — re-export the public symbols from the
   package `__init__.py`, then add an `.. autoclass::` block to the
-  relevant section of `source/apis/infra.rst`.
-- **A new API category** — drop a new `source/apis/<topic>.rst`, add it
-  to `index.rst`, and (optionally) introduce a new captioned toctree.
+  relevant section of `source/api/infra.rst`.
+- **A new API category** — add `source/api/<topic>.rst`, then include it
+  in the API toctree in `source/index.rst`.
+- **Plugin-first note** — most actively developed integrations live under
+  `integrations/<name>/`. Use `source/api/integrations.rst` to document
+  in-tree `flashdreams.recipes.*` API surface that remains public.
