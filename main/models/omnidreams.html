@@ -437,6 +437,9 @@ instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
+<p>The local window’s HUD adds a weather-variant selector (clear, rain, snow)
+next to the scene picker, so the same scene can be switched between
+conditions.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The local window requires a display server and the system OpenGL /
@@ -459,6 +462,31 @@ or joystick is viable. We provide a configuration tool to calibrate these:</p>
 Re-run the configuration tool to specify the default profile, edit a profile
 (steering sensitivity, deadzone, buttons), or delete a profile.</p>
 </section>
+<section id="native-acceleration-perf-manifest">
+<h3>Native acceleration (perf manifest)<a class="headerlink" href="#native-acceleration-perf-manifest" title="Link to this heading">¶</a></h3>
+<p>The bundled <code class="docutils literal notranslate"><span class="pre">example_world_model_perf.yaml</span></code> manifest runs the DiT and
+LightVAE through the OmniDreams single-view CUDA extension
+(<code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code>), which is faster than the default
+PyTorch path. The extension builds against pinned checkouts of CUTLASS,
+SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
+repo. <code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span> <span class="pre">--perf</span></code> clones them at their pinned commits into
+<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams_singleview/3rdparty/</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
+</pre></div>
+</div>
+<p>This step only syncs sources; the extension itself compiles on the first
+launch that uses the manifest (one-time, a few minutes). It requires a
+Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
+<code class="docutils literal notranslate"><span class="pre">omnidreams_singleview</span></code> sources ship only in the git tree, not the wheel),
+<code class="docutils literal notranslate"><span class="pre">git</span></code>, and a CUDA toolchain (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching your PyTorch build. Then
+point the demo at the perf manifest:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>example_world_model_perf.yaml
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code> makes the manifest fail loudly if the
+extension can’t build or load, rather than silently falling back to PyTorch.</p>
+</section>
 </section>
 <section id="alternative-webrtc-server">
 <h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">¶</a></h2>
@@ -475,11 +503,14 @@ uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> <
 <span class="w">    </span>-m<span class="w"> </span>omnidreams.webrtc.server<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pipeline_config_name<span class="w"> </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--scene-uuid<span class="w"> </span><span class="s2">&quot;065dcac9-ee67-4434-a835-c6b816c88e48&quot;</span>
+<span class="w">    </span>--scene-uuid<span class="w"> </span><span class="s2">&quot;0d404ff7-2b66-498c-b047-1ed8cded60d4&quot;</span>
 </pre></div>
 </div>
 <p>Sample scene UUIDs for the interactive server are available in the
-<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes">nvidia/omni-dreams-scenes Hugging Face dataset</a>.</p>
+<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes">nvidia/omni-dreams-scenes Hugging Face dataset</a>.
+Each scene ships clear, rain, and snow weather variants as sibling
+archives; add <code class="docutils literal notranslate"><span class="pre">--scene-variant</span> <span class="pre">rain</span></code> (or <code class="docutils literal notranslate"><span class="pre">snow</span></code>) to serve a specific
+one (the default is the clear-weather scene).</p>
 <p>The server may take a few minutes to warm up. Once ready, it prints
 <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
 Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
@@ -640,6 +671,7 @@ peer connection from completing. Disable the setting and reload:</p>
 <li><a class="reference internal" href="#running-the-method">Running the method</a></li>
 <li><a class="reference internal" href="#launch-the-interactive-demo">Launch the interactive demo</a><ul>
 <li><a class="reference internal" href="#steering-wheel-and-game-controller">Steering wheel and game controller</a></li>
+<li><a class="reference internal" href="#native-acceleration-perf-manifest">Native acceleration (perf manifest)</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#alternative-webrtc-server">Alternative: WebRTC server</a></li>
