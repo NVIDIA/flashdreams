@@ -4,16 +4,3 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 {% extends "!layout.html" %}
-
-{# Google Analytics (GA4). Furo has no native analytics option, so the
-   gtag.js snippet is injected into <head> via the `extrahead` block. #}
-{% block extrahead %}
-{{ super() }}
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
-<script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag() { dataLayer.push(arguments); }
-    gtag('js', new Date());
-    gtag('config', 'G-Q44TKZ8777');
-</script>
-{% endblock %}
