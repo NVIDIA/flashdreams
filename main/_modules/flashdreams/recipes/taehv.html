@@ -319,7 +319,6 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.io.internal</span><span class="w"> </span><span class="kn">import</span> <span class="n">use_internal_storage</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">DecoderConfig</span><span class="p">,</span> <span class="n">StreamingVideoDecoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">StateDictTransform</span><span class="p">,</span>
@@ -329,21 +328,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
 
-<span class="n">_INTERNAL_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;lighttae&quot;</span><span class="p">:</span> <span class="s2">&quot;s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth&quot;</span><span class="p">,</span>
-<span class="p">}</span>
-
-<span class="n">_PUBLIC_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
+<span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;lighttae&quot;</span><span class="p">:</span> <span class="s2">&quot;https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth&quot;</span><span class="p">,</span>
 <span class="p">}</span>
-
-<span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n">_INTERNAL_TAEHV_CHECKPOINT_PATHS</span>
-    <span class="k">if</span> <span class="n">use_internal_storage</span><span class="p">()</span>
-    <span class="k">else</span> <span class="n">_PUBLIC_TAEHV_CHECKPOINT_PATHS</span>
-<span class="p">)</span>
-<span class="sd">&quot;&quot;&quot;Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first.&quot;&quot;&quot;</span>
-
+<span class="sd">&quot;&quot;&quot;Checkpoint paths for the TAEHV decoder.&quot;&quot;&quot;</span>
 
 <span class="n">_LIGHTTAE_CHANNELS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
 <span class="sd">&quot;&quot;&quot;TAEHV ``Decoder`` block widths the ``lighttae`` weights were trained</span>
