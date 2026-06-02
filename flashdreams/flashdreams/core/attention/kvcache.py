@@ -100,15 +100,7 @@ class BlockKVCache:
         """Number of valid cached tokens visible to attention."""
         if self._curr_chunk_idx is None:
             return self._n_cached
-        if self.is_steady_state():
-            return self._k.shape[self.seq_dim]
-        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            return self._n_cached + self.chunk_size
-        if self._curr_chunk_idx == self._prev_chunk_idx:
-            return self._n_cached
-        raise ValueError(
-            f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
-        )
+        return self._visible_end()
 
     @property
     def write_end(self) -> int:
@@ -188,53 +180,71 @@ class BlockKVCache:
             self._k[dst_slice] = self._k[src_slice].clone()
             self._v[dst_slice] = self._v[src_slice].clone()
 
-    def _overwrite_rightmost_steady(self, k: Tensor, v: Tensor) -> None:
-        """Write the new chunk into the rightmost positions (steady-state, after roll)."""
-        total_size = self._k.shape[self.seq_dim]
-        assert total_size == self._n_cached, (
-            f"Expected full cache: {total_size=} != {self._n_cached=}"
+    def _current_chunk_overlaps_sink(self) -> bool:
+        assert self._curr_chunk_idx is not None, (
+            "Must call before_update() before checking sink overlap"
         )
-        write_end = total_size
-        write_start = write_end - self.chunk_size
-        if write_start > self.sink_size:
-            sl_write = self._seq_slice(write_start, write_end)
-            self._k[sl_write] = k
-            self._v[sl_write] = v
+        return (
+            self.sink_size > 0
+            and self._curr_chunk_idx * self.chunk_size < self.sink_size
+        )
+
+    def _current_write_bounds(self) -> tuple[int, int]:
+        """Return the physical cache range written by the current update."""
+        assert self._curr_chunk_idx is not None, (
+            "Must call before_update() before computing write bounds"
+        )
+        total_size = self._k.shape[self.seq_dim]
+        assert self.chunk_size <= total_size, (
+            f"chunk_size ({self.chunk_size}) must be <= cache size ({total_size})"
+        )
+
+        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
+            write_start = torch.sym_min(self._n_cached, total_size - self.chunk_size)
+            write_end = write_start + self.chunk_size
+        elif self._curr_chunk_idx == self._prev_chunk_idx:
+            write_end = torch.sym_min(self._n_cached, total_size)
+            write_start = torch.sym_max(write_end - self.chunk_size, 0)
         else:
-            # The input token overlaps with the sink tokens, so we only keep partial of it.
-            # Note: here we assume the sink tokens have already been written to the cache.
-            # It is safe to assume this because this function will never be called for the
-            # first chunk, and we assume the first chunk should be enough to cover the sink tokens.
+            raise ValueError(
+                f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
+            )
+        return write_start, write_end
+
+    def _write_current_chunk(self, k: Tensor, v: Tensor) -> None:
+        """Write the current chunk through a filling/steady compatible path."""
+        write_start, write_end = self._current_write_bounds()
+        read_start = 0
+        read_end = write_end - write_start
+
+        if (
+            self.sink_size > 0
+            and not self._current_chunk_overlaps_sink()
+            and write_start < self.sink_size
+        ):
             write_start = self.sink_size
             keep_size = write_end - write_start
             read_end = self.chunk_size
             read_start = read_end - keep_size
-            sl_read = self._seq_slice(read_start, read_end)
-            sl_write = self._seq_slice(write_start, write_end)
-            self._k[sl_write] = k[sl_read]
-            self._v[sl_write] = v[sl_read]
 
-    def _overwrite_rightmost_filling(self, k: Tensor, v: Tensor) -> None:
-        """Write the new chunk into the rightmost positions (filling phase)."""
-        write_end = self._n_cached
-        write_start = write_end - self.chunk_size
-        assert write_start >= 0, (
-            f"write [{write_start}:{write_end}) out of bounds for buffer size {self.sink_size + self.window_size}"
-        )
-        sl = self._seq_slice(write_start, write_end)
-        self._k[sl] = k
-        self._v[sl] = v
+        sl_read = self._seq_slice(read_start, read_end)
+        sl_write = self._seq_slice(write_start, write_end)
+        self._k[sl_write] = k[sl_read]
+        self._v[sl_write] = v[sl_read]
 
-    def _append_to_end(self, k: Tensor, v: Tensor) -> None:
-        """Append the new chunk to the end of the cache (filling phase)."""
-        write_start = self._n_cached
-        write_end = write_start + self.chunk_size
-        assert write_end <= self.sink_size + self.window_size, (
-            f"write [{write_start}:{write_end}) out of bounds for buffer size {self.sink_size + self.window_size}"
+    def _visible_end(self) -> int:
+        """Right edge of cached tokens visible to attention during this update."""
+        assert self._curr_chunk_idx is not None, (
+            "Must call before_update() before computing visible cache size"
         )
-        sl = self._seq_slice(write_start, write_end)
-        self._k[sl] = k
-        self._v[sl] = v
+        total_size = self._k.shape[self.seq_dim]
+        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
+            return torch.sym_min(self._n_cached + self.chunk_size, total_size)
+        if self._curr_chunk_idx == self._prev_chunk_idx:
+            return torch.sym_min(self._n_cached, total_size)
+        raise ValueError(
+            f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
+        )
 
     def is_steady_state(self) -> bool:
         """Return True if the cache is full (steady-state phase)."""
@@ -301,17 +311,7 @@ class BlockKVCache:
             f"Expected input v to have chunk_size ({chunk_size_v}) at seq_dim ({self.seq_dim}), "
             f"got {chunk_size_v} != {self.chunk_size}"
         )
-        if self.is_steady_state():
-            self._overwrite_rightmost_steady(k, v)
-        else:
-            if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-                self._append_to_end(k, v)
-            elif self._curr_chunk_idx == self._prev_chunk_idx:
-                self._overwrite_rightmost_filling(k, v)
-            else:
-                raise ValueError(
-                    f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
-                )
+        self._write_current_chunk(k, v)
 
     def after_update(self, chunk_idx: int) -> None:
         """
@@ -345,31 +345,13 @@ class BlockKVCache:
         """
         Return cached keys for attention (valid prefix in filling phase, full buffer in steady-state).
         """
-        if self.is_steady_state():
-            return self._k
-        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            return self._k[self._seq_slice(0, self._n_cached + self.chunk_size)]
-        elif self._curr_chunk_idx == self._prev_chunk_idx:
-            return self._k[self._seq_slice(0, self._n_cached)]
-        else:
-            raise ValueError(
-                f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
-            )
+        return self._k[self._seq_slice(0, self._visible_end())]
 
     def cached_v(self) -> Tensor:
         """
         Return cached values for attention (valid prefix in filling phase, full buffer in steady-state).
         """
-        if self.is_steady_state():
-            return self._v
-        if self._curr_chunk_idx == self._prev_chunk_idx + 1:
-            return self._v[self._seq_slice(0, self._n_cached + self.chunk_size)]
-        elif self._curr_chunk_idx == self._prev_chunk_idx:
-            return self._v[self._seq_slice(0, self._n_cached)]
-        else:
-            raise ValueError(
-                f"{self._curr_chunk_idx=} should be either {self._prev_chunk_idx + 1} or {self._prev_chunk_idx}."
-            )
+        return self._v[self._seq_slice(0, self._visible_end())]
 
     def reset(self) -> None:
         """Reset the cache to its initial empty state."""
