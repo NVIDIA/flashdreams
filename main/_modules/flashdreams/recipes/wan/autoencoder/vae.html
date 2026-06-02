@@ -1106,6 +1106,40 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="n">CausalConv3d</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">conv</span><span class="o">.</span><span class="n">cache_step</span><span class="p">(</span><span class="n">act</span><span class="p">(</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">)),</span> <span class="n">state</span><span class="p">)</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">normalize_state_for_body</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pad every CausalConv3d&#39;s seed-shaped state entry up to ``CACHE_T`` frames.</span>
+
+<span class="sd">        After ``WanVAE.encode``&#39;s 1-frame seed call, each ``CausalConv3d`` has</span>
+<span class="sd">        stored ``state[id(cc3d)]`` as the last-CACHE_T-frames slice of a 1-frame</span>
+<span class="sd">        input -- so the stored tensor has T=1 rather than T=CACHE_T. This</span>
+<span class="sd">        triggers a whole-graph recompile on the first body chunk (T=4) of the</span>
+<span class="sd">        NEXT AR step because Dynamo specialized on the AR0 body&#39;s T=1 prev</span>
+<span class="sd">        state and AR1 body&#39;s prev state is T=CACHE_T=2.</span>
+
+<span class="sd">        Prepending zeros to make every entry T=CACHE_T is bit-equivalent to the</span>
+<span class="sd">        ``F.pad`` zero-prepad ``CausalConv3d.forward`` would have done if</span>
+<span class="sd">        ``prev`` had been shorter than ``time_pad`` -- verified by tracing the</span>
+<span class="sd">        conv input in both code paths. ``Resample._upsample3d_step`` /</span>
+<span class="sd">        ``_downsample3d_step`` already store T=CACHE_T (the upsample&#39;s 1-frame</span>
+<span class="sd">        branch explicitly allocates ``x.new_zeros(..., CACHE_T, ...)``, the</span>
+<span class="sd">        downsample stores a fixed T=1 tail), so this only touches CausalConv3d</span>
+<span class="sd">        entries.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">module</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">modules</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">CausalConv3d</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">state</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">prev</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">prev</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">CACHE_T</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">pad</span> <span class="o">=</span> <span class="n">CACHE_T</span> <span class="o">-</span> <span class="n">prev</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">prev</span><span class="o">.</span><span class="n">shape</span>
+            <span class="n">zeros</span> <span class="o">=</span> <span class="n">prev</span><span class="o">.</span><span class="n">new_zeros</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">pad</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span>
+            <span class="n">state</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">zeros</span><span class="p">,</span> <span class="n">prev</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Decoder3d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
@@ -1466,6 +1500,12 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">if</span> <span class="ow">not</span> <span class="n">state</span><span class="p">:</span>
             <span class="n">outs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">(</span><span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">:</span><span class="mi">1</span><span class="p">],</span> <span class="n">state</span><span class="p">))</span>
             <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">:]</span>
+            <span class="c1"># Pad CausalConv3d states from T=1 (seed) to T=CACHE_T so the</span>
+            <span class="c1"># AR0 body chunk and every AR1+ body chunk see identical state</span>
+            <span class="c1"># shapes -- this kills the ~68 s whole-graph encoder recompile</span>
+            <span class="c1"># at AR1. ``normalize_state_for_body`` is an eager ``Encoder3d``</span>
+            <span class="c1"># helper; the ``torch.compile`` proxy forwards the call to it.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">normalize_state_for_body</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">assert</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">%</span> <span class="n">TEMPORAL_WINDOW</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Streaming encode after the first chunk requires T % &quot;</span>
