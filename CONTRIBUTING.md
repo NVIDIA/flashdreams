@@ -385,7 +385,7 @@ disclosure process in
 ## Code of Conduct
 
 This project follows the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+[Code of Conduct](https://github.com/NVIDIA/flashdreams/blob/main/CODE_OF_CONDUCT.md).
 By participating in this project — including issues, discussions, and
 pull requests — you agree to abide by it. Please report concerns to the
 maintainers via the address listed in the Code of Conduct.
