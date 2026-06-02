@@ -85,27 +85,21 @@ html_theme_options = {
         "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, benchmarks, community index/faq/support,
-    # quickstart, per-model pages) render without a right sidebar; the
-    # reference-docs side (`api/*`, the Documentation tab umbrella, the
-    # developer guides) keeps the in-page TOC. `community/contributing`
-    # also keeps the right page-TOC — the page is included from the
-    # repo-root CONTRIBUTING.md and has enough sections that an in-page
-    # TOC is a real wayfinding aid — but it suppresses the left section-
-    # nav (see `html_sidebars` below) because there's no useful sibling
-    # tree to show. Patterns must be non-overlapping — pydata warns on
-    # any page that matches more than one — so each section is
-    # enumerated explicitly rather than using a `**` catch-all, and
-    # `community/*` is split into its individual pages so
-    # `community/contributing` can opt into a different sidebar shape
-    # than its siblings without overlapping a wildcard.
+    # layout pages (homepage, benchmarks, community, quickstart, per-
+    # model pages) render without a right sidebar; the reference-docs
+    # side (`api/*`, the Documentation tab umbrella, the developer
+    # guides) keeps the in-page TOC. Patterns must be non-overlapping —
+    # pydata warns on any page that matches more than one — so each
+    # community page is enumerated explicitly rather than using
+    # `community/*`.
     "secondary_sidebar_items": {
         "index": [],
         "benchmarks": [],
         "community/index": [],
+        "community/contribute": [],
+        "community/discord": [],
         "community/faq": [],
         "community/support": [],
-        "community/contributing": ["page-toc"],
         "quickstart/*": [],
         "developer_guides/*": ["page-toc"],
         "models/*": [],
@@ -187,9 +181,10 @@ html_sidebars = {
     "index": [],
     "benchmarks": [],
     "community/index": [],
+    "community/contribute": [],
+    "community/discord": [],
     "community/faq": [],
     "community/support": [],
-    "community/contributing": [],
     "quickstart/*": [],
     "developer_guides/*": ["sidebar-nav-bs"],
     "models/*": [],

@@ -5,7 +5,11 @@ import threading
 import time
 
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
-from omnidreams.interactive_drive.types import ControlSnapshot, DriverCommand
+from omnidreams.interactive_drive.types import (
+    ControlSnapshot,
+    DriverCommand,
+    VehicleState,
+)
 
 
 class KeyboardState:
@@ -16,6 +20,14 @@ class KeyboardState:
     the single loop reader. Pressed keys are still snapshotted via
     :meth:`snapshot` because iterating a shared set requires a defensive copy
     under the lock.
+
+    Also carries a one-slot output channel: :meth:`update_telemetry` /
+    :attr:`vehicle_state`. The runtime loop pushes the latest
+    :class:`VehicleState` here after every chunk so the MJPEG presenter's
+    ``/state`` endpoint and any other read-side observer can publish a live
+    speed / steer / position snapshot to the browser without holding a
+    reference to the simulation object (which is rebuilt per scene reset
+    while ``KeyboardState`` is shared across the whole app session).
     """
 
     def __init__(self) -> None:
@@ -24,6 +36,10 @@ class KeyboardState:
         self._view_mode = "rgb"
         self._drive_command: DriverCommand | None = None
         self._reset_pending = False
+        # Output telemetry slot. ``None`` means the simulation hasn't
+        # produced a chunk yet (warmup window) -- callers render an empty
+        # speed readout in that case.
+        self._vehicle_state: VehicleState | None = None
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
@@ -43,6 +59,23 @@ class KeyboardState:
     def set_drive_command(self, command: DriverCommand | None) -> None:
         with self._lock:
             self._drive_command = command
+
+    def update_telemetry(self, state: VehicleState) -> None:
+        """Publish the simulation's latest vehicle state for read-only consumers.
+
+        Called once per chunk by :func:`run_main_loop` after the simulation
+        advances. The MJPEG presenter's ``/state`` endpoint reads this on
+        the HTTP handler thread, so the assignment runs under the same
+        lock as the input mutators.
+        """
+        with self._lock:
+            self._vehicle_state = state
+
+    @property
+    def vehicle_state(self) -> VehicleState | None:
+        """Most-recent simulation snapshot, or ``None`` before the first chunk."""
+        with self._lock:
+            return self._vehicle_state
 
     def consume_reset_request(self) -> bool:
         with self._lock:

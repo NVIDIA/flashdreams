@@ -26,7 +26,9 @@ from __future__ import annotations
 import argparse
 import atexit
 import gc
+import importlib.metadata
 import os
+import re
 import threading
 import time
 import traceback
@@ -94,6 +96,8 @@ RESOLUTION_MAP: dict[str, tuple[int, int]] = {
     "720p": (1280, 720),
     "704p": (1280, 704),
 }
+
+OMNIDREAMS_DISTRIBUTION_NAME = "flashdreams-omnidreams"
 
 
 class ControlSignal(IntEnum):
@@ -176,6 +180,30 @@ def capture_exceptions(func: Callable) -> Callable:
             raise
 
     return wrapper
+
+
+def _omnidreams_version_id() -> str:
+    try:
+        return importlib.metadata.version(OMNIDREAMS_DISTRIBUTION_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        logger.warning(
+            f"Could not resolve package metadata for {OMNIDREAMS_DISTRIBUTION_NAME}; "
+            "falling back to 0.0.0"
+        )
+        return "0.0.0"
+
+
+def _api_version_from_version_id(version_id: str) -> common_pb2.VersionId.APIVersion:
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version_id)
+    if match is None:
+        return common_pb2.VersionId.APIVersion(major=0, minor=0, patch=0)
+
+    major, minor, patch = (int(component) for component in match.groups())
+    return common_pb2.VersionId.APIVersion(
+        major=major,
+        minor=minor,
+        patch=patch,
+    )
 
 
 def build_omnidreams_conditioning_wrapper(
@@ -793,6 +821,19 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
 
     def close_session_all_ranks(self, session_id: str) -> None:
         self.engine.close_session_all_ranks(session_id)
+
+    @capture_exceptions
+    def get_version(
+        self,
+        request: common_pb2.Empty,
+        context: grpc.ServicerContext,
+    ) -> common_pb2.VersionId:
+        version_id = _omnidreams_version_id()
+        return common_pb2.VersionId(
+            version_id=version_id,
+            git_hash="",
+            grpc_api_version=_api_version_from_version_id(version_id),
+        )
 
     def _cleanup_session(self, session_id: str) -> None:
         """

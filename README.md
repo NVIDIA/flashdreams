@@ -25,9 +25,11 @@ environments, and more.
 [omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
 
 <p align="center">
-  <img src="docs/source/_static/diagrams/compare-offline-online-video-model-v2.jpg"
-       alt="Offline one-shot video inference compared with online autoregressive world-model serving."
-       width="100%">
+  <a href="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4">
+    <img src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P-poster.jpg"
+         alt="Watch the FlashDreams quick intro video"
+         width="100%">
+  </a>
 </p>
 
 
@@ -99,10 +101,19 @@ See [`DEV.md`](DEV.md) for repository-specific workflow notes.
 
 ## Contributing
 
-Bug reports, feature requests, performance work, new integrations, and
-documentation fixes are all welcome. The full process — DCO sign-off, PR
-expectations, coding conventions, and local-build speedups — is in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+For how to contribute, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+New integrations, bug reports, feature requests, performance tuning, and
+documentation edits are all welcome.
+
+Use [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues) to report defects or request improvements.
+
+Join us on the [NVIDIA Omniverse Discord](https://discord.com/invite/nvidiaomniverse)
+to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/yTdHDqFP)
+
+## Security
+
+To report a potential security vulnerability, follow the coordinated
+disclosure process in [`SECURITY.md`](SECURITY.md).
 
 ## License
 

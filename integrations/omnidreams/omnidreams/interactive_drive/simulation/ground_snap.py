@@ -49,6 +49,16 @@ class GroundSnapper:
         self._num_sample_points = int(num_sample_points)
         self._min_intersections = int(min_intersections)
         self._anchor_offset_m: float | None = None
+        # Updated as a side effect of every ``snap()`` call. ``snap_hit_ratio``
+        # is the fraction of body-grid sample rays that found ground in
+        # the most recent call; the runtime loop uses it as a *quality*
+        # signal for the snap itself (does it apply or bail out), NOT
+        # as the OOB metric. OOB is computed separately by
+        # :meth:`oob_proximity_at` from the ego's XY against the mesh
+        # AABB -- mirroring alpasim's ``is_ego_off_map`` algorithm,
+        # where the body-grid hit count would false-positive on every
+        # sidewalk or curb the ego brushes against.
+        self._last_snap_hit_ratio: float = 1.0
 
         vertices_d = np.asarray(vertices_xyz, dtype=np.float64)
         faces_i = np.asarray(faces_ijk, dtype=np.int32)
@@ -101,6 +111,17 @@ class GroundSnapper:
     @property
     def anchor_offset_m(self) -> float | None:
         return self._anchor_offset_m
+
+    @property
+    def last_snap_hit_ratio(self) -> float:
+        """Fraction of body-grid sample rays that hit ground in the latest ``snap()``.
+
+        ``1.0`` means every ray landed on a ground triangle (clean snap);
+        ``0.0`` means none did. Useful for diagnosing snap quality on
+        sparse meshes; **not** the OOB signal -- see
+        :meth:`oob_proximity_at` for that.
+        """
+        return self._last_snap_hit_ratio
 
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
@@ -168,11 +189,18 @@ class GroundSnapper:
         )
         mask = ~np.isnan(ground_zs)
         n_hits = int(mask.sum())
+        n_total = int(len(world_pts))
+        # Track snap quality (hit ratio) for diagnostics; OOB proximity
+        # is computed separately by ``oob_proximity_at`` from the ego XY
+        # against the mesh AABB.
+        self._last_snap_hit_ratio = (
+            float(n_hits) / float(n_total) if n_total > 0 else 1.0
+        )
         if n_hits < self._min_intersections:
             logger.debug(
                 "ground snap: %d/%d sample rays hit, below min=%d; passing through",
                 n_hits,
-                len(world_pts),
+                n_total,
                 self._min_intersections,
             )
             return state

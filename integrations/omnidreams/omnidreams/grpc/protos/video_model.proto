@@ -24,6 +24,7 @@ service WorldModelService {
     rpc start_session(SessionRequest) returns (SessionId);
     rpc close_session(SessionCloseRequest) returns (common.Empty);
     rpc render_video_chunk(VideoChunkRequest) returns (VideoChunkReturn);
+    rpc get_version (common.Empty) returns (common.VersionId);
 }
 
 message StaticWorldMap {

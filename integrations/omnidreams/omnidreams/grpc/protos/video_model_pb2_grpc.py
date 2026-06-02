@@ -50,6 +50,11 @@ class WorldModelServiceStub(object):
                 request_serializer=omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkRequest.SerializeToString,
                 response_deserializer=omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkReturn.FromString,
                 _registered_method=True)
+        self.get_version = channel.unary_unary(
+                '/omnidreams.video_model.WorldModelService/get_version',
+                request_serializer=omnidreams_dot_grpc_dot_protos_dot_common__pb2.Empty.SerializeToString,
+                response_deserializer=omnidreams_dot_grpc_dot_protos_dot_common__pb2.VersionId.FromString,
+                _registered_method=True)
 
 
 class WorldModelServiceServicer(object):
@@ -73,6 +78,12 @@ class WorldModelServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def get_version(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_WorldModelServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -90,6 +101,11 @@ def add_WorldModelServiceServicer_to_server(servicer, server):
                     servicer.render_video_chunk,
                     request_deserializer=omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkRequest.FromString,
                     response_serializer=omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkReturn.SerializeToString,
+            ),
+            'get_version': grpc.unary_unary_rpc_method_handler(
+                    servicer.get_version,
+                    request_deserializer=omnidreams_dot_grpc_dot_protos_dot_common__pb2.Empty.FromString,
+                    response_serializer=omnidreams_dot_grpc_dot_protos_dot_common__pb2.VersionId.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -173,6 +189,33 @@ class WorldModelService(object):
             '/omnidreams.video_model.WorldModelService/render_video_chunk',
             omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkRequest.SerializeToString,
             omnidreams_dot_grpc_dot_protos_dot_video__model__pb2.VideoChunkReturn.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def get_version(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/omnidreams.video_model.WorldModelService/get_version',
+            omnidreams_dot_grpc_dot_protos_dot_common__pb2.Empty.SerializeToString,
+            omnidreams_dot_grpc_dot_protos_dot_common__pb2.VersionId.FromString,
             options,
             channel_credentials,
             insecure,

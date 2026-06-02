@@ -25,23 +25,23 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "numpy",
+    "numpy>=1.24",
     "torch>=2.11",
-    "pandas",
-    "pyarrow",
-    "scipy",
-    "pillow",
-    "PyNvVideoCodec",
-    "setuptools",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "scipy>=1.11",
+    "pillow>=10.0",
+    "PyNvVideoCodec>=2.0",
+    "setuptools>=69",
     "ninja>=1.13.0",
-    "nvidia-nvcomp-cu12",
+    "nvidia-nvcomp-cu12>=4.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "imageio-ffmpeg",
-    "opencv-python",
+    "pytest>=8.0",
+    "imageio-ffmpeg>=0.5",
+    "opencv-python>=4.5",
 ]
 
 [build-system]

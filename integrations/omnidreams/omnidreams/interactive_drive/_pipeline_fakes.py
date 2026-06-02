@@ -77,12 +77,20 @@ class FakeVideoModelBackend:
     def __init__(self, frames_per_render: int, rgb_value: int = 0) -> None:
         self._frames_per_render = frames_per_render
         self._rgb_value = rgb_value
-        self.warmup_calls = 0
+        self.warmup_model_calls = 0
+        self.load_scene_calls = 0
         self.reset_calls = 0
 
-    def warmup(self, scene: SceneBundle) -> None:
+    @property
+    def can_prewarm(self) -> bool:
+        return True
+
+    def warmup_model(self) -> None:
+        self.warmup_model_calls += 1
+
+    def load_scene(self, scene: SceneBundle) -> None:
         del scene
-        self.warmup_calls += 1
+        self.load_scene_calls += 1
 
     def reset(self) -> None:
         self.reset_calls += 1

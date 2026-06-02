@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-omnidreams"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,12 +30,12 @@ dependencies = [
     "flashdreams[serving]",
     "mediapy>=1.1",
     "ludus-renderer",
-    "imageio",
-    "grpcio-tools",
-    "grpcio",
+    "imageio>=2.20",
+    "grpcio-tools>=1.50",
+    "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
-    "opencv-python-headless",
-    "shapely",
+    "opencv-python-headless>=4.5",
+    "shapely>=2.0",
     # Runtime deps for the ``omnidreams.interactive_drive`` desktop demo
     # subpackage. Most are already transitive via ``flashdreams[serving]``
     # but listed here explicitly so the subpackage's dep surface is
@@ -69,7 +69,7 @@ interactive-drive = [
 ]
 dev = [
     "pytest>=8.0",
-    "pytest-manual-marker",
+    "pytest-manual-marker>=2.0",
     # ``omnidreams.interactive_drive`` test-only deps.
     "pyvirtualdisplay>=3.0",
     "flip-evaluator>=1.7",
@@ -90,6 +90,11 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # presenter import fails fast with a clear message.
 interactive-drive = "omnidreams.interactive_drive.demo:main"
 
+# Tkinter wizard that calibrates a connected steering wheel or game
+# controller and writes a local input profile the demo auto-discovers.
+# Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
+interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
+
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
 # scans this group at CLI startup; the entry-point name itself is purely
@@ -97,6 +102,7 @@ interactive-drive = "omnidreams.interactive_drive.demo:main"
 [project.entry-points."flashdreams.runner_configs"]
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF"
 "omnidreams-sv-2steps-chunk2-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE"
 "omnidreams-sv-2steps-chunk3-loc6-vae-vae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE"
 "omnidreams-sv-2steps-chunk4-loc8-pshuffle-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE"

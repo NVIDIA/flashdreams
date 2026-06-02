@@ -420,6 +420,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     def patchify_and_maybe_split_cp(self, x: Tensor) -> Tensor:
         # x expected to be [B, V, T, C, H, W]
         assert x.ndim == 6, f"x must be a 6D tensor, but got shape {x.shape}"
+        x = x.to(device=self.device, dtype=self.config.dtype)
 
         if self.flatten_thw:
             return self.network.patchify_and_maybe_split_cp(
@@ -504,6 +505,13 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         # ``unpatchify_and_maybe_gather_cp`` and the network-cache /
         # RoPE setup below all read these.
         cfg = self.config
+        text_embeddings = text_embeddings.to(device=self.device, dtype=cfg.dtype)
+        image_embeddings = image_embeddings.to(device=self.device, dtype=cfg.dtype)
+        if negative_text_embeddings is not None:
+            negative_text_embeddings = negative_text_embeddings.to(
+                device=self.device, dtype=cfg.dtype
+            )
+
         kt = cfg.network.patch_temporal
         kh = kw = cfg.network.patch_spatial
         assert height % kh == 0 and width % kw == 0, (

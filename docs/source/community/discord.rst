@@ -13,5 +13,19 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-.. include:: ../../../CONTRIBUTING.md
-   :parser: myst_parser.sphinx_
+Discord
+=======
+
+Join us on the NVIDIA Omniverse Discord to share your results, attend office
+hours, and take part in technical discussion with the FlashDreams team and
+community.
+
+If you are new, start with the
+`server invite <https://discord.com/invite/nvidiaomniverse>`_ to on-board.
+
+Channels
+--------
+
+- `#flashdreams <https://discord.gg/yTdHDqFP>`_
+- `#omni-dreams <https://discord.gg/bsjzh4uZ>`_
+- `#world-model-chit-chat <https://discord.gg/APbw7EPk>`_
