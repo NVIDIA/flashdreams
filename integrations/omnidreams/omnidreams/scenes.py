@@ -42,6 +42,7 @@ disk.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Final
 
@@ -68,6 +69,30 @@ SCENE_PROMPT_FILENAME: Final[str] = "prompt.txt"
 # clipgt/``).
 SCENE_CLIPGT_DIRNAME: Final[str] = "clipgt"
 
+# Per-camera ground-truth frames live at ``frames/<camera>/<ts_us>.jpeg``;
+# scenes seed generation from the first frame instead of ``first_image.png``.
+SCENE_FRAMES_DIRNAME: Final[str] = "frames"
+SCENE_FRAME_SUFFIXES: Final[frozenset[str]] = frozenset({".jpeg", ".jpg", ".png"})
+
+# Slug for the base (no-suffix) scene archive.
+SCENE_VARIANT_DEFAULT: Final[str] = "default"
+
+# Weather variant -> 1-based prompt index inside the archive
+# (prompt1=clear, prompt2=snow, prompt3=rain). Unknown variants -> prompt 1.
+SCENE_VARIANT_PROMPT_INDEX: Final[dict[str, int]] = {
+    SCENE_VARIANT_DEFAULT: 1,
+    "snow": 2,
+    "rain": 3,
+}
+
+# Parses ``clipgt-<uuid>[-<variant>]``. Anchored on the canonical UUID shape
+# so the variant split doesn't bite into the UUID's hyphens; prefix optional.
+_CLIPGT_STEM_RE: Final = re.compile(
+    r"^(?:clipgt-)?"
+    r"(?P<uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    r"(?:-(?P<variant>.+))?$"
+)
+
 # Convenience link to the canonical NVIDIA-hosted dataset browser. The
 # resolver below honours OMNI_DREAMS_HF_ORG when picking the actual repo
 # id; this URL is intentionally fixed at ``nvidia/`` because the public
@@ -88,28 +113,76 @@ def hf_scenes_repo_id(org: str | None = None) -> str:
     return hf_repo(kind="scenes", org=org)
 
 
+def parse_scene_stem(stem: str) -> tuple[str, str]:
+    """Split a ``clipgt-<uuid>[-<variant>]`` stem into ``(bare_uuid, variant)``.
+
+    Variant defaults to :data:`SCENE_VARIANT_DEFAULT` when there's no suffix.
+    Non-UUID inputs just get the ``clipgt-`` prefix stripped (so synthetic /
+    non-clipgt names still yield a sane bare id).
+    """
+    match = _CLIPGT_STEM_RE.match(stem.strip())
+    if match is not None:
+        return match.group("uuid"), (match.group("variant") or SCENE_VARIANT_DEFAULT)
+    return stem.strip().removeprefix("clipgt-"), SCENE_VARIANT_DEFAULT
+
+
 def normalise_scene_uuid(scene_uuid: str) -> str:
-    """Coerce either ``clipgt-<uuid>`` stems or bare ``<uuid>`` to the bare form.
+    """Coerce a ``clipgt-<uuid>[-<variant>]`` stem or bare ``<uuid>`` to the bare UUID.
 
-    The omni-dreams-scenes dataset stores files as
-    ``scenes/clipgt-<uuid>.usdz``, and the demo's default ``--scene`` path
-    uses the same ``clipgt-<uuid>.usdz`` filename locally. Users (and
-    internal callers using ``Path.stem`` on a local file) sometimes pass
-    the ``clipgt-`` prefix in; others (the webrtc server, the
-    ``--scene-uuid`` flag) pass the bare UUID. The downstream HF + local
-    path helpers below all assume the **bare** UUID form, so this
-    function normalises at the boundary.
+    Strips both the ``clipgt-`` prefix and any variant suffix; downstream HF /
+    local path helpers all assume the bare form.
     """
-    return scene_uuid.strip().removeprefix("clipgt-")
+    return parse_scene_stem(scene_uuid)[0]
 
 
-def scene_archive_filename(scene_uuid: str) -> str:
-    """HF-dataset path for one scene's USDZ archive.
+def scene_variant_from_stem(stem: str) -> str:
+    """Return just the variant slug parsed out of a clipgt archive stem."""
+    return parse_scene_stem(stem)[1]
 
-    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem (see
-    :func:`normalise_scene_uuid`).
+
+def _variant_suffix(variant: str | None) -> str:
+    """Filename suffix for ``variant`` (``""`` for the default/base archive)."""
+    slug = (variant or SCENE_VARIANT_DEFAULT).strip()
+    return "" if slug in ("", SCENE_VARIANT_DEFAULT) else f"-{slug}"
+
+
+def scene_archive_filename(
+    scene_uuid: str, variant: str = SCENE_VARIANT_DEFAULT
+) -> str:
+    """HF-dataset path for one scene variant's USDZ archive.
+
+    ``variant`` selects a weather sibling (``-rain`` / ``-snow``); the default
+    maps to the base ``scenes/clipgt-<uuid>.usdz``.
     """
-    return f"scenes/clipgt-{normalise_scene_uuid(scene_uuid)}.usdz"
+    return f"scenes/clipgt-{normalise_scene_uuid(scene_uuid)}{_variant_suffix(variant)}.usdz"
+
+
+def prompt_variant_for_scene_variant(variant: str) -> str:
+    """Map a scene variant slug to the in-archive prompt key (``"1"``/``"2"``/``"3"``).
+
+    Weather variants map via :data:`SCENE_VARIANT_PROMPT_INDEX` so the seed
+    prompt matches the imagery; a numeric variant is returned as-is (legacy
+    in-archive selection), and unknown slugs fall back to ``"1"``.
+    """
+    slug = (variant or SCENE_VARIANT_DEFAULT).strip()
+    if slug.isdecimal():
+        return slug
+    return str(SCENE_VARIANT_PROMPT_INDEX.get(slug, 1))
+
+
+def resolve_variant_archive(scene_path: Path, variant: str) -> Path:
+    """Return the sibling USDZ for ``variant`` next to ``scene_path``.
+
+    Returns the matching ``clipgt-<uuid>[-<variant>].usdz`` sibling when it
+    exists on disk, else ``scene_path`` unchanged (legacy single-archive
+    scenes have no sibling; the loader picks the variant from within).
+    """
+    scene_path = Path(scene_path)
+    uuid, _current = parse_scene_stem(scene_path.stem)
+    candidate = scene_path.with_name(f"clipgt-{uuid}{_variant_suffix(variant)}.usdz")
+    if candidate != scene_path and candidate.exists():
+        return candidate
+    return scene_path
 
 
 # ---------------------------------------------------------------------------
@@ -137,14 +210,19 @@ def scenes_cache_root() -> Path:
     return FLASHDREAMS_CACHE_DIR / "omnidreams-scenes"
 
 
-def local_scene_archive_path(scene_uuid: str) -> Path:
+def local_scene_archive_path(
+    scene_uuid: str, variant: str = SCENE_VARIANT_DEFAULT
+) -> Path:
     """Where the desktop demo expects a staged scene archive to live.
 
-    ``<scenes_cache_root>/clipgt-<uuid>.usdz``. Matches the
-    ``clipgt-<uuid>.usdz`` naming the HF dataset uses so a user staring
-    at the cache dir sees the same filenames as on Hugging Face.
+    ``<scenes_cache_root>/clipgt-<uuid>[-<variant>].usdz``. Matches the
+    ``clipgt-<uuid>[-<variant>].usdz`` naming the HF dataset uses so a user
+    staring at the cache dir sees the same filenames as on Hugging Face.
     """
-    return scenes_cache_root() / f"clipgt-{normalise_scene_uuid(scene_uuid)}.usdz"
+    return (
+        scenes_cache_root()
+        / f"clipgt-{normalise_scene_uuid(scene_uuid)}{_variant_suffix(variant)}.usdz"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -196,23 +274,8 @@ def variant_from_stem(stem: str, prefix: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def list_available_scene_uuids() -> list[str]:
-    """Enumerate every ``scenes/clipgt-<uuid>.usdz`` file in the HF dataset.
-
-    Returns a sorted list of **bare** UUID strings (no ``clipgt-``
-    prefix, no ``scenes/`` path, no ``.usdz`` suffix). The bare form
-    matches what :func:`scene_archive_filename`,
-    :func:`local_scene_archive_path`, and
-    :func:`hf_hub_download_scene` expect as input.
-
-    Requires ``HF_TOKEN`` to be set because the dataset is gated. The
-    exact repo id is resolved via :func:`hf_scenes_repo_id`, so the
-    function honours ``OMNI_DREAMS_HF_ORG`` / the ``--hf-org`` CLI flag.
-
-    Imported lazily by callers (e.g. ``omnidreams-prepare``) so
-    the ``huggingface_hub`` dependency only matters when this function
-    is actually used.
-    """
+def _list_repo_scene_files() -> list[str]:
+    """Return every ``scenes/clipgt-*.usdz`` repo path in the HF dataset."""
     try:
         from huggingface_hub import HfApi
     except Exception as exc:  # pragma: no cover - huggingface_hub must be installed
@@ -226,32 +289,39 @@ def list_available_scene_uuids() -> list[str]:
     files = HfApi().list_repo_files(repo_id=repo_id, repo_type="dataset")
     path_prefix = "scenes/clipgt-"
     suffix = ".usdz"
-    uuids = [
-        path[len(path_prefix) : -len(suffix)]
-        for path in files
-        if path.startswith(path_prefix) and path.endswith(suffix)
+    return [
+        path for path in files if path.startswith(path_prefix) and path.endswith(suffix)
     ]
-    return sorted(uuids)
 
 
-def hf_hub_download_scene(scene_uuid: str) -> Path:
-    """Download one scene's USDZ archive from the resolved HF dataset.
+def list_available_scene_files() -> list[tuple[str, str]]:
+    """Enumerate every scene archive in the HF dataset as ``(uuid, variant)``.
 
-    Returns the local path inside ``huggingface_hub``'s content-addressed
-    cache (typically ``~/.cache/huggingface/hub/...``). Both demo paths
-    call this; the second caller for the same UUID gets a cache HIT and
-    no network traffic.
+    Sorted so each scene's base archive comes first. Requires ``HF_TOKEN``
+    (gated dataset); honours ``OMNI_DREAMS_HF_ORG`` / ``--hf-org``.
+    """
+    pairs = {parse_scene_stem(Path(path).stem) for path in _list_repo_scene_files()}
+    return sorted(
+        pairs,
+        key=lambda pair: (pair[0], "" if pair[1] == SCENE_VARIANT_DEFAULT else pair[1]),
+    )
 
-    Callers own what to do *after* download:
 
-    * ``omnidreams.prepare.stage_scene`` copies the cached
-      archive to :func:`local_scene_archive_path` so the demo's
-      ``--scene`` path is a stable real file.
-    * ``omnidreams.webrtc.session._ensure_hf_webrtc_scene_synced``
-      extracts the archive under :func:`scenes_cache_root` /
-      ``<uuid>/clipgt/`` for filesystem access.
+def list_available_scene_uuids() -> list[str]:
+    """Sorted unique bare scene UUIDs in the HF dataset (one per scene).
 
-    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem.
+    Use :func:`list_available_scene_files` for the per-variant breakdown.
+    """
+    return sorted({uuid for uuid, _variant in list_available_scene_files()})
+
+
+def hf_hub_download_scene(
+    scene_uuid: str, variant: str = SCENE_VARIANT_DEFAULT
+) -> Path:
+    """Download one scene variant's USDZ from the HF dataset into the HF cache.
+
+    Returns the cached local path; repeat calls for the same UUID + variant
+    are cache hits. ``variant`` selects a weather sibling (``rain`` / ``snow``).
     """
     try:
         from huggingface_hub import hf_hub_download
@@ -265,6 +335,6 @@ def hf_hub_download_scene(scene_uuid: str) -> Path:
     cached = hf_hub_download(
         repo_id=hf_scenes_repo_id(),
         repo_type="dataset",
-        filename=scene_archive_filename(scene_uuid),
+        filename=scene_archive_filename(scene_uuid, variant),
     )
     return Path(cached)

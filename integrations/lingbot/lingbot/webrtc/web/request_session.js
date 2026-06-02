@@ -20,6 +20,17 @@ const eventLog = document.getElementById("eventLog")
 const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
+const firstFramePreview = document.getElementById("firstFramePreview")
+const sceneCard = document.getElementById("sceneCard")
+const firstFrameSourceRow = document.getElementById("firstFrameSourceRow")
+const uploadModeButton = document.getElementById("uploadModeButton")
+const urlModeButton = document.getElementById("urlModeButton")
+const firstFrameInput = document.getElementById("firstFrameInput")
+const firstFrameUrlInput = document.getElementById("firstFrameUrlInput")
+const firstFrameUrlUpdateButton = document.getElementById("firstFrameUrlUpdateButton")
+const firstFrameUrlStatus = document.getElementById("firstFrameUrlStatus")
+const firstFrameName = document.getElementById("firstFrameName")
+const promptInput = document.getElementById("promptInput")
 const fpsValue = document.getElementById("fpsValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
@@ -49,6 +60,16 @@ let heldKeySequence = 0
 let mockChunkIndex = 0
 let mockGenerationStarted = false
 let mockChunkTimer = null
+let actionStarted = false
+let initialSceneLocked = false
+let promptEdited = false
+let firstFrameUrlEdited = false
+let firstFrameInputMode = "url"
+let initialScene = null
+let selectedFirstFrameUrl = null
+let selectedFirstFrameFile = null
+let firstFrameSelectionCommitted = false
+let firstFramePreviewRefreshToken = 0
 
 const metrics = {
   fps: null,
@@ -64,12 +85,33 @@ function normalizeKey(rawKey) {
   return String(rawKey || "").toLowerCase()
 }
 
+function isEditableControlTarget(target) {
+  if (!target || typeof target !== "object") {
+    return false
+  }
+  if (target.isContentEditable === true) {
+    return true
+  }
+
+  const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : ""
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true
+  }
+  if (typeof target.closest === "function") {
+    return target.closest("input, textarea, select, [contenteditable]") !== null
+  }
+  return false
+}
+
 function formatTime() {
   return new Date().toLocaleTimeString([], { hour12: false })
 }
 
 function firstFinite(...values) {
   for (const value of values) {
+    if (value === null || value === undefined || value === "") {
+      continue
+    }
     const number = Number(value)
     if (Number.isFinite(number)) {
       return number
@@ -119,6 +161,258 @@ function setFlow(message) {
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+  updateReadyPreview()
+}
+
+function setInitialSceneLocked(locked) {
+  initialSceneLocked = locked
+  sceneCard.hidden = locked
+  uploadModeButton.disabled = locked
+  urlModeButton.disabled = locked
+  firstFrameInput.disabled = locked
+  firstFrameUrlInput.disabled = locked
+  firstFrameUrlUpdateButton.disabled = locked
+  promptInput.disabled = locked
+}
+
+function setFirstFrameInputMode(mode) {
+  if (mode !== "upload" && mode !== "url") {
+    return
+  }
+  firstFrameInputMode = mode
+  firstFrameSourceRow.dataset.mode = mode
+  uploadModeButton.setAttribute("aria-pressed", mode === "upload" ? "true" : "false")
+  urlModeButton.setAttribute("aria-pressed", mode === "url" ? "true" : "false")
+}
+
+function defaultFirstFrameName() {
+  return initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image"
+}
+
+function setFirstFrameUrlStatus(message = "", state = "idle") {
+  firstFrameUrlStatus.textContent = message
+  firstFrameUrlStatus.hidden = message.length === 0
+  firstFrameUrlStatus.dataset.state = state
+}
+
+function validateFirstFrameUrl(value) {
+  const imageUrl = value.trim()
+  if (!imageUrl) {
+    throw new Error("Enter an image URL.")
+  }
+  let parsed
+  try {
+    parsed = new URL(imageUrl)
+  } catch {
+    throw new Error("Enter a valid image URL.")
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Enter an http(s) image URL.")
+  }
+  return imageUrl
+}
+
+function clearSelectedFirstFrameFile() {
+  selectedFirstFrameFile = null
+  firstFrameSelectionCommitted = false
+  firstFrameInput.value = ""
+  if (selectedFirstFrameUrl) {
+    URL.revokeObjectURL(selectedFirstFrameUrl)
+    selectedFirstFrameUrl = null
+  }
+}
+
+function clearFirstFrameUrlInput() {
+  firstFrameUrlInput.value = ""
+  firstFrameUrlEdited = false
+  setFirstFrameUrlStatus()
+}
+
+function refreshedPreviewUrl(url) {
+  const separator = url.includes("?") ? "&" : "?"
+  return `${url}${separator}t=${firstFramePreviewRefreshToken}`
+}
+
+function updateReadyPreview() {
+  const canPreview = !document.body.classList.contains("has-video")
+  const hasSelectedImage = selectedFirstFrameUrl !== null && firstFrameSelectionCommitted
+  const hasInitialImage = Boolean(
+    initialScene && initialScene.has_first_frame && initialScene.first_frame_url
+  )
+
+  if (hasSelectedImage) {
+    firstFramePreview.src = selectedFirstFrameUrl
+  } else if (hasInitialImage && initialScene.first_frame_url) {
+    firstFramePreview.src = refreshedPreviewUrl(initialScene.first_frame_url)
+  }
+
+  document.body.classList.toggle(
+    "is-ready-preview",
+    canPreview && (hasSelectedImage || hasInitialImage)
+  )
+}
+
+function applyInitialScene(scene) {
+  initialScene = scene
+  firstFramePreviewRefreshToken = Date.now()
+  if (!promptEdited && typeof scene.prompt === "string") {
+    promptInput.value = scene.prompt
+  }
+  const sceneImageUrl = typeof scene.image_url === "string"
+    ? scene.image_url
+    : (typeof scene.default_image_url === "string" ? scene.default_image_url : "")
+  if (!selectedFirstFrameFile && !firstFrameUrlEdited && sceneImageUrl) {
+    firstFrameUrlInput.value = sceneImageUrl
+    setFirstFrameInputMode("url")
+  }
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = firstFrameUrlInput.value.trim()
+      ? "Upload Image"
+      : defaultFirstFrameName()
+  }
+  if (scene.model) {
+    metrics.model = scene.model
+  }
+  if (scene.resolution && typeof scene.resolution === "object") {
+    const width = Number(scene.resolution.width)
+    const height = Number(scene.resolution.height)
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      metrics.resolution = `${width}x${height}`
+    }
+  }
+  renderMetrics()
+  updateReadyPreview()
+}
+
+async function loadInitialScene() {
+  if (mockMode) {
+    applyInitialScene({
+      prompt: promptInput.value,
+      has_first_frame: selectedFirstFrameFile !== null || firstFrameUrlInput.value.trim().length > 0,
+      first_frame_url: firstFrameUrlInput.value.trim(),
+      image_url: firstFrameUrlInput.value.trim(),
+      model: metrics.model,
+      resolution: { width: 832, height: 464 },
+      input_source: selectedFirstFrameFile ? "uploaded" : "default",
+    })
+    return
+  }
+  try {
+    const response = await fetch("/api/session/initial_scene")
+    if (!response.ok) {
+      throw new Error(`initial scene failed (${response.status})`)
+    }
+    applyInitialScene(await response.json())
+  } catch (error) {
+    logEvent(`initial scene unavailable: ${error.message}`, { source: "client" })
+  }
+}
+
+async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
+  const prompt = promptInput.value.trim()
+  let imageUrl = firstFrameUrlInput.value.trim()
+  const hasPrompt = promptEdited && prompt.length > 0
+  const hasImage =
+    includeFirstFrame && firstFrameInputMode === "upload" && selectedFirstFrameFile !== null
+  const hasImageUrl =
+    includeFirstFrame && firstFrameInputMode === "url" && imageUrl.length > 0
+  if (!hasPrompt && !hasImage && !hasImageUrl) {
+    return
+  }
+  if (hasImageUrl) {
+    try {
+      imageUrl = validateFirstFrameUrl(imageUrl)
+      firstFrameUrlInput.value = imageUrl
+    } catch (error) {
+      setFirstFrameUrlStatus(error.message, "error")
+      throw error
+    }
+  }
+
+  if (mockMode) {
+    applyInitialScene({
+      prompt: hasPrompt ? prompt : promptInput.value,
+      has_first_frame: hasImage || hasImageUrl,
+      first_frame_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
+      image_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
+      model: metrics.model,
+      resolution: { width: 832, height: 464 },
+      input_source: "uploaded",
+    })
+    promptEdited = false
+    firstFrameUrlEdited = false
+    if (hasImage || hasImageUrl) {
+      setFirstFrameUrlStatus("Updated", "success")
+    }
+    return
+  }
+
+  const form = new FormData()
+  if (hasPrompt) {
+    form.append("prompt", prompt)
+  }
+  if (hasImage) {
+    form.append("image", selectedFirstFrameFile, selectedFirstFrameFile.name)
+  } else if (hasImageUrl) {
+    form.append("image_url", imageUrl)
+  }
+
+  const response = await fetch("/api/session/input", {
+    method: "POST",
+    body: form,
+  })
+  if (!response.ok) {
+    const text = (await response.text()).trim().replace(/^\d+:\s*/, "")
+    throw new Error(text || `input upload failed (${response.status})`)
+  }
+  applyInitialScene(await response.json())
+  promptEdited = false
+  firstFrameUrlEdited = false
+  if (hasImage || hasImageUrl) {
+    setFirstFrameUrlStatus("Updated", "success")
+  }
+}
+
+async function updateFirstFrameInput() {
+  if (initialSceneLocked) {
+    return
+  }
+
+  if (firstFrameInputMode === "upload") {
+    if (!selectedFirstFrameFile) {
+      setFirstFrameUrlStatus("Choose an image file.", "error")
+      return
+    }
+  } else {
+    let imageUrl
+    try {
+      imageUrl = validateFirstFrameUrl(firstFrameUrlInput.value)
+    } catch (error) {
+      setFirstFrameUrlStatus(error.message, "error")
+      return
+    }
+    firstFrameUrlInput.value = imageUrl
+    clearSelectedFirstFrameFile()
+  }
+
+  setFirstFrameUrlStatus("Updating...", "pending")
+  firstFrameUrlUpdateButton.disabled = true
+
+  try {
+    await uploadSessionInputIfNeeded({ includeFirstFrame: true })
+    firstFrameSelectionCommitted = true
+    updateReadyPreview()
+    setFirstFrameUrlStatus("Updated", "success")
+    logEvent("first frame updated", { source: "client" })
+  } catch (error) {
+    setFirstFrameUrlStatus(error.message, "error")
+    logEvent(`first frame update failed: ${error.message}`, {
+      source: "client",
+      level: "error",
+    })
+  } finally {
+    firstFrameUrlUpdateButton.disabled = initialSceneLocked
+  }
 }
 
 function renderMetrics() {
@@ -217,6 +511,9 @@ function takeObservedActionLatency(now = performance.now()) {
 
 function sendControlAction(action) {
   if (mockMode && connected && !controlChannel) {
+    actionStarted = true
+    setInitialSceneLocked(true)
+    updateReadyPreview()
     inferenceInFlight = true
     mockGenerationStarted = true
     recordActionSent(action)
@@ -230,6 +527,9 @@ function sendControlAction(action) {
     return false
   }
 
+  actionStarted = true
+  setInitialSceneLocked(true)
+  updateReadyPreview()
   inferenceInFlight = true
   controlChannel.send(
     JSON.stringify({
@@ -460,6 +760,8 @@ function disconnectSession({ notify = true } = {}) {
   stopHeartbeat()
   stopStatsPolling()
   connected = false
+  actionStarted = false
+  updateReadyPreview()
   connectButton.disabled = false
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
@@ -484,11 +786,16 @@ async function connectSession() {
 
   connectButton.disabled = true
   setStatus("Connecting", "connecting")
-  setFlow("creating peer connection")
+  setFlow("preparing input")
   logEvent("connecting to server...", { source: "client" })
   disconnecting = false
+  actionStarted = false
+  updateReadyPreview()
 
   try {
+    await uploadSessionInputIfNeeded()
+    setFlow("creating peer connection")
+
     peerConnection = new RTCPeerConnection()
     controlChannel = peerConnection.createDataChannel("controls")
     peerConnection.addTransceiver("video", { direction: "recvonly" })
@@ -531,6 +838,8 @@ async function connectSession() {
       }
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
+        actionStarted = false
+        updateReadyPreview()
         connectButton.disabled = false
         stopHeartbeat()
         stopStatsPolling()
@@ -568,6 +877,10 @@ async function connectSession() {
 }
 
 function handleKeyDown(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
+
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -581,6 +894,10 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
+
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -811,6 +1128,8 @@ async function startMockSession() {
   setStatus("Connecting", "connecting")
   setFlow("mock warmup")
   logEvent("connecting to mock server...", { source: "client" })
+  actionStarted = false
+  await uploadSessionInputIfNeeded()
   await new Promise((resolve) => {
     window.setTimeout(resolve, 260)
   })
@@ -828,6 +1147,7 @@ async function startMockSession() {
 
 function initialize() {
   document.body.dataset.status = "idle"
+  setFirstFrameInputMode("url")
   if (mockMode) {
     document.body.classList.add("mock-mode")
     connectButton.textContent = "Start Mock Session"
@@ -838,6 +1158,7 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  void loadInitialScene()
   window.requestAnimationFrame(drawMockScene)
   startVideoFrameMonitor()
 }
@@ -845,6 +1166,76 @@ function initialize() {
 connectButton.addEventListener("click", () => {
   void connectSession()
 })
+uploadModeButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("upload")
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = defaultFirstFrameName()
+  }
+  releaseAllKeys()
+})
+urlModeButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("url")
+  releaseAllKeys()
+})
+firstFrameInput.addEventListener("change", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("upload")
+  const [file] = firstFrameInput.files
+  selectedFirstFrameFile = file || null
+  firstFrameSelectionCommitted = false
+  if (selectedFirstFrameUrl) {
+    URL.revokeObjectURL(selectedFirstFrameUrl)
+    selectedFirstFrameUrl = null
+  }
+  if (selectedFirstFrameFile) {
+    selectedFirstFrameUrl = URL.createObjectURL(selectedFirstFrameFile)
+    firstFrameName.textContent = selectedFirstFrameFile.name
+    clearFirstFrameUrlInput()
+    setFirstFrameUrlStatus("Image not updated", "pending")
+  } else {
+    firstFrameName.textContent = defaultFirstFrameName()
+    setFirstFrameUrlStatus()
+  }
+  updateReadyPreview()
+})
+firstFrameUrlInput.addEventListener("input", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  setFirstFrameInputMode("url")
+  if (selectedFirstFrameFile) {
+    clearSelectedFirstFrameFile()
+  }
+  firstFrameUrlEdited = true
+  if (!selectedFirstFrameFile) {
+    firstFrameName.textContent = firstFrameUrlInput.value.trim()
+      ? "Upload Image"
+      : defaultFirstFrameName()
+  }
+  setFirstFrameUrlStatus(
+    firstFrameUrlInput.value.trim() ? "URL not updated" : "",
+    "pending"
+  )
+})
+firstFrameUrlUpdateButton.addEventListener("click", () => {
+  void updateFirstFrameInput()
+})
+promptInput.addEventListener("input", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  promptEdited = true
+})
+firstFrameUrlInput.addEventListener("focus", releaseAllKeys)
+promptInput.addEventListener("focus", releaseAllKeys)
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)

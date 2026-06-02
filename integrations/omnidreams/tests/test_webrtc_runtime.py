@@ -364,6 +364,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
         scene_dir=tmp_path / "local-scene",
         scene_uuid="scene-123",
+        scene_variant="rain",
         seed=123,
         device="cuda:0",
         video_height=360,
@@ -379,6 +380,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
 
     assert cfg.scene_dir == tmp_path / "local-scene"
     assert cfg.scene_uuid == "scene-123"
+    assert cfg.scene_variant == "rain"
     assert cfg.device == "cuda:7"
     assert cfg.video_height == 360
     assert cfg.video_width == 640
@@ -413,10 +415,11 @@ def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
     def _fake_ensure_hf_webrtc_scene_synced(
         scene_uuid: str,
         *,
+        variant: str = "default",
         prompt_filename: str,
         clipgt_dirname: str,
     ) -> Path:
-        del prompt_filename, clipgt_dirname
+        del prompt_filename, clipgt_dirname, variant
         calls.append(scene_uuid)
         return staged_scene_dir
 
@@ -425,8 +428,10 @@ def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
         *,
         prompt_filename: str,
         clipgt_dirname: str,
+        camera_name: str = "camera_front_wide_120fov",
+        variant: str = "default",
     ) -> tuple[Path, Path, Path]:
-        del prompt_filename, clipgt_dirname
+        del prompt_filename, clipgt_dirname, camera_name, variant
         clipgt_dir = scene_dir / "clipgt"
         return clipgt_dir, clipgt_dir / "first_image.png", clipgt_dir / "prompt.txt"
 
@@ -461,6 +466,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
         pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
         scene_dir=tmp_path / "local-scene",
         scene_uuid=None,
+        scene_variant="default",
         seed=123,
         device="cuda:0",
         video_height=360,
@@ -476,6 +482,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
 
     assert cfg.scene_dir == tmp_path / "local-scene"
     assert cfg.scene_uuid is None
+    assert cfg.scene_variant == "default"
 
 
 @pytest.mark.asyncio

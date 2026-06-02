@@ -49,6 +49,8 @@ this file) or the FlashVSR-v1.1 weight dir is absent. Set
 are importable.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import os
@@ -453,9 +455,8 @@ def test_dit_chunk_parity(dtype: torch.dtype, chunks: int) -> None:
 
             # The live FlashDreams path intentionally uses optimized numerics
             # that are not bit-close to upstream's reference path:
-            # upstream rotates RoPE in fp64 and calls the public
-            # ``block_sparse_attn_func`` wrapper, while the candidate uses the
-            # fused RoPE kernel and the direct sparse-attention function path.
+            # upstream rotates RoPE in fp64, while the candidate uses the
+            # fused RoPE kernel.
             # Assert a calibrated bf16 envelope that still catches gross
             # protocol / checkpoint / cache regressions.
             diff = (out_legacy - out_candidate).float().abs()

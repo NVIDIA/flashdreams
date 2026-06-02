@@ -36,36 +36,6 @@ override-dependencies = [
 # so TE builds against the resolved torch from the project venv.
 no-build-isolation-package = ["transformer-engine-torch"]
 
-# `block-sparse-attn` has the same need (its `setup.py` does `import torch`
-# to compile a CUDA extension) but takes a different route. Listing it under
-# `no-build-isolation-package` would also disable `extra-build-dependencies`
-# for the package (https://github.com/astral-sh/uv/issues/16243). Instead,
-# keep build isolation on and seed the isolated build env with the packages
-# that `setup.py` imports at module load but aren't provided by the default
-# PEP 517 build environment; `match-runtime = true` on torch picks up the
-# CUDA-enabled torch resolved for the project venv.
-[tool.uv.extra-build-dependencies]
-block-sparse-attn = [
-    { requirement = "torch", match-runtime = true },
-    "psutil",
-    "ninja",
-]
-
-# `block-sparse-attn` is git-sourced (override lives next to the dep
-# declaration in `integrations/flashvsr/pyproject.toml`) and upstream ships
-# no `pyproject.toml` / `PKG-INFO`, so without a hint uv would have to build
-# it just to resolve the workspace -- which is the very build that needs the
-# `extra-build-dependencies` above to succeed, and `match-runtime = true`
-# requires static metadata to function. Declare the metadata upfront,
-# mirroring the upstream `setup.py`'s `install_requires` and the `__version__`
-# in `block_sparse_attn/__init__.py` (the `.post1` git tag is an
-# `__init__.py` cleanup with no version bump), so uv skips the resolution-
-# time build and defers to install time, when the build env is fully wired.
-[[tool.uv.dependency-metadata]]
-name = "block-sparse-attn"
-version = "0.0.2"
-requires-dist = ["torch", "einops"]
-
 [tool.pyright]
 extraPaths = [
     "flashdreams",
@@ -130,7 +100,7 @@ invalid-method-override = "ignore"
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
 # imports as Any.
-replace-imports-with-any = ["transformer_engine.**", "triton.**"]
+replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
@@ -153,18 +123,19 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-manual-marker>=2.0",
+    "tomli>=2.0",
     "imageio-ffmpeg>=0.5",
 ]
 lint = ["pre-commit>=4.3.0", "ty>=0.0.39", {include-group = "test"}]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
-    "pydata-sphinx-theme",
-    "sphinx",
-    "sphinx-autobuild",
-    "sphinx-copybutton",
-    "sphinx-design",
-    "myst-parser",
+    "pydata-sphinx-theme>=0.18",
+    "sphinx>=7.0",
+    "sphinx-autobuild>=2024.0",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.5",
+    "myst-parser>=4.0",
 ]
 
 # CPU-only runtime deps needed by autodoc to import flashdreams on CI.

@@ -92,7 +92,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
@@ -112,3 +112,17 @@ Some generated samples from the above commands:
        </div>
      </div>
    </div>
+
+Citation
+--------
+
+If you use Causal Wan2.2, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{zhang2025fast,
+     title={Fast video generation with sliding tile attention},
+     author={Zhang, Peiyuan and Chen, Yongqi and Su, Runlong and Ding, Hangliang and Stoica, Ion and Liu, Zhengzhong and Zhang, Hao},
+     journal={arXiv preprint arXiv:2502.04507},
+     year={2025}
+   }
