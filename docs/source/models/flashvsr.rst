@@ -51,8 +51,8 @@ Installation
 Running the method
 ------------------
 
-To run FlashVSR, provide an input video path and launch one of the registered
-runner slugs via ``flashdreams-run``. For example:
+To run FlashVSR, provide an input video path and launch one of the
+registered runner slugs. For example:
 
 .. code-block:: bash
 
@@ -62,8 +62,8 @@ runner slugs via ``flashdreams-run``. For example:
        --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
        --chunk-size 8
 
-For multi-GPU inference, use the dense full-attention preset with ``torchrun``
-on top of ``uv run flashdreams-run`` (taking 4 GPUs as an example):
+For multi-GPU inference, run the dense full-attention preset under
+``torchrun`` (taking 4 GPUs as an example):
 
 .. code-block:: bash
 

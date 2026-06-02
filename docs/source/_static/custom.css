@@ -623,7 +623,7 @@ p.fd-hero-title.rubric,
 
 /* ----- 6. Front-of-site marketing layout --------------------------------- */
 
-/* Front-of-site pages (homepage, models gallery, community) bypass pydata's
+/* Front-of-site pages (homepage, benchmarks, community) bypass pydata's
    docs scaffold entirely via the `docs_main` block override in
    `_templates/layout.html`. The body content is rendered into
    `<div class="fd-landing-main">` directly inside `<main>`, with no
@@ -684,7 +684,7 @@ body.fd-page-landing .fd-landing-main > section {
    the marketing hero IS the page title; the H1 is structural only,
    present so the toctree caption and browser tab resolve.
 
-   Hidden ONLY on hero-bearing pages (landing, models gallery,
+   Hidden ONLY on hero-bearing pages (landing, benchmarks index,
    community index). The prose-narrow community subpages
    (contribute / discord / faq / support) keep their H1 visible
    because they don't have a hero band of their own and the H1 IS

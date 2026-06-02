@@ -85,18 +85,16 @@ html_theme_options = {
         "image_dark": "_static/horizontal-dark.svg",
     },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, community, quickstart, models gallery +
-    # per-model pages) render without a right sidebar; the reference-
-    # docs side (`api/*`, the Documentation tab umbrella, the developer
+    # layout pages (homepage, benchmarks, community, quickstart, per-
+    # model pages) render without a right sidebar; the reference-docs
+    # side (`api/*`, the Documentation tab umbrella, the developer
     # guides) keeps the in-page TOC. Patterns must be non-overlapping —
     # pydata warns on any page that matches more than one — so each
     # community page is enumerated explicitly rather than using
-    # `community/*`. The Benchmarks navbar tab targets `models/index`
-    # on this branch — the standalone `benchmarks.rst` page lives on
-    # `dev/aidanf/flashdreams_site/benchmarks` and is folded back in
-    # via that PR.
+    # `community/*`.
     "secondary_sidebar_items": {
         "index": [],
+        "benchmarks": [],
         "community/index": [],
         "community/contribute": [],
         "community/discord": [],
@@ -164,13 +162,14 @@ html_theme_options = {
 # Wire the left-sidebar nav-tree component explicitly. Without this,
 # pydata renders the primary sidebar container (with the "Collapse
 # Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, community, quickstart, models gallery + per-model
-# pages) get no left sidebar — section wayfinding lives in the
-# section-index page's hero + tile grid instead. The reference-docs
-# side (`api/*`, the Documentation tab umbrella, the developer
-# guides) keeps the section nav tree.
+# (homepage, benchmarks, community, quickstart, per-model pages)
+# get no left sidebar — section wayfinding lives in the section-
+# index page's hero + tile grid instead. The reference-docs side
+# (`api/*`, the Documentation tab umbrella, the developer guides)
+# keeps the section nav tree.
 html_sidebars = {
     "index": [],
+    "benchmarks": [],
     "community/index": [],
     "community/contribute": [],
     "community/discord": [],
