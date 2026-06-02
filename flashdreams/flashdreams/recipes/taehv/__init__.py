@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
 from flashdreams.recipes.taehv.checkpoint import (
     StateDictTransform,
@@ -33,21 +32,10 @@ from flashdreams.recipes.taehv.checkpoint import (
 )
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
 
-_INTERNAL_TAEHV_CHECKPOINT_PATHS = {
-    "lighttae": "s3://flashdreams/assets/checkpoints/autoencoders/lighttaew2_1.pth",
-}
-
-_PUBLIC_TAEHV_CHECKPOINT_PATHS = {
+AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
     "lighttae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth",
 }
-
-AVAILABLE_TAEHV_CHECKPOINT_PATHS = (
-    _INTERNAL_TAEHV_CHECKPOINT_PATHS
-    if use_internal_storage()
-    else _PUBLIC_TAEHV_CHECKPOINT_PATHS
-)
-"""Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
-
+"""Checkpoint paths for the TAEHV decoder."""
 
 _LIGHTTAE_CHANNELS: tuple[int, int, int, int] = (256, 128, 64, 64)
 """TAEHV ``Decoder`` block widths the ``lighttae`` weights were trained

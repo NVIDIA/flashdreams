@@ -35,9 +35,6 @@ importing FlashDreams:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 ```
 
-Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
-switches checkpoint and example-data URLs back to `s3://flashdreams`.
-
 ## Run interactive-drive (desktop demo)
 
 The `omnidreams.interactive_drive` subpackage ships a single-process
