@@ -17,21 +17,14 @@ SPDX-License-Identifier: Apache-2.0
 
 **FlashDreams** is a high-performance inference and serving library for
 interactive autoregressive video and world models. It began as the optimized
-runtime behind the [OmniDreams closed-loop demo for GTC 2026][omnidreams-blog]
+runtime behind the [NVIDIA OmniDreams closed-loop demo for GTC 2026][omnidreams-blog]
 and has grown into a general platform for real-time world-model applications
 across gaming, autonomous vehicles, robotics, simulated or virtual
 environments, and more.
 
 [omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
 
-<p align="center">
-  <a href="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4">
-    <img src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P-poster.jpg"
-         alt="Watch the FlashDreams quick intro video"
-         width="100%">
-  </a>
-</p>
-
+https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 
 ## Quickstart
 
@@ -42,10 +35,12 @@ Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installat
 ```bash
 git clone https://github.com/NVIDIA/flashdreams.git
 cd flashdreams
-uv sync --extra dev --extra runners
+uv sync --extra runners
 export HF_TOKEN=<your-hf-token>
 uv run flashdreams-run --help
 ```
+
+Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.
 
 Then launch your first model by following
 [the quickstart guide](https://nvidia.github.io/flashdreams/main/quickstart/first_world_model.html).
@@ -93,6 +88,7 @@ to add your own.
 For day-to-day development:
 
 ```bash
+uv sync --extra dev --extra runners
 uv run pre-commit run -a
 uv run pytest -m "not manual"
 ```
@@ -131,8 +127,16 @@ If FlashDreams is useful in your research or product, please cite the project:
 @misc{flashdreams2026,
   title        = {FlashDreams: High-performance inference and serving for
                   interactive autoregressive video and world models},
-  author       = {{NVIDIA Corporation}},
+  author       = {{FlashDreams Contributors}},
   year         = {2026},
   howpublished = {\url{https://github.com/NVIDIA/flashdreams}},
+}
+
+@misc{nvidia2026omnidreams,
+  title={OmniDreams: Real-Time Generative Closed-Loop Autonomous Vehicle Simulation Built on NVIDIA Cosmos},
+  author={Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Wang, Jialiang and Lucas, James and Wu, Jay and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Michal and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Ren, Xuanchi and Lu, Yifan and Gojcic, Zan and Wang, Zian},
+  year={2026},
+  note={Technical report},
+  howpublished={\url{https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf}}
 }
 ```

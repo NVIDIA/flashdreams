@@ -70,7 +70,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Scene UUID for nvidia/omni-dreams-scenes. Expected dataset asset: "
-            "scenes/clipgt-<uuid>.usdz."
+            "scenes/clipgt-<uuid>[-<variant>].usdz."
+        ),
+    )
+    parser.add_argument(
+        "--scene-variant",
+        type=str,
+        default="default",
+        help=(
+            "Weather variant to serve: 'default' (clear), 'rain', or 'snow'. "
+            "Selects the matching sibling archive and weather prompt."
         ),
     )
     parser.add_argument("--device", type=str, default="cuda:0")
@@ -133,6 +142,7 @@ def build_runtime_config(
         pipeline_config_name=args.pipeline_config_name,
         scene_dir=args.scene_dir,
         scene_uuid=args.scene_uuid,
+        scene_variant=args.scene_variant,
         seed=args.seed,
         device=device_override or args.device,
         video_height=args.video_height,

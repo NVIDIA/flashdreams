@@ -99,7 +99,7 @@ class TestVideoVAE:
     def test_teahv_vae_instantiation(self, device):
         """Test TeahvInterface can be instantiated.
 
-        Kept as manual: default checkpoint path is on S3 (needs credentials).
+        Kept as manual: large checkpoint download and GPU memory use.
         """
         from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
 
@@ -112,7 +112,7 @@ class TestVideoVAE:
     def test_wan_vae_instantiation(self, device):
         """Test WanVAEInterface can be instantiated.
 
-        Kept as manual: default checkpoint path is on S3 (needs credentials).
+        Kept as manual: large checkpoint download and GPU memory use.
         """
         from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoderConfig
 

@@ -53,10 +53,6 @@ from typing import Any
 
 import tyro
 
-# Each import below triggers the integration's `register_runner(..., source="builtin")`
-# calls against ``_SUPPORTED_RUNNERS``. Listed explicitly (no auto-walk
-# of ``flashdreams.recipes``) so the in-tree inventory is one grep away.
-import flashdreams.recipes.template.config  # noqa: F401, E402
 from flashdreams.configs.registry import (
     _SUPPORTED_RUNNERS,
     register_runner,

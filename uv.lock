@@ -41,12 +41,12 @@ overrides = [
 
 [manifest.dependency-groups]
 docs = [
-    { name = "myst-parser" },
-    { name = "pydata-sphinx-theme" },
-    { name = "sphinx" },
-    { name = "sphinx-autobuild" },
-    { name = "sphinx-copybutton" },
-    { name = "sphinx-design" },
+    { name = "myst-parser", specifier = ">=4.0" },
+    { name = "pydata-sphinx-theme", specifier = ">=0.18" },
+    { name = "sphinx", specifier = ">=7.0" },
+    { name = "sphinx-autobuild", specifier = ">=2024.0" },
+    { name = "sphinx-copybutton", specifier = ">=0.5" },
+    { name = "sphinx-design", specifier = ">=0.5" },
 ]
 docs-ci = [
     { name = "einops", specifier = ">=0.7" },
@@ -65,6 +65,7 @@ lint = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
+    { name = "tomli", specifier = ">=2.0" },
     { name = "ty", specifier = ">=0.0.39" },
 ]
 test = [
@@ -72,12 +73,8 @@ test = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
+    { name = "tomli", specifier = ">=2.0" },
 ]
-
-[[manifest.dependency-metadata]]
-name = "block-sparse-attn"
-version = "0.0.2"
-requires-dist = ["torch", "einops"]
 
 [[package]]
 name = "accessible-pygments"
@@ -418,16 +415,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b0/1c6a16426d389813b48d95e26898aff79abbde42ad353958ad95cc8c9b21/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86", size = 627737, upload-time = "2025-11-30T15:08:26.084Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/39/47f9197bdd44df24d67ac8893641e16f386c984a0619ef2ee4c51fbbc019/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb", size = 107721, upload-time = "2025-11-30T15:08:24.087Z" },
-]
-
-[[package]]
-name = "block-sparse-attn"
-version = "0.0.2"
-source = { git = "https://github.com/mit-han-lab/Block-Sparse-Attention?tag=v0.0.2.post1#b346156b69dc2f33911ba390d1867ee3de0f5402" }
-dependencies = [
-    { name = "einops" },
-    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
-    { name = "torch", version = "2.12.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
 ]
 
 [[package]]
@@ -1208,7 +1195,7 @@ provides-extras = ["dev", "examples", "runners", "serving"]
 
 [[package]]
 name = "flashdreams-causal-forcing"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -1232,7 +1219,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-cosmos-predict2"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
@@ -1254,7 +1241,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -1276,10 +1263,9 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-flashvsr"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/flashvsr" }
 dependencies = [
-    { name = "block-sparse-attn" },
     { name = "flashdreams" },
     { name = "grpcio" },
     { name = "mediapy" },
@@ -1296,7 +1282,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "block-sparse-attn", git = "https://github.com/mit-han-lab/Block-Sparse-Attention?tag=v0.0.2.post1" },
     { name = "flashdreams", editable = "flashdreams" },
     { name = "grpcio", specifier = ">=1.80" },
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.80" },
@@ -1310,7 +1295,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/hy_worldplay" }
 dependencies = [
     { name = "diffusers" },
@@ -1345,7 +1330,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-lingbot"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/lingbot" }
 dependencies = [
     { name = "aiohttp" },
@@ -1378,7 +1363,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-omnidreams"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
@@ -1449,7 +1434,7 @@ provides-extras = ["interactive-drive", "dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -1471,7 +1456,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/wan21" }
 dependencies = [
     { name = "flashdreams" },
@@ -1495,7 +1480,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan22"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 source = { editable = "integrations/wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -2292,7 +2277,6 @@ dependencies = [
     { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pillow" },
     { name = "pyarrow" },
-    { name = "pynvvideocodec" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "setuptools" },
@@ -2306,6 +2290,9 @@ dev = [
     { name = "opencv-python" },
     { name = "pytest" },
 ]
+video-codec = [
+    { name = "pynvvideocodec", marker = "python_full_version < '3.13'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2317,13 +2304,13 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pyarrow", specifier = ">=14.0" },
-    { name = "pynvvideocodec", specifier = ">=2.0" },
+    { name = "pynvvideocodec", marker = "python_full_version < '3.13' and extra == 'video-codec'", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "setuptools", specifier = ">=69" },
     { name = "torch", specifier = ">=2.11" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["video-codec", "dev"]
 
 [[package]]
 name = "markdown-it-py"

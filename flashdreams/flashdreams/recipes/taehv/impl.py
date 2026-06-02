@@ -87,21 +87,21 @@ class MemBlock(nn.Module):
     def cache_step(
         self, x: torch.Tensor, state: Dict[int, torch.Tensor], batch: int
     ) -> torch.Tensor:
-        """Apply with streaming left-context drawn from ``state``.
+        """Apply with streaming left-context: prepend the previous chunk's
+        last frame to ``x``, run the conv stack, save the new last frame.
 
-        Rolls ``x`` right one step and pads with the previous chunk's last
-        frame (or zeros on the first chunk). Bit-for-bit compatible with the
-        legacy ``cache_mem[i] = _x; ... prev_mem[:, -1:]`` pattern.
+        ``state[id(self)]`` must already exist; :meth:`Decoder.initialize_state`
+        pre-allocates it as a ``[batch, 1, C, H, W]`` zero tensor on the
+        first chunk (bit-equivalent to the legacy ``F.pad`` zero-pad path).
+        Keeping the dict-state lookup branchless lets the compiled decoder
+        be one ``torch.compile``-stable graph across the AR0 -> AR1 transition.
         """
         key = id(self)
         bt, c, h, w = x.shape
         t = bt // batch
         x5 = x.view(batch, t, c, h, w)
-        prev = state.get(key)
-        if prev is None:
-            past = F.pad(x5, (0, 0, 0, 0, 0, 0, 1, 0))[:, :t]
-        else:
-            past = torch.cat([prev, x5[:, :-1]], dim=1)
+        prev = state[key]
+        past = torch.cat([prev, x5[:, :-1]], dim=1)
         out = self.forward(x, past.reshape(bt, c, h, w))
         set_or_copy(state, key, x5[:, -1:])
         return out
@@ -179,6 +179,49 @@ class Decoder(nn.Module):
                 x = blk(x)
         bt, c_out, h_out, w_out = x.shape
         return x.reshape(b, bt // b, c_out, h_out, w_out)
+
+    @torch.no_grad()
+    def initialize_state(
+        self,
+        z_shape: tuple[int, int, int, int, int],
+        dtype: torch.dtype,
+        device: torch.device,
+        state: Dict[int, torch.Tensor],
+    ) -> None:
+        """Populate ``state`` with one zero ``[B, 1, C_i, H_i, W_i]`` tensor per
+        :class:`MemBlock`.
+
+        Walks ``self.blocks`` once eagerly with a synthetic zero input to
+        derive each ``MemBlock``'s input shape; the conv outputs are
+        discarded. After this call every ``MemBlock``'s ``id()`` key is in
+        ``state`` so :meth:`MemBlock.cache_step` never raises and Dynamo's
+        first compiled trace already sees the populated branch (no AR0 -> AR1
+        recompile).
+
+        Zero ``prev`` makes ``cat([zeros, x5[:, :-1]], dim=1)`` in
+        ``cache_step`` bit-equivalent to the legacy
+        ``F.pad(x5, (.., 1, 0))[:, :t]`` first-chunk path, so AR0 outputs
+        are unchanged.
+        """
+        batch, t, c_z, h_z, w_z = z_shape
+        x = torch.zeros(batch * t, c_z, h_z, w_z, dtype=dtype, device=device)
+        for blk in self.blocks:
+            if isinstance(blk, MemBlock):
+                bt_x, c_x, h_x, w_x = x.shape
+                t_x = bt_x // batch
+                state[id(blk)] = torch.zeros(
+                    batch, 1, c_x, h_x, w_x, dtype=dtype, device=device
+                )
+                # Advance x's shape by running the block with a zero past;
+                # output values are discarded.
+                past = (
+                    state[id(blk)]
+                    .expand(-1, t_x, -1, -1, -1)
+                    .reshape(bt_x, c_x, h_x, w_x)
+                )
+                x = blk.forward(x, past)
+            else:
+                x = blk(x)
 
 
 class TAEHV(nn.Module):
@@ -394,6 +437,14 @@ class TAEHV(nn.Module):
             cache = self.prepare_cache()
         state = cache.dec_state
         first_decode = not state
+        if first_decode:
+            # Pre-populate state with zeros so Dynamo's first decoder trace
+            # already sees ``state[key]`` as Tensor; without this, AR1 would
+            # recompile when the dict transitions from empty to populated.
+            b, t, c_z, h_z, w_z = z.shape
+            self.decoder.initialize_state(
+                (b, t, c_z, h_z, w_z), z.dtype, z.device, state
+            )
         # Bind decoder before the first call so steady-state goes through the
         # wrapper while the autotune-during-capture shape stays on the eager
         # path.

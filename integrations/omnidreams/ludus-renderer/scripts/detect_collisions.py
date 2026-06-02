@@ -31,7 +31,7 @@ Resume after interruption (skips already-processed scenes):
         --scene-list example_data/scene_paths_all.txt \
         --output-dir collision_results/ --resume
 
-Manual sharding (e.g. for parallel jobs without Skippy):
+Manual sharding (e.g. for parallel jobs):
 
     uv run python scripts/detect_collisions.py \
         --scene-list example_data/scene_paths_all.txt \
