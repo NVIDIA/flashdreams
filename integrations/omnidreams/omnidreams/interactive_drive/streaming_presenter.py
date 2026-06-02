@@ -817,7 +817,12 @@ class MJPEGStreamingPresenter:
         edges clean is a good trade.
         """
         buf = io.BytesIO()
-        Image.fromarray(bev_rgb_host_uint8).save(buf, format="JPEG", quality=95)
+        # Same lazy-frame coercion as ``_publish``: the BEV frame can arrive as
+        # a ``_LazyRasterFrame`` (exposes ``__array__`` but not
+        # ``__array_interface__``), which ``Image.fromarray`` can't consume.
+        Image.fromarray(np.asarray(bev_rgb_host_uint8)).save(
+            buf, format="JPEG", quality=95
+        )
         jpeg = buf.getvalue()
         with self._frame_cond:
             self._latest_bev_jpeg = jpeg
