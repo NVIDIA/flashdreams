@@ -327,12 +327,7 @@ def test_block_kvcache_cudagraph_matches_baseline(
     sink_size: int,
     window_size: int,
 ) -> None:
-    """BlockKVCache with CUDA graph (steady-state path) should match baseline.
-
-    To print out the torch.compile events run with
-
-    uv run --group test pytest flashdreams/tests/test_kvcache.py::test_block_kvcache_compile_cudagraph_matches_baseline -vv -s -o log_cli=true --log-cli-level=INFO
-    """
+    """BlockKVCache with CUDA graph (steady-state path) should match baseline."""
     device = torch.device("cuda")
     batch, n_heads = 2, 4
     dim_k, dim_v = 8, 16
@@ -448,7 +443,14 @@ def test_block_kvcache_cudagraph_matches_baseline(
 def test_block_kvcache_compile_cudagraph_matches_baseline(
     dtype: torch.dtype,
 ) -> None:
-    """BlockKVCache with torch.compile and CUDA graph should match baseline."""
+    """BlockKVCache with torch.compile and CUDA graph should match baseline.
+
+    To print out the torch.compile events run with
+
+    uv run --group test pytest \
+        flashdreams/tests/test_kvcache.py::test_block_kvcache_compile_cudagraph_matches_baseline \
+        -vv -s -o log_cli=true --log-cli-level=INFO
+    """
     import torch._dynamo as dynamo
 
     device = torch.device("cuda")
