@@ -25,9 +25,12 @@ to ``nvidia/omni-dreams-scenes`` before running this helper.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shutil
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.scenes import (
@@ -117,6 +120,16 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Skip pre-warming the Cosmos-Reason1 runtime text encoder (~14 GB). "
             "The runtime will download it lazily on first use."
+        ),
+    )
+    parser.add_argument(
+        "--perf",
+        action="store_true",
+        help=(
+            "Sync the pinned third-party CUDA sources required by the perf "
+            "manifest's native acceleration (example_world_model_perf.yaml). "
+            "Clones them into omnidreams_singleview/3rdparty/; the extension "
+            "itself compiles on first run. Requires a source checkout and git."
         ),
     )
     parser.add_argument(
@@ -230,6 +243,55 @@ def stage_scene(
     return dest
 
 
+def _sync_thirdparty_module() -> ModuleType:
+    """Load the standalone ``sync_thirdparty`` tool by path.
+
+    It lives in the ``omnidreams_singleview`` source tree (a sibling of the
+    ``omnidreams`` package, not an installed module), so it's loaded from its
+    file rather than imported.
+    """
+    tool_path = (
+        Path(__file__).resolve().parents[1]
+        / "omnidreams_singleview"
+        / "tools"
+        / "sync_thirdparty.py"
+    )
+    if not tool_path.is_file():
+        raise SystemExit(
+            "--perf requires the omnidreams_singleview sources, which ship "
+            f"only in a source checkout; not found at {tool_path}."
+        )
+    spec = importlib.util.spec_from_file_location(
+        "omnidreams_sync_thirdparty", tool_path
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Could not load {tool_path}.")
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec so the tool's frozen dataclasses can resolve their
+    # own module via sys.modules during class creation.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def sync_perf_thirdparty(*, force: bool) -> None:
+    """Sync the pinned native CUDA sources the perf manifest builds against.
+
+    ``example_world_model_perf.yaml`` (``native_dit_acceleration: required``)
+    compiles against CUTLASS, SageAttention, SpargeAttn, and cudnn-frontend.
+    Clones them into ``omnidreams_singleview/3rdparty/``; the extension itself
+    builds on first run. Needs git + network.
+    """
+    sync = _sync_thirdparty_module()
+    try:
+        sources = sync.load_manifest()
+        info(f"Syncing {len(sources)} native third-party source(s) for --perf.")
+        for result in sync.sync_sources(sources, force=force):
+            info(f"  {result.source.name}: {result.commit[:12]} -> {result.path}")
+    except sync.ThirdPartySyncError as exc:
+        raise SystemExit(f"--perf third-party sync failed: {exc}") from exc
+
+
 def main() -> int:
     args = parse_args()
 
@@ -310,6 +372,10 @@ def main() -> int:
         for i, (uuid, variant) in enumerate(scene_files, start=1):
             info(f"  [{i}/{len(scene_files)}] {uuid} ({variant})")
             stage_scene(uuid, variant=variant, force=args.force)
+
+    # Independent of Hugging Face (git clones, no HF_TOKEN).
+    if args.perf:
+        sync_perf_thirdparty(force=args.force)
 
     info("Workspace assets are ready.")
     return 0

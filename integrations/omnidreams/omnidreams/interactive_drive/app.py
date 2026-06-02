@@ -20,7 +20,10 @@ from omnidreams.interactive_drive.runtime.loop import (
     PresenterBackend,
     run_main_loop,
 )
-from omnidreams.interactive_drive.scene_loader import load_scene_bundle
+from omnidreams.interactive_drive.scene_loader import (
+    load_scene_bundle,
+    reseed_scene_bundle,
+)
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
@@ -124,6 +127,12 @@ class InteractiveDriveApp:
             tuple[str, str, str | None],
             tuple[SceneBundle, MapBounds | None, GroundSnapper | None],
         ] = {}
+        # Parsed geometry per base scene path. Weather variants share all
+        # geometry and differ only in seed frame + prompt, so we parse once and
+        # re-seed per variant rather than re-parsing the USDZ each switch.
+        self._geometry_cache: dict[
+            str, tuple[SceneBundle, MapBounds | None, GroundSnapper | None]
+        ] = {}
         self._scene_cache_lock = threading.Lock()
         # Set while --preload-scenes is still parsing scenes in the
         # background; the presenter locks scene selection until it clears so
@@ -181,20 +190,12 @@ class InteractiveDriveApp:
 
         def _parse() -> None:
             try:
-                scene = load_scene_bundle(
-                    scene_path=scene_path,
-                    camera_name=self._config.camera_name,
-                    variant=variant,
-                    prompt_override=prompt_override,
-                    raster=self._config.raster,
+                # Map bounds + ground snapper are geometry-derived; built here
+                # on the background thread and cached so resets and variant
+                # switches don't rebuild them.
+                loaded.extend(
+                    self._resolve_scene_assets(scene_path, variant, prompt_override)
                 )
-                # The OOB AABB and the ground snapper's spatial grid are
-                # properties of the scene geometry and invariant across the
-                # rollout restarts inside run_scene -- build both here (on the
-                # background thread) so a reset never rebuilds the snapper.
-                loaded.append(scene)
-                loaded.append(build_map_bounds(scene))
-                loaded.append(build_ground_snapper(scene))
             except BaseException as exc:  # re-raised on the UI thread below
                 error.append(exc)
             finally:
@@ -263,15 +264,11 @@ class InteractiveDriveApp:
                 if key in self._scene_cache:
                     continue
             try:
-                scene = load_scene_bundle(
-                    scene_path=scene_path,
-                    camera_name=self._config.camera_name,
-                    variant=variant,
-                    prompt_override=prompt_override,
-                    raster=self._config.raster,
+                # Reuses cached geometry, so only the first variant of each
+                # scene pays the full parse; the rest are cheap re-seeds.
+                scene, bounds, snapper = self._resolve_scene_assets(
+                    scene_path, variant, prompt_override
                 )
-                bounds = build_map_bounds(scene)
-                snapper = build_ground_snapper(scene)
             except BaseException as exc:  # noqa: BLE001 - log & skip one scene
                 print(
                     f"[interactive-drive] scene preload failed for "
@@ -286,6 +283,39 @@ class InteractiveDriveApp:
                 f"{Path(str(scene_path)).name} variant={variant!r}",
                 flush=True,
             )
+
+    def _resolve_scene_assets(
+        self, scene_path: object, variant: str, prompt_override: str | None
+    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None]:
+        """Resolve ``(scene, map_bounds, ground_snapper)``, caching geometry per scene.
+
+        First variant of a scene: full parse + build bounds/snapper, then cache.
+        Later variants: re-seed the cached bundle (frame + prompt only).
+        """
+        geometry = self._cached_geometry(scene_path)
+        if geometry is not None:
+            base_scene, map_bounds, ground_snapper = geometry
+            scene = reseed_scene_bundle(
+                base_scene,
+                Path(str(scene_path)),
+                self._config.camera_name,
+                variant,
+                prompt_override,
+                self._config.raster,
+            )
+            return scene, map_bounds, ground_snapper
+
+        scene = load_scene_bundle(
+            scene_path=scene_path,
+            camera_name=self._config.camera_name,
+            variant=variant,
+            prompt_override=prompt_override,
+            raster=self._config.raster,
+        )
+        map_bounds = build_map_bounds(scene)
+        ground_snapper = build_ground_snapper(scene)
+        self._store_geometry(scene_path, scene, map_bounds, ground_snapper)
+        return scene, map_bounds, ground_snapper
 
     @staticmethod
     def _scene_cache_key(
@@ -318,6 +348,27 @@ class InteractiveDriveApp:
             self._scene_cache[
                 self._scene_cache_key(scene_path, variant, prompt_override)
             ] = (scene, map_bounds, ground_snapper)
+
+    def _cached_geometry(
+        self, scene_path: object
+    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None] | None:
+        # Always on, unlike the --preload-scenes-gated ``_scene_cache``: one
+        # bundle per scene lets a live variant switch re-seed, not re-parse.
+        with self._scene_cache_lock:
+            return self._geometry_cache.get(str(scene_path))
+
+    def _store_geometry(
+        self,
+        scene_path: object,
+        scene: SceneBundle,
+        map_bounds: MapBounds | None,
+        ground_snapper: GroundSnapper | None,
+    ) -> None:
+        # First parse of a scene wins; later variants re-seed off it.
+        with self._scene_cache_lock:
+            self._geometry_cache.setdefault(
+                str(scene_path), (scene, map_bounds, ground_snapper)
+            )
 
     def _pump_presenter_until(self, done: threading.Event) -> None:
         """Pump events + a loading overlay until ``done`` is set or we close.

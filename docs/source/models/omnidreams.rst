@@ -204,6 +204,36 @@ The demo loads the saved profile automatically on subsequent launches.
 Re-run the configuration tool to specify the default profile, edit a profile
 (steering sensitivity, deadzone, buttons), or delete a profile.
 
+Native acceleration (perf manifest)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The bundled ``example_world_model_perf.yaml`` manifest runs the DiT and
+LightVAE through the OmniDreams single-view CUDA extension
+(``native_dit_acceleration: required``), which is faster than the default
+PyTorch path. The extension builds against pinned checkouts of CUTLASS,
+SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
+repo. ``omnidreams-prepare --perf`` clones them at their pinned commits into
+``integrations/omnidreams/omnidreams_singleview/3rdparty/``:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams omnidreams-prepare --perf
+
+This step only syncs sources; the extension itself compiles on the first
+launch that uses the manifest (one-time, a few minutes). It requires a
+Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
+``omnidreams_singleview`` sources ship only in the git tree, not the wheel),
+``git``, and a CUDA toolchain (``nvcc``) matching your PyTorch build. Then
+point the demo at the perf manifest:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive \
+       --manifest example_world_model_perf.yaml
+
+``native_dit_acceleration: required`` makes the manifest fail loudly if the
+extension can't build or load, rather than silently falling back to PyTorch.
+
 Alternative: WebRTC server
 --------------------------
 

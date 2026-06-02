@@ -329,6 +329,25 @@ _INDEX_HTML = """<!doctype html>
     padding: 6px 8px;
     font-size: 11px; line-height: 1.3;
   }
+  /* Weather-variant pills, shown only for multi-variant scenes. */
+  .scene-variants {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding: 0 8px 8px 8px;
+  }
+  .variant-pill {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    color: white;
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    pointer-events: auto;
+    user-select: none;
+    transition: background-color 0.1s, border-color 0.1s;
+  }
+  .variant-pill:hover { background: rgba(120, 200, 255, 0.3); border-color: rgba(120, 200, 255, 0.7); }
+  .variant-pill.loading { border-color: rgba(120, 200, 255, 1.0); opacity: 0.7; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -484,29 +503,52 @@ async function fetchScenes() {
       label.className = 'scene-label';
       label.textContent = s.label || ('Scene ' + (i + 1));
       card.appendChild(label);
+      // Clicking the card (outside a pill) loads the default variant.
       card.addEventListener('click', () => loadScene(i, card));
+      const variants = Array.isArray(s.variants) ? s.variants : [];
+      if (variants.length > 1) {
+        const row = document.createElement('div');
+        row.className = 'scene-variants';
+        variants.forEach(v => {
+          const pill = document.createElement('button');
+          pill.className = 'variant-pill';
+          pill.type = 'button';
+          pill.textContent = variantLabel(v);
+          pill.addEventListener('click', e => {
+            e.stopPropagation();   // don't also trigger the card's default-variant load
+            loadScene(i, card, v, pill);
+          });
+          row.appendChild(pill);
+        });
+        card.appendChild(row);
+      }
       scenePickerList.appendChild(card);
     });
     scenePicker.classList.remove('hidden');
   } catch {}
 }
-async function loadScene(idx, card) {
+function variantLabel(v) {
+  const labels = {
+    default: 'Default', clear: 'Clear', snow: 'Snow', rain: 'Rain',
+  };
+  return labels[v] || (v.charAt(0).toUpperCase() + v.slice(1));
+}
+async function loadScene(idx, card, variant, pill) {
   const scene = SCENES[idx];
   if (!scene) return;
-  card.classList.add('loading');
+  (pill || card).classList.add('loading');
   try {
-    // Variant is omitted; the server falls back to the scene's first
-    // registered variant (typically ``default``). The streaming UI
-    // intentionally doesn't expose the variant selector.
-    await fetch('/scene/select?scene=' + encodeURIComponent(scene.path),
-                { method: 'GET', cache: 'no-store' });
+    let url = '/scene/select?scene=' + encodeURIComponent(scene.path);
+    // No variant -> server uses the scene's default; a pill selects one.
+    if (variant) url += '&variant=' + encodeURIComponent(variant);
+    await fetch(url, { method: 'GET', cache: 'no-store' });
   } catch {}
   // Tuck the panel away so the user gets the camera view back; the
   // scene transition itself is driven by the server-side loop. From
   // this point on, click-outside dismissal is enabled too.
   firstSceneLoaded = true;
   setScenePickerCollapsed(true);
-  setTimeout(() => { card.classList.remove('loading'); }, 1500);
+  setTimeout(() => { (pill || card).classList.remove('loading'); }, 1500);
 }
 fetchScenes();
 </script>
@@ -792,9 +834,9 @@ class MJPEGStreamingPresenter:
 
     # -- Internals --------------------------------------------------
 
-    def _publish(self, rgb_host_uint8: np.ndarray) -> None:
+    def _publish(self, rgb_host_uint8: object) -> None:
         buf = io.BytesIO()
-        Image.fromarray(rgb_host_uint8).save(
+        Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8)).save(
             buf, format="JPEG", quality=self._jpeg_quality
         )
         jpeg = buf.getvalue()
@@ -803,7 +845,7 @@ class MJPEGStreamingPresenter:
             self._frame_count += 1
             self._frame_cond.notify_all()
 
-    def _publish_bev(self, bev_rgb_host_uint8: np.ndarray) -> None:
+    def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap and stash it for ``/bev_stream`` waiters.
 
         BEV frames are tiny (<= 384x384) so JPEG encode is sub-millisecond
@@ -814,7 +856,9 @@ class MJPEGStreamingPresenter:
         edges clean is a good trade.
         """
         buf = io.BytesIO()
-        Image.fromarray(bev_rgb_host_uint8).save(buf, format="JPEG", quality=95)
+        Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
+            buf, format="JPEG", quality=95
+        )
         jpeg = buf.getvalue()
         with self._frame_cond:
             self._latest_bev_jpeg = jpeg
@@ -1126,7 +1170,12 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.end_headers()
             last_seen = 0
             try:
-                while not presenter.should_close:
+                # Loop until shutdown (``wait_fn`` returns None only on
+                # ``_stop_event``). NOT gated on ``should_close``: that also
+                # flips True on a pending scene/variant change, and closing the
+                # connection there would freeze the browser's multipart <img>
+                # (it never auto-reconnects) mid-switch.
+                while True:
                     result = wait_fn(last_seen)
                     if result is None:
                         break
@@ -1180,7 +1229,21 @@ def _query_float(query: dict[str, list[str]], name: str) -> float:
         return 0.0
 
 
-def _with_status_overlay(rgb_host_uint8: np.ndarray, message: str | None) -> np.ndarray:
+def _as_rgb_host_uint8(frame: object) -> np.ndarray:
+    """Materialize a frame to ``(H, W, 3)`` uint8.
+
+    World-model frames are lazy GPU handles (``_LazyRGBFrame``) with
+    ``to_numpy()`` but no ``__array_interface__``, so ``Image.fromarray`` can't
+    take them directly. Mirrors the slangpy presenter.
+    """
+    to_numpy = getattr(frame, "to_numpy", None)
+    if callable(to_numpy):
+        frame = to_numpy()
+    return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
+
+
+def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
+    rgb_host_uint8 = _as_rgb_host_uint8(rgb_host_uint8)
     if message is None:
         return rgb_host_uint8
     return render_loading_overlay(rgb_host_uint8, message=message)

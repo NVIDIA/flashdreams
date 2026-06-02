@@ -153,7 +153,9 @@ def _resolve_webrtc_first_frame(clipgt_dir: Path, camera_name: str) -> Path | No
     ]
     if not candidate_dirs:
         # Fall back to any single camera directory present.
-        candidate_dirs = [path for path in sorted(frames_root.iterdir()) if path.is_dir()]
+        candidate_dirs = [
+            path for path in sorted(frames_root.iterdir()) if path.is_dir()
+        ]
     for directory in candidate_dirs:
         frames = [
             path
@@ -182,7 +184,9 @@ def _resolve_webrtc_scene_assets(
     # Prefer the GT camera frame; fall back to ``first_image.*`` for bundles
     # with no per-camera frames.
     first_frame_path = (
-        None if clipgt_dir is None else _resolve_webrtc_first_frame(clipgt_dir, camera_name)
+        None
+        if clipgt_dir is None
+        else _resolve_webrtc_first_frame(clipgt_dir, camera_name)
     )
     if first_frame_path is None and clipgt_dir is not None:
         first_frame_path = _choose_existing_asset(

@@ -7,7 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -899,6 +899,29 @@ def load_scene_bundle(
         vehicle_bbox_tracks=vehicle_bbox_tracks,
         ground_mesh_vertices=ground_mesh_vertices,
         ground_mesh_faces=ground_mesh_faces,
+    )
+
+
+def reseed_scene_bundle(
+    bundle: SceneBundle,
+    scene_path: Path,
+    camera_name: str,
+    variant: str,
+    prompt_override: str | None,
+    raster: RasterConfig,
+) -> SceneBundle:
+    """Re-seed an already-parsed ``bundle`` for a different weather variant.
+
+    Variants share all geometry; only the initial frame and prompt differ, so
+    this reads just those from the variant's archive and reuses the rest,
+    skipping the full re-parse and bounds/snapper rebuild.
+    """
+    scene_path = resolve_variant_archive(Path(scene_path), variant)
+    with zipfile.ZipFile(scene_path, "r") as zf:
+        initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
+        prompt = _load_prompt(zf, variant, prompt_override)
+    return replace(
+        bundle, scene_path=scene_path, initial_rgb=initial_rgb, prompt=prompt
     )
 
 
