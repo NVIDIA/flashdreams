@@ -42,6 +42,12 @@ throughput.
      <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~48 GB.
+- **PyTorch**: >= 2.11.
+
 Installation
 ------------
 
