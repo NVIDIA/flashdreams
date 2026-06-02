@@ -62,7 +62,7 @@ Next steps
 
 Explore models:
 
-- :doc:`/benchmarks` - Browse all supported models, their specific launch commands, and configurations.
+- :doc:`/models/index` - Browse all supported models, their specific launch commands, and configurations.
 
 For developers:
 

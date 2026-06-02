@@ -31,7 +31,7 @@ pipeline modules that are still exposed from ``flashdreams.recipes``.
    ops) at import time, so this page shows them by *automodule* with
    ``:no-undoc-members:`` to keep the rendered API focused on the names
    that these in-tree modules actually expose. The unified ``flashdreams-run``
-   CLI shows end-to-end usage; see :doc:`/benchmarks` for the list
+   CLI shows end-to-end usage; see :doc:`/models/index` for the list
    of supported models with launch commands.
 
 Integration structure (current)

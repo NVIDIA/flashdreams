@@ -37,7 +37,8 @@ Installation
 Running the method
 ------------------
 
-To run Causal Wan2.2, launch the registered runner slug. For example:
+To run Causal Wan2.2, launch the registered runner slug via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -55,8 +56,8 @@ To run Causal Wan2.2, launch the registered runner slug. For example:
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
