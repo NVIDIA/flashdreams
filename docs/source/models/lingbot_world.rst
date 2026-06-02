@@ -237,3 +237,17 @@ matched settings.
      </figcaption>
    </figure>
   <script src="../_static/js/benchmark_chart.js"></script>
+
+Citation
+--------
+
+If you use LingBot-World, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{lingbot-world,
+         title={Advancing Open-source World Models},
+         author={Robbyant Team and Zelin Gao and Qiuyu Wang and Yanhong Zeng and Jiapeng Zhu and Ka Leong Cheng and Yixuan Li and Hanlin Wang and Yinghao Xu and Shuailei Ma and Yihang Chen and Jie Liu and Yansong Cheng and Yao Yao and Jiayi Zhu and Yihao Meng and Kecheng Zheng and Qingyan Bai and Jingye Chen and Zehong Shen and Yue Yu and Xing Zhu and Yujun Shen and Hao Ouyang},
+         journal={arXiv preprint arXiv:2601.20540},
+         year={2026}
+   }
