@@ -21,7 +21,7 @@ issue and we'll fix it.
 6. [Coding conventions](#coding-conventions)
 7. [Testing](#testing)
 8. [Dependency version bounds](#dependency-version-bounds)
-9. [Speeding up local builds](#speeding-up-local-builds)
+9. [Working with a single integration package](#working-with-a-single-integration-package)
 10. [Licensing of contributions](#licensing-of-contributions)
 11. [Filing issues and security reports](#filing-issues-and-security-reports)
 12. [Code of Conduct](#code-of-conduct)
@@ -318,59 +318,7 @@ the declared minimums. This means:
   [open an issue](https://github.com/NVIDIA/flashdreams/issues). We will
   either fix compatibility or bump the bound in `pyproject.toml`.
 
-## Speeding up local builds
-
-The first `uv sync` in a fresh environment compiles CUDA extensions
-from source, including transformer-engine. On a
-workstation this can take 30+ minutes. The environment variables below --
-the same ones used in CI -- dramatically reduce that time by limiting
-compilation to your GPU's architecture and controlling parallelism.
-
-### Detect your GPU architecture
-
-```bash
-# Returns e.g. "12.0" for an RTX 5090 / Blackwell
-nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1
-```
-
-Strip the dot to get the nvcc arch code (e.g. `12.0` -> `120`,
-`8.9` -> `89`).
-
-### Recommended environment variables
-
-```bash
-# Detect arch automatically (paste into your shell or .envrc):
-CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
-  | head -1 | tr -d '.')
-
-# Only compile CUDA kernels for YOUR GPU (instead of all supported archs)
-export NVTE_CUDA_ARCHS="${CUDA_ARCH}"              # transformer-engine
-
-# Limit parallel nvcc jobs to avoid OOM (each job uses ~9GB peak memory).
-# Set this to (available_RAM_GB / 9), capped at your CPU core count.
-export MAX_JOBS=8
-```
-
-| Variable | Effect | Typical speedup |
-|----------|--------|-----------------|
-| `NVTE_CUDA_ARCHS` | Restricts transformer-engine compilation to listed SM arch(es) | ~10min -> ~1min |
-| `MAX_JOBS` | Caps parallel nvcc processes (prevents OOM) | Avoids killed builds |
-
-### Putting it together
-
-A typical developer `.envrc` (if using [direnv](https://direnv.net/)):
-
-```bash
-# .envrc (not committed -- already in .gitignore)
-export CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
-  | head -1 | tr -d '.')
-export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
-export MAX_JOBS=8
-```
-
-Then `uv sync --extra dev` will only compile for your local GPU.
-
-### Working with a single integration package
+## Working with a single integration package
 
 The workspace contains many integration packages under `integrations/`.
 A full `uv sync` installs dependencies for *all* of them. If you only

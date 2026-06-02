@@ -32,6 +32,7 @@ Usage (from repo root):
 """
 
 import argparse
+import importlib
 import os
 import queue
 import signal
@@ -97,8 +98,18 @@ def _resolve_scale(scale: int) -> Scale:
     raise ValueError(f"FlashVSR scale must be 2 or 4, got {scale}")
 
 
+def _sparse_attention_available() -> bool:
+    try:
+        importlib.import_module("triton")
+    except ImportError:
+        return False
+    return True
+
+
 def _resolve_attention_mode(attention_mode: RequestedAttentionMode) -> AttentionMode:
     if attention_mode == "full":
+        return "full"
+    if attention_mode == "auto" and not _sparse_attention_available():
         return "full"
     return "sparse"
 
@@ -1161,7 +1172,8 @@ def main():
         default="sparse",
         help=(
             "Attention backend for the FlashVSR DiT. sparse uses the in-tree "
-            "Triton block-sparse implementation; auto resolves to sparse. "
+            "Triton block-sparse implementation; auto uses sparse when "
+            "available and falls back to full attention otherwise. "
             "Pass --attention_mode full to opt into dense attention instead "
             "(default: %(default)s)."
         ),

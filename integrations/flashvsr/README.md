@@ -138,8 +138,8 @@ Then open `http://<server-host>:8080/` in a browser. The page shows received
 input frames and upsampled frames side by side. By default, viewer mode omits
 raw output frame bytes from gRPC responses to keep server-to-client bandwidth
 low; pass `--viewer_return_grpc_frames` if a client also needs the RGB payloads.
-`--attention_mode auto` resolves to the sparse backend. To force the dense path,
-pass `--attention_mode full`.
+`--attention_mode auto` uses the sparse backend when available and falls back to
+full attention otherwise. To force the dense path, pass `--attention_mode full`.
 
 Use the live-ingest client to loop a video into the server at 30 fps:
 
