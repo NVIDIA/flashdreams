@@ -35,10 +35,12 @@ Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installat
 ```bash
 git clone https://github.com/NVIDIA/flashdreams.git
 cd flashdreams
-uv sync --extra dev --extra runners
+uv sync --extra runners
 export HF_TOKEN=<your-hf-token>
 uv run flashdreams-run --help
 ```
+
+Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.
 
 Then launch your first model by following
 [the quickstart guide](https://nvidia.github.io/flashdreams/main/quickstart/first_world_model.html).
