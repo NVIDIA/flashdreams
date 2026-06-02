@@ -193,12 +193,9 @@ jobs:
           find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
 
   # ===========================================================================
-  # Publish to Test PyPI -- runs only on main after cpu + gpu jobs pass.
-  # TEMPORARY: targets test.pypi.org while the project is pre-release.
-  # Switch --publish-url/--check-url to the real PyPI endpoints and the
-  # secret to PYPI_API_TOKEN when going public.
+  # Publish to PyPI -- runs only on main after cpu + gpu jobs pass.
   # ===========================================================================
-  publish-testpypi:
+  publish-pypi:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [cpu, gpu]
     runs-on: linux-amd64-cpu8
@@ -222,20 +219,20 @@ jobs:
         run: |
           version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' flashdreams/flashdreams/_version.py)
           echo "version=$version"
-          if curl -sSf "https://test.pypi.org/simple/flashdreams/" \
+          if curl -sSf "https://pypi.org/simple/flashdreams/" \
              | grep -q "flashdreams-${version}-"; then
-            echo "Version $version already exists on Test PyPI -- skipping publish"
+            echo "Version $version already exists on PyPI -- skipping publish"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Version $version not found on Test PyPI -- will publish"
+            echo "Version $version not found on PyPI -- will publish"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to Test PyPI
+      - name: Publish to PyPI
         if: steps.previously_published.outputs.skip != 'true'
         run: >
           uv publish
-          --publish-url https://test.pypi.org/legacy/
-          --check-url https://test.pypi.org/simple/
-          --token ${{ secrets.TEST_PYPI_API_TOKEN }}
+          --publish-url https://upload.pypi.org/legacy/
+          --check-url https://pypi.org/simple/
+          --token ${{ secrets.PYPI_API_TOKEN }}
           dist/*
