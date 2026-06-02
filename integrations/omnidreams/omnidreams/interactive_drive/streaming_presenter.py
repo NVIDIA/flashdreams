@@ -794,7 +794,10 @@ class MJPEGStreamingPresenter:
 
     def _publish(self, rgb_host_uint8: np.ndarray) -> None:
         buf = io.BytesIO()
-        Image.fromarray(rgb_host_uint8).save(
+        # The no-overlay path forwards a lazy GPU-backed frame wrapper that
+        # exposes ``__array__`` but not ``__array_interface__``; coerce to a
+        # real ndarray so ``Image.fromarray`` works (no-op for plain arrays).
+        Image.fromarray(np.asarray(rgb_host_uint8)).save(
             buf, format="JPEG", quality=self._jpeg_quality
         )
         jpeg = buf.getvalue()
