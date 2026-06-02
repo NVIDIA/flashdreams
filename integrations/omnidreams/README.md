@@ -92,7 +92,7 @@ directory. Pass `--scene_dir <path>` to use a pre-staged local scene instead.
 From the workspace root, run:
 
 ```bash
-uv run --package flash-omnidreams torchrun --nproc_per_node 1 -m omnidreams.grpc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --host 0.0.0.0 --port 50051
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.grpc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --host 0.0.0.0 --port 50051
 ```
 
 The server implements `omnidreams.grpc.protos.video_model.WorldModelService`
