@@ -35,9 +35,6 @@ importing FlashDreams:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 ```
 
-Internal S3-backed runs can still set `FLASHDREAMS_INTERNAL_STORAGE=1`, which
-switches checkpoint and example-data URLs back to `s3://flashdreams`.
-
 ## Run interactive-drive (desktop demo)
 
 The `omnidreams.interactive_drive` subpackage ships a single-process
@@ -59,7 +56,7 @@ or to pre-warm the ~14 GB Cosmos-Reason1 text encoder.
 
 ## Native DiT defaults
 
-OmniDreams native DiT acceleration remains gated by the pipeline config's
+NVIDIA OmniDreams native DiT acceleration remains gated by the pipeline config's
 `native_dit_acceleration` policy (`disabled`, `auto`, or `required`). When that
 native path is enabled, the default compute profile is the FP8 KV-cache backend
 with cuDNN attention:
@@ -77,22 +74,26 @@ Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 From the workspace root, run:
 
 ```bash
-uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 065dcac9-ee67-4434-a835-c6b816c88e48 --port 8089
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the
-configured Hugging Face org, extracts its `clipgt-<uuid>.usdz` archive, and
-stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`). If
-`--scene-uuid` is omitted too, the server uses the default WebRTC scene. The
-runtime expects `clipgt/first_image.*` and `clipgt/prompt.txt` under the scene
-directory. Pass `--scene_dir <path>` to use a pre-staged local scene instead.
+configured Hugging Face org, extracts its `clipgt-<uuid>[-<variant>].usdz`
+archive, and stages it under `FLASHDREAMS_CACHE_DIR` (or `~/.cache/flashdreams`).
+If `--scene-uuid` is omitted too, the server uses the default WebRTC scene.
+Weather variants ship as sibling archives; pass `--scene-variant rain` (or
+`snow`) to serve one (default is the clear-weather scene). The runtime seeds
+from the scene's first ground-truth camera frame
+(`clipgt/frames/<camera>/<ts>.jpeg`, falling back to `clipgt/first_image.*`) and
+the weather-matched `clipgt/prompt<N>.txt` (falling back to `clipgt/prompt.txt`).
+Pass `--scene_dir <path>` to use a pre-staged local scene instead.
 
 ## Run gRPC server
 
 From the workspace root, run:
 
 ```bash
-uv run --package flash-omnidreams torchrun --nproc_per_node 1 -m omnidreams.grpc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --host 0.0.0.0 --port 50051
+uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.grpc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --host 0.0.0.0 --port 50051
 ```
 
 The server implements `omnidreams.grpc.protos.video_model.WorldModelService`

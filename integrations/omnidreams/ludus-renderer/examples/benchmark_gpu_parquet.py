@@ -17,7 +17,8 @@
 """Benchmark and validate GPU-native parquet decoder vs PyArrow path.
 
 Usage (on GPU node):
-    cd /home/jseo/nv/ludus-renderer && uv run python examples/benchmark_gpu_parquet.py
+    LUDUS_RENDERER_SAMPLE_TAR=/path/to/scene.tar \
+        uv run python examples/benchmark_gpu_parquet.py
 
 Runs:
   1. Single-scene correctness: compares FlatPolylineData from both paths
@@ -41,9 +42,9 @@ SCENE_LIST = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "example_data", "scene_paths_all.txt"
 )
 
-TAR_PATH = (
-    "/lustre/fsw/portfolios/av/projects/av_mlops_alpamayo/dataset/data_repo/"
-    "production/0003/00030bff-8007-4806-a258-60fb659604cf/clipgt.2.2.2-8b99c2.tar"
+TAR_PATH = os.environ.get(
+    "LUDUS_RENDERER_SAMPLE_TAR",
+    os.path.join(os.path.dirname(__file__), "example_data", "sample_scene.tar"),
 )
 
 

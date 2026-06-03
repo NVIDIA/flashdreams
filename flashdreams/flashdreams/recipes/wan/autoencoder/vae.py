@@ -38,7 +38,6 @@ from einops import rearrange
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.infra.decoder import (
@@ -51,16 +50,6 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
-
-_INTERNAL_WAN_VAE_CHECKPOINT_PATHS = {
-    "lightvae": "s3://flashdreams/assets/checkpoints/autoencoders/lightvaew2_1.pth",
-    "vae": "s3://flashdreams/assets/checkpoints/autoencoders/Wan2.1_VAE.pth",
-}
-
-_PUBLIC_WAN_VAE_CHECKPOINT_PATHS = {
-    "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
-    "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
-}
 
 # Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
 # loader pulls the diffusers safetensors shard and remaps keys via
@@ -80,12 +69,11 @@ WAN22_TI2V_5B_VAE_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
 
-AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = (
-    _INTERNAL_WAN_VAE_CHECKPOINT_PATHS
-    if use_internal_storage()
-    else _PUBLIC_WAN_VAE_CHECKPOINT_PATHS
-)
-"""Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
+AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
+    "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
+    "vae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth",
+}
+"""Checkpoint paths for the Wan VAE encoder."""
 
 CACHE_T = 2
 TEMPORAL_WINDOW = 4
@@ -810,6 +798,40 @@ class Encoder3d(nn.Module):
         assert isinstance(conv, CausalConv3d)
         return conv.cache_step(act(norm(x)), state)
 
+    @torch.no_grad()
+    def normalize_state_for_body(self, state: Dict[int, torch.Tensor]) -> None:
+        """Pad every CausalConv3d's seed-shaped state entry up to ``CACHE_T`` frames.
+
+        After ``WanVAE.encode``'s 1-frame seed call, each ``CausalConv3d`` has
+        stored ``state[id(cc3d)]`` as the last-CACHE_T-frames slice of a 1-frame
+        input -- so the stored tensor has T=1 rather than T=CACHE_T. This
+        triggers a whole-graph recompile on the first body chunk (T=4) of the
+        NEXT AR step because Dynamo specialized on the AR0 body's T=1 prev
+        state and AR1 body's prev state is T=CACHE_T=2.
+
+        Prepending zeros to make every entry T=CACHE_T is bit-equivalent to the
+        ``F.pad`` zero-prepad ``CausalConv3d.forward`` would have done if
+        ``prev`` had been shorter than ``time_pad`` -- verified by tracing the
+        conv input in both code paths. ``Resample._upsample3d_step`` /
+        ``_downsample3d_step`` already store T=CACHE_T (the upsample's 1-frame
+        branch explicitly allocates ``x.new_zeros(..., CACHE_T, ...)``, the
+        downsample stores a fixed T=1 tail), so this only touches CausalConv3d
+        entries.
+        """
+        for module in self.modules():
+            if not isinstance(module, CausalConv3d):
+                continue
+            key = id(module)
+            if key not in state:
+                continue
+            prev = state[key]
+            if prev.shape[2] >= CACHE_T:
+                continue
+            pad = CACHE_T - prev.shape[2]
+            b, c, _, h, w = prev.shape
+            zeros = prev.new_zeros(b, c, pad, h, w)
+            state[key] = torch.cat([zeros, prev], dim=2)
+
 
 class Decoder3d(nn.Module):
     def __init__(
@@ -1170,6 +1192,12 @@ class WanVAE(nn.Module):
         if not state:
             outs.append(self.encoder(x[:, :, :1], state))
             x = x[:, :, 1:]
+            # Pad CausalConv3d states from T=1 (seed) to T=CACHE_T so the
+            # AR0 body chunk and every AR1+ body chunk see identical state
+            # shapes -- this kills the ~68 s whole-graph encoder recompile
+            # at AR1. ``normalize_state_for_body`` is an eager ``Encoder3d``
+            # helper; the ``torch.compile`` proxy forwards the call to it.
+            self.encoder.normalize_state_for_body(state)
         else:
             assert x.shape[2] % TEMPORAL_WINDOW == 0, (
                 f"Streaming encode after the first chunk requires T % "

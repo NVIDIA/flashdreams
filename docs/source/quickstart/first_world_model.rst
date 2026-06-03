@@ -18,9 +18,9 @@ Launch your first model
 
 This page provides a minimal path for:
 
-1. offline / batch-like long-rollout model inference with
+1. Offline / batch-like long-rollout model inference with
    :doc:`Self-Forcing </models/self_forcing>`.
-2. online interactive world-model serving with
+2. Online interactive world-model serving with
    :doc:`LingBot-World </models/lingbot_world>`.
 
 Prerequisites

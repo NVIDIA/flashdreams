@@ -191,6 +191,7 @@ html_context = {
 }
 
 html_css_files = ["custom.css"]
+html_js_files = ["js/image_zoom.js"]
 
 # -- Copybutton --------------------------------------------------------------
 

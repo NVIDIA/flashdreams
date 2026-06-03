@@ -12,7 +12,8 @@ import struct
 import threading
 import time
 import zipfile
-from dataclasses import dataclass, replace
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,13 @@ class SceneOption:
     path: Path
     variants: tuple[str, ...]
     thumbnail: Image.Image | None = None
+    # Per-variant preview thumbnails keyed by variant slug, for the variant
+    # dropdown. Variants without a dedicated preview map to the default image
+    # so every row still shows a preview.
+    variant_thumbnails: dict[str, Image.Image] = field(default_factory=dict)
+    # Variant slug -> its USDZ archive. Distinct sibling files for the current
+    # per-weather dataset; the single ``path`` for legacy in-zip-variant scenes.
+    variant_paths: dict[str, Path] = field(default_factory=dict)
 
 
 @dataclass
@@ -620,11 +628,36 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
         )
     print(
         f"[interactive-drive] Scene '{stem}' not found locally; "
-        "auto-staging from Hugging Face (one-time download, ~30 MB)..."
+        "auto-staging from Hugging Face (one-time download)..."
     )
     from omnidreams.prepare import stage_scene
 
-    return stage_scene(bare_uuid, force=False)
+    staged_default = stage_scene(bare_uuid, force=False)
+    # Also stage the scene's other weather variants so the HUD shows a
+    # Default/Rain/Snow selector; discovery globs the cache dir for them.
+    try:
+        sibling_variants = [
+            variant
+            for uuid, variant in _scenes.list_available_scene_files()
+            if uuid == bare_uuid and variant != _scenes.SCENE_VARIANT_DEFAULT
+        ]
+    except Exception as exc:  # noqa: BLE001 - best-effort; base scene already staged
+        print(
+            f"[interactive-drive] could not enumerate scene variants ({exc}); "
+            "staged the base scene only.",
+            flush=True,
+        )
+        sibling_variants = []
+    for variant in sibling_variants:
+        try:
+            stage_scene(bare_uuid, variant=variant, force=False)
+        except Exception as exc:  # noqa: BLE001 - skip a variant, keep the rest
+            print(
+                f"[interactive-drive] failed to stage variant {variant!r} "
+                f"({exc}); skipping.",
+                flush=True,
+            )
+    return staged_default
 
 
 def main() -> None:
@@ -765,8 +798,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     if args.preload_scenes:
         app.preload_scenes(
-            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            (opt.path, variant, args.prompt)
             for opt in scene_options
+            for variant in (opt.variants or ("default",))
         )
         # Lock scene selection until every scene is cached so the user only
         # ever hits the instant (cache-hit) switch path.
@@ -776,7 +810,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
     # default are honoured; a dropdown selection overrides it below.
     scene_path: Any = config.scene_path
-    variant = config.variant
+    variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
     try:
         # Initial scene-selection wait: if the user didn't pass
         # ``--autoload-scene``, open the HUD and let them pick a scene from
@@ -907,8 +941,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     if args.preload_scenes:
         app.preload_scenes(
-            (opt.path, opt.variants[0] if opt.variants else "default", args.prompt)
+            (opt.path, variant, args.prompt)
             for opt in scene_options
+            for variant in (opt.variants or ("default",))
         )
         # Lock scene selection until every scene is cached so the user only
         # ever hits the instant (cache-hit) switch path.
@@ -1016,31 +1051,83 @@ def _discover_scene_options(
         paths.update(path.resolve() for path in scene_dir.glob("*.usdz"))
     if selected_scene.parent.is_dir():
         paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
+
+    # Group archives by scene UUID so the per-weather sibling files
+    # (``clipgt-<uuid>-<variant>.usdz``) collapse into one scene with a variant
+    # selector. Single-archive scenes stay a group of one.
+    grouped: dict[str, dict[str, Path]] = {}
+    for path in sorted(paths):
+        uuid, variant = _scenes.parse_scene_stem(path.stem)
+        grouped.setdefault(uuid, {})[variant] = path
+
     options = tuple(
-        SceneOption(
-            label=_scene_label(path),
-            path=path,
-            variants=_discover_variants(path),
-            thumbnail=_load_scene_thumbnail(path),
-        )
-        for path in sorted(paths)
+        _scene_option_for_group(variant_paths)
+        for _uuid, variant_paths in sorted(grouped.items())
     )
     print(
         "[demo] discovered scenes: "
-        + (", ".join(scene.label for scene in options) if options else "<none>"),
+        + (
+            ", ".join(
+                f"{scene.label} [{', '.join(scene.variants)}]" for scene in options
+            )
+            if options
+            else "<none>"
+        ),
         flush=True,
     )
     return options
 
 
+def _order_variants(variants: Iterable[str]) -> tuple[str, ...]:
+    """Order variant slugs with ``default`` first, then the rest sorted."""
+    unique = set(variants)
+    ordered = ["default"] if "default" in unique else []
+    ordered.extend(sorted(unique - {"default"}))
+    return tuple(ordered)
+
+
+def _scene_option_for_group(variant_paths: dict[str, Path]) -> SceneOption:
+    """Build one :class:`SceneOption` from a scene's variant archive(s).
+
+    Multiple siblings => the weather variants are the files. A single archive
+    => fall back to in-zip variant discovery (legacy / synthetic scenes).
+    """
+    if len(variant_paths) > 1:
+        variants = _order_variants(variant_paths.keys())
+        base_path = variant_paths.get("default") or variant_paths[variants[0]]
+        resolved_paths = dict(variant_paths)
+        variant_thumbnails = _load_variant_file_thumbnails(resolved_paths, variants)
+    else:
+        base_path = next(iter(variant_paths.values()))
+        variants = _discover_variants(base_path)
+        resolved_paths = {variant: base_path for variant in variants}
+        variant_thumbnails = _load_variant_thumbnails(base_path, variants)
+    # Use the first variant's preview for the scene row so the scene and
+    # variant dropdowns agree, falling back to the standalone loader.
+    thumbnail = (
+        variant_thumbnails.get(variants[0])
+        or variant_thumbnails.get("default")
+        or _load_scene_thumbnail(base_path)
+    )
+    return SceneOption(
+        label=_scene_label(base_path),
+        path=base_path,
+        variants=variants,
+        thumbnail=thumbnail,
+        variant_thumbnails=variant_thumbnails,
+        variant_paths=resolved_paths,
+    )
+
+
 def _scene_label(path: Path) -> str:
     scene_names = {
-        "clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4": "Quiet Suburban Boulevard",
-        "clipgt-7bd1eb2f-c375-44ee-b4ca-55473e0773a9": "Late Night Arrival in the Neighborhood",
-        "clipgt-e2993759-36e1-4d97-868f-e2a737f1eb68": "Afternoon Commute Past the Park",
+        "0d404ff7-2b66-498c-b047-1ed8cded60d4": "Quiet Suburban Boulevard",
+        "7bd1eb2f-c375-44ee-b4ca-55473e0773a9": "Late Night Arrival in the Neighborhood",
+        "e2993759-36e1-4d97-868f-e2a737f1eb68": "Afternoon Commute Past the Park",
     }
-    scene_id = path.stem
-    return scene_names.get(scene_id, scene_id)
+    # Key by bare UUID so the label is stable across weather variant archives.
+    uuid, _variant = _scenes.parse_scene_stem(path.stem)
+    return scene_names.get(uuid, path.stem)
 
 
 def _discover_variants(scene_path: Path) -> tuple[str, ...]:
@@ -1061,11 +1148,36 @@ def _discover_variants(scene_path: Path) -> tuple[str, ...]:
                     variants.add(variant)
     except (OSError, zipfile.BadZipFile):
         return ("default",)
-    if not variants:
-        variants.add("default")
-    if "default" not in variants:
-        variants.add(sorted(variants)[0])
-    return tuple(sorted(variants, key=lambda value: (value != "default", value)))
+    # A bare ``default`` (prompt.txt / first_image.png) duplicates the first
+    # numbered variant, so when numbered variants exist we expose just those --
+    # "1" is then the default selection. Scenes with no numbered variants show
+    # a single "default".
+    numbered = [value for value in variants if value != "default"]
+    if numbered:
+        numbered.sort(key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else v))
+        return tuple(numbered)
+    return ("default",)
+
+
+def _resolve_scene_variant(
+    scene_options: tuple[SceneOption, ...], scene_path: Any, variant: str
+) -> str:
+    """Return a variant that actually exists for *scene_path*.
+
+    Numbered scenes no longer carry a bare ``default`` entry, so a configured
+    ``--variant default`` (or anything the scene lacks) falls back to the
+    scene's first variant rather than a selection the dropdown can't show.
+    """
+    try:
+        resolved = Path(str(scene_path)).resolve()
+    except OSError:
+        resolved = None
+    for option in scene_options:
+        if option.path == resolved or str(option.path) == str(scene_path):
+            if variant in option.variants:
+                return variant
+            return option.variants[0] if option.variants else variant
+    return variant
 
 
 def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
@@ -1087,6 +1199,67 @@ def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
         return None
 
 
+def _load_variant_thumbnails(
+    scene_path: Path, variants: tuple[str, ...]
+) -> dict[str, Image.Image]:
+    """Per-variant preview thumbnails for the HUD variant dropdown.
+
+    Mirrors :func:`scene_loader._discover_first_images`: a bundle may ship
+    ``first_image_<variant>.png`` per variant alongside ``first_image.png``
+    (the ``"default"`` variant). Each referenced image is decoded once;
+    variants without a dedicated image fall back to the default so every
+    dropdown row still shows a preview. Returns an empty mapping when the
+    archive has no parseable first images.
+    """
+    decoded: dict[str, Image.Image] = {}
+    try:
+        with zipfile.ZipFile(scene_path, "r") as zf:
+            names_by_variant: dict[str, str] = {}
+            for name in zf.namelist():
+                if (
+                    "/" in name
+                    or not name.startswith("first_image")
+                    or not name.endswith(".png")
+                ):
+                    continue
+                variant = _scenes.variant_from_stem(Path(name).stem, "first_image")
+                if variant is not None:
+                    names_by_variant[variant] = name
+            for variant, name in names_by_variant.items():
+                with Image.open(io.BytesIO(zf.read(name))) as image:
+                    decoded[variant] = _make_thumbnail(
+                        image.convert("RGB"), SCENE_THUMB_SIZE
+                    )
+    except (OSError, zipfile.BadZipFile):
+        return {}
+    if not decoded:
+        return {}
+    default = decoded.get("default") or next(iter(decoded.values()))
+    return {variant: decoded.get(variant, default) for variant in variants}
+
+
+def _load_variant_file_thumbnails(
+    variant_paths: dict[str, Path], variants: tuple[str, ...]
+) -> dict[str, Image.Image]:
+    """Per-variant thumbnails when each variant is its own archive.
+
+    Each preview comes from that variant file's ``first_image.png``; variants
+    with no usable preview reuse the default. Empty mapping if nothing decoded.
+    """
+    decoded: dict[str, Image.Image] = {}
+    for variant in variants:
+        path = variant_paths.get(variant)
+        if path is None:
+            continue
+        thumb = _load_scene_thumbnail(path)
+        if thumb is not None:
+            decoded[variant] = thumb
+    if not decoded:
+        return {}
+    fallback = decoded.get("default") or next(iter(decoded.values()))
+    return {variant: decoded.get(variant, fallback) for variant in variants}
+
+
 def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     thumb = Image.new("RGB", size, (20, 20, 30))
     fitted = _fit_image(image, size)
@@ -1103,7 +1276,12 @@ def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 def _variant_label(variant: str) -> str:
     labels = {
-        "default": "Default",
+        # Per-weather variant archives.
+        "default": "Default (Clear)",
+        "clear": "Clear",
+        "snow": "Snowstorm",
+        "rain": "Night Rain",
+        # Legacy in-archive numbered variants.
         "1": "Bright Midday Sun",
         "2": "Snowstorm",
         "3": "Night with Heavy Rain",

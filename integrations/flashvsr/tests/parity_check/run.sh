@@ -136,8 +136,8 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 # the ``+cu124`` index (uv: "Because there is no version of
 # torch==2.6.0+cu124 and diffsynth==1.1.7 depends on
 # torch==2.6.0+cu124...") or downgrade torch and break every
-# CUDA-typed extension we just installed (``block-sparse-attn``,
-# transformer-engine, etc.). Mirrors the ``uv pip install --no-deps
+# CUDA-typed package we just installed (transformer-engine, etc.).
+# Mirrors the ``uv pip install --no-deps
 # ./flashdreams`` pattern in ``.github/workflows/doc.yml``.
 # Everything the parity test + benchmark actually need lives in this
 # directory's ``pyproject.toml`` (or comes in transitively via
@@ -146,41 +146,16 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 echo "[setup] uv pip install --no-deps -e ${REPO_DIR} (registers diffsynth in venv)"
 ( cd "${SCRIPT_DIR}" && uv pip install --no-deps -e "${REPO_DIR}" )
 
-# ------------------------------------------------------------------ block-sparse-attn
-# Upstream's Locality-Constrained Sparse Attention (LCSA) requires the
-# Block-Sparse-Attention CUDA extension. ``uv sync`` above already built
-# and installed it via the ``[tool.uv.extra-build-dependencies]`` seed
-# in ``pyproject.toml`` (setuptools / wheel / packaging / psutil / ninja
-# + a runtime-matched torch). Verify the import succeeded so a silent
-# build failure (e.g. missing ``nvcc`` on ``PATH``) surfaces here
-# instead of as an opaque ImportError deep inside ``benchmark.py``.
-#
-# Smoke-import ``torch`` BEFORE ``block_sparse_attn``: the compiled
-# ``block_sparse_attn_cuda.so`` has NEEDED entries for ``libc10.so`` /
-# ``libtorch_cpu.so`` / ``libtorch_cuda.so`` but no RPATH/RUNPATH, and
-# upstream's ``block_sparse_attn_interface.py`` does
-# ``import block_sparse_attn_cuda`` *before* ``import torch`` so the
-# "torch loads its own libs first" trick the wheel relies on doesn't
-# kick in for a bare ``import block_sparse_attn``. Importing torch in
-# this preamble matches every real caller (``benchmark.py`` ->
-# ``diffsynth.__init__`` pulls torch first via the WanModel module, and
-# both ``test_tcdecoder_parity.py`` / ``test_dit_parity.py`` import torch
-# at the top of the test file), so a green import here actually mirrors
-# what the downstream paths will see. Without the torch preload the
-# check yields a misleading "libc10.so: cannot open shared object file"
-# even though the build succeeded.
+# ------------------------------------------------ sparse-attn baseline dependency
+# Keep upstream FlashVSR's sparse-attention import path backed by the original
+# external package. The FlashDreams candidate imports its in-tree Triton backend
+# through ``flashvsr.transformer.network`` instead.
 if ! ( cd "${SCRIPT_DIR}" && \
     uv run python -c "import torch; import block_sparse_attn" \
     >/dev/null 2>&1 ); then
     cat <<EOF >&2
-[setup] ERROR: ``block_sparse_attn`` is not importable after ``uv sync``.
-        Common causes: ``nvcc`` not on PATH, CUDA toolkit version mismatch,
-        or the build was cancelled. Re-run with verbose output to inspect
-        the build log:
-
-            ( cd "${SCRIPT_DIR}" && uv sync -v )
-
-        For the actual error, re-run the smoke check directly:
+[setup] ERROR: upstream ``block_sparse_attn`` package is not importable.
+        Re-run the smoke check directly for the actual error:
 
             ( cd "${SCRIPT_DIR}" && uv run python -c \\
                 "import torch; import block_sparse_attn" )

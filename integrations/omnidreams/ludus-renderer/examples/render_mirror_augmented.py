@@ -99,7 +99,7 @@ def main():
     # Render + encode MP4
     import subprocess
     import tempfile
-    import PyNvVideoCodec as nvc
+    import PyNvVideoCodec as nvc  # ty:ignore[unresolved-import]
 
     output_path = os.path.join(os.path.dirname(__file__),
                                f"../_images/mirror_augmented_bev.mp4")

@@ -350,7 +350,7 @@ if config.checkpoint_path is not None:
 - When testing per-rollout shape behaviour (divisibility errors, `latent_shape`-not-set asserts), the trigger is `initialize_autoregressive_cache(height=..., width=...)`, not config construction. Update fakes accordingly: `SimpleNamespace` mocks shouldn't carry `_pH`/`_pW`/`_pT`; set `network.patch_temporal` / `patch_spatial` and pass `height` / `width` through the cache-init call.
 - Smoke shape: `.setup().to("cuda").eval()`, run ≥ 2 AR steps (covers filling + the first steady step when `window_size_t == 2 * len_t`), assert output shape / device / finiteness.
 - CFG on/off, compile + CUDA-graph: `derive_config` patches on the base builder, not separate builders. Compare against the eager baseline in an equivalence test.
-- CP equivalence is a **two-invocation** test: a plain pytest run writes a reference to `<tmpdir>/<integration>/cp_reference.pt`; a `torchrun --nproc_per_node=N` run reads it back and asserts equality. Run both in the same `srun` so they share `/tmp`.
+- CP equivalence is a **two-invocation** test: a plain pytest run writes a reference to `<tmpdir>/<integration>/cp_reference.pt`; a `torchrun --nproc_per_node=N` run reads it back and asserts equality. Run both with the same `tmpdir` so they share the reference file.
 
 ## 7. Scaffolding checklist
 

@@ -212,7 +212,7 @@ def _precompute_embeddings_from_config(
         from omnidreams.constants import NEGATIVE_PROMPT
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "The flash-omnidreams package is required for --offload-text-encoder."
+            "The flashdreams-omnidreams package is required for --offload-text-encoder."
         ) from exc
 
     device = torch.device(manifest.device)
