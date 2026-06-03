@@ -18,105 +18,149 @@ FlashDreams
 
 .. container:: fd-hero fd-hero-band
 
-   .. container:: fd-hero-lede
+   .. container:: fd-split fd-split-asymmetric
 
-      A high-performance inference and serving library for
-      interactive autoregressive video and world models.
+      .. container:: fd-split-text
 
-   .. container:: fd-cta-row
+         .. rubric:: FlashDreams
+            :class: fd-hero-title
 
-      .. button-ref:: quickstart/index
-         :ref-type: doc
-         :color: primary
+         .. container:: fd-hero-lede
 
-         Get started
+            A high-performance inference and serving library for
+            interactive autoregressive video and world models,
+            and a general platform for real-time world-model applications
+            across gaming, autonomous vehicles, robotics, simulated
+            or virtual environments, and more!
 
-      .. button-link:: https://github.com/NVIDIA/flashdreams
-         :color: secondary
-         :outline:
+         .. container:: fd-cta-row
 
-         GitHub
+            .. button-ref:: quickstart/index
+               :ref-type: doc
+               :color: primary
 
-      .. button-ref:: community/index
-         :ref-type: doc
-         :color: secondary
-         :outline:
+               Get Started!
 
-         Community
+            .. button-link:: https://github.com/NVIDIA/flashdreams
+               :color: secondary
+               :outline:
 
-   .. raw:: html
+               GitHub
 
-      <div class="fd-promo-video-wrap">
-        <video
-          class="fd-promo-video-player"
-          controls
-          playsinline
-          preload="metadata"
-          aria-label="FlashDreams quick intro video">
-          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
-        </video>
-        <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
-          <span class="fd-promo-play-icon" aria-hidden="true"></span>
-        </button>
-      </div>
-      <script>
-        (() => {
-          const script = document.currentScript;
-          const container = script ? script.previousElementSibling : null;
-          if (!container) {
-            return;
-          }
-          const video = container.querySelector(".fd-promo-video-player");
-          const playButton = container.querySelector(".fd-promo-play");
-          if (!video || !playButton) {
-            return;
-          }
-          const showOverlay = () => container.classList.remove("is-playing");
-          const hideOverlay = () => container.classList.add("is-playing");
-          playButton.addEventListener("click", () => {
-            video.controls = true;
-            const playPromise = video.play();
-            if (playPromise && typeof playPromise.catch === "function") {
-              playPromise.catch(showOverlay);
-            }
-          });
-          video.addEventListener("play", hideOverlay);
-          video.addEventListener("pause", showOverlay);
-          video.addEventListener("ended", showOverlay);
-        })();
-      </script>
+            .. button-ref:: community/index
+               :ref-type: doc
+               :color: secondary
+               :outline:
 
-Why FlashDreams
----------------
+               Community
 
-FlashDreams is built for the case where a diffusion video model has to
-respond in real time — a closed-loop world-model demo, a driving
-simulator, an interactive scene rollout. The optimisations needed for
-that case are different from those used by an offline, one-shot video
-generator, and FlashDreams organises them into three abstractions that
-every shipped recipe uses.
+      .. container:: fd-split-visual
 
-**KV-cached transformers.** Each autoregressive chunk re-uses prior
-context as a KV cache instead of recomputing it. Self-forcing and
-causal-forcing training regimes are first-class.
+         .. raw:: html
 
-**Ring attention.** Context-parallel attention across ranks, so
-long-horizon generation scales out instead of OOM-ing on a single GPU.
+            <div class="fd-promo-video-wrap">
+              <video
+                class="fd-promo-video-player"
+                controls
+                playsinline
+                preload="metadata"
+                aria-label="FlashDreams quick intro video">
+                <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
+              </video>
+              <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
+                <span class="fd-promo-play-icon" aria-hidden="true"></span>
+              </button>
+            </div>
+            <script>
+              (() => {
+                const script = document.currentScript;
+                const container = script ? script.previousElementSibling : null;
+                if (!container) {
+                  return;
+                }
+                const video = container.querySelector(".fd-promo-video-player");
+                const playButton = container.querySelector(".fd-promo-play");
+                if (!video || !playButton) {
+                  return;
+                }
+                const showOverlay = () => container.classList.remove("is-playing");
+                const hideOverlay = () => container.classList.add("is-playing");
+                playButton.addEventListener("click", () => {
+                  video.controls = true;
+                  const playPromise = video.play();
+                  if (playPromise && typeof playPromise.catch === "function") {
+                    playPromise.catch(showOverlay);
+                  }
+                });
+                video.addEventListener("play", hideOverlay);
+                video.addEventListener("pause", showOverlay);
+                video.addEventListener("ended", showOverlay);
+              })();
+            </script>
 
-**CUDA-graph capture.** The steady-state forward is captured into a
-CUDA graph after warmup, collapsing Python and launch overhead in the
-hot loop.
+Why FlashDreams?
+----------------
 
-The library is Apache-2.0 and developed in the open. The internals are
-covered in the :doc:`documentation <documentation>`.
+.. container:: fd-split fd-split-reverse fd-split-asymmetric-reverse
+
+   .. container:: fd-split-text
+
+      A world model learns to generate and evolve an environment over time. In
+      practice that usually means video, but the same idea extends to actions,
+      state, audio, sensor input, and control signals. Serving one means keeping
+      a session alive while input, model state, GPU inference, and output advance
+      together, rather than producing a single static clip, which is what makes
+      interactive simulation, robotics, autonomy, and game-like experiences
+      possible.
+
+   .. container:: fd-split-visual
+
+      .. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
+         :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
+         :class: zoomable
+
+FlashDreams is built for that real-time case: a closed-loop world-model
+demo, a driving simulator, an interactive scene rollout. Generating
+high-quality video is not enough on its own. The runtime has to keep an
+interactive session responsive while the model continues to advance the
+world. That comes down to four things:
+
+.. grid:: 1 2 2 4
+   :gutter: 3
+
+   .. grid-item-card:: Low latency
+      :class-card: fd-feature
+
+      Keep the interaction responsive when controls, sensors, or user
+      input change.
+
+   .. grid-item-card:: High throughput
+      :class-card: fd-feature
+
+      Keep the GPU busy across autoregressive steps and multi-GPU
+      execution.
+
+   .. grid-item-card:: Steady streaming generation
+      :class-card: fd-feature
+
+      Stream frames or chunks at a steady pace while the session
+      continues.
+
+   .. grid-item-card:: World-state evolution
+      :class-card: fd-feature
+
+      Carry rolling state forward so the generated world evolves across
+      steps.
 
 Performance
 -----------
 
-Each tile shows per-step latency at steady state — post-warmup,
-post-graph-capture — measured against the upstream library's own
-runner on the same hardware and the same checkpoint. Full methodology
-lives on the :doc:`benchmarks page </models/index>`.
+Each tile shows the steady-state per-step speedup — post-warmup,
+post-graph-capture — over a separate existing implementation of the
+same model. Both runs use the same weights on the same GPU, so the
+gain comes from FlashDreams' runtime alone; each tile names its
+baseline below. Full methodology lives on the
+:doc:`benchmarks page </models/index>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -151,7 +195,7 @@ lives on the :doc:`benchmarks page </models/index>`.
 
          .. container:: fd-stat-note
 
-            H100, vs Official baseline (1950 ms → 629 ms per step).
+            H100 (4×GPU), vs Official baseline (1950 ms → 629 ms per step).
 
    .. grid-item::
 
@@ -167,7 +211,7 @@ lives on the :doc:`benchmarks page </models/index>`.
 
          .. container:: fd-stat-note
 
-            GB300, vs FastVideo baseline (534 ms → 382 ms per step).
+            GB300 (8×GPU), vs FastVideo baseline (534 ms → 382 ms per step).
 
    .. grid-item::
 
@@ -185,8 +229,8 @@ lives on the :doc:`benchmarks page </models/index>`.
 
             Streaming and bidirectional recipes, one CLI.
 
-Try FlashDreams
----------------
+Try FlashDreams!
+----------------
 
 The :doc:`Get Started guide </quickstart/index>` walks from a fresh
 checkout to a generated frame on a single GPU.
@@ -197,9 +241,9 @@ checkout to a generated frame on a single GPU.
       :ref-type: doc
       :color: primary
 
-      Get started
+      Get Started!
 
-Supported models
+Supported Models
 ----------------
 
 Streaming and autoregressive recipes emit per-step output with
