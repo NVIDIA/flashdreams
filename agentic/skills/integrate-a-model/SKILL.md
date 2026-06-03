@@ -8,6 +8,8 @@ description: End-to-end workflow for porting an external video diffusion model i
 The ordered procedure for binding an external video model to the flashdreams
 framework. Read the **`flashdreams-integrations`** skill first for the architecture
 (layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
+(That skill's `name:` is `flashdreams-integrations` but it lives in the directory
+`agentic/skills/flashdreams-recipes/` — mind the dir/name mismatch.)
 
 **Worked example throughout:** `integrations/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
 which reuses the `integrations/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
@@ -91,27 +93,56 @@ Upstream weights almost never match flashdreams key names. You write a
 **Prefer the native checkpoint over a diffusers port when both exist.** flashdreams'
 networks are typically ported from the *native* model, so native keys often match
 1:1 (HY-WorldPlay DiT: `Wan-AI/Wan2.2-TI2V-5B` native keys = `WanDiTNetwork` keys
-exactly → **zero** remap; the diffusers port needs ~25 rules). The native VAE `.pth`
-needed only 4 rules vs the diffusers ~50.
+exactly → **zero** remap, the transform is `lambda sd: sd`; the diffusers port needs
+~25 rules). The native VAE needed only 4 rules vs the diffusers ~50. Note the native
+checkpoint can be **either** a single-file `.pth` **or** sharded safetensors + a
+`.safetensors.index.json` (the Wan native DiT is the latter, at the repo root; its VAE
+is a nested `.pth`) — `load_checkpoint` resolves both. Fast pre-check before any
+set-diff: do the key *counts* even match? (825 == 825 → you likely picked the right
+source.)
+
+**If you must remap (the diffusers port), the renames cluster into a few families.**
+From the Wan diffusers→native mapping, expect: `attn1.*`→`self_attn.*`,
+`attn2.*`→`cross_attn.*`, `to_q/to_k/to_v`→`q/k/v`, `to_out.0`→`o`,
+`condition_embedder.{text,time}_embedder.linear_{1,2}`→`{text,time}_embedding.{0,2}`,
+`condition_embedder.time_proj`→`time_projection.1`, `ffn.net.0.proj`/`ffn.net.2`→
+`ffn.0`/`ffn.2`, `norm2`→`norm3`, `scale_shift_table`→`modulation` (per-block) /
+`head.modulation` (top), `proj_out`→`head.head`. Write them as ordered regex rules and
+let unmatched keys fall through (they show up as `unexpected_keys`, which the bijection
+check below catches).
 
 **Verify the remap is a key/shape bijection on CPU — no GPU needed.** This is the
 single most valuable check. Build the model on `meta` and diff against the checkpoint
 keys; any model key the transform doesn't supply stays on `meta` and `.to(device)`
-later raises "Cannot copy out of meta tensor":
+later raises "Cannot copy out of meta tensor". Read names+shapes from the checkpoint
+*without* loading weights via `safetensors.safe_open` (per-shard, walking the
+`.index.json` `weight_map`):
 
 ```python
-import torch
+import json, glob, torch
+from safetensors import safe_open
+
 with torch.device("meta"):
     net = MyNetworkConfig().setup()
-model_keys = set(net.state_dict())
-remapped = set(my_state_dict_transform(load_keys_only(ckpt)))   # names+shapes
-assert not (model_keys - remapped), "would stay on meta"        # missing
-assert not (remapped - model_keys), "unexpected keys"            # extra
-# shapes: assert remapped[k].shape == model_state[k].shape for all k
+model = {k: tuple(v.shape) for k, v in net.state_dict().items()}
+
+ckpt = {}                                                   # name -> shape, no weights
+index = json.load(open(f"{ckpt_dir}/diffusion_pytorch_model.safetensors.index.json"))
+for shard in set(index["weight_map"].values()):
+    with safe_open(f"{ckpt_dir}/{shard}", framework="pt") as f:
+        for k in f.keys():
+            ckpt[k] = tuple(f.get_slice(k).get_shape())
+ckpt = {k: ckpt[k] for k in my_state_dict_transform_keys(ckpt)}  # apply your rename
+
+missing  = set(model) - set(ckpt)        # would stay on meta — must be empty
+extra    = set(ckpt) - set(model)         # unexpected keys — must be empty
+shapemm  = [k for k in model if k in ckpt and model[k] != ckpt[k]]
+assert not missing and not extra and not shapemm, (missing, extra, shapemm)
 ```
 
 Codify it as a `ci_cpu` test (`test_*_remap_is_full_bijection`) + spot-checks against
-real key strings (`test_*_remap_spot_checks_real_keys`).
+real key strings (`test_*_remap_spot_checks_real_keys`). (For a single-file `.pth`,
+`torch.load(..., map_location="meta")` gives the same name→shape dict.)
 
 **Before flipping a default checkpoint source, prove weight-equality.** If you switch
 the production config to a different checkpoint (e.g. native `.pth` instead of diffusers),
@@ -204,8 +235,27 @@ In order of cost:
 
 ## Evaluating this skill
 
-To test the skill, point a fresh agent at the repo state **before** an integration
-landed (e.g. a branch reverting `integrations/hy_worldplay` + `integrations/wan22`) and
-have it reproduce the integration following this skill. Score against the merged result
-(the integration PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage,
-and how many of the gotchas it hits unaided. Feed the gaps back into this file.
+To test the skill, point a fresh agent (no prior context) at the repo state **before**
+an integration landed — a branch that **removes the integration plugins but keeps this
+skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations/wan22
+integrations/hy_worldplay` off a branch that already has this skill). Have it reproduce
+the integration following this skill; score against the merged result (the integration
+PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage, and how many
+gotchas it hits unaided. Feed the gaps back into this file.
+
+Eval-harness must-haves (learned the hard way):
+- The eval branch / worktree must actually contain **both** this skill **and** the
+  target config (`WanDiTNetworkTI2V5BConfig` etc.). Confirm with `ls` before launching —
+  a stale worktree off the wrong base wastes the run.
+- Give the agent a **torch-capable interpreter path** + `PYTHONPATH` (CPU is enough for
+  the remap/bijection slice) and tell it not to read git history or the removed
+  reference integration (no peeking at the answer).
+- Scope the first run to the highest-signal, GPU-free slice — the **checkpoint remap +
+  bijection** (Phase 3) — before attempting the full conditioner/runner port.
+
+First run (Wan 2.2 DiT remap slice): a fresh agent correctly picked the native
+checkpoint, found the zero-remap identity, and verified the 825↔825 bijection in
+~20 min. Gaps it surfaced (now folded in above): the bijection snippet was pseudocode
+(made runnable w/ `safetensors`), the native-checkpoint framing over-assumed `.pth`
+(now notes sharded-safetensors), no diffusers-remap guidance (added the rename
+families), and the `flashdreams-integrations` dir/name mismatch (now flagged).
