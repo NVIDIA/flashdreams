@@ -478,10 +478,17 @@ class FlashdreamsWorldModelSession:
             )
         return model_frames
 
-    def reset(self) -> None:
+    def reset(self, *, clear_precomputed_embeddings: bool = False) -> None:
         self._cache = None
         self._pending_finalization_index = None
         self._next_block_index = 0
+        if clear_precomputed_embeddings:
+            self._precomputed_embeddings = None
+            print(
+                "[flashdreams-session] reset scene conditioning; "
+                "will rerun text/image encoders for the next scene",
+                flush=True,
+            )
 
     def close(self) -> None:
         if self._cache is not None and self._pending_finalization_index is not None:

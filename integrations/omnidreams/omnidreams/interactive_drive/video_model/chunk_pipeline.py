@@ -114,9 +114,20 @@ class ChunkPipeline:
         with self._generation_lock:
             return self._generation
 
-    def _bump_generation(self) -> None:
+    def _bump_generation(self) -> int:
         with self._generation_lock:
             self._generation += 1
+            return self._generation
+
+    def _clear_frame_queue(self) -> int:
+        """Drop already-produced frames superseded by a reset / scene switch."""
+        cleared = 0
+        while True:
+            try:
+                self._frame_queue.get_nowait()
+            except queue.Empty:
+                return cleared
+            cleared += 1
 
     @property
     def frame_queue(self) -> "queue.Queue[QueuedFrame]":
@@ -134,10 +145,29 @@ class ChunkPipeline:
         """
         self._raise_worker_error_if_any()
         # Supersede any in-flight / queued render so its frames are dropped
-        # rather than briefly shown over the new scene's load.
-        self._bump_generation()
+        # rather than briefly shown over the new scene's load. The generation
+        # also guards queued scene-load commands themselves: a click can arrive
+        # while a previous load is still sitting behind model warmup, and that
+        # old load must not bind its prompt/seed after the newer selection wins.
+        submit_generation = self._bump_generation()
+        cleared = self._clear_frame_queue()
+        if cleared:
+            print(
+                "[chunk-pipeline] cleared stale frame queue "
+                f"frames={cleared} generation={submit_generation}",
+                flush=True,
+            )
 
         def load_scene_command(backend: VideoModelBackend) -> bool:
+            if submit_generation != self.current_generation:
+                print(
+                    "[chunk-pipeline] skip stale scene load "
+                    f"scene={scene.scene_path.name!r} "
+                    f"submit_generation={submit_generation} "
+                    f"current_generation={self.current_generation}",
+                    flush=True,
+                )
+                return True
             backend.load_scene(scene)
             return True
 
@@ -152,6 +182,15 @@ class ChunkPipeline:
 
         def render_command(backend: VideoModelBackend) -> bool:
             chunk_times.chunk_render_start_time = time.perf_counter()
+            if submit_generation != self.current_generation:
+                chunk_times.chunk_ready_time = time.perf_counter()
+                print(
+                    "[chunk-pipeline] skip stale render "
+                    f"submit_generation={submit_generation} "
+                    f"current_generation={self.current_generation}",
+                    flush=True,
+                )
+                return True
             frame_chunk = backend.render_chunk(trajectory)
             chunk_times.chunk_ready_time = time.perf_counter()
             # Drop the output if a reset / scene switch superseded this chunk
@@ -186,7 +225,14 @@ class ChunkPipeline:
         FIFO so the next rollout starts from a clean cache.
         """
         self._raise_worker_error_if_any()
-        self._bump_generation()
+        generation = self._bump_generation()
+        cleared = self._clear_frame_queue()
+        if cleared:
+            print(
+                "[chunk-pipeline] cleared stale frame queue "
+                f"frames={cleared} generation={generation}",
+                flush=True,
+            )
 
         def reset_command(backend: VideoModelBackend) -> bool:
             backend.reset()

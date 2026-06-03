@@ -2120,7 +2120,7 @@ class SlangPyHudPresenter:
             top = items_top + idx * item_h
             rect = (sx, top, sr, top + item_h)
             self._scene_item_rects.append((rect, scene))
-            if scene.path == self._current_scene:
+            if self._scene_option_matches_current(scene):
                 draw.rectangle(rect, fill=ACTIVE_BG + (255,))
             elif scene.label == self._hovered_scene_label:
                 draw.rectangle(rect, fill=HOVER_BG + (255,))
@@ -2214,9 +2214,18 @@ class SlangPyHudPresenter:
 
     def _current_scene_option(self) -> Any:
         for option in self._scene_options:
-            if option.path == self._current_scene:
+            if self._scene_option_matches_current(option):
                 return option
         return None
+
+    def _scene_option_matches_current(self, option: Any) -> bool:
+        current = self._current_scene
+        if option.path == current or str(option.path) == str(current):
+            return True
+        for path in getattr(option, "variant_paths", {}).values():
+            if path == current or str(path) == str(current):
+                return True
+        return False
 
     def _update_speed(self, wheel_state: Any) -> None:
         # Drive the digit from the *authoritative* ego speed the simulation

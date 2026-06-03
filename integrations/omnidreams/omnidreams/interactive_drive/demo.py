@@ -828,6 +828,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # default are honoured; a dropdown selection overrides it below.
     scene_path: Any = config.scene_path
     variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
+    presenter.acknowledge_scene_change(scene_path, variant)
     try:
         # ``need_selection`` drives the scene-selection wait: True on first
         # launch (unless ``--autoload-scene``) and again every time the user
@@ -1195,17 +1196,46 @@ def _resolve_scene_variant(
     Numbered scenes no longer carry a bare ``default`` entry, so a configured
     ``--variant default`` (or anything the scene lacks) falls back to the
     scene's first variant rather than a selection the dropdown can't show.
+    For weather sibling archives, the path itself is also a source of truth:
+    ``clipgt-...-snow.usdz`` with the default CLI variant should start as
+    ``snow``, not silently load the clear/base archive.
     """
+    for option in scene_options:
+        path_variant = _scene_option_variant_for_path(option, scene_path)
+        if path_variant is None:
+            continue
+        if variant in option.variants:
+            if variant == "default" and path_variant != "default":
+                return path_variant
+            return variant
+        if path_variant in option.variants:
+            return path_variant
+        return option.variants[0] if option.variants else variant
+    return variant
+
+
+def _scene_option_variant_for_path(option: SceneOption, scene_path: Any) -> str | None:
     try:
         resolved = Path(str(scene_path)).resolve()
     except OSError:
         resolved = None
-    for option in scene_options:
-        if option.path == resolved or str(option.path) == str(scene_path):
-            if variant in option.variants:
-                return variant
-            return option.variants[0] if option.variants else variant
-    return variant
+    raw = str(scene_path)
+
+    # ``variant_paths`` is the authoritative map for weather sibling archives.
+    # For legacy single-archive scenes it maps every in-zip variant to the same
+    # path, so the first variant intentionally matches the old fallback.
+    for variant, path in option.variant_paths.items():
+        if _same_scene_path(path, raw, resolved):
+            return variant
+    if _same_scene_path(option.path, raw, resolved):
+        if "default" in option.variants:
+            return "default"
+        return option.variants[0] if option.variants else None
+    return None
+
+
+def _same_scene_path(path: Path, raw: str, resolved: Path | None) -> bool:
+    return (resolved is not None and path == resolved) or str(path) == raw
 
 
 def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
