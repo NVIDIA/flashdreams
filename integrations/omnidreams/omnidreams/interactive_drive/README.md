@@ -288,8 +288,8 @@ per-axis activity strip -- so you can confirm the right device and watch each
 control move. It then listens while you move each control to capture the
 correct axes and directions (self-centering sticks and force-feedback wheels
 work because it peak-holds each axis' range rather than snapshotting after you
-let go), lets you bind reverse / reset buttons and test force feedback, then
-writes the profile to
+let go), lets you bind reverse / reset / exit-scene buttons and test force
+feedback, then writes the profile to
 `$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
 `~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
 automatically through the same `--wheel-profile auto` detection. The wizard
@@ -410,6 +410,7 @@ Controls (apply in all three modes):
 - `1` generated driving view
 - `2` HD map view
 - `R` reset rollout
+- `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
 
 The browser control hint is static today, so it does not confirm every keydown

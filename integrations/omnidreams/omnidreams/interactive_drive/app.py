@@ -442,6 +442,14 @@ class InteractiveDriveApp:
                 oob_margin_m=self._config.oob_margin_m,
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
             )
+            # Publish the freshly-built initial state up front so read-side
+            # speed readouts (the HUD speed digit, the browser ``/state``
+            # endpoint) reflect a reset / respawn immediately. Without this
+            # the last telemetry from the previous rollout would linger on
+            # screen through the "Resetting..." window until the new rollout
+            # requested its first chunk -- the "reset doesn't reset the
+            # displayed speed" symptom.
+            self._keyboard.update_telemetry(simulation.current_state)
             input_backend = KeyboardInputBackend(self._keyboard)
             reset_requested = run_main_loop(
                 presenter=self._presenter,

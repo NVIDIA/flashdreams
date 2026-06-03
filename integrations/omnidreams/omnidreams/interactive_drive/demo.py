@@ -256,6 +256,7 @@ class WheelBridge:
         self._threshold = float(profile.threshold)
         self._reverse_buttons = {int(b) for b in profile.reverse_buttons}
         self._reset_buttons = {int(b) for b in profile.reset_buttons}
+        self._exit_buttons = {int(b) for b in profile.exit_buttons}
         self._reverse = False
         self._button_states: dict[int, int] = {}
         self._ffb = AutocenterFFB()
@@ -360,6 +361,10 @@ class WheelBridge:
             request_reset = getattr(self._control, "request_reset", None)
             if request_reset is not None:
                 request_reset()
+        elif code in self._exit_buttons:
+            request_exit_scene = getattr(self._control, "request_exit_scene", None)
+            if request_exit_scene is not None:
+                request_exit_scene()
 
     def _publish_controls(self) -> None:
         steering = self._normalize_steering(self._raw_axes[self._steering_axis])
@@ -812,26 +817,37 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     scene_path: Any = config.scene_path
     variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
     try:
-        # Initial scene-selection wait: if the user didn't pass
-        # ``--autoload-scene``, open the HUD and let them pick a scene from
-        # the dropdown while the model warms in the background.
-        if not args.autoload_scene:
-            request = presenter.wait_for_scene_selection()
-            if request is None:
-                return  # window closed before any scene was loaded
-            scene_path, variant = request
-            presenter.acknowledge_scene_change(scene_path, variant)
-
+        # ``need_selection`` drives the scene-selection wait: True on first
+        # launch (unless ``--autoload-scene``) and again every time the user
+        # exits a scene back to the selector. While waiting the engine is
+        # idle, so the video model stops generating -- the whole point of the
+        # exit-scene affordance for long-running demos -- without closing the
+        # window or dropping the warmed model.
+        need_selection = not args.autoload_scene
         while True:
+            if need_selection:
+                request = presenter.wait_for_scene_selection()
+                if request is None:
+                    break  # window closed before any scene was loaded
+                scene_path, variant = request
+                presenter.acknowledge_scene_change(scene_path, variant)
+                need_selection = False
+
             presenter.set_engine_active(True)
             # load_scene parses the USDZ on a background thread while keeping
             # the window responsive; it returns False if the window closed
             # (or a new scene was requested) before the parse finished, so
-            # we skip run_scene and let the pending-change check below decide
-            # whether to switch scenes or exit.
+            # we skip run_scene and let the pending checks below decide
+            # whether to exit the scene, switch scenes, or quit.
             if app.load_scene(scene_path, variant, args.prompt):
                 app.run_scene()
             presenter.set_engine_active(False)
+            if presenter.pending_exit_scene:
+                # ``x`` / bound exit button: tear down the rollout and go
+                # back to the selector over the same presenter.
+                presenter.acknowledge_exit_scene()
+                need_selection = True
+                continue
             requested = presenter.pending_scene_change
             if requested is None:
                 # Window closed (X / ESC) during load or run; we're done.

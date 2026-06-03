@@ -91,6 +91,11 @@ class WheelProfile:
     # evdev button codes (EV_KEY) bound to actions; empty when unbound.
     reverse_buttons: tuple[int, ...] = ()
     reset_buttons: tuple[int, ...] = ()
+    # Button(s) that exit the running scene and return to the scene
+    # selector (the HUD's ``x`` key does the same). Lets long-running
+    # demos drop back to "select a scene" from the wheel without a
+    # keyboard.
+    exit_buttons: tuple[int, ...] = ()
     # Steering feel: output scale (``< 1`` = less sensitive) and a center
     # deadzone fraction (hides analog-stick drift on game controllers).
     steering_range: float = 1.0
@@ -266,6 +271,7 @@ def _profile_from_data(data: dict, fallback_name: str) -> WheelProfile:
         is_default=bool(data.get("is_default", False)),
         reverse_buttons=tuple(int(b) for b in data.get("reverse_buttons", ()) or ()),
         reset_buttons=tuple(int(b) for b in data.get("reset_buttons", ()) or ()),
+        exit_buttons=tuple(int(b) for b in data.get("exit_buttons", ()) or ()),
         steering_range=float(data.get("steering_range", 1.0)),
         steering_deadzone=float(data.get("steering_deadzone", 0.0)),
     )
@@ -317,6 +323,7 @@ def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict:
         "threshold": profile.threshold,
         "reverse_buttons": list(profile.reverse_buttons),
         "reset_buttons": list(profile.reset_buttons),
+        "exit_buttons": list(profile.exit_buttons),
         "steering_range": profile.steering_range,
         "steering_deadzone": profile.steering_deadzone,
     }

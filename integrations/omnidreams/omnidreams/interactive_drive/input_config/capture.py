@@ -142,6 +142,7 @@ def build_profile(
     is_default: bool,
     reverse_buttons: tuple[int, ...] = (),
     reset_buttons: tuple[int, ...] = (),
+    exit_buttons: tuple[int, ...] = (),
     steering_range: float = 1.0,
     steering_deadzone: float = 0.0,
     threshold: float = 0.12,
@@ -164,6 +165,7 @@ def build_profile(
         is_default=bool(is_default),
         reverse_buttons=tuple(int(b) for b in reverse_buttons),
         reset_buttons=tuple(int(b) for b in reset_buttons),
+        exit_buttons=tuple(int(b) for b in exit_buttons),
         steering_range=float(steering_range),
         steering_deadzone=float(steering_deadzone),
     )

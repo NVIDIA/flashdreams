@@ -42,6 +42,7 @@ def _wheel_profile() -> WheelProfile:
         is_default=True,
         reverse_buttons=(294,),
         reset_buttons=(300,),
+        exit_buttons=(307,),
         steering_range=0.7,
         steering_deadzone=0.1,
     )
@@ -84,6 +85,7 @@ def test_yaml_dict_has_loader_schema_shape() -> None:
         "threshold",
         "reverse_buttons",
         "reset_buttons",
+        "exit_buttons",
         "steering_range",
         "steering_deadzone",
     }
@@ -92,6 +94,7 @@ def test_yaml_dict_has_loader_schema_shape() -> None:
     assert data["ffb"] == {"enabled": True, "gain": 0.6}
     assert data["reverse_buttons"] == [294]
     assert data["reset_buttons"] == [300]
+    assert data["exit_buttons"] == [307]
     assert data["steering_range"] == 0.7
     assert data["steering_deadzone"] == 0.1
 

@@ -100,6 +100,9 @@ WHEEL_ROTATION_QUANTUM_DEG = 3
 # pygame HUD used; keeps input latency low without burning a core.
 EVENT_POLL_INTERVAL_S = 0.005
 
+# Metres-per-second to miles-per-hour, for the speed digit.
+MPS_TO_MPH = 2.2369362920544
+
 # Drive-key release debounce window. See the
 # ``_pending_drive_releases`` field documentation in
 # :class:`SlangPyHudPresenter`.
@@ -273,6 +276,12 @@ class KeyboardStateDriveSink:
         # Lets a wheel/controller's bound reset button trigger the same
         # rollout reset the ``R`` key does.
         self._keyboard.request_reset()
+
+    def request_exit_scene(self) -> None:
+        # Lets a wheel/controller's bound exit button drop back to the scene
+        # selector, the same as the ``X`` key. The presenter drains this on
+        # its event-pump thread and converts it into an exit-to-selection.
+        self._keyboard.request_exit_scene()
 
     # The methods below are no-ops in-process because the slangpy HUD
     # writes pygame-style key events directly to ``KeyboardState`` from
@@ -481,6 +490,13 @@ class SlangPyHudPresenter:
         # and re-enters the engine over the SAME presenter so the slangpy
         # window (and the warmed model) stay alive.
         self._pending_scene_change: tuple[Any, str] | None = None
+        # Exit-to-selection request set by the ``x`` key or a wheel's bound
+        # exit button. The outer demo loop checks this (ahead of
+        # ``pending_scene_change``) after each ``app.run_scene`` returns: when
+        # set it tears down the rollout and re-enters the scene selector over
+        # the SAME presenter, so a long-running demo can stop the video model
+        # generating without closing the window or reloading the model.
+        self._pending_exit_scene = False
 
         self._key_codes = self._build_key_codes()
         # Drive-key release debounce. Some SDL3 builds send a
@@ -503,6 +519,13 @@ class SlangPyHudPresenter:
 
     def process_events(self) -> None:
         self._window.process_events()
+        # A wheel/controller's bound exit button posts its request onto the
+        # shared ``KeyboardState`` from the wheel reader thread; drain it here
+        # on the main thread and convert it into the presenter's own
+        # exit-to-selection signal (the ``x`` key takes the direct path in
+        # ``_on_keyboard_event``).
+        if self._keyboard.consume_exit_scene_request():
+            self.exit_scene()
 
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         rgb = self._select_view_rgb(frame, view_mode)
@@ -2177,10 +2200,26 @@ class SlangPyHudPresenter:
         return None
 
     def _update_speed(self, wheel_state: Any) -> None:
-        # Magnitude: the digit shows speed, and reverse is conveyed by the
-        # "R" indicator, so a reverse target reads as a positive number that
+        # Drive the digit from the *authoritative* ego speed the simulation
+        # publishes once per chunk (``KeyboardState.vehicle_state``), so the
+        # readout always matches the vehicle the user is actually watching --
+        # the same source the browser/MJPEG ``/state`` readout already uses.
+        # The HUD's own ``target_speed_mps`` integrator (``wheel_state``) is a
+        # separate model that drifts from the ego and never resets on R /
+        # respawn, which is exactly the mismatch we're fixing here; it stays
+        # responsible only for force-feedback and the pedal chrome.
+        #
+        # Magnitude only: the digit shows speed and reverse is conveyed by the
+        # "R" indicator, so a reverse ego reads as a positive number that
         # dips to 0 at the direction change.
-        target_mph = abs(wheel_state.target_speed_mps) * 2.2369362920544
+        telemetry = self._keyboard.vehicle_state
+        if telemetry is not None:
+            target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
+        else:
+            # No chunk yet (warmup / between scenes): hold at zero rather than
+            # showing the integrator's creep-to-10mph target before the ego
+            # has actually moved.
+            target_mph = 0.0
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
 
@@ -2196,6 +2235,7 @@ class SlangPyHudPresenter:
             "s": _lookup_key(spy.KeyCode, "s"),
             "d": _lookup_key(spy.KeyCode, "d"),
             "r": _lookup_key(spy.KeyCode, "r"),
+            "x": _lookup_key(spy.KeyCode, "x"),
             "space": _lookup_key(spy.KeyCode, "space"),
             "up": _lookup_key(spy.KeyCode, "up", "arrow_up"),
             "down": _lookup_key(spy.KeyCode, "down", "arrow_down"),
@@ -2257,6 +2297,8 @@ class SlangPyHudPresenter:
             self._keyboard.set_view_mode("rgb")
         elif self._key_matches(key, "r"):
             self._keyboard.request_reset()
+        elif self._key_matches(key, "x"):
+            self.exit_scene()
 
     def _expire_pending_drive_releases(self) -> None:
         """Commit any debounced release whose grace window has passed.
@@ -2429,6 +2471,8 @@ class SlangPyHudPresenter:
         self._args.scene = scene_path
         self._args.variant = variant
         self._pending_scene_change = (scene_path, variant)
+        # An explicit scene pick supersedes any pending exit-to-selection.
+        self._pending_exit_scene = False
         self._should_close_flag = True
         # Drop the wheel-set DriverCommand so input state is clean for
         # the next scene -- otherwise a stale steer/throttle could
@@ -2440,6 +2484,47 @@ class SlangPyHudPresenter:
     def pending_scene_change(self) -> tuple[Any, str] | None:
         """``(scene_path, variant)`` if a dropdown click is pending, else None."""
         return self._pending_scene_change
+
+    def exit_scene(self) -> None:
+        """Request a return to the scene selector, keeping the window alive.
+
+        Mirrors :meth:`_signal_scene_change`: flips the close flag so
+        :func:`run_main_loop` exits and ``app.run_scene`` returns, but sets
+        ``_pending_exit_scene`` (instead of ``_pending_scene_change``) so the
+        demo's outer loop re-enters :meth:`wait_for_scene_selection` rather
+        than loading a new scene. No-op unless a scene is actually running, so
+        pressing ``x`` (or a bound exit button) at the selector does nothing.
+        """
+        if not self._engine_active:
+            return
+        self._pending_exit_scene = True
+        # An explicit exit overrides any scene change picked in the same tick.
+        self._pending_scene_change = None
+        self._should_close_flag = True
+        # Clean input state so a stale steer/throttle can't leak into the
+        # next scene the user eventually picks.
+        self._keyboard.set_drive_command(None)
+
+    @property
+    def pending_exit_scene(self) -> bool:
+        """True when the user asked to exit back to the scene selector."""
+        return self._pending_exit_scene
+
+    def acknowledge_exit_scene(self) -> None:
+        """Clear the exit request and reopen the window for scene selection.
+
+        Called by the demo's outer loop just before it re-enters
+        :meth:`wait_for_scene_selection`. Resets the close flag (so the
+        selection loop runs) and drops the displayed speed so the selector
+        doesn't show the just-exited rollout's last reading.
+        """
+        self._pending_exit_scene = False
+        self._should_close_flag = False
+        self._speed_mph = 0.0
+        # Drop the just-exited rollout's telemetry so the selector shows a
+        # zero speed rather than ramping back toward the last reading.
+        self._keyboard.clear_telemetry()
+        self._pending_drive_releases.clear()
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
@@ -2532,6 +2617,7 @@ class SlangPyHudPresenter:
         so the chrome reflects the new selection.
         """
         self._pending_scene_change = None
+        self._pending_exit_scene = False
         self._should_close_flag = False
         self._current_scene = scene_path
         self._selected_variant = variant
@@ -2552,6 +2638,10 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache = None
         self._has_camera_frame = False
         self._speed_mph = 0.0
+        # Forget the previous rollout's speed so the digit doesn't ramp back
+        # toward it while the new scene loads; the new rollout republishes
+        # telemetry as soon as it starts.
+        self._keyboard.clear_telemetry()
         self._pending_drive_releases.clear()
 
     def set_wheel(self, wheel: Any | None) -> None:

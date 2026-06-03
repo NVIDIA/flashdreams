@@ -99,6 +99,7 @@ def test_build_profile_assembles_axis_map_and_flags() -> None:
         is_default=False,
         reverse_buttons=(304,),
         reset_buttons=(305,),
+        exit_buttons=(306,),
     )
     assert profile.axis_map == {"steering": 0x00, "throttle": 0x05, "brake": 0x02}
     assert profile.inverted_pedals is False
@@ -106,3 +107,4 @@ def test_build_profile_assembles_axis_map_and_flags() -> None:
     assert profile.detection_patterns == ("Generic Gamepad",)
     assert profile.reverse_buttons == (304,)
     assert profile.reset_buttons == (305,)
+    assert profile.exit_buttons == (306,)

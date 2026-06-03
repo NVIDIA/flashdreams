@@ -701,12 +701,18 @@ class ConfigApp:
             wraplength=680,
             justify="left",
             text=(
-                "Optionally bind one button to toggle reverse and one to reset / "
-                "respawn. Click Bind, then press the button on your device. Leave "
-                "unbound to skip -- you can always reset with the R key."
+                "Optionally bind one button to toggle reverse, one to reset / "
+                "respawn, and one to exit the scene (back to the scene selector). "
+                "Click Bind, then press the button on your device. Leave unbound "
+                "to skip -- you can always reset with the R key and exit with the "
+                "X key."
             ),
         ).pack(anchor="w", pady=(0, 8))
-        for key, label in (("reverse", "Reverse"), ("reset", "Reset / respawn")):
+        for key, label in (
+            ("reverse", "Reverse"),
+            ("reset", "Reset / respawn"),
+            ("exit", "Exit scene"),
+        ):
             frame = ttk.LabelFrame(self.content, text=label, padding=(10, 6))
             frame.pack(fill="x", pady=4)
             result = tk.StringVar(value=self._button_summary(key))
@@ -936,6 +942,7 @@ class ConfigApp:
         if step == "buttons":
             self.state.setdefault("reverse_buttons", ())
             self.state.setdefault("reset_buttons", ())
+            self.state.setdefault("exit_buttons", ())
             return True, ""
         if step == "ffb":
             self._ffb_stop()
@@ -982,6 +989,7 @@ class ConfigApp:
             is_default=self.state["is_default"],
             reverse_buttons=tuple(self.state.get("reverse_buttons", ())),
             reset_buttons=tuple(self.state.get("reset_buttons", ())),
+            exit_buttons=tuple(self.state.get("exit_buttons", ())),
             steering_range=float(self.state.get("steering_range", 1.0)),
             steering_deadzone=float(self.state.get("steering_deadzone", 0.0)),
         )

@@ -48,6 +48,40 @@ def test_sample_chunk_trajectory_advances_pose_and_time() -> None:
     assert chunk.boundary_state_after_chunk.speed_mps > 0.0
 
 
+def test_manual_brake_overrides_throttle_to_a_stop() -> None:
+    """Gas + brake pressed together must bleed speed toward a stop.
+
+    Regression for the HUD/ego mismatch: the manual-control branch used to
+    give throttle priority, so holding both pedals built speed. Brake now
+    wins, matching the HUD's speed readout and real-car behaviour.
+    """
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=10.0, steer_rad=0.0
+    )
+    both = DriverCommand(throttle=1.0, brake=1.0, manual_control=True)
+
+    decelerating = integrate_vehicle(state, both, dt_s=0.1, vehicle=vehicle)
+    assert decelerating.speed_mps < state.speed_mps
+
+    # Held long enough, the vehicle comes to rest rather than creeping.
+    for _ in range(200):
+        state = integrate_vehicle(state, both, dt_s=0.1, vehicle=vehicle)
+    assert state.speed_mps == pytest.approx(0.0, abs=1e-6)
+
+
+def test_manual_throttle_only_still_accelerates() -> None:
+    """Throttle without brake keeps its acceleration behaviour."""
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
+    )
+    throttle = DriverCommand(throttle=1.0, brake=0.0, manual_control=True)
+
+    advanced = integrate_vehicle(state, throttle, dt_s=0.1, vehicle=vehicle)
+    assert advanced.speed_mps > state.speed_mps
+
+
 def test_integrate_vehicle_accumulates_steering_gradually() -> None:
     vehicle = VehicleConfig(
         max_steer_rad=0.5, steer_rate_rad_per_s=1.0, steer_return_rate_rad_per_s=0.5
