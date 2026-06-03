@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
         <link rel="prefetch" href="../../../../../_static/horizontal-dark.svg" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>flashdreams.infra.diffusion.scheduler.base - FlashDreams v0.1.0</title>
+        <title>flashdreams.recipes.wan.autoencoder.i2v - FlashDreams v0.1.0</title>
       <link rel="stylesheet" type="text/css" href="../../../../../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
@@ -293,7 +293,7 @@ SPDX-License-Identifier: Apache-2.0
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <h1>Source code for flashdreams.infra.diffusion.scheduler.base</h1><div class="highlight"><pre>
+          <h1>Source code for flashdreams.recipes.wan.autoencoder.i2v</h1><div class="highlight"><pre>
 <span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 <span class="c1">#</span>
@@ -309,113 +309,143 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Diffusion scheduler interface.&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;I2V control encoder for the causal Wan 2.1 pipeline.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeAlias</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">InstantiateConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">StreamingVideoEncoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.wan.autoencoder.vae</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WanVAECache</span><span class="p">,</span>
+    <span class="n">WanVAEEncoder</span><span class="p">,</span>
+    <span class="n">WanVAEEncoderConfig</span><span class="p">,</span>
+<span class="p">)</span>
 
+<span class="n">I2VCtrlEncoderCache</span><span class="p">:</span> <span class="n">TypeAlias</span> <span class="o">=</span> <span class="n">WanVAECache</span>
+<span class="sd">&quot;&quot;&quot;Per-AR-step I2V control encoder cache.</span>
 
-<div class="viewcode-block" id="FlowPredictor">
-<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.FlowPredictor">[docs]</a>
-<span class="k">class</span><span class="w"> </span><span class="nc">FlowPredictor</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Closure ``(noisy_latent, timestep) -&gt; predicted_flow``.</span>
-
-<span class="sd">    Built by ``DiffusionModel.generate`` by binding the per-AR-step ``cache``</span>
-<span class="sd">    / ``input`` to the transformer&#39;s ``predict_flow``. A scheduler invokes</span>
-<span class="sd">    it once per denoising iteration. The scheduler decides the timestep</span>
-<span class="sd">    dtype (UniPC uses int64, flow-match uses float).</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Predict the flow at ``timestep``.&quot;&quot;&quot;</span>
-        <span class="o">...</span></div>
-
-
-
-<div class="viewcode-block" id="Scheduler">
-<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler">[docs]</a>
-<span class="k">class</span><span class="w"> </span><span class="nc">Scheduler</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">ABC</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Denoising scheduler.</span>
-
-<span class="sd">    Owns the entire denoising loop. Callers see only ``noise → clean``;</span>
-<span class="sd">    the loop shape (renoise / multistep / plain ODE) is private.</span>
-
-<span class="sd">    Concrete configs inherit ``SchedulerConfig`` and declare their own</span>
-<span class="sd">    ``num_inference_steps`` / ``shift`` fields (the base holds no</span>
-<span class="sd">    shared dataclass fields).</span>
-
-<span class="sd">    Examples:</span>
-
-<span class="sd">        scheduler = config.setup()</span>
-<span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)</span>
-<span class="sd">        noisy = scheduler.add_noise(clean_input=clean, timestep=t)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">SchedulerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
-
-<div class="viewcode-block" id="Scheduler.sample">
-<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.sample">[docs]</a>
-    <span class="nd">@abstractmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-        <span class="n">initial_noise</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">predict_flow</span><span class="p">:</span> <span class="n">FlowPredictor</span><span class="p">,</span>
-        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the full denoising loop and return the clean latent.</span>
-
-<span class="sd">        Schedulers are shape-agnostic: every internal op broadcasts against</span>
-<span class="sd">        per-step scalar sigmas. In practice ``initial_noise`` is a video</span>
-<span class="sd">        latent ``[B, C, T, H, W]``, conventionally treated as a sample at</span>
-<span class="sd">        ``sigma=1``.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            initial_noise: Gaussian noise on the caller&#39;s device/dtype.</span>
-<span class="sd">            predict_flow: Per-step closure invoked</span>
-<span class="sd">                ``num_inference_steps`` times.</span>
-<span class="sd">            rng: Generator on the same device. Used by self-forcing renoise</span>
-<span class="sd">                loops; pure ODE solvers ignore it.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            Clean latent with the same shape, device, and dtype as</span>
-<span class="sd">            ``initial_noise``.</span>
-<span class="sd">        &quot;&quot;&quot;</span></div>
-
-
-<div class="viewcode-block" id="Scheduler.add_noise">
-<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.Scheduler.add_noise">[docs]</a>
-    <span class="nd">@abstractmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">add_noise</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-        <span class="n">clean_input</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the forward corruption ``x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps``.</span>
-
-<span class="sd">        Timestep value semantics are scheduler-specific: all schedulers snap</span>
-<span class="sd">        to the nearest entry of their inference schedule.</span>
-<span class="sd">        &quot;&quot;&quot;</span></div>
-</div>
-
+<span class="sd">Aliased to ``WanVAECache``: the I2V encoder runs the inner VAE encoder</span>
+<span class="sd">and threads its cache directly, so the two are structurally identical.&quot;&quot;&quot;</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">SchedulerConfig</span><span class="p">(</span><span class="n">InstantiateConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Category base for every denoising-scheduler config.&quot;&quot;&quot;</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">I2VCtrl</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;I2V control payload (image latent + injection mask).&quot;&quot;&quot;</span>
 
-    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;Scheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Scheduler</span><span class="p">)</span>
+    <span class="n">latent</span><span class="p">:</span> <span class="n">Tensor</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;VAE-encoded image latent ``[*batch_shape, len_t, in_dim, Hl, Wl]``</span>
+<span class="sd">    before patchify, ``[*batch_shape, L, in_dim*K]`` after.&quot;&quot;&quot;</span>
+
+    <span class="n">mask</span><span class="p">:</span> <span class="n">Tensor</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Same shape as ``latent``, values in ``{0, 1}``; ``1`` marks positions</span>
+<span class="sd">    re-injected into the noisy latent / ``x0``.&quot;&quot;&quot;</span>
+
+    <span class="n">_is_patchified</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<div class="viewcode-block" id="WanI2VCtrlEncoderConfig">
+<a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.WanI2VCtrlEncoderConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">WanI2VCtrlEncoderConfig</span><span class="p">(</span><span class="n">EncoderConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the I2V control encoder.&quot;&quot;&quot;</span>
+
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;I2VCtrlEncoder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">I2VCtrlEncoder</span><span class="p">)</span>
+
+    <span class="n">encoder</span><span class="p">:</span> <span class="n">WanVAEEncoderConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">WanVAEEncoderConfig</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Streaming Wan VAE encoder. Pin its checkpoint to the decoder&#39;s so</span>
+<span class="sd">    the encoded latent matches the network&#39;s input distribution.&quot;&quot;&quot;</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">I2VCtrlEncoder</span><span class="p">(</span><span class="n">StreamingVideoEncoder</span><span class="p">[</span><span class="n">I2VCtrlEncoderCache</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-AR-step I2V control encoder.</span>
+
+<span class="sd">    Forward takes the AR-step pixel chunk ``[B, T_pixel, 3, H, W]`` in</span>
+<span class="sd">    ``[-1, 1]``:</span>
+
+<span class="sd">    - AR step 0: the user&#39;s first frame plus zeros along T; the streaming</span>
+<span class="sd">      VAE produces ``len_t`` latent frames with the encoded image at index 0,</span>
+<span class="sd">      and the mask is one-hot on the first frame.</span>
+<span class="sd">    - AR step &gt; 0: pure zeros to flush the VAE&#39;s temporal context; the mask</span>
+<span class="sd">      is all-zeros so the network ignores the resulting latent.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">encoder</span><span class="p">:</span> <span class="n">WanVAEEncoder</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">WanI2VCtrlEncoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">WanI2VCtrlEncoderConfig</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">I2VCtrlEncoderCache</span><span class="p">:</span>
+        <span class="c1"># New rollout: the previous rollout&#39;s first-frame latent must not</span>
+        <span class="c1"># leak into AR steps &gt;= 5 of this one.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">initialize_autoregressive_cache</span><span class="p">()</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="nb">input</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">cache</span><span class="p">:</span> <span class="n">I2VCtrlEncoderCache</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">I2VCtrl</span><span class="p">:</span>
+        <span class="c1"># Defensive reset: covers callers that drive the encoder directly</span>
+        <span class="c1"># without going through ``initialize_autoregressive_cache``.</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># TODO: the Wan VAE encoder is identity after chunk 5, so for I2V we</span>
+        <span class="c1"># could cache and skip the VAE call past that point. Hardcoded for now</span>
+        <span class="c1"># to be fixed later.</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span> <span class="o">=</span> <span class="n">latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span>
+                <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
+                <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+                <span class="s2">&quot;I2VCtrlEncoder has no cached latent at &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;autoregressive_index=</span><span class="si">{</span><span class="n">autoregressive_index</span><span class="si">}</span><span class="s2">; &quot;</span>
+                <span class="s2">&quot;the rollout must have started at autoregressive_index=0 &quot;</span>
+                <span class="s2">&quot;and run contiguously through index 4.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_latent</span>
+        <span class="c1"># Mask shape matches latent so they patchify identically and the</span>
+        <span class="c1"># downstream blend is a plain elementwise multiply.</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">latent</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">autoregressive_index</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">mask</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="mf">1.0</span>
+        <span class="k">return</span> <span class="n">I2VCtrl</span><span class="p">(</span><span class="n">latent</span><span class="o">=</span><span class="n">latent</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">temporal_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">spatial_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">spatial_compression_ratio</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_output_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">input_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">get_output_temporal_size</span><span class="p">(</span>
+            <span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">input_temporal_size</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_input_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="o">.</span><span class="n">get_input_temporal_size</span><span class="p">(</span>
+            <span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">output_temporal_size</span>
+        <span class="p">)</span>
 </pre></div>
         </article>
       </div>
