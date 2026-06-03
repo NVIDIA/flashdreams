@@ -2515,16 +2515,14 @@ class SlangPyHudPresenter:
 
         Called by the demo's outer loop just before it re-enters
         :meth:`wait_for_scene_selection`. Resets the close flag (so the
-        selection loop runs) and drops the displayed speed so the selector
-        doesn't show the just-exited rollout's last reading.
+        selection loop runs) and drops all per-rollout view state so the
+        selector shows the clean "Ready - pick a scene" / "WAITING FOR
+        BEV..." state rather than ghosting the just-exited rollout's last
+        camera frame, BEV minimap, and speed.
         """
         self._pending_exit_scene = False
         self._should_close_flag = False
-        self._speed_mph = 0.0
-        # Drop the just-exited rollout's telemetry so the selector shows a
-        # zero speed rather than ramping back toward the last reading.
-        self._keyboard.clear_telemetry()
-        self._pending_drive_releases.clear()
+        self._reset_scene_view_state()
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
@@ -2621,9 +2619,21 @@ class SlangPyHudPresenter:
         self._should_close_flag = False
         self._current_scene = scene_path
         self._selected_variant = variant
+        self._reset_scene_view_state()
+
+    def _reset_scene_view_state(self) -> None:
+        """Drop all per-rollout view state so the next state starts clean.
+
+        Shared by :meth:`acknowledge_scene_change` (new scene about to load)
+        and :meth:`acknowledge_exit_scene` (returning to the selector). Clears
+        the camera frame, BEV minimap, cached chrome, speed digit, and
+        telemetry so the camera area falls back to its placeholder ("Ready -
+        pick a scene" / "Loading Scene...") and the BEV panel to "WAITING FOR
+        BEV..." instead of ghosting the just-ended rollout's last frame.
+        """
         self._scene_dropdown_open = False
         self._variant_dropdown_open = False
-        # The new backend renders into a fresh ``rgb_host_uint8`` buffer
+        # The next backend renders into a fresh ``rgb_host_uint8`` buffer
         # so the camera resize cache (keyed on ``id(buffer)``) is now
         # stale; drop it. Same for the BEV cache.
         self._camera_resize_cache_key = None
@@ -2632,15 +2642,14 @@ class SlangPyHudPresenter:
         self._latest_bev_pil = None
         self._bev_panel_cache_key = None
         self._bev_panel_cache = None
-        # Panel chrome shows the new scene label, so its cache key
-        # changes naturally; explicitly invalidate to be safe.
+        # Panel chrome shows the scene label, so its cache key changes
+        # naturally; explicitly invalidate to be safe.
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
         self._has_camera_frame = False
         self._speed_mph = 0.0
         # Forget the previous rollout's speed so the digit doesn't ramp back
-        # toward it while the new scene loads; the new rollout republishes
-        # telemetry as soon as it starts.
+        # toward it; a new rollout republishes telemetry as soon as it starts.
         self._keyboard.clear_telemetry()
         self._pending_drive_releases.clear()
 
