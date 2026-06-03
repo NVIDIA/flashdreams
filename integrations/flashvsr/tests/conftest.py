@@ -27,19 +27,4 @@ file paths from inside ``tests/parity_check/``; explicit args bypass
 directory collection), so the documented invocation keeps working.
 """
 
-from __future__ import annotations
-
-import importlib.util
-
 collect_ignore_glob = ["parity_check"]
-
-# Skip test modules that transitively import the compiled CUDA extension
-# (block_sparse_attn_cuda) when it is not available -- e.g. on CPU-only CI
-# runners where BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD=TRUE.
-if importlib.util.find_spec("block_sparse_attn_cuda") is None:
-    collect_ignore_glob += [
-        "test_flashvsr.py",
-        "test_projector_cuda_graph.py",
-        "test_projector_benchmark.py",
-        "test_color_corrector_benchmark.py",
-    ]

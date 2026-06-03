@@ -49,7 +49,7 @@ Examples:
 Implemented models
 ------------------
 
-- :doc:`OmniDreams </models/omnidreams>`
+- :doc:`NVIDIA OmniDreams </models/omnidreams>`
 - :doc:`Self-Forcing </models/self_forcing>`
 - :doc:`Causal-Forcing </models/causal_forcing>`
 - :doc:`Causal Wan2.2 </models/causal_wan22>`

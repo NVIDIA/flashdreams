@@ -98,10 +98,10 @@ def _resolve_scale(scale: int) -> Scale:
     raise ValueError(f"FlashVSR scale must be 2 or 4, got {scale}")
 
 
-def _block_sparse_attn_available() -> bool:
+def _sparse_attention_available() -> bool:
     try:
-        importlib.import_module("block_sparse_attn")
-    except ModuleNotFoundError:
+        importlib.import_module("triton")
+    except ImportError:
         return False
     return True
 
@@ -109,17 +109,9 @@ def _block_sparse_attn_available() -> bool:
 def _resolve_attention_mode(attention_mode: RequestedAttentionMode) -> AttentionMode:
     if attention_mode == "full":
         return "full"
-    if _block_sparse_attn_available():
-        return "sparse"
-    if attention_mode == "auto":
-        logger.warning(
-            "block_sparse_attn is unavailable; falling back to attention_mode=full"
-        )
+    if attention_mode == "auto" and not _sparse_attention_available():
         return "full"
-    raise RuntimeError(
-        "FlashVSR attention_mode='sparse' requires the block_sparse_attn CUDA "
-        "extension. Install block-sparse-attn or pass --attention_mode full/auto."
-    )
+    return "sparse"
 
 
 @dataclass
@@ -1179,12 +1171,11 @@ def main():
         choices=["sparse", "full", "auto"],
         default="sparse",
         help=(
-            "Attention backend for the FlashVSR DiT. sparse requires the "
-            "block_sparse_attn CUDA extension (a hard dependency of the "
-            "FlashVSR integration); if it cannot be imported the server "
-            "will fail loudly at startup. Pass --attention_mode auto to fall "
-            "back to dense attention, or --attention_mode full to opt "
-            "into dense attention instead (default: %(default)s)."
+            "Attention backend for the FlashVSR DiT. sparse uses the in-tree "
+            "Triton block-sparse implementation; auto uses sparse when "
+            "available and falls back to full attention otherwise. "
+            "Pass --attention_mode full to opt into dense attention instead "
+            "(default: %(default)s)."
         ),
     )
     parser.add_argument(

@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Convert an I4 Cosmos SIL DCP checkpoint to a FlashDreams .pt.
+"""Convert a Cosmos DCP checkpoint to a FlashDreams .pt.
 
-The I4 checkpoint stores the DiT under the ``net.`` prefix. This script
+The source checkpoint stores the DiT under the ``net.`` prefix. This script
 loads it through a matching wrapper and saves only the bare
 ``CosmosDiTNetwork`` state dict.
 
@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint_path",
         type=str,
         required=True,
-        help="I4/SIL distributed checkpoint directory, either local or s3://.",
+        help="Distributed checkpoint directory, either local or s3://.",
     )
     parser.add_argument(
         "--credential_path",

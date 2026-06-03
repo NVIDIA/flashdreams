@@ -35,10 +35,10 @@ from omnidreams.scenes import local_scene_archive_path
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
 
-# UUID of the scene staged by ``omnidreams-prepare`` when no
-# ``--scene-uuid`` is specified and used as the demo's ``--scene``
-# default.
-DEFAULT_SCENE_UUID = "01d503d4-449b-46fc-8d78-9085e70d3554"
+# UUID of the scene staged by ``omnidreams-prepare`` when no ``--scene-uuid``
+# is specified and used as the demo's ``--scene`` default. A scene currently
+# published in nvidia/omni-dreams-scenes (clear-weather base archive).
+DEFAULT_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
 # Default scene path: shared cache dir under ``$FLASHDREAMS_CACHE_DIR/
 # omnidreams-scenes/clipgt-<uuid>.usdz``. The desktop demo and the
@@ -144,7 +144,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         default="default",
-        help="Prompt / first-image variant (default, 1, 2, 3)",
+        help=(
+            "Scene variant to load: weather siblings (default, rain, snow) or "
+            "legacy in-archive numbered variants (1, 2, 3)."
+        ),
     )
     parser.add_argument("--prompt", default=None, help="Optional prompt override")
     parser.add_argument(

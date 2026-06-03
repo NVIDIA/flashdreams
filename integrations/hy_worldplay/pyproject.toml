@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-hy-worldplay"
-version = "0.1.0a4"
+version = "0.1.0rc1"
 description = "HY-WorldPlay (HY-World 1.5) interactive world model integration for flashdreams (WAN 2.2 5B I2V variant)."
 readme = "README.md"
 requires-python = ">=3.10"

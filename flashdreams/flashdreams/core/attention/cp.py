@@ -68,6 +68,14 @@ class ContextParallelAttention(NativeAttention):
         method: Literal["ring", "ulysses"] = "ring",
         convert_to_fp32: bool = True,
     ) -> None:
+        """Configure context-parallel attention method and backend.
+
+        Args:
+            qkv_format: Layout of the QKV tensors; ``"bhsd"`` or ``"bshd"``.
+            backend: SDPA backend; ``"cudnn"`` or ``"flash"``.
+            method: Context-parallelism strategy; ``"ring"`` or ``"ulysses"``.
+            convert_to_fp32: Promote LSE accumulators to fp32 during ring merges.
+        """
         super().__init__()
         assert qkv_format in ["bhsd", "bshd"], f"Invalid qkv format: {qkv_format}"
         assert backend in ["cudnn", "flash"], f"Invalid backend: {backend}"

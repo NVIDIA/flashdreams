@@ -29,6 +29,7 @@ limitations under the License.
       <h1 class="srOnly">Lingbot WebRTC Viewer</h1>
       <canvas id="mockCanvas" class="mockCanvas" aria-hidden="true"></canvas>
       <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
+      <img id="firstFramePreview" class="firstFramePreview" alt="" aria-hidden="true">
       <div class="stageVignette" aria-hidden="true"></div>
 
       <header class="brandOverlay" aria-label="FlashDreams World Model">
@@ -46,6 +47,34 @@ limitations under the License.
           <span>Flow</span>
           <strong id="flowText">waiting</strong>
         </div>
+      </section>
+
+      <section id="sceneCard" class="sceneCard overlayPanel" aria-label="Initial Scene">
+        <span class="panelLabel">Initial Scene</span>
+        <div id="firstFrameSourceRow" class="firstFrameSourceRow" data-mode="url">
+          <div class="sourcePane sourcePaneUpload">
+            <button id="uploadModeButton" class="sourceModeButton" type="button">Upload</button>
+            <label class="uploadControl">
+              <input id="firstFrameInput" type="file" accept="image/*">
+              <span id="firstFrameName">Choose Image</span>
+            </label>
+          </div>
+          <div class="sourcePane sourcePaneUrl">
+            <button id="urlModeButton" class="sourceModeButton" type="button">URL</button>
+            <div class="urlControl">
+              <label for="firstFrameUrlInput">Image URL</label>
+              <input id="firstFrameUrlInput" type="url" inputmode="url" autocomplete="off">
+            </div>
+          </div>
+          <button id="firstFrameUrlUpdateButton" class="urlUpdateButton" type="button">Update</button>
+        </div>
+        <div class="firstFrameUpdateRow">
+          <span id="firstFrameUrlStatus" class="fieldStatus" role="status" hidden></span>
+        </div>
+        <label class="promptControl">
+          <span>Prompt</span>
+          <textarea id="promptInput" rows="4" maxlength="2000"></textarea>
+        </label>
       </section>
 
       <section class="controlCard overlayPanel" aria-label="Controls">

@@ -19,12 +19,12 @@
 Reports pass/fail counts and lists any corrupt files.
 
 Usage:
-    python scripts/skippy/validate_cache.py \
-        --cache-dir /lustre/.../ludus_renderer_cache
+    python scripts/validate_cache.py \
+        --cache-dir ./ludus_renderer_cache
 
     # With more workers:
-    python scripts/skippy/validate_cache.py \
-        --cache-dir /lustre/.../ludus_renderer_cache --workers 64
+    python scripts/validate_cache.py \
+        --cache-dir ./ludus_renderer_cache --workers 64
 """
 
 import argparse
@@ -49,10 +49,7 @@ def _validate_one(pt_path_str: str) -> tuple[str, bool, str]:
 
 def main():
     parser = argparse.ArgumentParser(description="Validate cached .pt scene files")
-    default_cache_dir = (
-        f"/lustre/fsw/portfolios/av/projects/av_alpamayo_cosmos"
-        f"/users/{os.environ['USER']}/ludus_renderer_cache"
-    )
+    default_cache_dir = str(Path.cwd() / "ludus_renderer_cache")
     parser.add_argument(
         "--cache-dir", type=str, default=default_cache_dir,
         help="Cache root directory",

@@ -133,7 +133,7 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
     ``internal/upsampler/PERF_NOTES.md``. Empirical ceiling on H100 is
     ~5-10% off ``dit_concat`` (~30-60 ms);
     the headline ``dit_concat`` budget is dominated by the
-    ``block_sparse_attn`` C++ kernel which CUDA graphs do not affect."""
+    Triton block-sparse attention kernel which CUDA graphs do not affect."""
 
     def __post_init__(self) -> None:
         # ``Wan21TransformerConfig`` has no ``__post_init__`` of its own,
@@ -171,7 +171,7 @@ class FlashVSRTransformer(Wan21Transformer):
         ):
             raise ValueError(
                 "FlashVSR attention_mode='sparse' is single-GPU only because "
-                "block_sparse_attn is not context-parallel aware. Use "
+                "Triton sparse attention is not context-parallel aware. Use "
                 "attention_mode='full' for multi-GPU context parallelism."
             )
         super().__init__(config)

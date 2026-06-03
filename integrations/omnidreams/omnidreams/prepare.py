@@ -25,15 +25,19 @@ to ``nvidia/omni-dreams-scenes`` before running this helper.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shutil
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.scenes import (
+    SCENE_VARIANT_DEFAULT,
     hf_hub_download_scene,
     hf_scenes_repo_id,
-    list_available_scene_uuids,
+    list_available_scene_files,
     local_scene_archive_path,
     normalise_scene_uuid,
 )
@@ -81,9 +85,18 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Stage only this specific scene UUID from the scenes dataset. "
             "When omitted, every scene currently published is staged "
-            "(~1 GiB across all clips). The exact dataset depends on "
-            "--hf-org; for the default 'nvidia' org see "
+            "(all weather variants of each clip). The exact dataset depends "
+            "on --hf-org; for the default 'nvidia' org see "
             "https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes."
+        ),
+    )
+    parser.add_argument(
+        "--scene-variant",
+        default=None,
+        help=(
+            "With --scene-uuid, stage only this weather variant "
+            "('default', 'rain', 'snow'). When omitted, every published "
+            "variant of the selected scene (or of all scenes) is staged."
         ),
     )
     parser.add_argument(
@@ -107,6 +120,16 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Skip pre-warming the Cosmos-Reason1 runtime text encoder (~14 GB). "
             "The runtime will download it lazily on first use."
+        ),
+    )
+    parser.add_argument(
+        "--perf",
+        action="store_true",
+        help=(
+            "Sync the pinned third-party CUDA sources required by the perf "
+            "manifest's native acceleration (example_world_model_perf.yaml). "
+            "Clones them into omnidreams_singleview/3rdparty/; the extension "
+            "itself compiles on first run. Requires a source checkout and git."
         ),
     )
     parser.add_argument(
@@ -137,14 +160,14 @@ def human_bytes(value: int) -> str:
     return f"{value} B"
 
 
-def scene_path(scene_uuid: str) -> Path:
-    """Absolute path the demo expects a staged USDZ scene to live at.
+def scene_path(scene_uuid: str, variant: str = SCENE_VARIANT_DEFAULT) -> Path:
+    """Absolute path the demo expects a staged USDZ scene variant to live at.
 
     Shared cache layout under ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``;
     see :func:`omnidreams.scenes.local_scene_archive_path` for the exact
     convention. Accepts either a bare UUID or a ``clipgt-<uuid>`` stem.
     """
-    return local_scene_archive_path(scene_uuid)
+    return local_scene_archive_path(scene_uuid, variant)
 
 
 def prewarm_huggingface_cache(
@@ -192,27 +215,25 @@ def prewarm_huggingface_cache(
         info(f"  \u2192 {local}")
 
 
-def stage_scene(scene_uuid: str, *, force: bool) -> Path:
-    """Download the scene USDZ from the HF dataset and materialise it under
-    ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/clipgt-<uuid>.usdz`` so the
-    desktop demo's ``--scene`` arg points at a stable on-disk file.
+def stage_scene(
+    scene_uuid: str, *, variant: str = SCENE_VARIANT_DEFAULT, force: bool
+) -> Path:
+    """Download a scene variant's USDZ and copy it into the shared cache.
 
-    The HF download itself is content-addressed by ``huggingface_hub``,
-    so subsequent calls with the same UUID -- including the webrtc
-    server's ``_ensure_hf_webrtc_scene_synced`` -- are cache hits.
-
-    Accepts either a bare UUID or a ``clipgt-<uuid>`` stem; both
-    normalise to the bare form for consistent path / URL building.
+    Materialises ``clipgt-<uuid>[-<variant>].usdz`` under the scenes cache so
+    the demo's ``--scene`` arg points at a stable file. Accepts a bare UUID or
+    a ``clipgt-<uuid>`` stem.
     """
     bare_uuid = normalise_scene_uuid(scene_uuid)
-    dest = scene_path(bare_uuid)
+    dest = scene_path(bare_uuid, variant)
+    archive_name = dest.name
 
     if dest.exists() and not force:
         info(f"Scene already staged at {dest} ({human_bytes(dest.stat().st_size)}).")
         return dest
 
-    info(f"Downloading scene from {hf_scenes_repo_id()}: clipgt-{bare_uuid}.usdz")
-    cached = hf_hub_download_scene(bare_uuid)
+    info(f"Downloading scene from {hf_scenes_repo_id()}: {archive_name}")
+    cached = hf_hub_download_scene(bare_uuid, variant)
     # Copy (not symlink) into the cache root so the path referenced by
     # the demo command line is a real file robust to the HF cache moving
     # (e.g. user sets HF_HOME between runs).
@@ -220,6 +241,55 @@ def stage_scene(scene_uuid: str, *, force: bool) -> Path:
     shutil.copy2(cached, dest)
     info(f"Staged scene at {dest} ({human_bytes(dest.stat().st_size)}).")
     return dest
+
+
+def _sync_thirdparty_module() -> ModuleType:
+    """Load the standalone ``sync_thirdparty`` tool by path.
+
+    It lives in the ``omnidreams_singleview`` source tree (a sibling of the
+    ``omnidreams`` package, not an installed module), so it's loaded from its
+    file rather than imported.
+    """
+    tool_path = (
+        Path(__file__).resolve().parents[1]
+        / "omnidreams_singleview"
+        / "tools"
+        / "sync_thirdparty.py"
+    )
+    if not tool_path.is_file():
+        raise SystemExit(
+            "--perf requires the omnidreams_singleview sources, which ship "
+            f"only in a source checkout; not found at {tool_path}."
+        )
+    spec = importlib.util.spec_from_file_location(
+        "omnidreams_sync_thirdparty", tool_path
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Could not load {tool_path}.")
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec so the tool's frozen dataclasses can resolve their
+    # own module via sys.modules during class creation.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def sync_perf_thirdparty(*, force: bool) -> None:
+    """Sync the pinned native CUDA sources the perf manifest builds against.
+
+    ``example_world_model_perf.yaml`` (``native_dit_acceleration: required``)
+    compiles against CUTLASS, SageAttention, SpargeAttn, and cudnn-frontend.
+    Clones them into ``omnidreams_singleview/3rdparty/``; the extension itself
+    builds on first run. Needs git + network.
+    """
+    sync = _sync_thirdparty_module()
+    try:
+        sources = sync.load_manifest()
+        info(f"Syncing {len(sources)} native third-party source(s) for --perf.")
+        for result in sync.sync_sources(sources, force=force):
+            info(f"  {result.source.name}: {result.commit[:12]} -> {result.path}")
+    except sync.ThirdPartySyncError as exc:
+        raise SystemExit(f"--perf third-party sync failed: {exc}") from exc
 
 
 def main() -> int:
@@ -263,14 +333,49 @@ def main() -> int:
             "and rerun, or pass --skip-scene and provide your own USDZ via "
             "the --scene flag to interactive_drive."
         )
+    elif args.scene_uuid is not None and args.scene_variant is not None:
+        stage_scene(args.scene_uuid, variant=args.scene_variant, force=args.force)
     elif args.scene_uuid is not None:
-        stage_scene(args.scene_uuid, force=args.force)
+        # All published variants of the requested scene.
+        bare_uuid = normalise_scene_uuid(args.scene_uuid)
+        variants = [
+            variant
+            for uuid, variant in list_available_scene_files()
+            if uuid == bare_uuid
+        ] or [SCENE_VARIANT_DEFAULT]
+        info(
+            f"Staging {len(variants)} variant(s) of {bare_uuid} "
+            f"from {hf_scenes_repo_id()}: {', '.join(variants)}."
+        )
+        for variant in variants:
+            stage_scene(bare_uuid, variant=variant, force=args.force)
+    elif args.scene_variant is not None:
+        # That variant across every scene that publishes it.
+        scene_files = [
+            (uuid, variant)
+            for uuid, variant in list_available_scene_files()
+            if variant == args.scene_variant
+        ]
+        info(
+            f"Staging {len(scene_files)} scene(s) (variant {args.scene_variant}) "
+            f"from {hf_scenes_repo_id()}."
+        )
+        for i, (uuid, variant) in enumerate(scene_files, start=1):
+            info(f"  [{i}/{len(scene_files)}] {uuid} ({variant})")
+            stage_scene(uuid, variant=variant, force=args.force)
     else:
-        uuids = list_available_scene_uuids()
-        info(f"Staging all {len(uuids)} scene(s) from {hf_scenes_repo_id()}.")
-        for i, uuid in enumerate(uuids, start=1):
-            info(f"  [{i}/{len(uuids)}] {uuid}")
-            stage_scene(uuid, force=args.force)
+        scene_files = list_available_scene_files()
+        info(
+            f"Staging all {len(scene_files)} scene archive(s) "
+            f"from {hf_scenes_repo_id()}."
+        )
+        for i, (uuid, variant) in enumerate(scene_files, start=1):
+            info(f"  [{i}/{len(scene_files)}] {uuid} ({variant})")
+            stage_scene(uuid, variant=variant, force=args.force)
+
+    # Independent of Hugging Face (git clones, no HF_TOKEN).
+    if args.perf:
+        sync_perf_thirdparty(force=args.force)
 
     info("Workspace assets are ready.")
     return 0

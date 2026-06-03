@@ -68,7 +68,7 @@ were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
 (https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
 modified under the same Apache-2.0 license.
 
-OmniDreams single-view native builds use script-managed, pinned source
+NVIDIA OmniDreams single-view native builds use script-managed, pinned source
 downloads under integrations/omnidreams/omnidreams_singleview/3rdparty/.
 Those downloaded trees are ignored by Git and are not source-level
 redistributions in this repository.

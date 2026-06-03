@@ -22,13 +22,12 @@ bash run.sh
 That's it. The script is idempotent and self-contained: on first run
 it clones upstream at a pinned commit, downloads
 `JunhaoZhuang/FlashVSR-v1.1`, materializes the parity-check venv
-(`./.venv/`) — including `block-sparse-attn`, `pytest`, and the
-workspace's `flashvsr` package layered on as an editable install so
-the candidate side is importable from here — applies `changes.patch`,
-runs both parity tests (`test_tcdecoder_parity.py` and
-`test_dit_parity.py`, see below), and runs the benchmark. Subsequent
-runs skip whatever's already in place and just re-run the parity
-tests + benchmark.
+(`./.venv/`) — including `pytest` and the workspace's `flashvsr`
+package layered on as an editable install so the candidate side is
+importable from here — applies `changes.patch`, runs both parity tests
+(`test_tcdecoder_parity.py` and `test_dit_parity.py`, see below), and
+runs the benchmark. Subsequent runs skip whatever's already in place
+and just re-run the parity tests + benchmark.
 
 Override the input video and upscale factor with environment variables:
 
@@ -156,27 +155,13 @@ Unlike the TC decoder file the DiT references reach back into
 package import out of the editable `diffsynth` install (`uv pip
 install --no-deps -e ./FlashVSR` in `run.sh`).
 
-## Block-Sparse-Attention
+## Sparse attention baseline dependency
 
-Upstream FlashVSR's Locality-Constrained Sparse Attention requires the
-[Block-Sparse-Attention](https://github.com/mit-han-lab/Block-Sparse-Attention)
-CUDA extension. `uv sync` (called from `run.sh`) builds and installs
-it automatically into this directory's `.venv/`; the build env is
-seeded by `[tool.uv.extra-build-dependencies]` in `pyproject.toml`
-(setuptools / wheel / packaging / psutil / ninja + a runtime-matched
-torch), and `[[tool.uv.dependency-metadata]]` declares the static
-metadata so uv doesn't have to build the package just to resolve the
-venv. No manual `python setup.py install` step is needed.
-
-System prerequisites uv can't provide:
-
-- `nvcc` (CUDA compiler) on `PATH` — typically from the system CUDA
-  toolkit matching the project's torch CUDA version
-- ~5–10 minutes of build time on first sync; subsequent runs reuse the
-  cached wheel.
-
-If `uv sync` fails to build the extension, `run.sh` exits early with a
-hint pointing at `uv sync -v` for the full build log.
+Upstream FlashVSR imports `block_sparse_attn` for Locality-Constrained
+Sparse Attention. The parity-check venv installs the upstream external
+package so the baseline keeps the implementation it originally has. The
+FlashDreams candidate uses the in-tree Triton sparse-attention backend
+through `flashvsr.transformer.network`.
 
 ## Isolation
 
