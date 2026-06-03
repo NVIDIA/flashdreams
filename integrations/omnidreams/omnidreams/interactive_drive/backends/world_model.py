@@ -206,6 +206,14 @@ class WorldModelRenderBackend(RenderBackend):
             source_name="omnidreams",
         )
 
+    def reset(self) -> None:
+        self._session.reset()
+        self._next_chunk_count = 0
+
+    def reset_scene_conditioning(self) -> None:
+        self._session.reset(clear_precomputed_embeddings=True)
+        self._next_chunk_count = 0
+
     def close(self) -> None:
         self._session.close()
         self._rasterizer.cleanup()

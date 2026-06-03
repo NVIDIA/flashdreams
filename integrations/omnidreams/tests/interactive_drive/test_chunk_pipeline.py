@@ -88,6 +88,18 @@ class _GatedWarmupBackend:
         )
 
 
+def _wait_for_queue_size(pipeline: ChunkPipeline, size: int) -> None:
+    deadline = time.perf_counter() + 1.0
+    while time.perf_counter() < deadline:
+        if pipeline.frame_queue.qsize() >= size:
+            return
+        time.sleep(0.01)
+    raise AssertionError(
+        f"timed out waiting for frame queue size {size}; "
+        f"actual={pipeline.frame_queue.qsize()}"
+    )
+
+
 def _chunk_times(chunk_size: int) -> ChunkTimes:
     now = time.perf_counter()
     return ChunkTimes.create(
@@ -175,6 +187,38 @@ def test_chunk_pipeline_drops_superseded_render_after_reset() -> None:
     assert backend.reset_calls == 1
     # The in-flight render belonged to the pre-reset generation, so its
     # frame is dropped rather than queued.
+    assert pipeline.frame_queue.qsize() == 0
+
+
+def test_chunk_pipeline_reset_clears_already_queued_frames() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=2)
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
+    pipeline.request_pose_chunk(
+        ChunkRequest(trajectory=make_trajectory(2), chunk_times=_chunk_times(2))
+    )
+    _wait_for_queue_size(pipeline, 2)
+
+    pipeline.reset()
+    pipeline.shutdown()
+
+    assert backend.reset_calls == 1
+    assert pipeline.frame_queue.qsize() == 0
+
+
+def test_chunk_pipeline_scene_change_clears_already_queued_frames() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=2)
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
+    pipeline.request_pose_chunk(
+        ChunkRequest(trajectory=make_trajectory(2), chunk_times=_chunk_times(2))
+    )
+    _wait_for_queue_size(pipeline, 2)
+
+    pipeline.request_scene(replace(minimal_scene(), prompt="new scene"))
+    pipeline.shutdown()
+
+    assert backend.load_scene_calls == 2
     assert pipeline.frame_queue.qsize() == 0
 
 
