@@ -63,6 +63,7 @@ Next steps
 Explore models:
 
 - :doc:`/models/index` - Browse all supported models, their specific launch commands, and configurations.
+- :doc:`/models/omnidreams` - Drive a world model in real time with the ``interactive-drive`` demo.
 
 For developers:
 
