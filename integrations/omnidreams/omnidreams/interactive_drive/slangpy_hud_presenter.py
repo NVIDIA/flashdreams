@@ -877,7 +877,7 @@ class SlangPyHudPresenter:
         # texture is only the final HUD swapchain upload target.
         self._display_texture = display_texture
         if size_changed:
-            self._retire_cuda_hud_interop_after_resize()
+            self._recreate_cuda_hud_interop_after_resize(width, height)
         # Drop the chrome panel cache (its size depends on screen size)
         # and reallocate the canvas. Other caches are size-independent.
         self._panel_chrome_cache_key = None
@@ -1176,16 +1176,23 @@ class SlangPyHudPresenter:
         actual = self._window.size
         return self._normalise_present_size(actual.x, actual.y)
 
-    def _retire_cuda_hud_interop_after_resize(self) -> None:
+    def _recreate_cuda_hud_interop_after_resize(self, width: int, height: int) -> None:
         if self._cuda_hud_interop is None:
             return
         self._retired_cuda_hud_interops.append(self._cuda_hud_interop)
         self._cuda_hud_interop = None
+        self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
+        if self._cuda_hud_interop is not None:
+            print(
+                "[presenter] hud_cuda_interop=recreated after window resize",
+                flush=True,
+            )
+            self._cuda_hud_resize_logged = False
+            return
         if not self._cuda_hud_resize_logged:
             print(
                 "[presenter] hud_cuda_interop=disabled after window resize; "
-                "using host HUD upload so model CUDA graph resources are not "
-                "recreated during interactive resizing",
+                "could not recreate shared CUDA/Vulkan resources",
                 flush=True,
             )
             self._cuda_hud_resize_logged = True

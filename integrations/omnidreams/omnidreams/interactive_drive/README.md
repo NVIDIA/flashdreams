@@ -388,8 +388,7 @@ SlangPy CUDA interop for generated RGB frames when the model output is still on
 CUDA:
 
 ```bash
-OMNIDREAMS_TRUESIGHT=1 \
-  uv run --no-sync --package flashdreams-omnidreams interactive-drive
+uv run --no-sync --package flashdreams-omnidreams interactive-drive
 ```
 
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
@@ -423,7 +422,6 @@ input-to-present timing while the demo runs:
 
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
-  OMNIDREAMS_TRUESIGHT=1 \
   uv run --no-sync --package flashdreams-omnidreams interactive-drive --autoload-scene
 ```
 
