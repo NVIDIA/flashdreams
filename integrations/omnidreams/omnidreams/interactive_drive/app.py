@@ -209,6 +209,12 @@ class InteractiveDriveApp:
             return False  # presenter closed mid-load
         if error:
             raise error[0]
+        if self._presenter.should_close:
+            # A newer scene/variant click may have arrived on the same tick the
+            # loader finished. Do not bind this now-stale bundle or it can flash
+            # one rollout from the previous selection before the outer loop sees
+            # ``pending_scene_change``.
+            return False
         self._scene, self._map_bounds, self._ground_snapper = (  # type: ignore[assignment]
             loaded[0],
             loaded[1],
@@ -222,6 +228,11 @@ class InteractiveDriveApp:
             self._map_bounds,
             self._ground_snapper,
         )
+        if self._presenter.should_close:
+            # Same guard after cache bookkeeping: if the user clicked again
+            # while we were committing the loaded bundle, leave the presenter in
+            # close/requested state for the outer loop to consume.
+            return False
         self._pipeline.request_scene(self._scene)
         return True
 

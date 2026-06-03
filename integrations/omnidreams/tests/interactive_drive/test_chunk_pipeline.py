@@ -3,6 +3,8 @@
 
 import threading
 import time
+from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 from omnidreams.interactive_drive._pipeline_fakes import (
@@ -11,7 +13,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     minimal_scene,
 )
 from omnidreams.interactive_drive.runtime.timing import ChunkPrediction, ChunkTimes
-from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame
+from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     ChunkRequest,
@@ -30,7 +32,7 @@ class _GatedBackend:
     def warmup_model(self) -> None:
         self.warmup_model_calls += 1
 
-    def load_scene(self, scene: object) -> None:
+    def load_scene(self, scene: SceneBundle) -> None:
         del scene
 
     def reset(self) -> None:
@@ -48,6 +50,41 @@ class _GatedBackend:
             frames=(frame,),
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="gated",
+        )
+
+
+class _GatedWarmupBackend:
+    """Backend whose warmup blocks so scene loads can queue behind it."""
+
+    def __init__(self) -> None:
+        self.warmup_started = threading.Event()
+        self.release_warmup = threading.Event()
+        self.scene_loaded = threading.Event()
+        self.loaded_prompts: list[str] = []
+        self.render_calls = 0
+
+    def warmup_model(self) -> None:
+        self.warmup_started.set()
+        self.release_warmup.wait(timeout=5.0)
+
+    def load_scene(self, scene: SceneBundle) -> None:
+        self.loaded_prompts.append(scene.prompt)
+        self.scene_loaded.set()
+
+    def reset(self) -> None:
+        return
+
+    def render_chunk(self, trajectory: object) -> FrameChunk:
+        self.render_calls += 1
+        frame = PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+            depth_host_f32=None,
+        )
+        return FrameChunk(
+            frames=(frame,),
+            boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
+            source_name="gated-warmup",
         )
 
 
@@ -139,3 +176,28 @@ def test_chunk_pipeline_drops_superseded_render_after_reset() -> None:
     # The in-flight render belonged to the pre-reset generation, so its
     # frame is dropped rather than queued.
     assert pipeline.frame_queue.qsize() == 0
+
+
+def test_chunk_pipeline_skips_stale_scene_load_queued_behind_warmup() -> None:
+    backend = _GatedWarmupBackend()
+    pipeline = ChunkPipeline(backend)
+    assert backend.warmup_started.wait(timeout=1.0)
+
+    default_scene = replace(
+        minimal_scene(), scene_path=Path("clipgt-scene.usdz"), prompt="clear"
+    )
+    snow_scene = replace(
+        minimal_scene(), scene_path=Path("clipgt-scene-snow.usdz"), prompt="snow"
+    )
+
+    pipeline.request_scene(default_scene)
+    pipeline.request_pose_chunk(
+        ChunkRequest(trajectory=make_trajectory(1), chunk_times=_chunk_times(1))
+    )
+    pipeline.request_scene(snow_scene)
+    backend.release_warmup.set()
+    assert backend.scene_loaded.wait(timeout=1.0)
+    pipeline.shutdown()
+
+    assert backend.loaded_prompts == ["snow"]
+    assert backend.render_calls == 0
