@@ -118,6 +118,7 @@ exclude = ["tests"]
     "configs/*.yaml",
     "configs/wheels/*.yaml",
     "assets/README.md",
+    "assets/wheel_and_pedals/*.png",
     "README.md",
     "hdmap.png",
     "screenshot.jpg",

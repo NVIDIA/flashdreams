@@ -54,6 +54,12 @@ _query_axis_range = query_axis_range
 # of the live screen width. Pinned at 500 px because the panel content
 # (wheel asset, pedal pngs) is asset-driven and doesn't reflow.
 HUD_PANEL_WIDTH = 500
+
+# Bundled AlpaSim-style steering-wheel / pedal PNGs that drive the HUD
+# chrome. Resolved relative to the installed package (like the other
+# ``cli.py`` defaults) so the realistic controls render out of the box
+# regardless of the user's cwd; ``--control-assets-dir`` overrides it.
+_BUNDLED_CONTROL_ASSETS_DIR = _cli._PACKAGE_ROOT / "assets" / "wheel_and_pedals"
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 0.75
 KEYBOARD_STEER_RATE_PER_S = 0.6
@@ -544,7 +550,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--control-assets-dir",
         type=Path,
         default=None,
-        help="Directory containing AlpaSim wheel/pedal PNGs. Defaults to data/wheel_and_pedals if present.",
+        help=(
+            "Directory containing AlpaSim-style wheel/pedal PNGs "
+            "(steering_wheel.png, throttle_pressed.png, throttle_unpressed.png, "
+            "brake_pressed.png / break_pressed.png, brake_unpressed.png / "
+            "break_unpressed.png). Defaults to the bundled assets shipped with "
+            "the package; pass a directory to override them."
+        ),
     )
     parser.add_argument(
         "--wheel-device",
@@ -1470,7 +1482,7 @@ def _best_device_for_profile(
 
 
 def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
-    assets_dir = control_assets_dir or Path("data/wheel_and_pedals")
+    assets_dir = control_assets_dir or _BUNDLED_CONTROL_ASSETS_DIR
     if not assets_dir.is_dir():
         if control_assets_dir is not None:
             print(

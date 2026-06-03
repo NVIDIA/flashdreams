@@ -1545,7 +1545,12 @@ class SlangPyHudPresenter:
                 font=self._font_tiny,
             )
 
-        wheel_center = (center_x, speed_y + 185)
+        # The wheel sits a little below the speed readout. Pedals are
+        # anchored to ``speed_y`` (NOT the wheel center) below, so this
+        # vertical nudge can be tuned without dragging the pedals / BEV
+        # down with it -- and so the pedal + BEV geometry stays in lockstep
+        # with the cached chrome in ``_get_panel_chrome``.
+        wheel_center = (center_x, speed_y + 210)
         self._draw_wheel(canvas, draw, wheel_center, 112, wheel_state.steering)
 
         angle_text = f"{int(wheel_state.steering * 450):+}\u00b0"
@@ -1558,7 +1563,7 @@ class SlangPyHudPresenter:
             font=self._font_medium,
         )
 
-        pedals_y = wheel_center[1] + 180
+        pedals_y = speed_y + 365
         self._draw_pedals(canvas, draw, panel_rect, pedals_y, wheel_state)
 
         controls_bottom_y = pedals_y + 220
@@ -1693,9 +1698,11 @@ class SlangPyHudPresenter:
             font=self._font_tiny,
         )
 
-        # BEV chrome (cream background + green outline + title).
-        wheel_center_y = speed_y + 185
-        pedals_y = wheel_center_y + 180
+        # BEV chrome (cream background + green outline + title). Pedals are
+        # anchored to ``speed_y`` here; keep this in lockstep with the same
+        # ``pedals_y`` / ``controls_bottom_y`` computation in ``_draw_panel``
+        # so the BEV foreground lands on this cached background.
+        pedals_y = speed_y + 365
         controls_bottom_y = pedals_y + 220
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
         bev_height = panel_h - bev_top - BEV_PANEL_BOTTOM_MARGIN
@@ -1856,7 +1863,12 @@ class SlangPyHudPresenter:
             )
         if brake_pil is not None:
             brake_img = self._fit_pedal(brake_pil, "B", target_w, target_h)
-            canvas.alpha_composite(brake_img, (brake_x, pedals_y))
+            # The brake sprite is wide/short, so aspect-fitting it into the
+            # tall pedal slot leaves it hugging the top. Center it vertically
+            # in the slot so it sits lower, roughly level with the throttle
+            # (mirrors AlpaSim's ``(throttle_h - brake_h) // 2`` offset).
+            brake_dy = max(0, (target_h - brake_img.height) // 2)
+            canvas.alpha_composite(brake_img, (brake_x, pedals_y + brake_dy))
         else:
             self._draw_pedal_bar(
                 draw,
