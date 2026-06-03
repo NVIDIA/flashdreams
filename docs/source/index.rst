@@ -211,7 +211,7 @@ baseline below. Full methodology lives on the
 
          .. container:: fd-stat-note
 
-            GB300 (8×GPU), vs FastVideo baseline (534 ms → 382 ms per step).
+            GB300, vs FastVideo baseline (534 ms → 382 ms per step).
 
    .. grid-item::
 
