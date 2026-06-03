@@ -15,7 +15,7 @@
 
 FROM nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
 
-# Default workdir used by test scripts (pyxis/enroot requires it to exist)
+# Default workdir used by test scripts.
 RUN mkdir -p /workspace
 
 # System deps: Python 3.12, ffmpeg, build tools for transformer-engine-torch

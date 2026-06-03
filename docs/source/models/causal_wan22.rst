@@ -37,7 +37,8 @@ Installation
 Running the method
 ------------------
 
-To run Causal Wan2.2, launch the registered runner slug. For example:
+To run Causal Wan2.2, launch the registered runner slug via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -55,8 +56,8 @@ To run Causal Wan2.2, launch the registered runner slug. For example:
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
@@ -91,7 +92,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
@@ -111,3 +112,17 @@ Some generated samples from the above commands:
        </div>
      </div>
    </div>
+
+Citation
+--------
+
+If you use Causal Wan2.2, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{zhang2025fast,
+     title={Fast video generation with sliding tile attention},
+     author={Zhang, Peiyuan and Chen, Yongqi and Su, Runlong and Ding, Hangliang and Stoica, Ion and Liu, Zhengzhong and Zhang, Hao},
+     journal={arXiv preprint arXiv:2502.04507},
+     year={2025}
+   }

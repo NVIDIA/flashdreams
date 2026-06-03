@@ -15,10 +15,17 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
+from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
 from lingbot.webrtc.server import create_app
-from lingbot.webrtc.session import SessionBusyError
+from lingbot.webrtc.session import (
+    LingbotImagePayload,
+    LingbotSessionInput,
+    SessionBusyError,
+)
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -30,14 +37,39 @@ class FakeSessionManager:
         self.close_calls = 0
         self.preload_calls = 0
         self.offers: list[tuple[str, str]] = []
+        self.pending_inputs: list[LingbotSessionInput] = []
         self.active = False
         self.runtime_ready = False
+        self.initial_scene: dict[str, object] = {
+            "first_frame_url": "/api/session/first_frame",
+            "prompt": "drive through a city",
+            "model": "FakeLingbot",
+            "resolution": {"width": 832, "height": 464},
+        }
+        self.first_frame = LingbotImagePayload(
+            data=b"fake-first-frame",
+            content_type="image/jpeg",
+        )
 
     def has_active_session(self) -> bool:
         return self.active
 
     def is_runtime_ready(self) -> bool:
         return self.runtime_ready
+
+    def get_initial_scene(self) -> dict[str, object]:
+        return self.initial_scene
+
+    def get_first_frame(self) -> LingbotImagePayload:
+        return self.first_frame
+
+    def set_pending_session_input(self, session_input: LingbotSessionInput) -> None:
+        self.pending_inputs.append(session_input)
+        self.initial_scene = {
+            **self.initial_scene,
+            "prompt": session_input.prompt or self.initial_scene["prompt"],
+            "input_source": "uploaded",
+        }
 
     async def preload_runtime(self) -> None:
         self.preload_calls += 1
@@ -111,6 +143,123 @@ async def test_healthz_reports_runtime_ready() -> None:
         assert response.status == 200
         assert payload["runtime_ready"] is True
         assert payload["session_active"] is False
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_initial_scene_route_returns_preview_metadata() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/session/initial_scene")
+        payload = await response.json()
+        assert response.status == 200
+        assert payload == manager.initial_scene
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_first_frame_route_serves_manager_image() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/session/first_frame")
+        body = await response.read()
+        assert response.status == 200
+        assert response.headers["Content-Type"] == "image/jpeg"
+        assert body == b"fake-first-frame"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_upload_stores_prompt_and_image() -> None:
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+        "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field(
+            "prompt",
+            "turn onto a rain-soaked neon street\nwith reflective traffic lights",
+        )
+        form.add_field(
+            "image",
+            png_bytes,
+            filename="scene.png",
+            content_type="image/png",
+        )
+
+        response = await client.post("/api/session/input", data=form)
+        payload = await response.json()
+
+        assert response.status == 200
+        assert (
+            payload["prompt"]
+            == "turn onto a rain-soaked neon street with reflective traffic lights"
+        )
+        assert payload["input_source"] == "uploaded"
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert (
+            session_input.prompt
+            == "turn onto a rain-soaked neon street with reflective traffic lights"
+        )
+        assert session_input.first_frame_image_bytes == png_bytes
+        assert session_input.first_frame_content_type == "image/png"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_accepts_image_url() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("image_url", "https://example.test/scene.jpg")
+
+        response = await client.post("/api/session/input", data=form)
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert session_input.first_frame_image_url == "https://example.test/scene.jpg"
+        assert session_input.first_frame_image_bytes is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_file_upload_overrides_image_url() -> None:
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+        "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("image_url", "https://example.test/scene.jpg")
+        form.add_field(
+            "image",
+            png_bytes,
+            filename="scene.png",
+            content_type="image/png",
+        )
+
+        response = await client.post("/api/session/input", data=form)
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert session_input.first_frame_image_url is None
+        assert session_input.first_frame_image_bytes == png_bytes
     finally:
         await client.close()
 

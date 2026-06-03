@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pytest
 import torch
@@ -40,6 +41,15 @@ class _FakeCloseable:
 def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     del config
     return object()
+
+
+def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
+    image_url = (
+        "https://github.com/Robbyant/lingbot-world/blob/main/examples/03/image.jpg"
+    )
+    assert session._validate_remote_url(image_url, field_name="image") == (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/03/image.jpg"
+    )
 
 
 @pytest.mark.asyncio
@@ -108,7 +118,10 @@ async def test_loopback_warmup_drives_session_generation(
         async def initialize(self) -> None:
             self.initialize_calls += 1
 
-        async def reset_for_new_session(self) -> None:
+        async def reset_for_new_session(
+            self, session_input: session.LingbotSessionInput | None = None
+        ) -> None:
+            del session_input
             self.reset_calls += 1
 
         def peek_steady_chunk_num_frames(self) -> int:
@@ -175,7 +188,10 @@ async def test_loopback_warmup_skips_when_configured_zero(
         async def initialize(self) -> None:
             self.initialize_calls += 1
 
-        async def reset_for_new_session(self) -> None:
+        async def reset_for_new_session(
+            self, session_input: session.LingbotSessionInput | None = None
+        ) -> None:
+            del session_input
             self.reset_calls += 1
 
         async def close(self) -> None:
@@ -199,6 +215,41 @@ async def test_loopback_warmup_skips_when_configured_zero(
     assert fake_runtime.initialize_calls == 1
     assert fake_runtime.reset_calls == 0
     assert not manager.has_active_session()
+
+
+@pytest.mark.asyncio
+async def test_create_answer_passes_pending_session_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    manager._runtime_ready = True
+    manager._warmup_complete = True
+    session_input = session.LingbotSessionInput(prompt="follow a coastal highway")
+    manager.set_pending_session_input(session_input)
+    captured_inputs: list[session.LingbotSessionInput | None] = []
+
+    async def _fake_create_answer_with_runtime_ready_locked(
+        **kwargs: object,
+    ) -> dict[str, str]:
+        captured_inputs.append(
+            cast(session.LingbotSessionInput | None, kwargs.get("session_input"))
+        )
+        return {"sdp": "answer-sdp", "type": "answer"}
+
+    monkeypatch.setattr(
+        manager,
+        "_create_answer_with_runtime_ready_locked",
+        _fake_create_answer_with_runtime_ready_locked,
+    )
+
+    answer = await manager.create_answer(offer_sdp="offer-sdp", offer_type="offer")
+
+    assert answer == {"sdp": "answer-sdp", "type": "answer"}
+    assert captured_inputs == [session_input]
+    assert manager._pending_session_input is None
 
 
 @pytest.mark.asyncio

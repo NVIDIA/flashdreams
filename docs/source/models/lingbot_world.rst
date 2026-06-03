@@ -50,8 +50,8 @@ Installation
 Running the method
 ------------------
 
-To run LingBot-World, launch one of the registered runner slugs. For
-example:
+To run LingBot-World, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -63,13 +63,13 @@ example:
        --pixel-height 464 --pixel-width 832 \
        --total-blocks 21
 
-Sample data are downloaded from the
+Sample data is downloaded from the
 `LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
@@ -130,7 +130,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
@@ -237,3 +237,17 @@ matched settings.
      </figcaption>
    </figure>
   <script src="../_static/js/benchmark_chart.js"></script>
+
+Citation
+--------
+
+If you use LingBot-World, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{lingbot-world,
+         title={Advancing Open-source World Models},
+         author={Robbyant Team and Zelin Gao and Qiuyu Wang and Yanhong Zeng and Jiapeng Zhu and Ka Leong Cheng and Yixuan Li and Hanlin Wang and Yinghao Xu and Shuailei Ma and Yihang Chen and Jie Liu and Yansong Cheng and Yao Yao and Jiayi Zhu and Yihao Meng and Kecheng Zheng and Qingyan Bai and Jingye Chen and Zehong Shen and Yue Yu and Xing Zhu and Yujun Shen and Hao Ouyang},
+         journal={arXiv preprint arXiv:2601.20540},
+         year={2026}
+   }

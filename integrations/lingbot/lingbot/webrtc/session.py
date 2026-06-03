@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import json
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -47,20 +51,142 @@ from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
     wait_for_ice_gathering_complete,
 )
-from lingbot.config import PIPELINE_CONFIGS
-from lingbot.encoder.camctrl import CamCtrlInput
-from lingbot.encoder.utils import (
-    get_Ks_transformed,
-    preprocess_example_poses,
-)
+from lingbot.encoder.utils import preprocess_example_poses
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
+_INTRINSICS_REFERENCE_HEIGHT = 480
+_INTRINSICS_REFERENCE_WIDTH = 832
+_DEFAULT_INTRINSICS = (
+    502.9115905761719,
+    503.1081237792969,
+    415.7778625488281,
+    239.7777862548828,
+)
+# Aligned with the world scale computed from the first LingBot World demo scene.
+_DEFAULT_WORLD_SCALE = 1.271182656288147
+_DEFAULT_PROMPT = (
+    "The video presents a soaring journey through a fantasy jungle. The wind whips "
+    "past the rider's blue hands gripping the reins, causing the leather straps to "
+    "vibrate. The ancient gothic castle approaches steadily, its stone details "
+    "becoming clearer against the backdrop of floating islands and distant waterfalls."
+)
+_DEFAULT_DEMO_BASE_URL = (
+    "https://raw.githubusercontent.com/robbyant/lingbot-world/main/examples/00"
+)
+_DEFAULT_IMAGE_URL = f"{_DEFAULT_DEMO_BASE_URL}/image.jpg"
+_DEFAULT_INTRINSICS_URL = f"{_DEFAULT_DEMO_BASE_URL}/intrinsics.npy"
+_DEFAULT_POSES_URL = f"{_DEFAULT_DEMO_BASE_URL}/poses.npy"
+_MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
+_MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
+_REMOTE_READ_TIMEOUT_S = 20.0
 
 
 class LingbotRuntimeError(RuntimeError):
     """Raised when the Lingbot runtime is used incorrectly."""
+
+
+def _content_type_for_image_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".webp":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _normalize_github_blob_url(url: str, parsed: urllib.parse.ParseResult) -> str:
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"github.com", "www.github.com"}:
+        return url
+
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if len(path_parts) < 5 or path_parts[2] != "blob":
+        return url
+
+    owner, repo, _, ref, *file_path = path_parts
+    raw_path = "/" + "/".join([owner, repo, ref, *file_path])
+    return urllib.parse.urlunparse(
+        ("https", "raw.githubusercontent.com", raw_path, "", "", "")
+    )
+
+
+def _validate_remote_url(url: str, *, field_name: str) -> str:
+    normalized = url.strip()
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field_name} must be an http(s) URL.")
+    return _normalize_github_blob_url(normalized, parsed)
+
+
+def _read_remote_bytes(
+    url: str, *, max_bytes: int, field_name: str
+) -> tuple[bytes, str]:
+    normalized = _validate_remote_url(url, field_name=field_name)
+    request = urllib.request.Request(
+        normalized,
+        headers={"User-Agent": "flashdreams-lingbot-webrtc/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=_REMOTE_READ_TIMEOUT_S
+        ) as response:
+            data = response.read(max_bytes + 1)
+            content_type = response.headers.get_content_type()
+    except urllib.error.URLError as exc:
+        raise ValueError(f"Failed to fetch {field_name}: {exc.reason}") from exc
+    if len(data) > max_bytes:
+        raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
+    if not data:
+        raise ValueError(f"{field_name} returned an empty response.")
+    return data, content_type
+
+
+def _decode_image_bytes_rgb(image_bytes: bytes, *, field_name: str) -> np.ndarray:
+    encoded = np.frombuffer(image_bytes, dtype=np.uint8)
+    image_bgr = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        raise ValueError(f"{field_name} could not be decoded as an image.")
+    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+
+def _load_npy_payload(source: Path | str, *, field_name: str) -> np.ndarray:
+    if isinstance(source, Path):
+        return np.load(source, allow_pickle=False)
+    data, _ = _read_remote_bytes(
+        source, max_bytes=_MAX_REMOTE_NUMPY_BYTES, field_name=field_name
+    )
+    return np.load(io.BytesIO(data), allow_pickle=False)
+
+
+def _pipeline_configs() -> dict[str, Any]:
+    from lingbot.config import PIPELINE_CONFIGS  # noqa: PLC0415
+
+    return PIPELINE_CONFIGS
+
+
+def _transform_intrinsics(
+    intrinsics: torch.Tensor,
+    *,
+    height_org: int,
+    width_org: int,
+    height_resize: int,
+    width_resize: int,
+    height_final: int,
+    width_final: int,
+) -> torch.Tensor:
+    fx, fy, cx, cy = intrinsics.chunk(4, dim=-1)
+    scale_x = width_resize / width_org
+    scale_y = height_resize / height_org
+    transformed = torch.zeros_like(intrinsics)
+    transformed[..., 0:1] = fx * scale_x
+    transformed[..., 1:2] = fy * scale_y
+    transformed[..., 2:3] = cx * scale_x - (width_resize - width_final) / 2
+    transformed[..., 3:4] = cy * scale_y - (height_resize - height_final) / 2
+    return transformed
 
 
 class LingbotControlSignal(IntEnum):
@@ -81,6 +207,11 @@ class LingbotRuntimeConfig:
     video_height: int = 464
     video_width: int = 832
     world_scale: float | None = None
+    default_intrinsics: tuple[float, float, float, float] | None = None
+    default_prompt: str = _DEFAULT_PROMPT
+    default_image_url: str | None = _DEFAULT_IMAGE_URL
+    default_intrinsics_url: str | None = _DEFAULT_INTRINSICS_URL
+    default_poses_url: str | None = _DEFAULT_POSES_URL
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
 
@@ -89,6 +220,24 @@ class LingbotRuntimeConfig:
     intrinsics_filename: str = "intrinsics.npy"
     poses_filename: str = "poses.npy"
     prompt_filename: str = "prompt.txt"
+
+
+@dataclass(frozen=True, slots=True)
+class LingbotSessionInput:
+    prompt: str | None = None
+    first_frame_image_bytes: bytes | None = None
+    first_frame_image_url: str | None = None
+    first_frame_content_type: str = "image/jpeg"
+
+
+@dataclass(frozen=True, slots=True)
+class LingbotImagePayload:
+    data: bytes
+    content_type: str
+
+
+def normalize_prompt_text(prompt: str) -> str:
+    return " ".join(prompt.split())
 
 
 @dataclass(slots=True)
@@ -152,12 +301,14 @@ class LingbotInferenceRuntime:
             return
         await asyncio.to_thread(self._initialize_sync_all_ranks)
 
-    async def reset_for_new_session(self) -> None:
+    async def reset_for_new_session(
+        self, session_input: LingbotSessionInput | None = None
+    ) -> None:
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
         if self._pipeline is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        await asyncio.to_thread(self._reset_rollout_sync_all_ranks)
+        await asyncio.to_thread(self._reset_rollout_sync_all_ranks, session_input)
 
     async def close(self) -> None:
         self._closed = True
@@ -241,8 +392,10 @@ class LingbotInferenceRuntime:
         self._initialize_sync()
 
     @distributed_op(LingbotControlSignal.RESET_SESSION)
-    def _reset_rollout_sync_all_ranks(self) -> None:
-        self._reset_rollout_sync()
+    def _reset_rollout_sync_all_ranks(
+        self, session_input: LingbotSessionInput | None = None
+    ) -> None:
+        self._reset_rollout_sync(session_input=session_input)
 
     @distributed_op(LingbotControlSignal.ACTION_STEP)
     def _generate_chunk_sync_all_ranks(
@@ -260,36 +413,149 @@ class LingbotInferenceRuntime:
         if self._pipeline is not None:
             return
 
-        data_dir = self.config.example_data_dir
-        first_frame_path = data_dir / self.config.first_frame_filename
-        intrinsics_path = data_dir / self.config.intrinsics_filename
-        poses_path = data_dir / self.config.poses_filename
-        prompt_path = data_dir / self.config.prompt_filename
-
-        missing_paths = [
-            str(path)
-            for path in (first_frame_path, intrinsics_path, prompt_path)
-            if not path.exists()
-        ]
-        if missing_paths:
-            raise FileNotFoundError(
-                "Missing Lingbot example assets: " + ", ".join(missing_paths)
-            )
-
-        if self.config.config_name not in PIPELINE_CONFIGS:
-            supported = ", ".join(sorted(PIPELINE_CONFIGS))
+        pipeline_configs = _pipeline_configs()
+        if self.config.config_name not in pipeline_configs:
+            supported = ", ".join(sorted(pipeline_configs))
             raise ValueError(
-                f"Unknown config_name={self.config.config_name!r}. Supported: {supported}"
+                f"Unknown config_name={self.config.config_name!r}. "
+                f"Supported: {supported}"
             )
 
         self._device = torch.device(self.config.device)
         if self._device.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for Lingbot runtime.")
 
-        image_bgr = cv2.imread(str(first_frame_path), cv2.IMREAD_COLOR)
-        if image_bgr is None:
-            raise RuntimeError(f"Failed to read first frame from {first_frame_path}")
-        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        self._base_intrinsics = self._build_base_intrinsics()
+        self._world_scale = self._resolve_world_scale()
+
+        rollout_seed = (
+            self.config.seed + self.rank
+            if self.config.context_parallel_size > 1
+            else self.config.seed
+        )
+        pipeline_config = derive_config(
+            base_config=pipeline_configs[self.config.config_name],
+            enable_sync_and_profile=True,
+            diffusion_model=dict(
+                seed=rollout_seed,
+                transformer=dict(compile_network=self.config.compile_network),
+            ),
+        )
+        self._pipeline = pipeline_config.setup().to(device=self._device)
+        self._reset_rollout_sync()
+
+    def _build_base_intrinsics(self) -> torch.Tensor:
+        if self._device is None:
+            raise LingbotRuntimeError("Runtime device is not initialized.")
+        intrinsics_path = self.config.example_data_dir / self.config.intrinsics_filename
+        if self.config.default_intrinsics is not None:
+            intrinsics = np.asarray(self.config.default_intrinsics, dtype=np.float32)
+        elif intrinsics_path.exists():
+            intrinsics = _load_npy_payload(
+                intrinsics_path, field_name="Lingbot default intrinsics"
+            )
+        elif self.config.default_intrinsics_url:
+            intrinsics = _load_npy_payload(
+                self.config.default_intrinsics_url,
+                field_name="Lingbot default intrinsics URL",
+            )
+        else:
+            intrinsics = np.asarray(_DEFAULT_INTRINSICS, dtype=np.float32)
+
+        base_intrinsics = np.asarray(intrinsics, dtype=np.float32)
+        if base_intrinsics.ndim == 2 and base_intrinsics.shape[1] == 4:
+            base_intrinsics = base_intrinsics[0]
+        if base_intrinsics.shape != (4,):
+            raise ValueError(
+                f"Expected default Lingbot intrinsics shape (4,) or [N, 4], "
+                f"got {base_intrinsics.shape}."
+            )
+
+        base_intrinsics_t = torch.from_numpy(base_intrinsics).to(
+            device=self._device, dtype=torch.float32
+        )
+        return _transform_intrinsics(
+            base_intrinsics_t.view(1, 4),
+            height_org=_INTRINSICS_REFERENCE_HEIGHT,
+            width_org=_INTRINSICS_REFERENCE_WIDTH,
+            height_resize=self.config.video_height,
+            width_resize=self.config.video_width,
+            height_final=self.config.video_height,
+            width_final=self.config.video_width,
+        ).view(4)
+
+    def _resolve_world_scale(self) -> float:
+        if self.config.world_scale is not None:
+            world_scale = float(self.config.world_scale)
+            if world_scale <= 0:
+                raise ValueError(f"world_scale must be > 0, got {world_scale}.")
+            return world_scale
+
+        poses_path = self.config.example_data_dir / self.config.poses_filename
+        if poses_path.exists():
+            poses = _load_npy_payload(poses_path, field_name="Lingbot default poses")
+        elif self.config.default_poses_url:
+            poses = _load_npy_payload(
+                self.config.default_poses_url,
+                field_name="Lingbot default poses URL",
+            )
+        else:
+            return _DEFAULT_WORLD_SCALE
+
+        _, world_scale = preprocess_example_poses(np.asarray(poses, dtype=np.float32))
+        world_scale = float(world_scale)
+        if world_scale <= 0:
+            return _DEFAULT_WORLD_SCALE
+        return world_scale
+
+    def _load_default_prompt(self) -> str:
+        prompt_path = self.config.example_data_dir / self.config.prompt_filename
+        if prompt_path.exists():
+            with prompt_path.open("r", encoding="utf-8") as handle:
+                prompt = normalize_prompt_text(handle.readline())
+            if prompt:
+                return prompt
+        return normalize_prompt_text(self.config.default_prompt) or _DEFAULT_PROMPT
+
+    def _load_default_first_frame_rgb(self) -> np.ndarray:
+        first_frame_path = (
+            self.config.example_data_dir / self.config.first_frame_filename
+        )
+        if first_frame_path.exists():
+            image_bgr = cv2.imread(str(first_frame_path), cv2.IMREAD_COLOR)
+            if image_bgr is None:
+                raise RuntimeError(
+                    f"Failed to read first frame from {first_frame_path}"
+                )
+            return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+        if self.config.default_image_url:
+            return self._load_remote_first_frame_rgb(self.config.default_image_url)
+
+        return np.full(
+            (self.config.video_height, self.config.video_width, 3),
+            127,
+            dtype=np.uint8,
+        )
+
+    def _load_remote_first_frame_rgb(self, image_url: str) -> np.ndarray:
+        image_bytes, _ = _read_remote_bytes(
+            image_url,
+            max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+            field_name="Lingbot first-frame image URL",
+        )
+        return _decode_image_bytes_rgb(
+            image_bytes, field_name="Lingbot first-frame image URL"
+        )
+
+    def _load_uploaded_first_frame_rgb(self, image_bytes: bytes) -> np.ndarray:
+        return _decode_image_bytes_rgb(
+            image_bytes, field_name="Uploaded first-frame image"
+        )
+
+    def _first_frame_to_tensor(self, image_rgb: np.ndarray) -> torch.Tensor:
+        if self._device is None:
+            raise LingbotRuntimeError("Runtime device is not initialized.")
         # Bicubic to match the upstream Lingbot World demo / generate_fast.py
         # (which uses ``F.interpolate(mode='bicubic')`` over the ``[-1, 1]``
         # tensor); bilinear here would give a different first-frame VAE latent.
@@ -307,77 +573,46 @@ class LingbotInferenceRuntime:
         # layout), so the pipeline expects the first frame in shape
         # ``[T=1, C, H, W]``; the leading ``unsqueeze(0)`` lifts ``[C, H, W]``
         # to that ``T=1`` axis the I2V encoder pads/slices against.
-        first_frames_t = first_frame_t.permute(2, 0, 1).unsqueeze(0)
+        return first_frame_t.permute(2, 0, 1).unsqueeze(0)
 
-        intrinsics_np = np.load(intrinsics_path)
-        if intrinsics_np.ndim == 1:
-            base_intrinsics = intrinsics_np
-        else:
-            base_intrinsics = intrinsics_np[0]
-        if base_intrinsics.shape != (4,):
-            raise ValueError(
-                f"Expected base intrinsics shape (4,), got {base_intrinsics.shape}"
-            )
-        # The provided intrinsics are stored at the original 480x832 image
-        # size; rescale them to the inference resolution so Plücker rays
-        # land on the right pixel centers.
-        base_intrinsics_t = torch.from_numpy(base_intrinsics).to(
-            device=self._device, dtype=torch.float32
+    def _prepare_session_input_state(
+        self, session_input: LingbotSessionInput | None
+    ) -> None:
+        prompt = (
+            normalize_prompt_text(session_input.prompt)
+            if session_input is not None and session_input.prompt is not None
+            else self._load_default_prompt()
         )
-        base_intrinsics_t = get_Ks_transformed(
-            base_intrinsics_t.view(1, 4),
-            height_org=480,
-            width_org=832,
-            height_resize=self.config.video_height,
-            width_resize=self.config.video_width,
-            height_final=self.config.video_height,
-            width_final=self.config.video_width,
-        ).view(4)
-        self._base_intrinsics = base_intrinsics_t
-
-        with prompt_path.open("r", encoding="utf-8") as handle:
-            prompt = handle.readline().strip()
         if not prompt:
-            raise ValueError("Prompt file is empty.")
+            raise ValueError("Lingbot prompt is empty.")
 
-        if self.config.world_scale is not None:
-            self._world_scale = float(self.config.world_scale)
-        elif poses_path.exists():
-            # Match upstream: world-scale normalizer is computed on the
-            # encoded-length poses, not the raw stream. The returned
-            # ``poses`` array (per-pixel-frame cadence) is unused here —
-            # webrtc generates poses live via :class:`CameraPoseIntegrator`.
-            _, self._world_scale = preprocess_example_poses(np.load(poses_path))
-            if self._world_scale <= 0:
-                self._world_scale = 1.0
+        if session_input is not None and session_input.first_frame_image_bytes:
+            image_rgb = self._load_uploaded_first_frame_rgb(
+                session_input.first_frame_image_bytes
+            )
+        elif session_input is not None and session_input.first_frame_image_url:
+            image_rgb = self._load_remote_first_frame_rgb(
+                session_input.first_frame_image_url
+            )
+        else:
+            image_rgb = self._load_default_first_frame_rgb()
 
-        rollout_seed = (
-            self.config.seed + self.rank
-            if self.config.context_parallel_size > 1
-            else self.config.seed
-        )
-        pipeline_config = derive_config(
-            base_config=PIPELINE_CONFIGS[self.config.config_name],
-            enable_sync_and_profile=True,
-            diffusion_model=dict(
-                seed=rollout_seed,
-                transformer=dict(compile_network=self.config.compile_network),
-            ),
-        )
-        self._pipeline = pipeline_config.setup().to(device=self._device)
-        self._first_frames = first_frames_t
+        self._first_frames = self._first_frame_to_tensor(image_rgb)
         self._prompt = prompt
-        self._reset_rollout_sync()
 
-    def _reset_rollout_sync(self) -> None:
+    def _reset_rollout_sync(
+        self, session_input: LingbotSessionInput | None = None
+    ) -> None:
         if self._pipeline is None:
             raise LingbotRuntimeError("Runtime pipeline is not initialized.")
-        if self._first_frames is None or self._prompt is None:
-            raise LingbotRuntimeError("Runtime input state is not initialized.")
 
         if self._cache is not None:
             del self._cache
             self._cache = None
+
+        self._prepare_session_input_state(session_input)
+        if self._first_frames is None or self._prompt is None:
+            raise LingbotRuntimeError("Runtime input state is not initialized.")
 
         self.pose_integrator = CameraPoseIntegrator()
         self.autoregressive_index = 0
@@ -437,6 +672,8 @@ class LingbotInferenceRuntime:
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
         intrinsics_t = self._base_intrinsics.view(1, 4).repeat(num_frames, 1)
+
+        from lingbot.encoder.camctrl import CamCtrlInput  # noqa: PLC0415
 
         camctrl_input = CamCtrlInput(
             intrinsics=intrinsics_t,
@@ -544,6 +781,7 @@ class LingbotWebRTCSessionManager:
         self._runtime_ready = False
         self._warmup_complete = False
         self._active_session: _ManagedLingbotSession | None = None
+        self._pending_session_input: LingbotSessionInput | None = None
         self._preload_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
 
@@ -552,6 +790,132 @@ class LingbotWebRTCSessionManager:
 
     def is_runtime_ready(self) -> bool:
         return self._runtime_ready
+
+    def get_initial_scene(self) -> dict[str, object]:
+        pending_input = self._pending_session_input
+        prompt = (
+            normalize_prompt_text(pending_input.prompt)
+            if pending_input is not None and pending_input.prompt is not None
+            else self._runtime._load_default_prompt()
+        )
+        if pending_input is not None and pending_input.first_frame_image_url:
+            image_url = pending_input.first_frame_image_url
+        else:
+            image_url = self.runtime_config.default_image_url
+        input_source = "uploaded" if pending_input is not None else "default"
+        first_frame_path = (
+            self.runtime_config.example_data_dir
+            / self.runtime_config.first_frame_filename
+        )
+        has_first_frame = (
+            bool(
+                pending_input is not None
+                and (
+                    pending_input.first_frame_image_bytes
+                    or pending_input.first_frame_image_url
+                )
+            )
+            or first_frame_path.exists()
+            or bool(self.runtime_config.default_image_url)
+        )
+        return {
+            "first_frame_url": "/api/session/first_frame",
+            "image_url": image_url,
+            "default_image_url": self.runtime_config.default_image_url,
+            "has_first_frame": has_first_frame,
+            "prompt": prompt,
+            "input_source": input_source,
+            "model": self.runtime_config.config_name,
+            "resolution": {
+                "width": self.runtime_config.video_width,
+                "height": self.runtime_config.video_height,
+            },
+        }
+
+    def get_first_frame(self) -> LingbotImagePayload:
+        pending_input = self._pending_session_input
+        if pending_input is not None and pending_input.first_frame_image_bytes:
+            return LingbotImagePayload(
+                data=pending_input.first_frame_image_bytes,
+                content_type=pending_input.first_frame_content_type,
+            )
+        if pending_input is not None and pending_input.first_frame_image_url:
+            image_bytes, content_type = _read_remote_bytes(
+                pending_input.first_frame_image_url,
+                max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+                field_name="Lingbot first-frame image URL",
+            )
+            return LingbotImagePayload(data=image_bytes, content_type=content_type)
+
+        first_frame_path = (
+            self.runtime_config.example_data_dir
+            / self.runtime_config.first_frame_filename
+        )
+        if first_frame_path.exists():
+            return LingbotImagePayload(
+                data=first_frame_path.read_bytes(),
+                content_type=_content_type_for_image_path(first_frame_path),
+            )
+
+        image_rgb = self._runtime._load_default_first_frame_rgb()
+        ok, encoded = cv2.imencode(".jpg", cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
+        if not ok:
+            raise RuntimeError("Failed to encode default Lingbot first frame.")
+        return LingbotImagePayload(data=encoded.tobytes(), content_type="image/jpeg")
+
+    def set_pending_session_input(self, session_input: LingbotSessionInput) -> None:
+        if self.has_active_session():
+            raise SessionBusyError(
+                "Cannot update Lingbot input while a session is active."
+            )
+        if session_input.first_frame_image_bytes is not None:
+            self._runtime._load_uploaded_first_frame_rgb(
+                session_input.first_frame_image_bytes
+            )
+        image_url = None
+        if (
+            session_input.first_frame_image_bytes is None
+            and session_input.first_frame_image_url is not None
+        ):
+            image_url = _validate_remote_url(
+                session_input.first_frame_image_url,
+                field_name="Lingbot first-frame image URL",
+            )
+            self._runtime._load_remote_first_frame_rgb(image_url)
+
+        current = self._pending_session_input
+        self._pending_session_input = LingbotSessionInput(
+            prompt=(
+                normalize_prompt_text(session_input.prompt)
+                if session_input.prompt is not None
+                else (current.prompt if current is not None else None)
+            ),
+            first_frame_image_bytes=(
+                session_input.first_frame_image_bytes
+                if session_input.first_frame_image_bytes is not None
+                else (current.first_frame_image_bytes if current is not None else None)
+            ),
+            first_frame_image_url=(
+                None
+                if session_input.first_frame_image_bytes is not None
+                else (
+                    image_url
+                    if image_url is not None
+                    else (
+                        current.first_frame_image_url if current is not None else None
+                    )
+                )
+            ),
+            first_frame_content_type=(
+                session_input.first_frame_content_type
+                if session_input.first_frame_image_bytes is not None
+                else (
+                    current.first_frame_content_type
+                    if current is not None
+                    else session_input.first_frame_content_type
+                )
+            ),
+        )
 
     async def preload_runtime(self) -> None:
         async with self._preload_lock:
@@ -572,24 +936,30 @@ class LingbotWebRTCSessionManager:
             if self._active_session is not None and not self._active_session.closed:
                 raise SessionBusyError("A Lingbot session is already active.")
 
-            return await self._create_answer_with_runtime_ready_locked(
+            pending_input = self._pending_session_input
+            answer = await self._create_answer_with_runtime_ready_locked(
                 offer_sdp=offer_sdp,
                 offer_type=offer_type,
+                session_input=pending_input,
             )
+            self._pending_session_input = None
+            return answer
 
     async def _create_answer_with_runtime_ready_locked(
         self,
         *,
         offer_sdp: str,
         offer_type: str,
+        session_input: LingbotSessionInput | None = None,
         rtc_configuration: RTCConfiguration | None = None,
+        enable_liveness_watchdog: bool = True,
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
             raise SessionBusyError("A Lingbot session is already active.")
         if not self._runtime_ready:
             raise LingbotRuntimeError("Runtime is not initialized.")
 
-        await self._runtime.reset_for_new_session()
+        await self._runtime.reset_for_new_session(session_input=session_input)
 
         peer_connection = RTCPeerConnection(rtc_configuration)
         # Bounded queue sized to one *steady-state* chunk: ``put``
@@ -622,9 +992,10 @@ class LingbotWebRTCSessionManager:
             last_client_message_at=loop.time(),
         )
         self._active_session = managed_session
-        managed_session.liveness_task = asyncio.create_task(
-            self._client_liveness_watchdog(managed_session=managed_session)
-        )
+        if enable_liveness_watchdog:
+            managed_session.liveness_task = asyncio.create_task(
+                self._client_liveness_watchdog(managed_session=managed_session)
+            )
 
         @peer_connection.on("datachannel")
         def on_datachannel(channel: Any) -> None:
@@ -708,6 +1079,7 @@ class LingbotWebRTCSessionManager:
                 offer_sdp=offer_sdp,
                 offer_type=offer_type,
                 rtc_configuration=RTCConfiguration(iceServers=[]),
+                enable_liveness_watchdog=False,
             )
 
     async def close_active_session(self) -> None:

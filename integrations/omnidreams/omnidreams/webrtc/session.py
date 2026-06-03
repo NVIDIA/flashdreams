@@ -38,10 +38,14 @@ from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.scenes import (
     HF_DATASET_BROWSER_URL,
     SCENE_CLIPGT_DIRNAME,
+    SCENE_FRAME_SUFFIXES,
+    SCENE_FRAMES_DIRNAME,
     SCENE_IMAGE_SUFFIXES,
     SCENE_PROMPT_FILENAME,
+    SCENE_VARIANT_DEFAULT,
     hf_hub_download_scene,
     hf_scenes_repo_id,
+    prompt_variant_for_scene_variant,
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
@@ -66,7 +70,9 @@ from flashdreams.serving.webrtc.warmup import (
 _T = TypeVar("_T")
 DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
-DEFAULT_WEBRTC_SCENE_UUID = "065dcac9-ee67-4434-a835-c6b816c88e48"
+# Default scene (clear-weather base archive). Weather siblings are selected
+# via OmnidreamsRuntimeConfig.scene_variant / the server's --scene-variant.
+DEFAULT_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 # Re-export ``omnidreams.scenes`` constants under their pre-existing
 # ``WEBRTC_SCENES_*`` aliases so external imports (logs, tests, docs)
 # stay valid.
@@ -119,11 +125,55 @@ def _choose_existing_asset(
     )[0]
 
 
+def _camera_name_candidates(camera_name: str) -> tuple[str, ...]:
+    """Colon/underscore spellings of ``camera_name`` (dataset uses underscores)."""
+    underscore = camera_name.replace(":", "_")
+    colon = camera_name.replace("_", ":")
+    return tuple(dict.fromkeys((camera_name, underscore, colon)))
+
+
+def _first_frame_sort_key(path: Path) -> tuple[int, str]:
+    stem = path.stem
+    return (int(stem), path.name) if stem.isdigit() else (2**63 - 1, path.name)
+
+
+def _resolve_webrtc_first_frame(clipgt_dir: Path, camera_name: str) -> Path | None:
+    """Earliest GT frame under ``clipgt/frames/<camera>/``, else ``None``.
+
+    ``None`` when the bundle ships no such frames, so the caller can fall back
+    to ``first_image.*``.
+    """
+    frames_root = clipgt_dir / SCENE_FRAMES_DIRNAME
+    if not frames_root.is_dir():
+        return None
+    candidate_dirs = [
+        frames_root / name
+        for name in _camera_name_candidates(camera_name)
+        if (frames_root / name).is_dir()
+    ]
+    if not candidate_dirs:
+        # Fall back to any single camera directory present.
+        candidate_dirs = [
+            path for path in sorted(frames_root.iterdir()) if path.is_dir()
+        ]
+    for directory in candidate_dirs:
+        frames = [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and path.suffix.lower() in SCENE_FRAME_SUFFIXES
+        ]
+        if frames:
+            return sorted(frames, key=_first_frame_sort_key)[0]
+    return None
+
+
 def _resolve_webrtc_scene_assets(
     scene_dir: Path,
     *,
     prompt_filename: str,
     clipgt_dirname: str,
+    camera_name: str = "camera_front_wide_120fov",
+    variant: str = SCENE_VARIANT_DEFAULT,
 ) -> tuple[Path, Path, Path]:
     missing_assets = []
     clipgt_dir = scene_dir / clipgt_dirname
@@ -131,27 +181,36 @@ def _resolve_webrtc_scene_assets(
         missing_assets.append(str(scene_dir / clipgt_dirname))
         clipgt_dir = None
 
+    # Prefer the GT camera frame; fall back to ``first_image.*`` for bundles
+    # with no per-camera frames.
     first_frame_path = (
         None
         if clipgt_dir is None
-        else _choose_existing_asset(
+        else _resolve_webrtc_first_frame(clipgt_dir, camera_name)
+    )
+    if first_frame_path is None and clipgt_dir is not None:
+        first_frame_path = _choose_existing_asset(
             clipgt_dir,
             fallback_stems=("first_image_1",),
             allowed_suffixes=WEBRTC_SCENE_IMAGE_SUFFIXES,
             preferred_stems=("first_image",),
         )
-    )
     if first_frame_path is None:
-        missing_assets.append(f"first_image.* under {clipgt_dir}/")
+        missing_assets.append(
+            f"frames/<camera>/*.jpeg or first_image.* under {clipgt_dir}/"
+        )
 
+    # Prompt matching the weather variant (``promptN.txt``); fall back to a
+    # bare ``prompt.txt`` for older bundles.
+    weather_prompt_stem = f"prompt{prompt_variant_for_scene_variant(variant)}"
     prompt_path = (
         None
         if clipgt_dir is None
         else _choose_existing_asset(
             clipgt_dir,
-            fallback_stems=("prompt1",),
+            fallback_stems=("prompt1", "prompt2", "prompt3", "prompt"),
             allowed_suffixes={".txt"},
-            preferred_stems=("prompt",),
+            preferred_stems=(weather_prompt_stem, "prompt"),
         )
     )
     if prompt_path is None:
@@ -203,13 +262,20 @@ def _safe_extract_zip(source: Path, destination: Path) -> None:
                 shutil.copyfileobj(src, dst)
 
 
+def _variant_dir_suffix(variant: str | None) -> str:
+    """Cache subdir / filename suffix for ``variant`` (``""`` for default)."""
+    slug = (variant or SCENE_VARIANT_DEFAULT).strip()
+    return "" if slug in ("", SCENE_VARIANT_DEFAULT) else f"-{slug}"
+
+
 def _extract_local_webrtc_scene_if_needed(
     scene_dir: Path,
     *,
     scene_uuid: str | None,
+    variant: str = SCENE_VARIANT_DEFAULT,
     clipgt_dirname: str,
 ) -> Path:
-    """Extract ``scene_uuid`` archive and normalize local WebRTC scene layout."""
+    """Extract the ``scene_uuid`` (+ variant) archive into the local layout."""
     if scene_uuid is None:
         return scene_dir
 
@@ -218,20 +284,31 @@ def _extract_local_webrtc_scene_if_needed(
     if not scene_dir.is_dir():
         raise FileNotFoundError(f"scene_dir does not exist: {scene_dir}")
 
+    suffix = _variant_dir_suffix(variant)
     expected_names = (
-        f"clipgt-{scene_uuid}.usdz",
-        f"{scene_uuid}.usdz",
+        f"clipgt-{scene_uuid}{suffix}.usdz",
+        f"{scene_uuid}{suffix}.usdz",
     )
     archive_path = _choose_existing_asset(scene_dir, exact_name=expected_names[0]) or (
         _choose_existing_asset(scene_dir, exact_name=expected_names[1])
     )
     if archive_path is None:
-        # Fall back to prefixed local naming like ``clipgt-<uuid>-v2.usdz``.
+        # Prefer the variant suffix but accept the base archive too.
         archive_path = _choose_existing_asset(
             scene_dir,
-            fallback_prefixes=(f"clipgt-{scene_uuid}", scene_uuid),
+            fallback_prefixes=(
+                f"clipgt-{scene_uuid}{suffix}",
+                f"{scene_uuid}{suffix}",
+                f"clipgt-{scene_uuid}",
+                scene_uuid,
+            ),
             allowed_suffixes={".usdz"},
-            preferred_stems=(f"clipgt-{scene_uuid}", scene_uuid),
+            preferred_stems=(
+                f"clipgt-{scene_uuid}{suffix}",
+                f"{scene_uuid}{suffix}",
+                f"clipgt-{scene_uuid}",
+                scene_uuid,
+            ),
         )
     if archive_path is None:
         raise FileNotFoundError(
@@ -239,7 +316,7 @@ def _extract_local_webrtc_scene_if_needed(
             f"{scene_dir}. Expected one of: {', '.join(expected_names)}."
         )
 
-    normalized_scene_dir = scene_dir / scene_uuid
+    normalized_scene_dir = scene_dir / f"{scene_uuid}{suffix}"
     normalized_clipgt_root = normalized_scene_dir / clipgt_dirname
     _safe_extract_zip(archive_path, normalized_clipgt_root)
     return normalized_scene_dir
@@ -248,37 +325,34 @@ def _extract_local_webrtc_scene_if_needed(
 def _ensure_hf_webrtc_scene_synced(
     scene_uuid: str,
     *,
+    variant: str = SCENE_VARIANT_DEFAULT,
     prompt_filename: str = SCENE_PROMPT_FILENAME,
     clipgt_dirname: str = SCENE_CLIPGT_DIRNAME,
 ) -> Path:
-    """Stage an HF scene into the local layout expected by WebRTC.
+    """Stage an HF scene variant into the WebRTC cache layout.
 
-    The HF repo / archive layout (``<org>/omni-dreams-scenes``,
-    ``scenes/clipgt-<uuid>.usdz``) is shared with the
-    ``omnidreams.interactive_drive`` desktop demo via
-    :mod:`omnidreams.scenes`; this function owns only the webrtc-side
-    cache layout (per-uuid extraction under
-    ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/<uuid>/clipgt/``).
+    Downloads ``scenes/clipgt-<uuid>[-<variant>].usdz`` and extracts it under
+    ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/<uuid>[-<variant>]/clipgt/``. The
+    per-uuid+variant directory coexists with the desktop demo's archive files
+    in the same root.
     """
+    del prompt_filename  # accepted for call-site symmetry; assets resolved later
     scene_uuid = scene_uuid.strip()
     assert scene_uuid, "scene_uuid must be set."
-    # ``scenes_cache_root()`` is the same root the desktop demo writes
-    # ``clipgt-<uuid>.usdz`` archives to (via
-    # ``omnidreams.prepare.stage_scene``); they coexist by name
-    # because the archive is a file while the webrtc extraction is a
-    # per-uuid directory.
+    suffix = _variant_dir_suffix(variant)
     cache_root = scenes_cache_root()
-    scene_dir = cache_root / scene_uuid
-    lock_path = cache_root / ".locks" / f"{scene_uuid}.lock"
+    scene_dir = cache_root / f"{scene_uuid}{suffix}"
+    lock_path = cache_root / ".locks" / f"{scene_uuid}{suffix}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     with FileLock(str(lock_path)):
-        archive_path = hf_hub_download_scene(scene_uuid)
+        archive_path = hf_hub_download_scene(scene_uuid, variant)
         _safe_extract_zip(archive_path, scene_dir / clipgt_dirname)
 
     logger.info(
-        "Synced Omnidreams WebRTC scene {} from Hugging Face ({}) to {}",
+        "Synced Omnidreams WebRTC scene {} (variant {}) from Hugging Face ({}) to {}",
         scene_uuid,
+        variant,
         hf_scenes_repo_id(),
         scene_dir,
     )
@@ -338,6 +412,8 @@ class OmnidreamsRuntimeConfig:
     )
     scene_dir: Path | None = None
     scene_uuid: str | None = None
+    # Weather variant slug (default/rain/snow): picks the sibling USDZ + prompt.
+    scene_variant: str = SCENE_VARIANT_DEFAULT
     seed: int | None = 42
     device: str = "cuda:0"
     video_height: int = 704
@@ -542,6 +618,7 @@ class OmnidreamsInferenceRuntime:
             scene_uuid = cfg.scene_uuid or DEFAULT_WEBRTC_SCENE_UUID
             scene_dir = _ensure_hf_webrtc_scene_synced(
                 scene_uuid,
+                variant=cfg.scene_variant,
                 prompt_filename=cfg.prompt_filename,
                 clipgt_dirname=cfg.clipgt_dirname,
             )
@@ -549,6 +626,7 @@ class OmnidreamsInferenceRuntime:
             scene_dir = _extract_local_webrtc_scene_if_needed(
                 cfg.scene_dir,
                 scene_uuid=cfg.scene_uuid,
+                variant=cfg.scene_variant,
                 clipgt_dirname=cfg.clipgt_dirname,
             )
 
@@ -557,6 +635,8 @@ class OmnidreamsInferenceRuntime:
             scene_dir,
             prompt_filename=cfg.prompt_filename,
             clipgt_dirname=cfg.clipgt_dirname,
+            camera_name=cfg.camera_name,
+            variant=cfg.scene_variant,
         )
         if cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS:
             supported = ", ".join(sorted(OMNIDREAMS_CONFIGS))
@@ -963,6 +1043,7 @@ class OmnidreamsWebRTCSessionManager:
         offer_sdp: str,
         offer_type: str,
         rtc_configuration: RTCConfiguration | None = None,
+        enable_liveness_watchdog: bool = True,
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
             raise SessionBusyError("An Omnidreams session is already active.")
@@ -989,9 +1070,10 @@ class OmnidreamsWebRTCSessionManager:
             last_client_message_at=loop.time(),
         )
         self._active_session = managed_session
-        managed_session.liveness_task = asyncio.create_task(
-            self._client_liveness_watchdog(managed_session=managed_session)
-        )
+        if enable_liveness_watchdog:
+            managed_session.liveness_task = asyncio.create_task(
+                self._client_liveness_watchdog(managed_session=managed_session)
+            )
 
         @peer_connection.on("datachannel")
         def on_datachannel(channel: Any) -> None:
@@ -1088,6 +1170,7 @@ class OmnidreamsWebRTCSessionManager:
                 offer_sdp=offer_sdp,
                 offer_type=offer_type,
                 rtc_configuration=RTCConfiguration(iceServers=[]),
+                enable_liveness_watchdog=False,
             )
 
     async def close_active_session(self) -> None:

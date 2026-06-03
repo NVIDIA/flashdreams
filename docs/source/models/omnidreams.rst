@@ -13,18 +13,19 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-OmniDreams
+NVIDIA OmniDreams
 ===================================
 
 .. raw:: html
 
    <div class="model-link-row">
      <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
+     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf" target="_blank" rel="noopener noreferrer">Tech report</a>
      <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
      <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
    </div>
 
-OmniDreams is an HDMap-conditioned world model for single-view and multi-view
+OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.
 
@@ -52,8 +53,8 @@ Installation
 Running the method
 ------------------
 
-To run OmniDreams, launch one of the registered runner slugs. For
-example:
+To run OmniDreams, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -102,7 +103,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -128,11 +129,12 @@ Some generated samples from the above commands:
 Launch the interactive demo
 ---------------------------
 
-``interactive-drive`` runs the OmniDreams single-view pipeline and
-streams the camera view to your browser. It needs only a CUDA-capable
-GPU — no display server or Vulkan toolchain.
+``interactive-drive`` runs the OmniDreams single-view pipeline in a
+single process and streams the camera view to your browser. The demo
+machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
+display server, or Vulkan support are required.
 
-Requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
+The demo requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
 and an ``HF_TOKEN`` with read access to
 `nvidia/omni-dreams-scenes <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_
 (scene USDZs) and
@@ -148,8 +150,8 @@ First-time setup:
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-Optionally pre-download scenes and checkpoints to avoid blocking the
-first launch on network I/O:
+Optionally, pre-download scenes and checkpoints so the first launch
+isn't blocked on network I/O:
 
 .. code-block:: bash
 
@@ -161,48 +163,89 @@ Run the demo and stream to your browser:
 
    uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
 
-Then open ``http://<server-ip>:8080/`` and pick a scene from the
-bottom-right picker. On a desktop GPU with a graphics queue, omit
-``--stream-mjpeg`` to open a local Vulkan window instead:
+Then open ``http://<server-ip>:8080/`` in any browser on the same
+network and pick a scene from the picker in the bottom-right.
+
+For execution using a consumer NVIDIA GPU that exposes a graphics stack,
+omit the ``--stream-mjpeg`` flag to open the demo in a local Vulkan window
+instead:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams interactive-drive
 
+The local window's HUD adds a weather-variant selector (clear, rain, snow)
+next to the scene picker, so the same scene can be switched between
+conditions.
+
 .. note::
 
-   The local window needs a display server (X11) and the system OpenGL /
+   The local window requires a display server and the system OpenGL /
    Vulkan client libraries. On Debian/Ubuntu:
 
    .. code-block:: bash
 
       sudo apt install -y libx11-6 libxcb1 libgl1 libglx-mesa0 libvulkan1
 
-   A ``Failed to initialize GLFW`` error means the display or one of these
-   libraries is missing.
+   A ``Failed to initialize GLFW`` error indicates the display or one of these
+   libraries are missing.
 
 Steering wheel and game controller
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-With a local window you can drive using a steering wheel or game
-controller. Any device that Ubuntu detects as a standard game controller
-or joystick works. Run the configuration tool to calibrate it; the demo loads
-the saved profile automatically on its next launch:
+A steering wheel or game controller can be used to control the local window mode.
+Any device that Ubuntu detects as a standard game controller
+or joystick is viable. We provide a configuration tool to calibrate these:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams interactive-drive-configuration
 
-Re-run it to edit a profile (steering sensitivity, deadzone, buttons),
-delete one, or set which is the default.
+The demo loads the saved profile automatically on subsequent launches.
+Re-run the configuration tool to specify the default profile, edit a profile
+(steering sensitivity, deadzone, buttons), or delete a profile.
+
+Native acceleration (perf manifest)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The bundled ``example_world_model_perf.yaml`` manifest runs the DiT and
+LightVAE through the OmniDreams single-view CUDA extension
+(``native_dit_acceleration: required``), which is faster than the default
+PyTorch path. The extension builds against pinned checkouts of CUTLASS,
+SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
+repo. ``omnidreams-prepare --perf`` clones them at their pinned commits into
+``integrations/omnidreams/omnidreams_singleview/3rdparty/``:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams omnidreams-prepare --perf
+
+This step only syncs sources; the extension itself compiles on the first
+launch that uses the manifest (one-time, a few minutes). It requires a
+Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
+``omnidreams_singleview`` sources ship only in the git tree, not the wheel),
+``git``, and a CUDA toolchain (``nvcc``) matching your PyTorch build. Then
+point the demo at the perf manifest:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive \
+       --manifest example_world_model_perf.yaml
+
+``native_dit_acceleration: required`` makes the manifest fail loudly if the
+extension can't build or load, rather than silently falling back to PyTorch.
 
 Alternative: WebRTC server
 --------------------------
 
-The MJPEG path above is the recommended starting point. For lower
-video latency, a richer browser frontend, or bidirectional
-camera-control APIs, ``omnidreams.webrtc.server`` serves an HTML5
-client on the same OmniDreams pipeline.
+For deployments that require a richer browser frontend with WebRTC's
+lower video-delivery latency and a streaming gRPC service for
+multi-client setups, the standalone server at
+``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
+the same OmniDreams pipeline. The MJPEG path above is the
+recommended starting point for most users; consider WebRTC if you
+need bidirectional camera-control APIs or are already integrating
+the gRPC service into a larger product.
 
 .. code-block:: bash
 
@@ -211,14 +254,18 @@ client on the same OmniDreams pipeline.
        -m omnidreams.webrtc.server \
        --host 0.0.0.0 --port 8089 \
        --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --scene-uuid "065dcac9-ee67-4434-a835-c6b816c88e48"
+       --scene-uuid "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
+Each scene ships clear, rain, and snow weather variants as sibling
+archives; add ``--scene-variant rain`` (or ``snow``) to serve a specific
+one (the default is the clear-weather scene).
 
-The server may take a few minutes to warm up, then prints
-``Connect via http://<server-ip>:8089/request_session`` (use
-``localhost`` when running locally).
+The server may take a few minutes to warm up. Once ready, it prints
+``Connect via http://<server-ip>:8089/request_session``.
+Here, ``<server-ip>`` is the server IP address you are connecting to
+(can use ``localhost`` when running locally).
 
 .. note::
 
@@ -234,7 +281,7 @@ The server may take a few minutes to warm up, then prints
       # or plain SSH
       ssh -L 8089:localhost:8089 <user>@<host>
 
-When successfully connected, the browser-based UI looks like this:
+Once successfully connected, the browser-based UI looks like this:
 
 .. raw:: html
 
@@ -306,3 +353,18 @@ Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
    <p class="model-footnote">
       KV-cache Update is off the hot path and excluded from Total.
    </p>
+
+Citation
+--------
+
+If you use OmniDreams, please cite the original work:
+
+.. code-block:: bibtex
+
+   @misc{nvidia2026omnidreams,
+     title={OmniDreams: Real-Time Generative Closed-Loop Autonomous Vehicle Simulation Built on NVIDIA Cosmos},
+     author={Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Wang, Jialiang and Lucas, James and Wu, Jay and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Michal and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Ren, Xuanchi and Lu, Yifan and Gojcic, Zan and Wang, Zian},
+     year={2026},
+     note={Technical report},
+     howpublished={\url{https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf}}
+   }

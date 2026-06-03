@@ -78,7 +78,7 @@ class NativeAttention(torch.nn.Module):
         return self.device_mesh.size() if self.device_mesh is not None else 1
 
     def forward(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
-        """Run ring attention (or single-rank SDPA when CP is disabled).
+        """Run context-parallel SDPA (or single-rank SDPA when CP is disabled).
 
         Args:
             query: Query tensor in configured ``qkv_format``.

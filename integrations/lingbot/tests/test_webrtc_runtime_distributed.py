@@ -34,6 +34,9 @@ def _write_minimal_assets(data_dir: Path) -> None:
     np.save(
         data_dir / "intrinsics.npy", np.array([1.0, 1.0, 0.5, 0.5], dtype=np.float32)
     )
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 13, axis=0)
+    poses[:, 2, 3] = np.linspace(0.0, 1.2, poses.shape[0], dtype=np.float32)
+    np.save(data_dir / "poses.npy", poses)
     (data_dir / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
 
 
@@ -55,7 +58,9 @@ class _FakePipeline:
         return self
 
     def initialize_cache(self, *, text: list[str], image: torch.Tensor) -> object:
-        self.events.append(("initialize_cache", tuple(image.shape), str(image.device)))
+        self.events.append(
+            ("initialize_cache", tuple(text), tuple(image.shape), str(image.device))
+        )
         return object()
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
@@ -106,16 +111,16 @@ def _patch_pipeline_factory(
     derive_calls: list[dict[str, Any]],
     pipeline_events: list[tuple[Any, ...]],
 ) -> None:
-    """Register a fake entry in ``PIPELINE_CONFIGS`` for ``config_name``
-    and swap :func:`session.derive_config` with a capturing stub that
+    """Register a fake pipeline config for ``config_name`` and swap
+    :func:`session.derive_config` with a capturing stub that
     returns a :class:`_FakePipelineConfig`.
 
     The runtime path under test is::
 
-        derive_config(base_config=PIPELINE_CONFIGS[name], ...)
+        derive_config(base_config=pipeline_configs[name], ...)
             .setup().to(device=...)
     """
-    monkeypatch.setitem(session.PIPELINE_CONFIGS, config_name, object())
+    monkeypatch.setattr(session, "_pipeline_configs", lambda: {config_name: object()})
 
     def _fake_derive_config(**kwargs: Any) -> _FakePipelineConfig:
         derive_calls.append(kwargs)
@@ -192,6 +197,137 @@ def test_initialize_sync_keeps_base_seed_without_context_parallel(
 
     # Without context parallelism the base seed is used verbatim.
     assert derive_calls[0]["diffusion_model"]["seed"] == 10
+
+
+def test_initialize_sync_uses_demo_camera_defaults_from_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "image.jpg").touch()
+    demo_intrinsics = np.array(
+        [502.9115905761719, 503.1081237792969, 415.7778625488281, 239.7777862548828],
+        dtype=np.float32,
+    )
+    np.save(tmp_path / "intrinsics.npy", demo_intrinsics)
+    demo_poses = np.repeat(np.eye(4, dtype=np.float32)[None, :, :], 13, axis=0)
+    demo_poses[:, 2, 3] = np.linspace(0.0, 1.2, demo_poses.shape[0], dtype=np.float32)
+    np.save(tmp_path / "poses.npy", demo_poses)
+    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
+    _patch_cv2(monkeypatch, height=464, width=832)
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=464,
+            video_width=832,
+            example_data_dir=tmp_path,
+        )
+    )
+
+    runtime._initialize_sync()
+
+    assert runtime._base_intrinsics is not None
+    expected_intrinsics = session._transform_intrinsics(
+        torch.from_numpy(demo_intrinsics).view(1, 4),
+        height_org=session._INTRINSICS_REFERENCE_HEIGHT,
+        width_org=session._INTRINSICS_REFERENCE_WIDTH,
+        height_resize=464,
+        width_resize=832,
+        height_final=464,
+        width_final=832,
+    ).view(4)
+    torch.testing.assert_close(runtime._base_intrinsics.cpu(), expected_intrinsics)
+    _, expected_world_scale = session.preprocess_example_poses(demo_poses)
+    assert runtime._world_scale == pytest.approx(expected_world_scale)
+    assert any(
+        event[0] == "initialize_cache" and event[1] == ("drive through a city",)
+        for event in pipeline_events
+    )
+
+
+def test_initialize_sync_uses_demo_world_scale_as_offline_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "image.jpg").touch()
+    (tmp_path / "prompt.txt").write_text("drive through a city\n", encoding="utf-8")
+    _patch_cv2(monkeypatch, height=464, width=832)
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=464,
+            video_width=832,
+            example_data_dir=tmp_path,
+            default_image_url=None,
+            default_intrinsics_url=None,
+            default_poses_url=None,
+        )
+    )
+
+    runtime._initialize_sync()
+
+    assert runtime._world_scale == pytest.approx(session._DEFAULT_WORLD_SCALE)
+
+
+def test_reset_rollout_accepts_uploaded_prompt_and_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_minimal_assets(tmp_path)
+    default_image = np.zeros((4, 4, 3), dtype=np.uint8)
+    uploaded_image = np.full((4, 4, 3), 255, dtype=np.uint8)
+    monkeypatch.setattr(session.cv2, "imread", lambda path, flags: default_image.copy())
+    monkeypatch.setattr(
+        session.cv2, "imdecode", lambda data, flags: uploaded_image.copy()
+    )
+    monkeypatch.setattr(session.cv2, "cvtColor", lambda src, code: src)
+    monkeypatch.setattr(
+        session.cv2, "resize", lambda src, size, interpolation: src.copy()
+    )
+    monkeypatch.setattr(session.dist, "is_initialized", lambda: False)
+
+    derive_calls: list[dict[str, Any]] = []
+    pipeline_events: list[tuple[Any, ...]] = []
+    _patch_pipeline_factory(monkeypatch, "TestLingbot", derive_calls, pipeline_events)
+
+    runtime = session.LingbotInferenceRuntime(
+        config=session.LingbotRuntimeConfig(
+            config_name="TestLingbot",
+            device="cpu",
+            video_height=4,
+            video_width=4,
+            example_data_dir=tmp_path,
+        )
+    )
+    runtime._initialize_sync()
+
+    runtime._reset_rollout_sync(
+        session_input=session.LingbotSessionInput(
+            prompt="follow a coastal highway",
+            first_frame_image_bytes=b"uploaded-image",
+            first_frame_content_type="image/png",
+        )
+    )
+
+    assert any(
+        event[0] == "initialize_cache" and event[1] == ("follow a coastal highway",)
+        for event in pipeline_events
+    )
 
 
 @pytest.mark.manual

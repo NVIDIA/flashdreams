@@ -31,7 +31,7 @@ pipeline modules that are still exposed from ``flashdreams.recipes``.
    ops) at import time, so this page shows them by *automodule* with
    ``:no-undoc-members:`` to keep the rendered API focused on the names
    that these in-tree modules actually expose. The unified ``flashdreams-run``
-   CLI shows end-to-end usage; see :doc:`/benchmarks` for the list
+   CLI shows end-to-end usage; see :doc:`/models/index` for the list
    of supported models with launch commands.
 
 Integration structure (current)
@@ -59,8 +59,8 @@ Reference integration folders
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
 
-OmniDreams
-----------
+NVIDIA OmniDreams
+-----------------
 
 OmniDreams now ships as a plugin under ``integrations/omnidreams``; it
 registers its runners via the ``flashdreams.runner_configs`` entry-point

@@ -50,8 +50,8 @@ Installation
 Running the method
 ------------------
 
-To run Causal-Forcing, launch one of the registered runner slugs. For
-example:
+To run Causal-Forcing, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -62,8 +62,8 @@ example:
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
@@ -114,7 +114,7 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
@@ -136,3 +136,17 @@ Some generated samples from the above commands:
        </div>
      </div>
    </div>
+
+Citation
+--------
+
+If you use Causal-Forcing, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{zhu2026causal,
+     title={Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Generation},
+     author={Zhu, Hongzhou and Zhao, Min and He, Guande and Su, Hang and Li, Chongxuan and Zhu, Jun},
+     journal={arXiv preprint arXiv:2602.02214},
+     year={2026}
+   }
