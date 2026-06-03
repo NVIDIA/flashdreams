@@ -232,6 +232,11 @@ baseline below. Full methodology lives on the
 Try FlashDreams!
 ----------------
 
+FlashDreams brings best-in-class per-step latency to interactive
+autoregressive video and world models: eight integrated models across
+streaming and bidirectional recipes, multi-GPU execution, and one CLI
+to drive them all.
+
 The :doc:`Get Started guide </quickstart/index>` walks from a fresh
 checkout to a generated frame on a single GPU.
 
