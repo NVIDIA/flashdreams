@@ -183,9 +183,9 @@ class WanInferencePipeline(
                 transformer's ``batch_shape``.
             image: First-frame pixels of shape ``[*batch_shape, 1, 3, H, W]``
                 in ``[-1, 1]``. Required for I2V (``self.encoder`` is set),
-                forbidden for T2V. ``H`` / ``W`` must equal
-                ``height * decoder.spatial_compression_ratio`` and likewise
-                for ``W``.
+                forbidden for T2V. ``H`` and ``W`` must equal
+                ``height * decoder.spatial_compression_ratio`` and
+                ``width * decoder.spatial_compression_ratio``, respectively.
             height: Pre-patchify latent height (post-VAE). Optional for
                 I2V — derived from ``image`` when omitted; required for T2V.
             width: Pre-patchify latent width (post-VAE). Same rules as

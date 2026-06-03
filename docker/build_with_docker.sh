@@ -39,14 +39,9 @@
 # PREREQUISITES
 # -------------
 #   1. Docker with Buildx (docker buildx version).
-#   2. A buildx builder capable of both linux/amd64 and linux/arm64 nodes.
-#      The companion script `docker_farm_setup.sh` sets one up named "farm",
-#      using the shared NVIDIA DGX Spark host (aliased "dgx-spark" in
-#      ~/.ssh/config) as the native arm64 node. If you skip that, buildx
-#      falls back to QEMU emulation for the non-native arch -- works but
-#      significantly slower.
-#      To request access to dgx-spark (SSH config, account), contact
-#      qiwu@nvidia.com.
+#   2. A Buildx builder capable of both linux/amd64 and linux/arm64.
+#      A default local builder can use QEMU emulation for the non-native arch;
+#      configure remote Buildx nodes separately if you want native builders.
 #   3. You are logged in to your target container registry:
 #          docker login <registry>
 #   4. The working directory is the repo root (the build context is ".") and
@@ -60,15 +55,11 @@
 # FLAG NOTES
 # ----------
 #   --platform linux/arm64,linux/amd64
-#       Produce a multi-arch manifest so consumers on arm64 (DGX Spark,
-#       Grace) and amd64 (standard GPU workstations, IPP5) can pull the
-#       same tag.
+#       Produce a multi-arch manifest so consumers on arm64 and amd64 can
+#       pull the same tag.
 #
 #   --allow network.host + --network host
-#       Required inside NVIDIA infra so the build can reach internal apt
-#       mirrors / PyPI proxies / the GitLab registry without a bridged
-#       network. Not a secret-leak risk here because the build context is
-#       public-to-the-company.
+#       Allows the build to use the host's configured network path.
 #
 #   --push
 #       Upload the resulting images and manifest list directly to the

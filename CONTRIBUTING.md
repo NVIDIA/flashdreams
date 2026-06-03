@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing to **FlashDreams**. This project
 is developed openly on GitHub and released under the
-[Apache License 2.0](LICENSE). Outside contributions — bug reports,
+[Apache License 2.0](https://github.com/NVIDIA/flashdreams/blob/main/LICENSE). Outside contributions — bug reports,
 feature requests, performance improvements, new model integrations,
 documentation fixes — are genuinely welcome, and this guide explains how
 they fit in alongside the project's day-to-day work.
@@ -19,10 +19,12 @@ issue and we'll fix it.
 4. [Submitting a pull request](#submitting-a-pull-request)
 5. [Code review and merge](#code-review-and-merge)
 6. [Coding conventions](#coding-conventions)
-7. [Speeding up local builds](#speeding-up-local-builds)
-8. [Licensing of contributions](#licensing-of-contributions)
-9. [Filing issues and security reports](#filing-issues-and-security-reports)
-10. [Code of Conduct](#code-of-conduct)
+7. [Testing](#testing)
+8. [Dependency version bounds](#dependency-version-bounds)
+9. [Working with a single integration package](#working-with-a-single-integration-package)
+10. [Licensing of contributions](#licensing-of-contributions)
+11. [Reporting issues](#reporting-issues)
+12. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -84,7 +86,7 @@ not.
 **This project will only accept contributions under the Apache-2.0
 license.** By submitting a pull request you agree that your
 contribution is licensed under the Apache License, Version 2.0 (see
-[LICENSE](LICENSE)).
+[LICENSE](https://github.com/NVIDIA/flashdreams/blob/main/LICENSE)).
 
 All contributions to FlashDreams are made under the
 [Developer Certificate of Origin](https://developercertificate.org/).
@@ -299,68 +301,24 @@ uv run pytest -m "not manual"    # everything that runs in CI
 uv run pytest                    # all tests including manual
 ```
 
-## Speeding up local builds
+## Dependency version bounds
 
-The first `uv sync` in a fresh environment compiles several CUDA
-extensions from source (transformer-engine, block-sparse-attn). On a
-workstation this can take 30+ minutes. The environment variables below --
-the same ones used in CI -- dramatically reduce that time by limiting
-compilation to your GPU's architecture and controlling parallelism.
+The `flashdreams/pyproject.toml` declares minimum version bounds for all
+runtime dependencies. These bounds reflect the oldest versions we believe
+are compatible based on API analysis.
 
-### Detect your GPU architecture
+**CI tests run against the pinned versions in `uv.lock`**, not against
+the declared minimums. This means:
 
-```bash
-# Returns e.g. "12.0" for an RTX 5090 / Blackwell
-nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1
-```
+- We guarantee correctness at the locked versions.
+- We expect the package to work at the declared minimum bounds, but do
+  not continuously validate this in CI.
+- If you encounter breakage with a version that satisfies the declared
+  bounds but differs from the lock file, please
+  [open an issue](https://github.com/NVIDIA/flashdreams/issues). We will
+  either fix compatibility or bump the bound in `pyproject.toml`.
 
-Strip the dot to get the nvcc arch code (e.g. `12.0` -> `120`,
-`8.9` -> `89`).
-
-### Recommended environment variables
-
-```bash
-# Detect arch automatically (paste into your shell or .envrc):
-CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
-  | head -1 | tr -d '.')
-
-# Only compile CUDA kernels for YOUR GPU (instead of all supported archs)
-export NVTE_CUDA_ARCHS="${CUDA_ARCH}"              # transformer-engine
-export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}" # block-sparse-attn
-
-# Limit parallel nvcc jobs to avoid OOM (each job uses ~9GB peak memory).
-# Set this to (available_RAM_GB / 9), capped at your CPU core count.
-export MAX_JOBS=8
-
-# If you don't need block-sparse-attn CUDA kernels at all (e.g. only
-# running CPU tests or working on non-FlashVSR code), skip the build
-# entirely:
-# export BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD=TRUE
-```
-
-| Variable | Effect | Typical speedup |
-|----------|--------|-----------------|
-| `NVTE_CUDA_ARCHS` | Restricts transformer-engine compilation to listed SM arch(es) | ~10min -> ~1min |
-| `BLOCK_SPARSE_ATTN_CUDA_ARCHS` | Restricts block-sparse-attn compilation to listed SM arch(es) | ~80min -> ~8min |
-| `MAX_JOBS` | Caps parallel nvcc processes (prevents OOM) | Avoids killed builds |
-| `BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD` | Skips block-sparse-attn CUDA compilation entirely | ~80min -> seconds |
-
-### Putting it together
-
-A typical developer `.envrc` (if using [direnv](https://direnv.net/)):
-
-```bash
-# .envrc (not committed -- already in .gitignore)
-export CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader \
-  | head -1 | tr -d '.')
-export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
-export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
-export MAX_JOBS=8
-```
-
-Then `uv sync --extra dev` will only compile for your local GPU.
-
-### Working with a single integration package
+## Working with a single integration package
 
 The workspace contains many integration packages under `integrations/`.
 A full `uv sync` installs dependencies for *all* of them. If you only
@@ -395,7 +353,7 @@ integrations/wan21
 
 By submitting a pull request to this repository, you agree that your
 contribution is licensed under the
-[Apache License, Version 2.0](LICENSE), the same license under which
+[Apache License, Version 2.0](https://github.com/NVIDIA/flashdreams/blob/main/LICENSE), the same license under which
 FlashDreams is distributed. The DCO sign-off described above is your
 attestation that you have the right to make that grant.
 
@@ -405,8 +363,8 @@ contributed only if:
 
 1. its license is compatible with Apache-2.0;
 2. its origin and license are clearly recorded in
-   [`REUSE.toml`](REUSE.toml) and
-   [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES);
+   [`REUSE.toml`](https://github.com/NVIDIA/flashdreams/blob/main/REUSE.toml) and
+   [`THIRD-PARTY-NOTICES`](https://github.com/NVIDIA/flashdreams/blob/main/THIRD-PARTY-NOTICES);
 3. its files retain whatever attribution headers the upstream license
    requires.
 
@@ -414,19 +372,20 @@ If you are not sure whether something is contributable, please ask in
 an issue before sending the code — it's much easier to sort out
 upfront.
 
-## Filing issues and security reports
+## Reporting issues
 
-- **Bugs and feature requests:** use
-  [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues). Please
-  do not include confidential or customer information.
-- **Security vulnerabilities:** please do *not* file them as public
-  issues. Follow NVIDIA's coordinated disclosure process at
-  https://www.nvidia.com/en-us/security/.
+Use [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues) to report
+functional defects and to request improvements. Please do not include
+confidential or customer information.
+
+Do not file security vulnerabilities as public issues. Follow the coordinated
+disclosure process in
+[SECURITY.md](https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md).
 
 ## Code of Conduct
 
 This project follows the
-[NVIDIA Open Source Code of Conduct](https://github.com/NVIDIA/.github/blob/main/CODE_OF_CONDUCT.md).
+[Code of Conduct](https://github.com/NVIDIA/flashdreams/blob/main/CODE_OF_CONDUCT.md).
 By participating in this project — including issues, discussions, and
 pull requests — you agree to abide by it. Please report concerns to the
 maintainers via the address listed in the Code of Conduct.

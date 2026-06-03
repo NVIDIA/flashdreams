@@ -47,6 +47,7 @@ _DIT_STREAMING_DIR = _SOURCE_DIR / "dit_streaming"
 _DIT_STREAMING_KERNEL_DIR = _DIT_STREAMING_DIR / "kernels"
 _DIT_STREAMING_PYEXT_DIR = _DIT_STREAMING_DIR / "pyext"
 _DIT_STREAMING_COMMON_DIR = _DIT_STREAMING_DIR / "common"
+_VAE_STREAMING_DIR = _SOURCE_DIR / "vae_streaming"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
 _DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
@@ -155,6 +156,12 @@ def _extension_sources() -> list[Path]:
         _NATIVE_PRIMITIVES_SOURCE,
         _NATIVE_PRIMITIVES_CUDA_SOURCE,
         _DIT_STREAMING_DIR / "streaming_dit_bindings.cpp",
+        _VAE_STREAMING_DIR / "vae_streaming_bindings.cpp",
+        _VAE_STREAMING_DIR / "lightvae_ops.cu",
+        _VAE_STREAMING_DIR / "lightvae_fp8_ops.cu",
+        _VAE_STREAMING_DIR / "lightvae_fp8_direct_stages.cu",
+        _VAE_STREAMING_DIR / "lightvae_fp8_warp_mma_stages.cu",
+        _VAE_STREAMING_DIR / "lightvae_fp8_attention.cu",
         _DIT_STREAMING_PYEXT_DIR / "streaming_dit_bridge.cu",
         _DIT_STREAMING_PYEXT_DIR / "sage3_blackwell_api_shim.cu",
         _DIT_STREAMING_PYEXT_DIR / "sage3_fp4_quant_shim.cu",
@@ -182,6 +189,8 @@ def _extension_fingerprint_sources() -> list[Path]:
         *sorted(_DIT_STREAMING_DIR.rglob("*.h")),
         *sorted(_DIT_STREAMING_DIR.rglob("*.cuh")),
         *sorted(_DIT_STREAMING_DIR.rglob("*.hpp")),
+        *sorted(_VAE_STREAMING_DIR.rglob("*.h")),
+        *sorted(_VAE_STREAMING_DIR.rglob("*.hpp")),
         *sorted(_PYTHON_DIR.glob("*.py")),
     ]
 
@@ -356,6 +365,7 @@ def load_extension(
                         str(_DIT_STREAMING_KERNEL_DIR),
                         str(_DIT_STREAMING_PYEXT_DIR),
                         str(_DIT_STREAMING_COMMON_DIR),
+                        str(_VAE_STREAMING_DIR),
                         str(cutlass_include),
                         str(cutlass_dir / "tools" / "util" / "include"),
                         str(cutlass_dir / "examples" / "common"),

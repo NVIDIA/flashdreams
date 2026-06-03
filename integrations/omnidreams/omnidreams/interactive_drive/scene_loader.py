@@ -7,6 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +46,22 @@ from omnidreams.interactive_drive.types import (
     WorldTriangleList,
     WorldVehicleBBoxTrack,
 )
-from omnidreams.scenes import variant_from_stem
+from omnidreams.scenes import (
+    SCENE_FRAME_SUFFIXES,
+    SCENE_FRAMES_DIRNAME,
+    prompt_variant_for_scene_variant,
+    resolve_variant_archive,
+    variant_from_stem,
+)
 from PIL import Image
 
 _GROUND_MESH_NAME = "mesh_ground.ply"
+
+
+@dataclass(frozen=True)
+class _PromptEntry:
+    archive_name: str
+    text: str
 
 
 def _read_yaml(zf: zipfile.ZipFile, name: str) -> dict[str, Any]:
@@ -71,38 +84,156 @@ def _points_from_records(points: list[dict[str, float]]) -> np.ndarray:
 
 
 def _load_initial_image(
-    zf: zipfile.ZipFile, variant: str, raster: RasterConfig
+    zf: zipfile.ZipFile, camera_name: str, variant: str, raster: RasterConfig
 ) -> np.ndarray:
-    images = _discover_first_images(zf)
-    name = images.get(variant) or images.get("default")
+    """Seed frame: the GT first camera frame, else the ``first_image`` render.
+
+    Prefers ``frames/<camera>/<ts>.jpeg`` so generation starts from the real
+    capture; falls back to ``first_image[_<variant>].png`` for older /
+    synthetic scenes with no per-camera frames.
+    """
+    name = _discover_initial_frame(zf, camera_name)
     if name is None:
-        raise FileNotFoundError("No first_image*.png found in the USDZ archive")
+        images = _discover_first_images(zf)
+        name = images.get(variant) or images.get("default")
+    if name is None:
+        raise FileNotFoundError(
+            "No frames/<camera>/*.jpeg or first_image*.png found in the USDZ archive"
+        )
     with Image.open(io.BytesIO(zf.read(name))) as image:
         rgb = image.convert("RGB")
         resized = rgb.resize(raster.resolution_wh, resample=Image.Resampling.BILINEAR)
         return np.asarray(resized, dtype=np.uint8)
 
 
+def _discover_initial_frame(zf: zipfile.ZipFile, camera_name: str) -> str | None:
+    """Earliest GT frame for ``camera_name`` (``None`` if the archive has none).
+
+    Frames are ``frames/<camera>/<ts_us>.jpeg``; the smallest timestamp is
+    the first frame. Accepts colon / underscore camera-name spellings.
+    """
+    clipgt_name, logical_name = normalize_camera_name(camera_name)
+    wanted_prefixes = tuple(
+        {
+            f"{SCENE_FRAMES_DIRNAME}/{name}/"
+            for name in (camera_name, logical_name, clipgt_name)
+        }
+    )
+    candidates = [
+        name
+        for name in zf.namelist()
+        if name.startswith(wanted_prefixes)
+        and Path(name).suffix.lower() in SCENE_FRAME_SUFFIXES
+    ]
+    if not candidates:
+        return None
+
+    def _frame_sort_key(name: str) -> tuple[int, str]:
+        stem = Path(name).stem
+        return (int(stem), name) if stem.isdigit() else (2**63 - 1, name)
+
+    return sorted(candidates, key=_frame_sort_key)[0]
+
+
 def _load_prompt(zf: zipfile.ZipFile, variant: str, prompt_override: str | None) -> str:
     if prompt_override is not None:
+        _log_prompt_selection(
+            zf,
+            variant=variant,
+            selected_variant="override",
+            source="--prompt",
+            prompt=prompt_override,
+            available_variants=(),
+            ignored_files=(),
+        )
         return prompt_override
-    prompts = _discover_prompts(zf)
-    return prompts.get(variant, prompts.get("default", ""))
+    prompt_entries, ignored_files = _discover_prompt_entries(zf)
+    selected_variant = _select_prompt_variant(prompt_entries, variant)
+    prompt_entry = (
+        prompt_entries[selected_variant] if selected_variant is not None else None
+    )
+    prompt = "" if prompt_entry is None else prompt_entry.text
+    _log_prompt_selection(
+        zf,
+        variant=variant,
+        selected_variant=selected_variant,
+        source="<none>" if prompt_entry is None else prompt_entry.archive_name,
+        prompt=prompt,
+        available_variants=tuple(sorted(prompt_entries.keys())),
+        ignored_files=ignored_files,
+    )
+    return prompt
+
+
+def _select_prompt_variant(
+    prompt_entries: dict[str, _PromptEntry], variant: str
+) -> str | None:
+    """Pick the in-archive prompt key for the requested scene variant.
+
+    Exact match wins first (legacy in-zip ``default`` / ``1`` / ``2``), else
+    the weather->prompt mapping, else ``"default"``, else ``None``.
+    """
+    if variant in prompt_entries:
+        return variant
+    mapped = prompt_variant_for_scene_variant(variant)
+    if mapped in prompt_entries:
+        return mapped
+    if "default" in prompt_entries:
+        return "default"
+    return None
 
 
 def _discover_prompts(zf: zipfile.ZipFile) -> dict[str, str]:
-    prompts: dict[str, str] = {}
+    prompt_entries, _ = _discover_prompt_entries(zf)
+    return {variant: entry.text for variant, entry in prompt_entries.items()}
+
+
+def _discover_prompt_entries(
+    zf: zipfile.ZipFile,
+) -> tuple[dict[str, _PromptEntry], tuple[str, ...]]:
+    prompts: dict[str, _PromptEntry] = {}
+    ignored_files: list[str] = []
     for name in zf.namelist():
         if "/" in name or not name.startswith("prompt") or not name.endswith(".txt"):
             continue
         variant = variant_from_stem(Path(name).stem, "prompt")
         if variant is None:
+            ignored_files.append(name)
             continue
-        prompts[variant] = zf.read(name).decode("utf-8").strip()
+        prompts[variant] = _PromptEntry(
+            archive_name=name,
+            text=zf.read(name).decode("utf-8").strip(),
+        )
     if "default" not in prompts and prompts:
         first_key = sorted(prompts.keys())[0]
         prompts["default"] = prompts[first_key]
-    return prompts
+    return prompts, tuple(sorted(ignored_files))
+
+
+def _log_prompt_selection(
+    zf: zipfile.ZipFile,
+    *,
+    variant: str,
+    selected_variant: str | None,
+    source: str,
+    prompt: str,
+    available_variants: tuple[str, ...],
+    ignored_files: tuple[str, ...],
+) -> None:
+    scene_name = Path(str(zf.filename)).name if zf.filename is not None else "<archive>"
+    prompt_text = " ".join(prompt.split())
+    print(
+        "[scene_loader] prompt "
+        f"scene={scene_name!r} "
+        f"requested_variant={variant!r} "
+        f"selected_variant={selected_variant or '<none>'!r} "
+        f"source={source!r} "
+        f"available_variants={available_variants or '<none>'!r} "
+        f"ignored_files={ignored_files or '<none>'!r} "
+        f"length={len(prompt)} "
+        f"text={prompt_text!r}",
+        flush=True,
+    )
 
 
 def _discover_first_images(zf: zipfile.ZipFile) -> dict[str, str]:
@@ -736,14 +867,16 @@ def load_scene_bundle(
     prompt_override: str | None,
     raster: RasterConfig,
 ) -> SceneBundle:
-    scene_path = Path(scene_path)
+    # Swap to the requested variant's sibling archive when present; legacy
+    # single-archive scenes resolve to the same path (variant picked in-zip).
+    scene_path = resolve_variant_archive(Path(scene_path), variant)
     with zipfile.ZipFile(scene_path, "r") as zf:
         metadata = _read_yaml(zf, "metadata.yaml")
         camera = _load_camera_calibration(zf, camera_name)
         initial_pose, initial_timestamp, initial_yaw, initial_speed = (
             _load_initial_state(zf)
         )
-        initial_rgb = _load_initial_image(zf, variant, raster)
+        initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
         prompt = _load_prompt(zf, variant, prompt_override)
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
         vehicle_bbox_tracks = _load_vehicle_bbox_tracks(zf)
@@ -766,6 +899,29 @@ def load_scene_bundle(
         vehicle_bbox_tracks=vehicle_bbox_tracks,
         ground_mesh_vertices=ground_mesh_vertices,
         ground_mesh_faces=ground_mesh_faces,
+    )
+
+
+def reseed_scene_bundle(
+    bundle: SceneBundle,
+    scene_path: Path,
+    camera_name: str,
+    variant: str,
+    prompt_override: str | None,
+    raster: RasterConfig,
+) -> SceneBundle:
+    """Re-seed an already-parsed ``bundle`` for a different weather variant.
+
+    Variants share all geometry; only the initial frame and prompt differ, so
+    this reads just those from the variant's archive and reuses the rest,
+    skipping the full re-parse and bounds/snapper rebuild.
+    """
+    scene_path = resolve_variant_archive(Path(scene_path), variant)
+    with zipfile.ZipFile(scene_path, "r") as zf:
+        initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
+        prompt = _load_prompt(zf, variant, prompt_override)
+    return replace(
+        bundle, scene_path=scene_path, initial_rgb=initial_rgb, prompt=prompt
     )
 
 

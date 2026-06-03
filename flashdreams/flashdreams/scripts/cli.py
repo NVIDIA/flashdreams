@@ -26,7 +26,7 @@ Usage::
     flashdreams-run wan21-t2v-1.3b-480p --help        # show overridable fields
     flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
     flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
-    flashdreams-run template-offline --no-instantiate # resolve config only
+    flashdreams-run --no-instantiate template-offline # resolve config only
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells

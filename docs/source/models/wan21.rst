@@ -38,7 +38,8 @@ Installation
 Running the method
 ------------------
 
-To run Wan2.1, launch one of the registered runner slugs. For example:
+To run Wan2.1, launch one of the registered runner slugs via
+``flashdreams-run``. For example:
 
 .. code-block:: bash
 
@@ -48,8 +49,8 @@ To run Wan2.1, launch one of the registered runner slugs. For example:
        --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
        --pixel-height 832 --pixel-width 480
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
+(taking 4 GPUs as an example):
 
 .. code-block:: bash
 
@@ -96,10 +97,10 @@ Some generated samples from the above commands:
 
 .. raw:: html
 
-   <div class="model-video-grid">
+   <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -108,7 +109,7 @@ Some generated samples from the above commands:
      </div>
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research-staging.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
+         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
        <div class="model-video-overlay">
@@ -149,3 +150,17 @@ matched settings.
      </figcaption>
    </figure>
   <script src="../_static/js/benchmark_chart.js"></script>
+
+Citation
+--------
+
+If you use Wan2.1, please cite the original work:
+
+.. code-block:: bibtex
+
+   @article{wan2025,
+         title={Wan: Open and Advanced Large-Scale Video Generative Models},
+         author={Team Wan and Ang Wang and Baole Ai and Bin Wen and Chaojie Mao and Chen-Wei Xie and Di Chen and Feiwu Yu and Haiming Zhao and Jianxiao Yang and Jianyuan Zeng and Jiayu Wang and Jingfeng Zhang and Jingren Zhou and Jinkai Wang and Jixuan Chen and Kai Zhu and Kang Zhao and Keyu Yan and Lianghua Huang and Mengyang Feng and Ningyi Zhang and Pandeng Li and Pingyu Wu and Ruihang Chu and Ruili Feng and Shiwei Zhang and Siyang Sun and Tao Fang and Tianxing Wang and Tianyi Gui and Tingyu Weng and Tong Shen and Wei Lin and Wei Wang and Wei Wang and Wenmeng Zhou and Wente Wang and Wenting Shen and Wenyuan Yu and Xianzhong Shi and Xiaoming Huang and Xin Xu and Yan Kou and Yangyu Lv and Yifei Li and Yijing Liu and Yiming Wang and Yingya Zhang and Yitong Huang and Yong Li and You Wu and Yu Liu and Yulin Pan and Yun Zheng and Yuntao Hong and Yupeng Shi and Yutong Feng and Zeyinzi Jiang and Zhen Han and Zhi-Fan Wu and Ziyu Liu},
+         journal={arXiv preprint arXiv:2503.20314},
+         year={2025}
+   }

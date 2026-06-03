@@ -138,6 +138,36 @@ class AppConfig:
     world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_offload_text_encoder: bool = False
     bev: BevConfig = BevConfig()
+    # Out-of-bounds detection thresholds plumbed through to
+    # :class:`~omnidreams.interactive_drive.runtime.loop.LoopConfig`.
+    # Exposed on AppConfig so the CLI's ``--oob-*`` flags can override
+    # them per-run; the defaults match the LoopConfig defaults so the
+    # behaviour is identical when the flags aren't passed. Mirrors
+    # alpasim's driver-side thresholds (warn > 0.6, respawn >= 2.0
+    # against the AABB-distance proximity).
+    oob_warn_proximity: float = 0.6
+    oob_respawn_proximity: float = 2.0
+    oob_respawn_debounce_chunks: int = 1
+    # OOB AABB geometry. ``oob_margin_m`` expands the scene's
+    # spatial-content AABB before any in-bounds check (alpasim uses
+    # 50 m around the GT trajectory; we use the same default around
+    # the union of all scene geometry). ``oob_warning_zone_m`` is the
+    # depth of the linear ramp inside that expanded AABB where the
+    # warning overlay shows. Set ``oob_margin_m`` higher to give the
+    # ego more room to leave the geometry-covered area without firing
+    # the respawn -- useful on scenes whose geometry layers don't
+    # cover the full driveable area.
+    oob_margin_m: float = 50.0
+    oob_warning_zone_m: float = 100.0
+    # When non-None, the app swaps the Vulkan presenter out for
+    # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
+    # which serves frames to a browser over HTTP and reads keyboard
+    # events back from it. Format: "HOST:PORT" (e.g. "0.0.0.0:8080"),
+    # or bare ":PORT" to bind on all interfaces. Required on
+    # compute-only boxes (e.g. GB300-only DGX Station) where no
+    # Vulkan-capable GPU exists; for richer browser viewers prefer
+    # ``omnidreams.webrtc.server`` instead.
+    stream_mjpeg_bind: str | None = None
     # Substring to match against the Vulkan adapter name for the presenter.
     # When None, SlangPy picks whichever Vulkan adapter it enumerates first.
     # When set (e.g. "RTX PRO"), we call ``spy.Device.enumerate_adapters``

@@ -233,7 +233,7 @@ def _ensure_mgpu_config_supported(
         world_size: Distributed world size; ``1`` means single-GPU or CPU.
 
     Raises:
-        ValueError: ``world_size > 1`` with sparse ``block_sparse_attn``.
+        ValueError: ``world_size > 1`` with sparse attention.
     """
     if world_size <= 1:
         return
@@ -248,7 +248,7 @@ def _ensure_mgpu_config_supported(
     raise ValueError(
         "FlashVSR multi-GPU execution is supported only by the "
         "flashvsr-v1.1-full-attn preset (attention_mode='full'). Sparse "
-        "FlashVSR presets use block_sparse_attn, which is not "
+        "FlashVSR presets use in-tree Triton sparse attention, which is not "
         "context-parallel aware and does not support multi-GPU execution. "
         f"Got runner_name={config.runner_name!r}, "
         f"attention_mode={transformer_cfg.attention_mode!r}."

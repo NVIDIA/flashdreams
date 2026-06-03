@@ -73,9 +73,9 @@ Where these guides fit
 ----------------------
 
 Working forward from a recipe, start with the pipeline overview,
-then read the recipe's per-model page under :doc:`/benchmarks`,
+then read the recipe's per-model page under :doc:`/models/index`,
 then drop into the matching module under :doc:`/api/index` for the
-implementation details. The :doc:`/get_started` covers the
+implementation details. The :doc:`/quickstart/index` covers the
 two-command path from install to a generated clip.
 
 .. toctree::

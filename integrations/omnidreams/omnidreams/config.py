@@ -25,8 +25,10 @@ registration is performed here.
 
 from __future__ import annotations
 
+import os
 from typing import cast
 
+import torch
 from omnidreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoderConfig,
 )
@@ -38,8 +40,10 @@ from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.transformer.impl.network import (
     CosmosDiTNetworkConfig,
 )
+from omnidreams.vae_native import (
+    OmnidreamsWanVAEEncoderConfig as WanVAEEncoderConfig,
+)
 
-from flashdreams.core.io.internal import use_internal_storage
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import (
@@ -59,38 +63,29 @@ from flashdreams.recipes.taehv import (
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoderConfig,
-    WanVAEEncoderConfig,
 )
 
-_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
-    "1view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/16N@cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk4_pixel_shuffle_resume.pt",
-    "1view-vae-chunk2": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk2_vae_encode_189f_loc6_sft_urban_stationary_mixed_gcp_student_resume.pt",
-    "1view-vae-chunk3": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_res720p_30fps_i2v_hdmap_chunk3_vae_encode_loc6_gcp.pt",
-    "4view-pshuffle-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_pixel_shuffle_loc8st2_gcp.pt",
-    "4view-vae-chunk4": "s3://flashdreams/assets/checkpoints/omnidreams/32n_cosmos_v2_2b_SF_4view_res720p_fps30_chunk4_i2v_hdmap_vae_encoding_loc8st2_gcp.pt",
-    "1view-diffusion-forcing-chunk2": "s3://flashdreams/assets/checkpoints/omnidreams/16N@causal_cosmos2_2B_res720p_30fps_hdmap_hdmap_pretrained_chunk2_vae_mads1m_1080p@20260225100739_000010600.pt",
-    "1view-bidirectional-chunk48": "s3://flashdreams/assets/checkpoints/omnidreams/32N@teacher_cosmos2_2B_res720p_30fps_hdmap_vae_mads1m_189frames_1080p@20260309090017_000005000.pt",
-}
-
-# HF mirrors override the s3 URLs above for slugs that have been mirrored.
-# Unmirrored slugs fall through to s3 so integration configs still import; mirror
-# new slugs here as they land on HF.
-_PUBLIC_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
+AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
     "1view-vae-chunk2": (
         "https://huggingface.co/nvidia/omni-dreams-models/resolve/main/"
         "single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt"
     ),
+    # internal-only checkpoints must be provided at runtime.
+    "1view-pshuffle-chunk4": "MISSING",
+    "1view-vae-chunk3": "MISSING",
+    "4view-pshuffle-chunk4": "MISSING",
+    "4view-vae-chunk4": "MISSING",
+    "1view-diffusion-forcing-chunk2": "MISSING",
+    "1view-bidirectional-chunk48": "MISSING",
 }
+"""Checkpoint paths for the Omnidreams pipeline."""
 
-AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = (
-    dict(_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS)
-    if use_internal_storage()
-    else {
-        **_INTERNAL_OMNIDREAMS_CHECKPOINT_PATHS,
-        **_PUBLIC_OMNIDREAMS_CHECKPOINT_PATHS,
-    }
-)
-"""Resolved at module import; set ``FLASHDREAMS_INTERNAL_STORAGE`` first."""
+_LIGHTVAE_FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
+
+
+def _lightvae_fp8_state_path() -> str | None:
+    return os.environ.get(_LIGHTVAE_FP8_STATE_ENV)
+
 
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsPipelineConfig(
     name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
@@ -159,6 +154,35 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
 )  # ty:ignore[redundant-cast]
 """Performance-tuned variant: enable ``use_compile`` / ``use_cuda_graph``
 on the image encoder, the per-AR-step encoder, and the decoder."""
+
+SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf",
+        image_encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_state_path=_lightvae_fp8_state_path(),
+        ),
+        encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_state_path=_lightvae_fp8_state_path(),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Native VAE perf variant: LightVAE FP8 encoder with PyTorch LightTAE decoder.
+
+Set ``OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH`` before setup to provide the
+calibrated FP8 LightVAE state required by the native encoder.
+"""
 
 SV_2STEPS_CHUNK2_LOC6_VAE_VAE = cast(
     OmnidreamsPipelineConfig,
@@ -399,6 +423,7 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     for cfg in (
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
         SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+        SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
         SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
         SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
         SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
@@ -448,6 +473,16 @@ RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = OmnidreamsRunnerConfig(
         "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
     ),
     pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+    prompt=_DEFAULT_PROMPT_1V,
+)
+
+RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF = OmnidreamsRunnerConfig(
+    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.name,
+    description=(
+        "Single-view chunk2 native VAE perf preset "
+        "(LightVAE FP8 encoder + PyTorch LightTAE decoder)."
+    ),
+    pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
@@ -545,18 +580,6 @@ OMNIDREAMS_RUNNERS: dict[str, RunnerConfig] = {
     for cfg in (
         RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
         RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
-        RUNNER_SV_2STEPS_CHUNK2_LOC6_VAE_VAE,
-        RUNNER_SV_2STEPS_CHUNK3_LOC6_VAE_VAE,
-        RUNNER_SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
-        RUNNER_MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE,
-        RUNNER_SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
-        RUNNER_SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M,
-        RUNNER_EXPERIMENT1_BASELINE,
-        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE,
-        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE350,
-        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE250,
-        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE150,
-        RUNNER_EXPERIMENT1_SKIP_FINALIZE_KV_CACHE_NOISE100,
     )
 }
 """All shipped Omnidreams runners (single- and multi-view variants),

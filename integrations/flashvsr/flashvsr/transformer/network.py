@@ -46,7 +46,7 @@ Layering (top -> bottom):
     ``q/k/v/o`` linears, ``norm_q/norm_k`` and the per-head reshape contract
     from ``MultiHeadAttention``; replaces the dense ring-attention forward
     with FlashVSR's ``WindowPartition3D`` + topk-block draft mask +
-    ``block_sparse_attn_func`` path. Streaming KV state is held in a
+    in-tree Triton sparse attention. Streaming KV state is held in a
     ``BlockKVCache`` (chunk-rolling, sink-free).
 
 Parameter naming is identical to ``WanDiTNetwork`` so the existing FlashVSR
@@ -55,13 +55,11 @@ checkpoint at ``flashvsr_tiny_long/dit_state_dict.pt`` loads drop-in.
 
 from __future__ import annotations
 
-import importlib
 import math
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional, Tuple
 
 import torch
-import torch.nn as nn
 from einops import rearrange
 from torch import Tensor
 
@@ -95,28 +93,11 @@ __all__ = [
 AttentionMode = Literal["sparse", "full"]
 
 
-def _get_block_sparse_attn_func():
-    """Import the sparse CUDA op only when the sparse path actually runs."""
-    try:
-        # We deliberately import the underlying ``BlockSparseAttnFunc`` autograd
-        # function instead of the public ``block_sparse_attn_func`` wrapper. The
-        # wrapper unconditionally calls ``replace_ones_with_count(head_mask_type)``
-        # which uses ``Tensor.masked_scatter`` -- a pybind C++ method dynamo cannot
-        # trace -- forcing a graph break and a recompile cascade on every
-        # fill-state shape transition (eventually hitting ``recompile_limit (8)``).
-        # We pre-compute the renumbered head-mask in ``initialize_cache`` and call
-        # the autograd function directly with all the static knobs spelled out.
-        # Tracks ``block_sparse_attn==0.0.2``; bump the pin in ``uv.lock`` if the
-        # ``BlockSparseAttnFunc.apply`` signature changes.
-        module = importlib.import_module(
-            "block_sparse_attn.block_sparse_attn_interface"
-        )
-        return module.BlockSparseAttnFunc
-    except ImportError as exc:
-        raise RuntimeError(
-            "FlashVSR attention_mode='sparse' requires the block_sparse_attn "
-            "CUDA extension. Use attention_mode='full' to run the dense path."
-        ) from exc
+def _get_block_sparse_attn_triton_func():
+    """Import the in-tree Triton sparse backend only when sparse attention runs."""
+    from flashvsr.transformer.triton_sparse_attn import block_sparse_attn_func
+
+    return block_sparse_attn_func
 
 
 ## FlashVSR sparse-attention helpers
@@ -214,7 +195,7 @@ def generate_draft_block_mask(
     scores them ``softmax(QK^T / sqrt(D))`` with the boolean
     ``local_attn_mask`` added as a ``-inf`` / ``0`` prior, then keeps
     the top ``topk + 1`` entries per row as the draft sparsity pattern
-    fed to ``BlockSparseAttnFunc``.
+    fed to the Triton block-sparse attention backend.
 
     Args:
         batch_size: Effective batch size; must be ``1`` (``cu_seqlens``
@@ -249,11 +230,7 @@ def generate_draft_block_mask(
     )
     local_attn_mask = rearrange(local_attn_mask, "x a y b -> (x a) (y b)")
     local_attn_mask = local_attn_mask.unsqueeze(0).repeat(repeat_head, 1, 1)
-    local_attn_mask = local_attn_mask.to(torch.float32)
-    local_attn_mask = local_attn_mask.masked_fill(
-        local_attn_mask == False, -float("inf")
-    )
-    local_attn_mask = local_attn_mask.masked_fill(local_attn_mask == True, 0)
+    local_attn_mask = torch.where(local_attn_mask, 0.0, -float("inf"))
     scores = scores + local_attn_mask
 
     attn_map = torch.softmax(scores, dim=-1)
@@ -292,7 +269,7 @@ class SparseSelfAttention(MultiHeadAttention):
     project Q/K/V -> 3D RoPE -> ``WindowPartition3D.partition`` along
     (T, H, W) -> write the partitioned K/V into a rolling
     :class:`BlockKVCache` -> average-pool topk draft mask over the local
-    block window -> ``block_sparse_attn_func`` against the cached K/V ->
+    block window -> in-tree Triton sparse attention against the cached K/V ->
     reverse the partition -> apply ``o``.
 
     The cache holds the last ``window_size`` tokens of partitioned K/V; one
@@ -320,14 +297,15 @@ class SparseSelfAttention(MultiHeadAttention):
         self._local_attn_mask_h: Optional[int] = None
         self._local_attn_mask_w: Optional[int] = None
         self._local_range: Optional[int] = None
-        # Pre-declare the static int32 helper buffers required by
-        # ``block_sparse_attn_func``. ``initialize_cache`` materialises
+        # Pre-declare the static int32 helper buffers required by the
+        # Triton sparse-attention backend. ``initialize_cache`` materialises
         # them once per rollout so ``forward`` doesn't allocate or sync to
         # device on every call (which previously broke CUDA-graph capture
-        # and tripped dynamo recompiles inside ``block_sparse_attn``).
+        # and tripped dynamo recompiles inside the sparse attention path).
         self.register_buffer("_cu_seqlens_q", None, persistent=False)
         self.register_buffer("_head_mask_type", None, persistent=False)
         self.register_buffer("_cu_seqlens_k_table", None, persistent=False)
+        self.register_buffer("_streaming_info", None, persistent=False)
         self._chunk_tokens: Optional[int] = None
 
     def initialize_cache(
@@ -343,7 +321,7 @@ class SparseSelfAttention(MultiHeadAttention):
 
         Args:
             batch_size: Effective batch size for cache tensors. Must be ``1``
-                because ``block_sparse_attn_func`` is invoked with
+                because the sparse attention backend is invoked with
                 ``cu_seqlens_q = [0, seqlen_q]`` (batch=1).
             chunk_size: Tokens added per AR step. For FlashVSR this is
                 ``block_n * win_size`` which numerically equals the chunk's
@@ -357,21 +335,16 @@ class SparseSelfAttention(MultiHeadAttention):
             device: Device for cache tensors.
             dtype: Data type for cache tensors.
         """
-        # Pre-allocate the int32 helper tensors that ``BlockSparseAttnFunc.apply``
+        # Pre-allocate the int32 helper tensors that the Triton backend
         # consumes on every call. Sized once per rollout from the same
         # ``chunk_size`` / ``window_size`` the cache is being built with so
         # ``forward`` never re-issues ``torch.tensor([...], device=...)``
         # (which would force a host->device sync, break CUDA-graph capture
-        # and -- with the wrapped ``block_sparse_attn_func`` -- invalidate
-        # the dynamo cache around the un-traceable ``masked_scatter`` inside
-        # ``replace_ones_with_count``).
+        # and invalidate the dynamo cache.
         #
         # ``_head_mask_type`` is **already in the post-renumbering form**
-        # (``[1, 2, 3, ..., n_heads]``) that ``replace_ones_with_count``
-        # would have produced from the all-ones marker form. By computing
-        # it here we let ``forward`` skip the wrapper and call
-        # ``BlockSparseAttnFunc.apply`` directly, sidestepping the dynamo
-        # graph break entirely.
+        # (``[1, 2, 3, ..., n_heads]``) that the Triton backend expects for
+        # sparse heads.
         #
         # The cu_seqlens_k table holds one row per ``(kv_ratio + 1)`` fill
         # state; at attention time ``forward`` indexes it by the effective
@@ -386,6 +359,9 @@ class SparseSelfAttention(MultiHeadAttention):
         )
         self._head_mask_type = torch.arange(
             1, self.n_heads + 1, device=device, dtype=torch.int32
+        )
+        self._streaming_info = torch.zeros(
+            (self.n_heads * 2,), device=device, dtype=torch.int32
         )
         self._cu_seqlens_k_table = torch.stack(
             [
@@ -467,7 +443,7 @@ class SparseSelfAttention(MultiHeadAttention):
             Tensor of shape ``[B, L, D]``.
         """
         B, L, D = x.shape
-        assert B == 1, "block_sparse_attn currently only supports batch size 1"
+        assert B == 1, "FlashVSR sparse attention currently only supports batch size 1"
         assert L == f * h * w, f"Sequence length {L} != f*h*w ({f * h * w})"
         n, d = self.n_heads, self.head_dim
 
@@ -531,6 +507,9 @@ class SparseSelfAttention(MultiHeadAttention):
         assert self._cu_seqlens_q is not None and self._chunk_tokens is not None, (
             "SparseSelfAttention.initialize_cache must be called before forward."
         )
+        assert self._streaming_info is not None, (
+            "SparseSelfAttention.initialize_cache must populate streaming_info."
+        )
         assert seqlen_q == self._chunk_tokens, (
             f"seqlen_q={seqlen_q} disagrees with chunk_tokens={self._chunk_tokens} "
             "registered at initialize_cache time."
@@ -541,36 +520,25 @@ class SparseSelfAttention(MultiHeadAttention):
             total_tokens_kv // self._chunk_tokens - 1
         ]
 
-        # Direct ``BlockSparseAttnFunc.apply`` instead of ``block_sparse_attn_func``.
-        # The wrapper's only added behaviour is ``replace_ones_with_count``,
-        # which we already pre-computed into ``head_mask_type`` at
-        # ``initialize_cache`` time. Bypassing the wrapper removes the
-        # ``Tensor.masked_scatter`` graph break (and the resulting dynamo
-        # recompile-cache thrash) from the per-layer hot path. All knobs
-        # below are static for FlashVSR; spelled out here so a future
-        # upstream signature shift fails loudly rather than silently.
-        out = _get_block_sparse_attn_func().apply(
+        out = _get_block_sparse_attn_triton_func()(
             q_in,
             k_in,
             v_in,
             cu_seqlens_q,
             cu_seqlens_k,
-            128,  # m_block_dim
-            128,  # n_block_dim
             head_mask_type,  # already in [1, 2, ..., n_heads] post-renumber form
-            None,  # streaming_info
+            self._streaming_info,
             attention_mask,  # base_blockmask
             seqlen_q,  # max_seqlen_q_
             seqlen_kv,  # max_seqlen_k_
             0.0,  # p_dropout
-            None,  # softmax_scale (forces 1 / sqrt(head_dim) inside .forward)
-            False,  # is_causal
-            False,  # exact_streaming
-            False,  # return_softmax / return_attn_probs
-            -1,  # window_size_left
-            -1,  # window_size_right
-            False,  # deterministic
-            torch.is_grad_enabled(),  # is_grad_enabled
+            softmax_scale=None,  # forces 1 / sqrt(head_dim)
+            is_causal=False,
+            exact_streaming=False,
+            return_attn_probs=False,
+            deterministic=False,
+            mode_hint="blocksparse",
+            head_mask_type_is_renumbered=True,
         )  # [seqlen_q, n, d]
 
         out = out.reshape(B * block_n, win_size, n * d)

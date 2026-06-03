@@ -39,17 +39,13 @@ SPDX-License-Identifier: Apache-2.0
        api/*                  — autodoc reference
        documentation          — Documentation tab umbrella (flat hub page)
        developer_guides/*     — developer guides
-       community/contributing — included from repo-root CONTRIBUTING.md;
-                                multi-section reference content that
-                                benefits from the docs scaffold
 
-   Everything else (homepage, benchmarks, community index/faq/support,
-   get_started, per-model pages) renders in the marketing layout.
+   Everything else (homepage, community, quickstart, models
+   gallery + per-model pages) renders in the marketing layout.
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
                           or pagename == 'documentation'
-                          or pagename.startswith('developer_guides/')
-                          or pagename == 'community/contributing' %}
+                          or pagename.startswith('developer_guides/') %}
 
 {% block docs_main %}
   {% if _fd_is_reference %}
@@ -78,8 +74,8 @@ SPDX-License-Identifier: Apache-2.0
    narrower line length and tighter band padding than the marketing
    grids on section landing pages.
 
-   The marketing section landing pages themselves (`get_started`,
-   `community/index`, `benchmarks`, and the root `index`) keep the
+   The marketing section landing pages themselves (`quickstart/index`,
+   `community/index`, `models/index`, and the root `index`) keep the
    wider default so their hero band, asymmetric splits, and tile
    grids have room to breathe. Pages on the reference-docs side
    (`_fd_is_reference`) never get the prose-narrow flag since they
@@ -87,8 +83,8 @@ SPDX-License-Identifier: Apache-2.0
 #}
 {% block body_tag %}
   {% set _fd_prose_narrow_indices = ('community/index',
-                                     'get_started',
-                                     'benchmarks') %}
+                                     'quickstart/index',
+                                     'models/index') %}
   {% set _fd_is_prose_narrow = (not _fd_is_reference)
                                and pagename != master_doc
                                and pagename not in _fd_prose_narrow_indices %}

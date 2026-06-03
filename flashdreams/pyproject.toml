@@ -42,10 +42,14 @@ dependencies = [
     # tyro powers the ``flashdreams-run`` console script (subcommand
     # union over the integration registry, per-field CLI overrides), so it
     # has to ship as a runtime dependency, not a dev-only one.
-    "tyro>=0.8",
+    # 1.0 introduced ``sort_subcommands`` in
+    # ``tyro.extras.subcommand_type_from_defaults``, used by the CLI union.
+    "tyro>=1.0",
 
-    "torch>=2.11",
-    "torchvision>=0.26",
+    # Minimum is 2.9: context_parallel(buffers=, buffer_seq_dims=,
+    # no_restore_buffers=) and set_rotate_method in
+    # torch.distributed.tensor.experimental require PyTorch 2.9+.
+    "torch>=2.9",
     # ``torch.compile`` lowers conv/elementwise kernels through Inductor +
     # Triton. On Windows the upstream PyPI ``triton`` package is Linux-only,
     # so without ``triton-windows`` Inductor crashes deep inside its
@@ -74,7 +78,9 @@ Repository = "https://github.com/NVIDIA/flashdreams"
 dev = [
     "pytest>=8.0",
     "mediapy>=1.1",
-    "pytest-manual-marker",
+    # 2.0 rewrote the plugin for pytest 8+ (older versions use the removed
+    # ``Item.get_marker`` API).
+    "pytest-manual-marker>=2.0",
     "tomli>=2.0",
     # Transformer Engine is the parity / perf reference for the
     # in-house RoPE Triton kernel (see ``tests/test_rope_kernel.py``
@@ -86,7 +92,7 @@ dev = [
 # main; the canonical extra is ``runners`` (same package set).
 examples = [
     "mediapy>=1.1",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
@@ -95,7 +101,7 @@ examples = [
 # pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
     "mediapy>=1.1",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 serving = [
@@ -127,9 +133,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
-]
-torchvision = [
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
 

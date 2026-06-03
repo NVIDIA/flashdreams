@@ -92,9 +92,16 @@ class CUDAGraphWrapper:
             y = wrapper(chunk, timesteps=t, cache=cache)
     """
 
-    def __init__(self, fn: Callable[..., Any], warmup_iters: int = 2):
+    def __init__(
+        self,
+        fn: Callable[..., Any],
+        warmup_iters: int = 2,
+        *,
+        capture_error_mode: str = "thread_local",
+    ):
         self.fn = fn
         self.warmup_iters = warmup_iters
+        self.capture_error_mode = capture_error_mode
         self._graph: Optional[torch.cuda.CUDAGraph] = None
         # Input staging state.
         self._static_args: list[Any] = []  # one slot per positional arg
@@ -233,7 +240,12 @@ class CUDAGraphWrapper:
         # "replay without a preceding successful capture", hiding the real
         # capture error.
         graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph):
+        # The default PyTorch/CUDA capture mode is global: CUDA work in any
+        # other host thread can invalidate capture. Interactive-drive uses a
+        # UI-thread presenter that can enqueue CUDA interop work while the
+        # model worker captures/replays graph-backed stages, so keep capture
+        # restrictions local to the worker thread.
+        with torch.cuda.graph(graph, capture_error_mode=self.capture_error_mode):
             out = self.fn(*args, **kwargs)
         out_leaves, out_spec = tree_flatten(out)
         graph.replay()

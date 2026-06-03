@@ -99,8 +99,8 @@ uv run flashdreams-run flashvsr-v1.1-sparse-ratio-2.0 --input-path /path/to/clip
 ## Multi-GPU Run via context-parallelism:
 
 Supported only by the dense full-attention preset. The legacy sparse presets
-remain single-GPU because `block_sparse_attn` is not context-parallel aware
-and is intentionally not being extended here.
+remain single-GPU because the Triton sparse-attention backend is not
+context-parallel aware and is intentionally not being extended here.
 
 ```bash
 uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
@@ -138,10 +138,8 @@ Then open `http://<server-host>:8080/` in a browser. The page shows received
 input frames and upsampled frames side by side. By default, viewer mode omits
 raw output frame bytes from gRPC responses to keep server-to-client bandwidth
 low; pass `--viewer_return_grpc_frames` if a client also needs the RGB payloads.
-`--attention_mode auto` uses the sparse backend when `block_sparse_attn` is
-installed and falls back to the dense full-attention backend otherwise. To force
-the dense path in an environment without `block_sparse_attn`, pass
-`--attention_mode full`.
+`--attention_mode auto` uses the sparse backend when available and falls back to
+full attention otherwise. To force the dense path, pass `--attention_mode full`.
 
 Use the live-ingest client to loop a video into the server at 30 fps:
 
@@ -335,5 +333,4 @@ bash integrations/flashvsr/tests/parity_check/run.sh
 ```
 
 See [`integrations/flashvsr/tests/parity_check/README.md`](tests/parity_check/README.md)
-for the JSON-stats schema, both parity tests, and the one-time
-`Block-Sparse-Attention` install.
+for the JSON-stats schema and both parity tests.
