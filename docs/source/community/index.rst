@@ -153,22 +153,6 @@ in an area — see the *Project governance* section of `CONTRIBUTING.md
 <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#project-governance>`__
 for the full statement.
 
-Releases
---------
-
-FlashDreams follows semantic versioning. CI currently publishes
-wheels to `Test PyPI <https://test.pypi.org/project/flashdreams/>`__
-on every push to ``main``; once the package graduates to real PyPI,
-tagged release notes will appear at `GitHub Releases
-<https://github.com/NVIDIA/flashdreams/releases>`__.
-
-The documentation site is configured for version-pinned hosting once
-releases land: release builds will be archived under
-``flashdreams.org/versions/<x.y.z>/`` alongside the rolling ``main``
-build, with a switcher in the navbar. There are no release tags in
-the repo today, so the per-version layout is configured but not yet
-populated.
-
 Frequently asked
 ----------------
 

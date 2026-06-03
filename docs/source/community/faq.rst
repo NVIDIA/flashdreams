@@ -28,7 +28,7 @@ What hardware do I need to run FlashDreams?
 
 FlashDreams targets recent NVIDIA data-center GPUs. The profiling
 corpus on the :doc:`benchmarks page </models/index>` runs across
-three devices — NVIDIA H100 SXM5, GB200 NVL72, and GB300 — and the
+three devices — NVIDIA H100, GB200, and GB300 — and the
 per-recipe latency numbers on each model page (e.g.
 :doc:`/models/self_forcing`, :doc:`/models/lingbot_world`) are sourced
 from the same set.
