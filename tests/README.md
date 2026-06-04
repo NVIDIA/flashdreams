@@ -33,8 +33,8 @@ is skipped.
 ## Omnidreams quality regression
 
 `integrations/omnidreams/tests/test_quality_regression.py` is the golden-clip
-gate for generated driving video. It is marked `ci_gpu`, but skips until CI
-provides the reference clip and deterministic input assets.
+gate for generated driving video. It is marked `ci_gpu` and skips in local
+runs until a reference clip and deterministic input assets are provided.
 
 For PR gating, prefer a short clip: `TOTAL_BLOCKS=4` on the default chunk2
 runner produces roughly one second at 30fps. A longer 5 second clip is better
@@ -77,6 +77,17 @@ encoders. Tune the metric gates with `MAX_MEAN_ABS`, `MAX_RMSE`,
 `MIN_PSNR_DB`, `MAX_MEAN_FLIP`, and `MAX_FRAME_FLIP`. Refresh the reference by
 running the same config, inspecting the generated MP4, and promoting it to the
 reference location.
+
+In GitHub Actions, the GPU job downloads `reference_compare_region.mp4` from a
+Hugging Face dataset before running `pytest -m ci_gpu`, then sets
+`FLASHDREAMS_OMNIDREAMS_QUALITY_REFERENCE_CLIP`,
+`FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA=1`, and
+`FLASHDREAMS_OMNIDREAMS_QUALITY_TOTAL_BLOCKS=4`. The default dataset is
+`jarcherNV/omni-dreams-quality-references`; set the repository variable
+`OMNIDREAMS_QUALITY_REFERENCE_REPO` when the references move to an official
+namespace. Set `OMNIDREAMS_QUALITY_REFERENCE_PATH` if the file path changes.
+The job uploads the generated comparison artifacts as a GitHub Actions artifact
+named `omnidreams-quality-artifacts`.
 
 ## Shared environment knobs
 
