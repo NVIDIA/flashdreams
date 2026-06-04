@@ -165,69 +165,73 @@ baseline below. Full methodology lives on the
 .. grid:: 1 2 2 4
    :gutter: 3
 
-   .. grid-item::
+   .. grid-item-card::
+      :link: models/self_forcing.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
 
-      .. container:: fd-stat
+      .. container:: fd-stat-value
 
-         .. container:: fd-stat-value
+         2.12×
 
-            2.12×
+      .. container:: fd-stat-label
 
-         .. container:: fd-stat-label
+         Self-Forcing speedup
 
-            Self-Forcing speedup
+      .. container:: fd-stat-note
 
-         .. container:: fd-stat-note
+         GB300, vs FastVideo baseline (362 ms → 171 ms per step).
 
-            GB300, vs FastVideo baseline (362 ms → 171 ms per step).
+   .. grid-item-card::
+      :link: models/lingbot_world.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
 
-   .. grid-item::
+      .. container:: fd-stat-value
 
-      .. container:: fd-stat
+         3.10×
 
-         .. container:: fd-stat-value
+      .. container:: fd-stat-label
 
-            3.10×
+         LingBot-World speedup
 
-         .. container:: fd-stat-label
+      .. container:: fd-stat-note
 
-            LingBot-World speedup
+         H100 (4×GPU), vs Official baseline (1950 ms → 629 ms per step).
 
-         .. container:: fd-stat-note
+   .. grid-item-card::
+      :link: models/wan21.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
 
-            H100 (4×GPU), vs Official baseline (1950 ms → 629 ms per step).
+      .. container:: fd-stat-value
 
-   .. grid-item::
+         1.40×
 
-      .. container:: fd-stat
+      .. container:: fd-stat-label
 
-         .. container:: fd-stat-value
+         Wan2.1 speedup
 
-            1.40×
+      .. container:: fd-stat-note
 
-         .. container:: fd-stat-label
+         GB300, vs FastVideo baseline (534 ms → 382 ms per step).
 
-            Wan2.1 speedup
+   .. grid-item-card::
+      :link: models/index.html
+      :link-type: url
+      :class-card: fd-stat
 
-         .. container:: fd-stat-note
+      .. container:: fd-stat-value
 
-            GB300, vs FastVideo baseline (534 ms → 382 ms per step).
+         8
 
-   .. grid-item::
+      .. container:: fd-stat-label
 
-      .. container:: fd-stat
+         Integrated models
 
-         .. container:: fd-stat-value
+      .. container:: fd-stat-note
 
-            8
-
-         .. container:: fd-stat-label
-
-            Integrated models
-
-         .. container:: fd-stat-note
-
-            Streaming and bidirectional recipes, one CLI.
+         Streaming and bidirectional recipes, one CLI.
 
 Try FlashDreams!
 ----------------
