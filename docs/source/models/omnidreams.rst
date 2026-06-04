@@ -207,9 +207,11 @@ or joystick is viable. We provide a configuration tool to calibrate these:
 
    uv run --package flashdreams-omnidreams interactive-drive-configuration
 
-The demo loads the saved profile automatically on subsequent launches.
-Re-run the configuration tool to specify the default profile, edit a profile
-(steering sensitivity, deadzone, buttons), or delete a profile.
+The demo auto-loads your default profile on subsequent launches. When you
+have more than one profile, the configuration tool's start screen lists them
+with **Make default** (plus Edit and Delete) buttons -- re-run the tool to
+choose which profile ``interactive-drive`` loads by default, tweak a profile
+(steering sensitivity, deadzone, buttons, force feedback), or remove one.
 
 **Multiple devices.** A profile can bind controls across several devices --
 for example a wheel base plus a separately-connected or different-brand pedal
