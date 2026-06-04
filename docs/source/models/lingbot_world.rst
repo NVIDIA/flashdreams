@@ -58,6 +58,40 @@ Installation
    # from the repo root
    uv sync --project integrations/lingbot
 
+Network requirements (WebRTC)
+-----------------------------
+
+The interactive LingBot-World viewer uses HTTP for the page and signaling,
+then WebRTC for the live session:
+
+- ``GET /request_session`` serves the viewer page, and
+  ``POST /api/webrtc/offer`` performs offer/answer signaling. Reaching
+  ``http://<server>:8089/request_session`` is necessary, but it only
+  proves the HTTP path is reachable.
+- After signaling, WebRTC still needs a working media path negotiated by
+  ICE. Video uses SRTP, the control data channel uses SCTP over DTLS,
+  and both typically depend on UDP connectivity. Plain SSH ``-L``
+  forwarding, or any other TCP-only forward of the HTTP port, does not
+  forward that WebRTC media path.
+
+For remote or cloud GPU instances, use a setup that carries both the HTTP
+path and the WebRTC media path:
+
+- Direct browser access to the server network, with the firewall or
+  security group allowing the WebRTC media traffic advertised during ICE
+  negotiation in addition to the HTTP port.
+- A VPN or UDP-capable forwarding solution between the browser and the
+  server.
+- A configured STUN/TURN deployment when direct peer-to-peer connectivity
+  is blocked. LingBot-World does not configure a bundled TURN relay by
+  default, so provide and configure relay infrastructure if your
+  environment requires it.
+
+If the viewer page loads but the video never appears, treat it as a
+WebRTC connectivity problem first: check the browser's ICE/connection
+state and confirm that the chosen remote-access setup carries the media
+path, not just the HTTP ``/request_session`` page.
+
 Running the method
 ------------------
 
@@ -195,9 +229,11 @@ first launch, much faster afterwards. When ready the server prints
 .. note::
 
    On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
-   the server port is usually not reachable at the host IP directly.
-   Forward it to your local machine first, then open
-   ``http://localhost:8089/request_session``:
+   the HTTP server port is usually not reachable at the host IP directly.
+   First make sure your remote-access setup satisfies the WebRTC network
+   requirements above. Then forward or expose the HTTP port for the
+   viewer page and signaling, and open
+   ``http://localhost:8089/request_session`` when using a local forward:
 
    .. code-block:: bash
 
@@ -205,6 +241,9 @@ first launch, much faster afterwards. When ready the server prints
       brev port-forward <instance> -p 8089:8089
       # or plain SSH
       ssh -L 8089:localhost:8089 <user>@<host>
+
+   These commands cover the HTTP path only; they do not make a TCP-only
+   connection carry WebRTC media.
 
 When successfully connected, the browser-based UI looks like this:
 
