@@ -23,13 +23,16 @@ from pathlib import Path
 import yaml
 from omnidreams.interactive_drive.input.wheel_profiles import (
     AutocenterFFB,
+    ConstantForceFFB,
     EvdevDevice,
     apply_steering_curve,
+    create_ffb_backend,
     delete_profile_file,
     list_device_axes,
     load_wheel_profile_files,
     name_match_strength,
     profile_filename,
+    query_ff_features,
     save_wheel_profile,
     scan_evdev_devices,
     update_profile_file,
@@ -104,7 +107,7 @@ class ConfigApp:
         self.state: dict = {}
         self.session: CaptureSession | None = None
         self.devices: tuple[EvdevDevice, ...] = ()
-        self._ffb: AutocenterFFB | None = None
+        self._ffb: AutocenterFFB | ConstantForceFFB | None = None
         self._saved = False
         self._step_index = 0
         # When set to ``(path, profile)`` the editor screen is shown instead
@@ -353,6 +356,7 @@ class ConfigApp:
         self._edit_invert_pedals = tk.BooleanVar(value=profile.inverted_pedals)
         self._edit_ffb = tk.BooleanVar(value=profile.ffb_enabled)
         self._edit_ffb_gain = tk.DoubleVar(value=profile.ffb_gain)
+        self._edit_ffb_mode = tk.StringVar(value=profile.ffb_mode or "auto")
         self._edit_range = tk.DoubleVar(value=profile.steering_range)
         self._edit_deadzone = tk.DoubleVar(value=profile.steering_deadzone)
         self._edit_default = tk.BooleanVar(value=profile.is_default)
@@ -420,6 +424,14 @@ class ConfigApp:
             length=200,
             variable=self._edit_ffb_gain,
         ).pack(side="left", padx=8)
+        ttk.Label(ffb_row, text="Mode").pack(side="left", padx=(8, 2))
+        ttk.Combobox(
+            ffb_row,
+            textvariable=self._edit_ffb_mode,
+            values=("auto", "autocenter", "constant_force"),
+            state="readonly",
+            width=14,
+        ).pack(side="left")
 
         ttk.Label(self.content, text="Detection patterns (one per line):").pack(
             anchor="w", pady=(6, 0)
@@ -454,6 +466,7 @@ class ConfigApp:
             inverted_pedals=bool(self._edit_invert_pedals.get()),
             ffb_enabled=bool(self._edit_ffb.get()),
             ffb_gain=float(self._edit_ffb_gain.get()),
+            ffb_mode=str(self._edit_ffb_mode.get() or "auto"),
             steering_range=float(self._edit_range.get()),
             steering_deadzone=float(self._edit_deadzone.get()),
             detection_patterns=patterns,
@@ -757,21 +770,35 @@ class ConfigApp:
         self.title_var.set("Force feedback (optional)")
         self.ffb_enabled_var = tk.BooleanVar(value=self.state.get("ffb_enabled", True))
         self.ffb_gain_var = tk.DoubleVar(value=self.state.get("ffb_gain", 0.6))
+        self.ffb_mode_var = tk.StringVar(value=self.state.get("ffb_mode", "auto"))
         ttk.Label(
             self.content,
             wraplength=680,
             justify="left",
             text=(
-                "Autocenter force feedback makes the wheel resist turning and return "
-                "to center, scaled by speed. Enable it and test the feel; leave it "
-                "off if your device has no autocenter motor."
+                "Force feedback makes the wheel resist turning and return to center, "
+                "scaled by speed. 'Auto' picks the right method for your wheel: a "
+                "driver-managed autocenter spring (Thrustmaster, Logitech) or a "
+                "self-rendered constant force (Fanatec, which has no autocenter). "
+                "Force 'constant_force' if a Logitech's autocenter feels too weak, or "
+                "leave FFB off for devices with no motor."
             ),
         ).pack(anchor="w", pady=(0, 10))
         ttk.Checkbutton(
             self.content,
-            text="Enable autocenter force feedback",
+            text="Enable force feedback",
             variable=self.ffb_enabled_var,
         ).pack(anchor="w")
+        mode_row = ttk.Frame(self.content)
+        mode_row.pack(anchor="w", pady=(8, 0), fill="x")
+        ttk.Label(mode_row, text="Mode").pack(side="left")
+        ttk.Combobox(
+            mode_row,
+            textvariable=self.ffb_mode_var,
+            values=("auto", "autocenter", "constant_force"),
+            state="readonly",
+            width=16,
+        ).pack(side="left", padx=8)
         gain_row = ttk.Frame(self.content)
         gain_row.pack(anchor="w", pady=8, fill="x")
         ttk.Label(gain_row, text="Gain").pack(side="left")
@@ -794,16 +821,22 @@ class ConfigApp:
         if self.session is None:
             return
         self._ffb_stop()
-        ffb = AutocenterFFB()
-        ffb.init(self.session.device_path, float(self.ffb_gain_var.get()))
+        gain = float(self.ffb_gain_var.get())
+        features = query_ff_features(self.session.device_path)
+        ffb = create_ffb_backend(self.ffb_mode_var.get(), features)
+        ffb.init(self.session.device_path, gain)
         if not ffb.available:
             messagebox.showinfo(
                 "Force feedback unavailable",
                 "Could not open the device for force feedback (it may not support "
-                "autocenter, or write permission is missing).",
+                "the selected effect, or write permission is missing).",
             )
             return
-        ffb.set_autocenter(float(self.ffb_gain_var.get()))
+        # Constant force does nothing at rest, so tug to one side to test it.
+        if isinstance(ffb, ConstantForceFFB):
+            ffb.set_test_force(gain)
+        else:
+            ffb.set_autocenter(gain)
         self._ffb = ffb
 
     def _ffb_stop(self) -> None:
@@ -948,6 +981,7 @@ class ConfigApp:
             self._ffb_stop()
             self.state["ffb_enabled"] = bool(self.ffb_enabled_var.get())
             self.state["ffb_gain"] = float(self.ffb_gain_var.get())
+            self.state["ffb_mode"] = str(self.ffb_mode_var.get() or "auto")
             return True, ""
         if step == "details":
             name = self.profile_name_var.get().strip()
@@ -986,6 +1020,7 @@ class ConfigApp:
             inverted_pedals=bool(self.state.get("inverted_pedals", True)),
             ffb_enabled=ffb_enabled,
             ffb_gain=ffb_gain,
+            ffb_mode=str(self.state.get("ffb_mode", "auto")),
             is_default=self.state["is_default"],
             reverse_buttons=tuple(self.state.get("reverse_buttons", ())),
             reset_buttons=tuple(self.state.get("reset_buttons", ())),
@@ -1010,6 +1045,13 @@ class ConfigApp:
         except OSError as exc:
             messagebox.showerror("Could not save", str(exc))
             return
+        # Saving as default demotes any other default, so there's only one.
+        if profile.is_default:
+            for other_path, other in load_wheel_profile_files(
+                user_wheel_profiles_dir()
+            ):
+                if other_path != path and other.is_default:
+                    update_profile_file(other_path, replace(other, is_default=False))
         self._saved = True
         self.primary_btn.config(text="Close")
         self.back_btn.state(["disabled"])

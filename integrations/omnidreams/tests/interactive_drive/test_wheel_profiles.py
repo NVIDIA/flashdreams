@@ -14,8 +14,13 @@ from dataclasses import replace
 
 import pytest
 from omnidreams.interactive_drive.input.wheel_profiles import (
+    FF_AUTOCENTER,
+    FF_CONSTANT,
+    AutocenterFFB,
+    ConstantForceFFB,
     WheelProfile,
     apply_steering_curve,
+    create_ffb_backend,
     delete_profile_file,
     load_wheel_profile_files,
     load_wheel_profiles,
@@ -71,6 +76,30 @@ def test_round_trip_save_then_load(profile, tmp_path) -> None:
     assert loaded[0] == profile
 
 
+def test_round_trip_preserves_explicit_ffb_mode(tmp_path) -> None:
+    # An explicit mode must survive save/load so a Fanatec keeps constant force.
+    profile = replace(_wheel_profile(), ffb_mode="constant_force")
+    save_wheel_profile(profile, tmp_path)
+    loaded = load_wheel_profiles(tmp_path)
+    assert loaded[0].ffb_mode == "constant_force"
+
+
+@pytest.mark.parametrize(
+    ("mode", "features", "expected"),
+    [
+        # Explicit modes ignore the advertised effects.
+        ("autocenter", frozenset({FF_CONSTANT}), AutocenterFFB),
+        ("constant_force", frozenset({FF_AUTOCENTER}), ConstantForceFFB),
+        # "auto" prefers autocenter, falls back to constant force, else no-op.
+        ("auto", frozenset({FF_AUTOCENTER, FF_CONSTANT}), AutocenterFFB),
+        ("auto", frozenset({FF_CONSTANT}), ConstantForceFFB),
+        ("auto", frozenset(), AutocenterFFB),
+    ],
+)
+def test_create_ffb_backend_resolution(mode, features, expected) -> None:
+    assert isinstance(create_ffb_backend(mode, features), expected)
+
+
 def test_yaml_dict_has_loader_schema_shape() -> None:
     data = wheel_profile_to_yaml_dict(_wheel_profile())
     assert set(data) == {
@@ -91,7 +120,7 @@ def test_yaml_dict_has_loader_schema_shape() -> None:
     }
     assert set(data["axis_map"]) == {"steering", "throttle", "brake"}
     assert data["pedal"] == {"inverted": True}
-    assert data["ffb"] == {"enabled": True, "gain": 0.6}
+    assert data["ffb"] == {"enabled": True, "gain": 0.6, "mode": "auto"}
     assert data["reverse_buttons"] == [294]
     assert data["reset_buttons"] == [300]
     assert data["exit_buttons"] == [307]

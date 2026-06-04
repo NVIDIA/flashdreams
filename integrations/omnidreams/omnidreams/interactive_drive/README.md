@@ -276,6 +276,27 @@ to bind a known device path directly use `--wheel-device /dev/input/eventX`;
 to disable wheel input entirely use `--no-wheel`. No profiles ship with the
 repo — keyboard-only driving works fine without one.
 
+**Force feedback (multi-vendor).** A profile's `ffb.mode` selects how the
+centering force is rendered, and defaults to `auto`, which inspects the
+device's advertised Linux FF effects and picks the right backend:
+
+- `autocenter` — a driver-managed spring written via `FF_AUTOCENTER`.
+  Used by Thrustmaster and Logitech wheels.
+- `constant_force` — a self-rendered spring uploaded via the `FF_CONSTANT`
+  effect, where the app computes the force each tick. This is the universal
+  path and is required for Fanatec wheels, whose `hid-fanatecff` driver does
+  not expose `FF_AUTOCENTER`.
+
+With `mode: auto` (or the wizard's "Auto"), a Fanatec base automatically
+falls back to constant force while Thrustmaster/Logitech keep their managed
+autocenter. Set `mode: constant_force` explicitly if a Logitech's in-kernel
+autocenter feels too weak. Driver prerequisites: Fanatec needs the
+[`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff) module with the
+base in PC mode (red LED); Logitech G29/G27/G923-PS use the in-kernel
+`hid-lg4ff` or [`new-lg4ff`](https://github.com/berarma/new-lg4ff), while the
+G920 and Xbox/PC G923 use the HID++ driver (kernel >= 6.3). FFB writes need
+access to `/dev/input/*` (add your user to the `input` group).
+
 **Generate an input profile (wheel or game controller).** Instead of
 hand-writing that YAML, run the calibration wizard:
 
@@ -300,8 +321,8 @@ committed. It needs a graphical session and read access to `/dev/input/*`
 
 The opening screen also lists your saved profiles so you can edit their
 settings (display name, steering range and deadzone, inversion, force
-feedback, detection patterns), choose which one is the default, or delete
-them. Steering range and deadzone are most useful for game controllers,
+feedback mode and gain, detection patterns), choose which one is the
+default, or delete them. Steering range and deadzone are most useful for game controllers,
 whose sticks are sensitive and tend to drift -- lower the range to make
 steering less twitchy and raise the deadzone to ignore a drifting stick at
 rest.

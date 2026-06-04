@@ -27,14 +27,15 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     EV_KEY,
     EVDEV_EVENT_FORMAT,
     EVDEV_EVENT_SIZE,
-    AutocenterFFB,
     AxisRange,
     EvdevDevice,
     WheelProfile,
     apply_steering_curve,
+    create_ffb_backend,
     load_wheel_profiles,
     name_match_strength,
     query_axis_range,
+    query_ff_features,
     read_evdev_name,
     scan_evdev_devices,
     user_wheel_profiles_dir,
@@ -265,7 +266,8 @@ class WheelBridge:
         self._exit_buttons = {int(b) for b in profile.exit_buttons}
         self._reverse = False
         self._button_states: dict[int, int] = {}
-        self._ffb = AutocenterFFB()
+        # Real backend is resolved against the device in ``start()``.
+        self._ffb = create_ffb_backend(profile.ffb_mode, frozenset())
         self._axis_ranges: dict[int, AxisRange] = {}
         self._raw_axes: dict[int, int] = {}
         self._state = WheelState()
@@ -290,8 +292,12 @@ class WheelBridge:
             self._throttle_axis: self._released_pedal_raw(self._throttle_axis),
             self._brake_axis: self._released_pedal_raw(self._brake_axis),
         }
+        ffb_backend = "off"
         if self._profile.ffb_enabled:
+            features = query_ff_features(self._device_path)
+            self._ffb = create_ffb_backend(self._profile.ffb_mode, features)
             self._ffb.init(self._device_path, self._profile.ffb_gain)
+            ffb_backend = type(self._ffb).__name__
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, name="interactive-drive-wheel", daemon=True
@@ -304,6 +310,7 @@ class WheelBridge:
             f"steering_range={self._steering_range} "
             f"steering_deadzone={self._steering_deadzone} "
             f"inverted_pedals={self._inverted_pedals} "
+            f"ffb_mode={self._profile.ffb_mode} ffb={ffb_backend} "
             f"reverse_buttons={sorted(self._reverse_buttons)} "
             f"reset_buttons={sorted(self._reset_buttons)}",
             flush=True,
@@ -391,7 +398,12 @@ class WheelBridge:
         self._control.set_drive(
             steer=steering, throttle=throttle, brake=brake, reverse=self._reverse
         )
-        self._ffb.update(abs(target_speed), gain=self._profile.ffb_gain)
+        self._ffb.update(
+            speed_mps=abs(target_speed),
+            steering_raw=self._raw_axes[self._steering_axis],
+            center=int(self._axis_ranges[self._steering_axis].center),
+            gain=self._profile.ffb_gain,
+        )
 
     def _normalize_steering(self, raw: int) -> float:
         axis_range = self._axis_ranges[self._steering_axis]
