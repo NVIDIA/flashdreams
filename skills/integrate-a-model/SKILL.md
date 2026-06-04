@@ -8,8 +8,6 @@ description: End-to-end workflow for porting an external video diffusion model i
 The ordered procedure for binding an external video model to the flashdreams
 framework. Read the **`flashdreams-integrations`** skill first for the architecture
 (layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
-(That skill's `name:` is `flashdreams-integrations` but it lives in the directory
-`agentic/skills/flashdreams-recipes/` — mind the dir/name mismatch.)
 
 **Worked example throughout:** `integrations/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
 which reuses the `integrations/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
@@ -296,4 +294,4 @@ checkpoint, found the zero-remap identity, and verified the 825↔825 bijection 
 ~20 min. Gaps it surfaced (now folded in above): the bijection snippet was pseudocode
 (made runnable w/ `safetensors`), the native-checkpoint framing over-assumed `.pth`
 (now notes sharded-safetensors), no diffusers-remap guidance (added the rename
-families), and the `flashdreams-integrations` dir/name mismatch (now flagged).
+families), and stale `flashdreams-integrations` path references (now fixed).

@@ -1,20 +1,20 @@
 ---
 name: flashdreams-integrations
-description: Navigate the flashdreams package layout and integration architecture — what belongs in core vs infra vs integrations, which abstract contracts a integration must fulfil (Transformer, Encoder, StreamingDecoder, Pipeline, configs), how AR caches / CP / CFG / KV cache / CUDA-graph wrapping fit together, and where new tests live. Use when adding a new integration under flashdreams/flashdreams/integrations/, when editing an existing integration's configs or pipeline wiring, when porting a network into the flashdreams framework, or when the user asks where a piece of code should live. The `template` integration is the source of truth for the reference design.
+description: Navigate the FlashDreams package layout and integration architecture: core vs infra vs recipes vs workspace integrations, Transformer/Encoder/StreamingDecoder/Pipeline config contracts, AR caches, CP, CFG, KV cache, CUDA graph wrapping, runner registration, and test placement. Use when adding or editing built-in recipes under flashdreams/flashdreams/recipes/, plugin packages under integrations/, model configs, pipeline wiring, or when the user asks where code belongs. The template recipe is the reference design.
 ---
 
 # flashdreams integration architecture
 
-A map of how `flashdreams/` is organized and how a single rollout flows through the framework. Read once before adding a integration under `flashdreams/flashdreams/integrations/` or restructuring an existing one. Keep docstrings consistent with the `python-docstring-style` skill.
+A map of how `flashdreams/` is organized and how a single rollout flows through the framework. Read once before adding a built-in recipe under `flashdreams/flashdreams/recipes/`, adding a workspace integration under `integrations/`, or restructuring an existing one. Keep docstrings consistent with the `python-docstring-style` skill.
 
 > For the **step-by-step procedure** of doing an integration end-to-end (scope → scaffold → recipe → checkpoint remap → conditioners → runner → verify → perf), see the **`integrate-a-model`** skill. This skill is the *map*; that one is the *route*.
 
-> **The fastest way to learn this codebase is to clone the structure of `integrations/template/`.** It is the reference integration — every contract this skill describes is wired up there in its minimal form. Skim it side-by-side with this document.
+> **The fastest way to learn this codebase is to clone the structure of `flashdreams/flashdreams/recipes/template/`.** It is the reference integration — every contract this skill describes is wired up there in its minimal form. Skim it side-by-side with this document.
 
 ## TL;DR
 
-- Three layers, strict dependency direction: `core` → `infra` → `integrations`. `infra` and `core` never import from `integrations`. Integrations may import from each other to reuse a sibling integration's transformer/encoder/decoder.
-- A integration = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the integration-specific subclasses of these and ship one **module-level literal** `StreamInferencePipelineConfig` per variant in `config.py`. No `build_*(...)` factories — variants derive from a base via `derive_config(BASE, ...)`.
+- Three layers, strict dependency direction: `core` -> `infra` -> recipes/integrations. `infra` and `core` never import from `integrations`. Recipes and integrations may reuse sibling recipe code when the dependency stays explicit and model-owned.
+- An integration = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the integration-specific subclasses of these and ship one **module-level literal** `StreamInferencePipelineConfig` per variant in `config.py`. No `build_*(...)` factories — variants derive from a base via `derive_config(BASE, ...)`.
 - Every config sets `name: str` (a stable slug). The per-integration `<NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]` dict is keyed by `name`. There is no central pipeline-config registry — pipelines are reachable via direct per-integration imports. Integrations that ship a `Runner` (see §5) self-register their slugs into `flashdreams.configs.registry._SUPPORTED_RUNNERS` (read it via `supported_runners()`), which is the only registry the `flashdreams-run` CLI dispatches over.
 - Per-rollout state lives in nested `*Cache` dataclasses that mirror the same containment tree.
 - Lifecycle: `pipeline.initialize_cache(...)` once, then a loop of `pipeline.generate(ar_idx, ...)` + `pipeline.finalize(ar_idx, ...)`.
@@ -45,7 +45,7 @@ flashdreams/
 | Model-specific DiT, control encoder, or VAE             | `integrations/<name>/`                  |
 | CLI runner config + ``run()`` body                      | `integrations/<name>/runner.py`         |
 
-If you're tempted to add a integration-specific branch in `infra/` or `core/` — expose a config slot or override hook instead.
+If you're tempted to add an integration-specific branch in `infra/` or `core/` — expose a config slot or override hook instead.
 
 ## 2. What a pipeline contains
 
@@ -127,14 +127,14 @@ diffusion_model.generate(ar_idx, transformer_cache, input=encoded)
 Two corollaries:
 
 - **The encoder's output shape must match the noisy latent's pre-patchify shape** so the same `patchify_and_maybe_split_cp` call works on both, and so the network can fuse them as an additive bias on the per-token channel dim.
-- **`encoder=None` round-trips `input=None` end-to-end.** Your network's `forward` should treat `control=None` as "skip the control bias" — `integrations/template/transformer/network.py` is the reference. This lets the same integration support both controlled and uncontrolled rollouts without a separate config.
+- **`encoder=None` round-trips `input=None` end-to-end.** Your network's `forward` should treat `control=None` as "skip the control bias" — `flashdreams/flashdreams/recipes/template/transformer/network.py` is the reference. This lets the same integration support both controlled and uncontrolled rollouts without a separate config.
 
-## 3. Anatomy of a integration
+## 3. Anatomy of an integration
 
-A minimum viable integration (what `integrations/template/` ships) is **3 files and 4 classes**:
+A minimum viable built-in recipe (what `flashdreams/flashdreams/recipes/template/` ships) is **3 files and 4 classes**:
 
 ```
-integrations/<name>/
+flashdreams/flashdreams/recipes/<name>/
 ├── transformer/
 │   ├── __init__.py          YourTransformerConfig + YourTransformerCache + YourTransformer
 │   └── network.py           YourDiTConfig + YourDiTCache + YourDiT
@@ -165,7 +165,7 @@ The contracts are all under `flashdreams.infra`. Subclass and override.
   - `initialize_autoregressive_cache(*, height, width, **transformer_context)` — receives the per-rollout spatial layout, stashes it as `self._output_height` / `self._output_width`, runs context encoders, allocates KV buffers, builds the `RotaryPositionEmbedding3D` adapter, lazy-builds `CUDAGraphWrapper`s, and returns `YourCache`. Do all divisibility checks here (`H % patch_spatial == 0`, `L % cp_size == 0`, ...).
   - Optional: `postprocess_clean_latent` (e.g. I2V first-frame pin), `finalize_kv_cache` (default runs one extra `predict_flow` to advance the cache).
 
-- **`YourTransformerCache(TransformerAutoregressiveCache)`** — an `@dataclass(kw_only=True)` carrying `network_cache`, `network_cache_uncond | None`, `rope_adapter`, `rope_freqs | None`, `autoregressive_index`. Its `start(ar_idx)` and `finalize(ar_idx)` hoist KV `before_update` / `after_update` and the RoPE shift out of the (potentially graph-captured) network forward. See `integrations/template/transformer/__init__.py`.
+- **`YourTransformerCache(TransformerAutoregressiveCache)`** — an `@dataclass(kw_only=True)` carrying `network_cache`, `network_cache_uncond | None`, `rope_adapter`, `rope_freqs | None`, `autoregressive_index`. Its `start(ar_idx)` and `finalize(ar_idx)` hoist KV `before_update` / `after_update` and the RoPE shift out of the (potentially graph-captured) network forward. See `flashdreams/flashdreams/recipes/template/transformer/__init__.py`.
 
 - **`YourTransformerConfig(InstantiateConfig)`** with `_target = field(default_factory=lambda: YourTransformer)` — exposes the standard knobs (see §5).
 
@@ -227,7 +227,7 @@ There are exactly two shape regimes, separated by patchify:
 
 ## 5. Cross-cutting conventions
 
-Compressed reference. The first time you touch one of these, also read the matching code in `integrations/template/`.
+Compressed reference. The first time you touch one of these, also read the matching code in `flashdreams/flashdreams/recipes/template/`.
 
 ### Configs
 
@@ -254,11 +254,11 @@ Compressed reference. The first time you touch one of these, also read the match
 
 A `StreamInferencePipeline` is intentionally narrow: it owns the encode → diffuse → decode loop given *already-prepared* inputs (text embeddings, padded first-frame, control latents). A `Runner` is the layer above that turns user-facing CLI arguments (`--prompt`, `--image_path`, `--output_dir`) into those pipeline inputs, drives the AR loop, and persists outputs. Two responsibilities, two classes — same shape as nerfstudio's `Trainer` ⊃ `Pipeline` split.
 
-- **`Runner` ABC + `RunnerConfig` base** live in `flashdreams/infra/runner.py`. Per-variant subclasses live in `integrations/<name>/runner.py`. The base ``__init__`` eagerly does `pipeline = config.pipeline.setup().to(config.device).eval()`; the subclass's only job is `run()` — load runner-config inputs, build the cache, loop `generate` + `finalize`, persist outputs.
-- **Per-variant runners.** One `RunnerConfig` literal per shipped pipeline variant (mirrors the literal style of `<NAME>_CONFIGS`). When two variants share the same I/O (e.g. the three template configs), they can share one `_target` `Runner` class but each variant still gets its own `RunnerConfig` literal pinning the right `pipeline=`. When two variants need different I/O (e.g. Wan T2V vs I2V), each gets its own `Runner` subclass too. Reference templates: `integrations/template/runner.py` (one `Runner`, three configs) and `integrations/wan/runner.py` (two `Runner`s, two configs).
-- **`<NAME>_RUNNERS: dict[str, RunnerConfig]`** in `integrations/<name>/runner.py` keyed by `runner_name` (built from a tuple comprehension, same shape as `<NAME>_CONFIGS`). Each `runner.py` ends with a tiny self-registration loop that calls `register_runner(name, cfg, source="builtin")` (from `flashdreams.configs.registry`) for every entry — that's how slugs land in `_SUPPORTED_RUNNERS`. `flashdreams/configs/runner_configs.py` then just side-effect-imports each integration's `runner.py`, so adding a new in-tree integration is one extra `import flashdreams.recipes.<name>.runner` line.
-- **`runner_name` mirrors `pipeline.name` by convention.** A smoke test (`tests/test_integration_configs.py::test_runner_name_mirrors_pipeline_name`) enforces it for every in-tree runner so `flashdreams-run <name>` "just works". Per-runner literals are free to opt out (a integration with two runners over the same pipeline would have to), but the in-tree set holds the line.
-- **`_SUPPORTED_RUNNERS`** in `flashdreams/configs/registry.py` is the only central registry; treat it as immutable after integration imports complete and read it via `supported_runners()`. Each runner config carries its own one-line CLI description on `cfg.description` (annotated with `tyro.conf.Suppress` so it's hidden from per-runner `--help`). The smoke test `tests/test_integration_configs.py::test_supported_runners_have_descriptions` enforces non-empty descriptions for every in-tree runner.
+- **`Runner` ABC + `RunnerConfig` base** live in `flashdreams/infra/runner.py`. Built-in per-variant subclasses live in `flashdreams/flashdreams/recipes/<name>/runner.py`. The base ``__init__`` eagerly does `pipeline = config.pipeline.setup().to(config.device).eval()`; the subclass's only job is `run()` — load runner-config inputs, build the cache, loop `generate` + `finalize`, persist outputs.
+- **Per-variant runners.** One `RunnerConfig` literal per shipped pipeline variant (mirrors the literal style of `<NAME>_CONFIGS`). When two variants share the same I/O (e.g. the three template configs), they can share one `_target` `Runner` class but each variant still gets its own `RunnerConfig` literal pinning the right `pipeline=`. When two variants need different I/O (e.g. Wan T2V vs I2V), each gets its own `Runner` subclass too. Reference templates: `flashdreams/flashdreams/recipes/template/runner.py` (one `Runner`, three configs) and `flashdreams/flashdreams/recipes/wan/runner.py` (two `Runner`s, two configs).
+- **`<NAME>_RUNNERS: dict[str, RunnerConfig]`** in `flashdreams/flashdreams/recipes/<name>/config.py` is keyed by `runner_name` (built from a tuple comprehension, same shape as `<NAME>_CONFIGS`). Each config module registers its runners with `register_runner(name, cfg, source="builtin")` (from `flashdreams.configs.registry`) so slugs land in `_SUPPORTED_RUNNERS`. `flashdreams/configs/runner_configs.py` side-effect-imports each recipe config module, so adding a new built-in runner means adding one `import flashdreams.recipes.<name>.config` line.
+- **`runner_name` mirrors `pipeline.name` by convention.** A smoke test (`tests/test_recipe_configs.py::test_runner_name_mirrors_pipeline_name`) enforces it for every in-tree runner so `flashdreams-run <name>` "just works". Per-runner literals are free to opt out (an integration with two runners over the same pipeline would have to), but the in-tree set holds the line.
+- **`_SUPPORTED_RUNNERS`** in `flashdreams/configs/registry.py` is the only central registry; treat it as immutable after integration imports complete and read it via `supported_runners()`. Each runner config carries its own one-line CLI description on `cfg.description` (annotated with `tyro.conf.Suppress` so it's hidden from per-runner `--help`). The smoke test `tests/test_recipe_configs.py::test_supported_runners_have_descriptions` enforces non-empty descriptions for every in-tree runner.
 - **`all_runners()`** returns the sorted, layered view: built-ins first, then plugin discoveries on top via `register_runner(..., source="plugin")` (a plugin can never silently shadow a shipped slug; collisions are logged and skipped).
 - **External runners** ship a `RunnerConfig` (with `description=` set) and register it via the `flashdreams.runner_configs` entry-point group:
 
