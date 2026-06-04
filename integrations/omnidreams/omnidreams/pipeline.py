@@ -159,8 +159,7 @@ class OmnidreamsPipeline(
             decoder
         ).TEMPORAL_COMPRESSION_RATIO
 
-        # Take the view split outside of the transformer so the VAE does
-        # not duplicate work across CP ranks.
+        # Split views outside the transformer so the VAE doesn't duplicate work across CP ranks.
         self.V_group = transformer.cp_groups.V_group
         self.V_size = transformer.cp_groups.V_size
         transformer.cp_groups.V_group = None
@@ -260,8 +259,7 @@ class OmnidreamsPipeline(
         if negative_text_embeddings is not None:
             negative_text_embeddings = negative_text_embeddings.to(device=self.device)
 
-        # The image latent's [..., Hl, Wl] are the per-rollout latent
-        # spatial dims; thread them to the transformer cache init.
+        # Image latent [..., Hl, Wl] = per-rollout latent spatial dims for the cache init.
         height = image_embeddings.shape[-2]
         width = image_embeddings.shape[-1]
 
@@ -376,13 +374,11 @@ class OmnidreamsPipeline(
         Idempotent. Only safe for one-shot pipeline lifetimes (demos);
         long-lived hosts that reuse the pipeline must not call this.
         """
-        # None instead of delattr so initialize_cache's `is not None` guard
-        # fires with a useful message rather than an AttributeError.
+        # None (not delattr) so initialize_cache's `is not None` guard gives a useful error.
         self.text_encoder = None
         self.image_encoder = None
-        # nn.Module reference cycles (parent <-> child, hooks) often outlive
-        # the local refcount drop, so force a GC pass before releasing the
-        # freed CUDA blocks.
+        # nn.Module ref cycles (parent<->child, hooks) outlive the refcount drop;
+        # force GC before releasing the freed CUDA blocks.
         gc.collect()
         torch.cuda.empty_cache()
 

@@ -74,7 +74,6 @@ class PinholeCamera(CameraBase):
         self.cache_torch_and_np_intrinsics()
 
     def cache_torch_and_np_intrinsics(self) -> None:
-        # cache intrinsics matrix
         self.intrinsics_matrix_torch = self.get_intrinsics_matrix()
         self.intrinsics_matrix_inv_torch = self.get_inv_intrinsics_matrix()
         self.intrinsics_matrix_np = self.intrinsics_matrix_torch.cpu().numpy()
@@ -210,9 +209,6 @@ class PinholeCamera(CameraBase):
         o ------> x (right)
         |
         v y (down)
-
-        Returns:
-            rays: (H, W, 3), normalized camera rays camera coordinate
         """
         u = torch.arange(self.w, dtype=torch.int32, device=self.device)
         v = torch.arange(self.h, dtype=torch.int32, device=self.device)

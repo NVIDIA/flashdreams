@@ -372,7 +372,7 @@ class CameraBase:
                     j_shifts = np.arange(-radius // 2, radius // 2 + 1)
                     for i in i_shifts:
                         for j in j_shifts:
-                            # use torch.roll to shift the canvas
+                            # use np.roll to shift the canvas
                             canvas_shifted = np.roll(canvas, shift=(i, j), axis=(0, 1))
                             canvas_accum = np.maximum(canvas_accum, canvas_shifted)
                     canvas = canvas_accum

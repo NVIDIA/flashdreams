@@ -3,18 +3,10 @@
 
 """Shared ``Loading...`` overlay used while the backend is warming up.
 
-Renders a high-contrast callout box with a status message over a base
-camera frame. Used as the status-overlay renderer for the loading phase:
-:func:`~omnidreams.interactive_drive.runtime.loop.run_main_loop` polls a
-``loading_status`` provider while no generated chunk has arrived yet and
-surfaces its message ("Loading world model..." until the model is
-resident, then "Loading scene..." while the picked scene uploads) over
-the seeded initial frame, so the user sees progress instead of a frozen
-frame and reasonably assuming the demo has hung. The MJPEG streaming
-presenter reuses this for its own status / idle overlays.
-
-PIL + ImageDraw.textbbox isn't cheap, so it's only invoked on loading
-ticks (a few seconds), never in the steady-state present path.
+Renders a high-contrast status callout over a base camera frame. The runtime
+loop and the MJPEG presenter use it for the loading phase so the user sees
+progress instead of a frozen frame. PIL ``textbbox`` isn't cheap, so it runs
+only on loading ticks, never in the steady-state present path.
 """
 
 from __future__ import annotations
@@ -45,8 +37,8 @@ def render_loading_overlay(
     # Dim everything slightly so the scene doesn't compete with the box.
     draw.rectangle((0, 0, width, height), fill=(0, 0, 0, 110))
 
-    # Pillow 10.1+ accepts ``size=`` on load_default; older versions
-    # return a tiny 7x10 bitmap, which still works just looks dinky.
+    # Pillow 10.1+ accepts ``size=`` on load_default; older versions fall
+    # back to a tiny default bitmap.
     try:
         font = ImageFont.load_default(size=max(28, height // 20))
     except TypeError:

@@ -112,9 +112,8 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
     """AR step index for the chunk currently being processed; ``-1`` before the first ``start``."""
 
     def start(self, autoregressive_index: int) -> None:
-        # Hoist per-block KV pre-update and the RoPE shift out of the
-        # (graph-captured) network forward. ``predict_flow`` runs with
-        # ``eager_mode=False``; the cond/uncond passes share ``rope_freqs``.
+        # Hoist KV pre-update and RoPE shift out of the graph-captured forward
+        # (predict_flow runs eager_mode=False; cond/uncond share rope_freqs).
         self.rope_freqs = self.rope_adapter.shift_t(autoregressive_index)
 
         self.autoregressive_index = autoregressive_index
@@ -274,8 +273,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         super().__init__(config)
         self.config: CosmosTransformerConfig = config
 
-        # Auto-detect CP world size from torch.distributed; non-distributed
-        # mode short-circuits to a singleton group set.
+        # Auto-detect CP world size from torch.distributed; non-distributed -> singleton groups.
         if torch.distributed.is_initialized():
             world_size = torch.distributed.get_world_size()
             self.cp_groups = create_hierarchical_cp_groups(
@@ -320,14 +318,11 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         if config.compile_network and self._optimized_dit_executor is None:
             self.network = compile_module(self.network)
 
-        # Per-rollout dispatch when use_cuda_graph=True:
-        # filling phase -> wrapper.drain (eager, drains Inductor autotune);
-        # steady-state -> wrapper.__call__ (warmup + capture + replay).
-        # First AR step that runs on the KV cache's steady-state code
-        # path. The cache fills at AR step ``chunks_total // len_t - 1``;
-        # the *next* step is the first one whose ``before_update`` sees
-        # ``is_steady_state() == True`` and whose forward takes the steady
-        # branches.
+        # CUDA-graph dispatch (use_cuda_graph=True): filling phase uses
+        # wrapper.drain (eager, drains Inductor autotune); steady-state uses
+        # wrapper.__call__ (warmup + capture + replay). The cache fills at AR
+        # step chunks_total // len_t - 1, so the next step is the first to see a
+        # steady-state KV cache and take the capturable steady branches.
         self._use_cuda_graph = config.use_cuda_graph
         chunks_total = config.sink_size_t + config.window_size_t
         assert chunks_total % config.len_t == 0, (
@@ -347,10 +342,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             else self.network
         )
 
-        # In the case of single view, we always flatten the latent tensor into
-        # 4D [B, V, L, D]. This makes CP easier: just directly apply on L dimension.
-        # For multi-view, we keep the original 5D [B, V, T, HW, D] shape so we can apply
-        # dedicated hierarchical CP groups.
+        # Single view: flatten latent to 4D [B, V, L, D] so CP applies on L
+        # directly. Multi-view: keep 5D [B, V, T, HW, D] for hierarchical CP.
         self.flatten_thw = config.num_views == 1
 
     def _configure_optimized_dit_from_config(self) -> None:
@@ -501,9 +494,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             view_names: Length-``V`` view names; required when
                 ``num_views > 1``.
         """
-        # Stash the per-rollout spatial layout. ``latent_shape``,
-        # ``unpatchify_and_maybe_gather_cp`` and the network-cache /
-        # RoPE setup below all read these.
+        # Stash per-rollout spatial layout (read by latent_shape,
+        # unpatchify_and_maybe_gather_cp, and the network-cache / RoPE setup).
         cfg = self.config
         text_embeddings = text_embeddings.to(device=self.device, dtype=cfg.dtype)
         image_embeddings = image_embeddings.to(device=self.device, dtype=cfg.dtype)

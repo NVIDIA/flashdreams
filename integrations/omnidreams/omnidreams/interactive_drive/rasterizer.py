@@ -1,22 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Ludus-based HD map rasterizer.
+"""Ludus-based HD map rasterizer wrapping ``ludus_renderer`` for conditioning.
 
-This module provides the LudusConditionRasterizer class, which wraps the
-ludus_renderer library to render HD map scenes for conditioning video generation.
-
-Based on imaginaire4's projects/cosmos/sil/world_scenario/ludus_renderer.py
-(commit c2071960fb81 from dev/grpc-updates branch), adapted to work with
-interactive_drive' USDZ scene bundles. gRPC dynamic object override functionality
-removed as we run in-process.
-
-When :class:`BevConfig` is enabled the rasterizer also renders a top-down
-bird's-eye-view via a synthetic ``FThetaCamera`` mounted above the rig. The
-math is the same as the imaginaire ``ludus_renderer.render_utils`` BEV
-helpers: a pinhole-projection camera + a fixed sensor-to-rig matrix that
-points the optical axis straight down. The BEV bytes ride alongside the
-main RGB on each :class:`PresentedFrame`.
+When :class:`BevConfig` is enabled it also renders a top-down BEV via a
+synthetic ``FThetaCamera`` above the rig (pinhole projection + a fixed
+straight-down sensor-to-rig matrix); the BEV rides alongside the main RGB on
+each :class:`PresentedFrame`.
 """
 
 import concurrent.futures
@@ -49,14 +39,7 @@ _BEV_CAMERA_NAME = "interactive_drive_bev"
 
 
 def _extract_clipgt_from_usdz(usdz_path: Path, dest_dir: Path) -> Path:
-    """Extract clipgt parquet files from USDZ archive.
-
-    Our USDZ bundles contain clipgt/ subdirectory with parquet files.
-    This extracts them to a directory compatible with load_clipgt_scene.
-
-    Returns:
-        Path to the clipgt directory with extracted parquets.
-    """
+    """Extract the USDZ's ``clipgt/`` parquet files into a ``load_clipgt_scene``-compatible dir."""
     clipgt_dir = dest_dir / "clipgt"
     clipgt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +59,7 @@ def _extract_clipgt_from_usdz(usdz_path: Path, dest_dir: Path) -> Path:
 
 @dataclass
 class _LoadedSceneData:
-    """Container for loaded scene data, analogous to imaginaire's SceneData."""
+    """Loaded clipgt scene + its adapter."""
 
     clipgt_scene: ClipgtGpuScene
     scene_adapter: SceneAdapter
@@ -163,22 +146,12 @@ class _LazyRasterFrame:
 class _LudusConditionRasterizerImpl:
     """Single-threaded implementation backing :class:`LudusConditionRasterizer`.
 
-    This is the actual rasterizer; do not construct it directly. The public
-    :class:`LudusConditionRasterizer` thread-pins this implementation to a
-    dedicated worker because NVIDIA EGL on Blackwell + driver 595.58.03 cannot
-    migrate a headless surfaceless GL context across threads.
+    Do not construct directly; the public facade thread-pins it to one worker
+    (see :class:`LudusConditionRasterizer` for the EGL rationale).
     """
 
     def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
-        """Initialize the rasterizer.
-
-        Args:
-            raster: Raster configuration specifying resolution and rendering params.
-            bev: Optional BEV configuration. When ``enabled``, the rasterizer
-                appends a synthetic top-down camera to the scene's camera list
-                on :meth:`load_scene` and ``render_chunk`` populates
-                :attr:`PresentedFrame.bev_host_uint8`.
-        """
+        """Initialize the rasterizer; ``bev`` (when enabled) adds a synthetic top-down camera."""
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for LudusConditionRasterizer.")
 
@@ -227,11 +200,7 @@ class _LudusConditionRasterizerImpl:
         return torch.linalg.inv(camera_poses)
 
     def load_scene(self, scene: SceneBundle) -> None:
-        """Load a scene from the USDZ bundle.
-
-        Args:
-            scene: Scene bundle containing path to USDZ and camera selection.
-        """
+        """Load a scene from the USDZ bundle."""
         self.ctx.clear_scenes()
 
         if self._temp_dir is not None:
@@ -281,15 +250,7 @@ class _LudusConditionRasterizerImpl:
 
         self.ctx.upload_cameras(self._all_cameras)
 
-        # Single scene upload shared by both the main camera and the BEV
-        # minimap. The earlier BEV-specific upload existed solely to
-        # clear ``CUBE_FLAG_WIREFRAME`` from cube pools so obstacle
-        # outlines wouldn't read as halos on the GoogleMaps-filtered
-        # minimap; with the BEV now rendered at 1024x1024 + LANCZOS
-        # downsample the outlines anti-alias cleanly and look like the
-        # roadway / vehicle borders Google Maps actually draws, so the
-        # divergence is no longer worth the extra GPU upload + the
-        # second scene-id bookkeeping.
+        # Single scene upload shared by the main camera and the BEV minimap.
         self._scene_id = self.ctx.upload_scene(clipgt_scene.timestamped_scene)
 
     def render_chunk(
@@ -297,18 +258,10 @@ class _LudusConditionRasterizerImpl:
         rig_poses_world: npt.NDArray[np.float32],
         timestamps_us: npt.NDArray[np.int64],
     ) -> RasterChunk:
-        """Render a chunk of frames from the scene's selected camera.
+        """Render a chunk from the selected camera (+ BEV when enabled).
 
-        When BEV is enabled (see :class:`BevConfig`) the rasterizer also
-        renders a top-down map for each frame and attaches it to
-        :attr:`PresentedFrame.bev_host_uint8`.
-
-        Args:
-            rig_poses_world: Rig-to-world poses [num_frames, 4, 4].
-            timestamps_us: Frame timestamps in microseconds [num_frames].
-
-        Returns:
-            RasterChunk containing rendered frames.
+        ``rig_poses_world`` is [num_frames, 4, 4]; ``timestamps_us`` is
+        [num_frames]. BEV frames attach to :attr:`PresentedFrame.bev_host_uint8`.
         """
         if (
             self._scene_data is None
@@ -410,14 +363,10 @@ class _LudusConditionRasterizerImpl:
         camera_type: int,
         resolution: tuple[int, int],
     ) -> _RenderedCameraFrames:
-        """Single-camera rasterizer dispatch, shared by the main view and BEV.
+        """Single-camera rasterizer dispatch shared by the main view and BEV.
 
-        Both code paths build identical camera/timestamp batches and only
-        differ in the camera id, sensor-to-rig, camera-type id, and
-        target resolution; the scene id is shared. Keeping frames CUDA-backed
-        lets the world model consume HDMap conditioning without a GPU->CPU->GPU
-        round trip. Presenters can still materialize NumPy lazily for fallback
-        display paths.
+        Frames stay CUDA-backed so the world model consumes HDMap conditioning
+        without a GPU->CPU->GPU round trip (presenters materialize NumPy lazily).
         """
         n_frames = timestamps_batch.shape[0]
         camera_poses_world = torch.einsum(
@@ -457,7 +406,6 @@ class _LudusConditionRasterizerImpl:
         return _RenderedCameraFrames(frames_hwc_uint8=rgb, ready_event=ready_event)
 
     def cleanup(self) -> None:
-        """Cleanup resources."""
         if self._temp_dir is not None:
             self._temp_dir.cleanup()
             self._temp_dir = None
@@ -469,17 +417,11 @@ class _LudusConditionRasterizerImpl:
 class LudusConditionRasterizer:
     """Thread-pinned facade over :class:`_LudusConditionRasterizerImpl`.
 
-    NVIDIA EGL on the Blackwell + driver 595.58.03 stack used for the demo
-    does not allow a headless surfaceless GL context to migrate across
-    threads (``eglMakeCurrent`` returns ``EGL_FALSE`` on any thread other
-    than the one that called ``ludusTimestampedInit``). To stay
-    single-threaded from EGL's point of view while still letting the
-    surrounding demo run multi-threaded pipelines, every public entry
-    point on this class runs synchronously on a single dedicated worker
-    thread that owns the GL context for its lifetime.
-
-    Behaves exactly like the underlying implementation; consumers should
-    not need to care that work is dispatched to the worker.
+    NVIDIA EGL on the Blackwell + 595.58.03 driver can't migrate a headless
+    surfaceless GL context across threads (``eglMakeCurrent`` fails off the
+    init thread), so every public entry point runs synchronously on one
+    dedicated worker that owns the GL context for its lifetime. Behaves
+    exactly like the underlying implementation.
     """
 
     def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
@@ -539,11 +481,9 @@ def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarra
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:
     """Construct a synthetic pinhole-as-FTheta camera for BEV rendering.
 
-    Mirrors ``ludus_renderer.render_utils.create_bev_camera`` (in the
-    omni-dreams-ludus reference), which reproduces a perfect pinhole
-    projection by feeding the Taylor expansion of ``f * tan(theta)`` into
-    the F-theta forward polynomial. ``height_m`` plus ``fov_deg`` together
-    set how much ground (in metres) the BEV covers around the rig.
+    Reproduces a pinhole projection by feeding the Taylor expansion of
+    ``f * tan(theta)`` into the F-theta forward polynomial; ``height_m`` +
+    ``fov_deg`` set how much ground the BEV covers around the rig.
     """
     cx = float(bev.width) / 2.0
     cy = float(bev.height) / 2.0
@@ -575,20 +515,14 @@ def _bev_sensor_to_rig(
     Sensor (FLU): X=forward (optical axis), Y=left, Z=up
     Rig (FLU):    X=forward, Y=left, Z=up
 
-    With ``tilt_deg = 0`` the matrix is the AlpaSim straight-down BEV:
-      Sensor X (depth)    -> Rig -Z (points down)
-      Sensor Y (left)     -> Rig +Y (unchanged)
+    At ``tilt_deg = 0`` (straight-down BEV):
+      Sensor X (depth)    -> Rig -Z (down)
+      Sensor Y (left)     -> Rig +Y
       Sensor Z (up image) -> Rig +X (forward)
 
-
-    For ``tilt_deg > 0`` we apply an additional pitch around the rig's
-    lateral (Y) axis so the optical axis leans forward by that angle.
-    The result is a Google-Maps-navigation-style chase view: rig stays
-    roughly centered horizontally, road ahead occupies most of the
-    image, and the rig itself sits in the lower part of the frame.
-    Camera position stays at ``(0, 0, height_m)`` -- only orientation
-    changes -- so we don't have to retune ``height_m`` when adjusting
-    tilt.
+    ``tilt_deg > 0`` pitches the optical axis forward around the rig Y axis for
+    a navigation-style chase view; camera position stays at ``(0, 0, height_m)``
+    so tilt doesn't require retuning ``height_m``.
     """
     theta = math.radians(float(tilt_deg))
     cos_t = math.cos(theta)

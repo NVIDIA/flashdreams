@@ -112,8 +112,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 def create_app(
