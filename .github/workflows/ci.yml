@@ -162,16 +162,20 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           mkdir -p "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")"
-          hf_args=()
           if [ -n "${HF_TOKEN:-}" ]; then
-            hf_args+=(--token "${HF_TOKEN}")
+            uv run --no-sync hf download \
+              "${OMNIDREAMS_QUALITY_REFERENCE_REPO}" \
+              "${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
+              --repo-type dataset \
+              --local-dir "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")" \
+              --token "${HF_TOKEN}"
+          else
+            uv run --no-sync hf download \
+              "${OMNIDREAMS_QUALITY_REFERENCE_REPO}" \
+              "${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
+              --repo-type dataset \
+              --local-dir "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")"
           fi
-          uv run --no-sync hf download \
-            "${OMNIDREAMS_QUALITY_REFERENCE_REPO}" \
-            "${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
-            --repo-type dataset \
-            --local-dir "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")" \
-            "${hf_args[@]}"
           cp \
             "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")/${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
             "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}"

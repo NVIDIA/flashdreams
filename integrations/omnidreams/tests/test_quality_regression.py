@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from omnidreams.config import OMNIDREAMS_RUNNERS
 
 from flashdreams.infra.config import derive_config
 from flashdreams.quality.clip_compare import (
@@ -27,7 +28,6 @@ from flashdreams.quality.clip_compare import (
     parse_frame_indices,
     read_video_rgb,
 )
-from omnidreams.config import OMNIDREAMS_RUNNERS
 
 pytestmark = pytest.mark.ci_gpu
 

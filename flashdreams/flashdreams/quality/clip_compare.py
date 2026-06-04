@@ -245,8 +245,9 @@ def format_clip_comparison(result: ClipComparisonResult) -> str:
         max_frame_flip = result.max_frame_flip
         parts.append(f"mean_flip={result.mean_flip:.4f}")
         parts.append(
-            "max_frame_flip="
-            f"{max_frame_flip:.4f}" if max_frame_flip is not None else "n/a"
+            f"max_frame_flip={max_frame_flip:.4f}"
+            if max_frame_flip is not None
+            else "n/a"
         )
     worst = max(result.frame_metrics, key=lambda m: m.rmse, default=None)
     if worst is not None:
@@ -298,8 +299,7 @@ def _threshold_failures(
         and result.mean_flip > thresholds.max_mean_flip
     ):
         failures.append(
-            f"mean_flip {result.mean_flip:.4f} > "
-            f"{thresholds.max_mean_flip:.4f}"
+            f"mean_flip {result.mean_flip:.4f} > {thresholds.max_mean_flip:.4f}"
         )
     max_frame_flip = result.max_frame_flip
     if (
@@ -308,8 +308,7 @@ def _threshold_failures(
         and max_frame_flip > thresholds.max_frame_flip
     ):
         failures.append(
-            f"max_frame_flip {max_frame_flip:.4f} > "
-            f"{thresholds.max_frame_flip:.4f}"
+            f"max_frame_flip {max_frame_flip:.4f} > {thresholds.max_frame_flip:.4f}"
         )
     return failures
 
