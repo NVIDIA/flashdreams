@@ -6,46 +6,27 @@ SPDX-License-Identifier: Apache-2.0
 {% extends "!layout.html" %}
 
 {#
-   Front-of-site marketing layout vs. reference-docs scaffold.
+   Render-mode switch: reference-docs scaffold vs. marketing layout.
 
-   pydata-sphinx-theme's default `docs_main` block wraps every page's
-   body in a docs-style scaffold:
+   pydata's default `docs_main` wraps the body in the docs scaffold
+   (bd-content > bd-article-container > bd-article, a secondary page-TOC
+   sidebar, and a footer-content footer) — right for reference material,
+   wrong for a marketing flow. `_fd_is_reference` keeps that scaffold for
+   the reference side and bypasses it everywhere else, rendering the body
+   into a full-bleed `fd-landing-main` (the `fd-*` components bring their
+   own layout via `--fd-max-content`).
 
-       <main class="bd-main">
-         <div class="bd-content">
-           <div class="bd-article-container">
-             <div class="bd-header-article">[Source / Edit / breadcrumb]</div>
-             <article class="bd-article">{{ body }}</article>
-             [optional article-footer, prev/next]
-           </div>
-           <div class="bd-sidebar-secondary">[page TOC]</div>
-         </div>
-       </main>
-
-   That's the right shape for reference material (autodoc API, the
-   Documentation tab umbrella, and the developer guides) but reads as
-   "docs page with a hero on top" on every marketing-flow page.
-
-   The render-mode switch picks `_fd_is_reference` for the
-   reference-docs side (left section nav + right page TOC + article
-   container) and the marketing layout otherwise (bypassed article
-   scaffold, no sidebars, full-bleed `fd-landing-main` wrapper). Our
-   `fd-*` components (hero, stat grid, feature card, etc.) bring their
-   own layout via `--fd-max-content` on the marketing side.
-
-   `pagename` is the Sphinx-source path without extension. The
-   reference-docs side covers:
-
-       api/*                  — autodoc reference
-       documentation          — Documentation tab umbrella (flat hub page)
-       developer_guides/*     — developer guides
-
-   Everything else (homepage, community, quickstart, models
-   gallery + per-model pages) renders in the marketing layout.
+   Reference side (`pagename` is the source path without extension):
+   api/*, the `documentation` hub, developer_guides/*, the viewcode source
+   listings under _modules/*, and the generated search / genindex /
+   py-modindex pages. Everything else (homepage, community, quickstart,
+   models gallery + per-model pages) is marketing.
 #}
-{% set _fd_is_reference = pagename.startswith('api/')
-                          or pagename == 'documentation'
+{% set _fd_is_reference = pagename == 'documentation'
+                          or pagename.startswith('api/')
                           or pagename.startswith('developer_guides/')
+                          or pagename.startswith('models/')
+                          or pagename.startswith('_modules/')
                           or pagename in ('search', 'genindex', 'py-modindex') %}
 
 {% block docs_main %}
@@ -55,39 +36,26 @@ SPDX-License-Identifier: Apache-2.0
     <div class="fd-landing-main">
       {{ body }}
     </div>
-    {# Skip the bd-footer-content slot on landing pages — pydata's
-       footer-content section is unused on this project (it'd render
-       to an empty <footer> that the marketing-layout CSS would still
-       paint as a visible empty band). The site-wide copyright still
-       renders via the outer bd-footer below the main element. #}
+    {# Intentionally omit pydata's trailing bd-footer-content <footer>
+       (unused here; the CSS would paint it as an empty band). Site-wide
+       copyright still renders in the outer bd-footer below <main>. #}
   {% endif %}
 {% endblock docs_main %}
 
 {#
-   Tag <body> so CSS can target marketing pages without `:has()`
-   tricks. Same partition as the `docs_main` switch above: pages on
-   the reference-docs side get no `fd-page-landing` class.
+   Tag <body> so CSS can target marketing pages without `:has()`. Same
+   partition as the docs_main switch (reference pages get no class).
 
-   `fd-prose-narrow` is layered on top of `fd-page-landing` for the
-   prose-heavy marketing sub-pages — community subpages and per-model
-   pages. These are reading-column surfaces (paragraphs of
-   explanation, code blocks, walkthrough steps) that benefit from a
-   narrower line length and tighter band padding than the marketing
-   grids on section landing pages.
-
-   The marketing section landing pages themselves (`quickstart/index`,
-   `community/index`, `models/index`, and the root `index`) keep the
-   wider default so their hero band, asymmetric splits, and tile
-   grids have room to breathe. Pages on the reference-docs side
-   (`_fd_is_reference`) never get the prose-narrow flag since they
-   already live in pydata's article container.
+   All marketing pages share one wide layout. `fd-page-plain` marks the
+   pages with NO authored hero: their structural H1 is shown and styled as
+   the page title. Hero pages omit the class so that H1 is hidden (the
+   `fd-hero-title` is the title). Hero pages are the root index (via
+   `master_doc`) and the indices in `_fd_hero_indices`.
 #}
 {% block body_tag %}
-  {% set _fd_prose_narrow_indices = ('community/index',
-                                     'quickstart/index',
-                                     'models/index') %}
-  {% set _fd_is_prose_narrow = (not _fd_is_reference)
-                               and pagename != master_doc
-                               and pagename not in _fd_prose_narrow_indices %}
-  <body data-default-mode="{{ default_mode }}"{% if not _fd_is_reference %} class="fd-page-landing{% if _fd_is_prose_narrow %} fd-prose-narrow{% endif %}"{% endif %}>
+  {% set _fd_hero_indices = ('community/index',) %}
+  {% set _fd_is_plain = (not _fd_is_reference)
+                        and pagename != master_doc
+                        and pagename not in _fd_hero_indices %}
+  <body data-default-mode="{{ default_mode }}"{% if not _fd_is_reference %} class="fd-page-landing{% if _fd_is_plain %} fd-page-plain{% endif %}"{% endif %}>
 {% endblock body_tag %}
