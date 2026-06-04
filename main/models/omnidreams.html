@@ -466,9 +466,47 @@ or joystick is viable. We provide a configuration tool to calibrate these:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive-configuration
 </pre></div>
 </div>
-<p>The demo loads the saved profile automatically on subsequent launches.
-Re-run the configuration tool to specify the default profile, edit a profile
-(steering sensitivity, deadzone, buttons), or delete a profile.</p>
+<p>The demo auto-loads your default profile on subsequent launches. When you
+have more than one profile, the configuration tool’s start screen lists them
+with <strong>Make default</strong> (plus Edit and Delete) buttons – re-run the tool to
+choose which profile <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> loads by default, tweak a profile
+(steering sensitivity, deadzone, buttons, force feedback), or remove one.</p>
+<p><strong>Multiple devices.</strong> A profile can bind controls across several devices –
+for example a wheel base plus a separately-connected or different-brand pedal
+set. Ctrl+click to select more than one device on the configuration tool’s
+device page; each control binds to whichever selected device it moves on.</p>
+<p><strong>Force feedback.</strong> The method is auto-detected per wheel: a driver-managed
+autocenter spring (Thrustmaster, Logitech) or a self-rendered constant force
+(Fanatec, which has no autocenter). FFB needs the vendor’s Linux driver and
+write access to <code class="docutils literal notranslate"><span class="pre">/dev/input/*</span></code> (add your user to the <code class="docutils literal notranslate"><span class="pre">input</span></code> group):</p>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Vendor</p></th>
+<th class="head"><p>Driver</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Thrustmaster</p></td>
+<td><p>Out-of-tree <a class="reference external" href="https://github.com/Kimplul/hid-tmff2">hid-tmff2</a> plus a
+wheel-mode init (<code class="docutils literal notranslate"><span class="pre">hid-tminit</span></code>, or <code class="docutils literal notranslate"><span class="pre">tmdrv</span></code> for TX / TS-XW), for
+modern wheels (T300RS, T248, TX, T-GT II, TS-PC, TS-XW, …).</p></td>
+</tr>
+<tr class="row-odd"><td><p>Fanatec</p></td>
+<td><p><a class="reference external" href="https://github.com/gotzl/hid-fanatecff">hid-fanatecff</a> with the
+base in PC mode (CSL DD, ClubSport, Podium, DD Pro).</p></td>
+</tr>
+<tr class="row-even"><td><p>Logitech</p></td>
+<td><p>In-kernel <code class="docutils literal notranslate"><span class="pre">hid-lg4ff</span></code> or <a class="reference external" href="https://github.com/berarma/new-lg4ff">new-lg4ff</a> (G29, G27, G923 PS); the G920
+and Xbox/PC G923 use the HID++ driver (kernel 6.3+).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="native-acceleration-perf-manifest">
 <h3>Native acceleration (perf manifest)<a class="headerlink" href="#native-acceleration-perf-manifest" title="Link to this heading">¶</a></h3>
