@@ -44,3 +44,21 @@ def test_view_mode_reflects_set_view_mode() -> None:
     assert keyboard.view_mode == "rgb"
     keyboard.set_view_mode("hdmap")
     assert keyboard.view_mode == "hdmap"
+
+
+def test_consume_exit_scene_request_returns_false_when_none_pending() -> None:
+    keyboard = KeyboardState()
+    assert keyboard.consume_exit_scene_request() is False
+
+
+def test_consume_exit_scene_request_returns_true_once_per_request() -> None:
+    """The presenter drains the wheel-button exit request exactly once.
+
+    Same rising-edge contract as reset: a single exit-to-selection must not
+    re-fire across ticks once consumed.
+    """
+    keyboard = KeyboardState()
+    keyboard.request_exit_scene()
+    keyboard.request_exit_scene()
+    assert keyboard.consume_exit_scene_request() is True
+    assert keyboard.consume_exit_scene_request() is False

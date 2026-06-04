@@ -40,6 +40,12 @@ gap, and a tiny conditional decoder for fast reconstruction.
      <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~24 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 

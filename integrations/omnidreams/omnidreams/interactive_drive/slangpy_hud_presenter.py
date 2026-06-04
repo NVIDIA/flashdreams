@@ -100,6 +100,9 @@ WHEEL_ROTATION_QUANTUM_DEG = 3
 # pygame HUD used; keeps input latency low without burning a core.
 EVENT_POLL_INTERVAL_S = 0.005
 
+# Metres-per-second to miles-per-hour, for the speed digit.
+MPS_TO_MPH = 2.2369362920544
+
 # Drive-key release debounce window. See the
 # ``_pending_drive_releases`` field documentation in
 # :class:`SlangPyHudPresenter`.
@@ -273,6 +276,12 @@ class KeyboardStateDriveSink:
         # Lets a wheel/controller's bound reset button trigger the same
         # rollout reset the ``R`` key does.
         self._keyboard.request_reset()
+
+    def request_exit_scene(self) -> None:
+        # Lets a wheel/controller's bound exit button drop back to the scene
+        # selector, the same as the ``X`` key. The presenter drains this on
+        # its event-pump thread and converts it into an exit-to-selection.
+        self._keyboard.request_exit_scene()
 
     # The methods below are no-ops in-process because the slangpy HUD
     # writes pygame-style key events directly to ``KeyboardState`` from
@@ -481,6 +490,13 @@ class SlangPyHudPresenter:
         # and re-enters the engine over the SAME presenter so the slangpy
         # window (and the warmed model) stay alive.
         self._pending_scene_change: tuple[Any, str] | None = None
+        # Exit-to-selection request set by the ``x`` key or a wheel's bound
+        # exit button. The outer demo loop checks this (ahead of
+        # ``pending_scene_change``) after each ``app.run_scene`` returns: when
+        # set it tears down the rollout and re-enters the scene selector over
+        # the SAME presenter, so a long-running demo can stop the video model
+        # generating without closing the window or reloading the model.
+        self._pending_exit_scene = False
 
         self._key_codes = self._build_key_codes()
         # Drive-key release debounce. Some SDL3 builds send a
@@ -503,6 +519,13 @@ class SlangPyHudPresenter:
 
     def process_events(self) -> None:
         self._window.process_events()
+        # A wheel/controller's bound exit button posts its request onto the
+        # shared ``KeyboardState`` from the wheel reader thread; drain it here
+        # on the main thread and convert it into the presenter's own
+        # exit-to-selection signal (the ``x`` key takes the direct path in
+        # ``_on_keyboard_event``).
+        if self._keyboard.consume_exit_scene_request():
+            self.exit_scene()
 
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         rgb = self._select_view_rgb(frame, view_mode)
@@ -877,7 +900,7 @@ class SlangPyHudPresenter:
         # texture is only the final HUD swapchain upload target.
         self._display_texture = display_texture
         if size_changed:
-            self._retire_cuda_hud_interop_after_resize()
+            self._recreate_cuda_hud_interop_after_resize(width, height)
         # Drop the chrome panel cache (its size depends on screen size)
         # and reallocate the canvas. Other caches are size-independent.
         self._panel_chrome_cache_key = None
@@ -1176,16 +1199,23 @@ class SlangPyHudPresenter:
         actual = self._window.size
         return self._normalise_present_size(actual.x, actual.y)
 
-    def _retire_cuda_hud_interop_after_resize(self) -> None:
+    def _recreate_cuda_hud_interop_after_resize(self, width: int, height: int) -> None:
         if self._cuda_hud_interop is None:
             return
         self._retired_cuda_hud_interops.append(self._cuda_hud_interop)
         self._cuda_hud_interop = None
+        self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
+        if self._cuda_hud_interop is not None:
+            print(
+                "[presenter] hud_cuda_interop=recreated after window resize",
+                flush=True,
+            )
+            self._cuda_hud_resize_logged = False
+            return
         if not self._cuda_hud_resize_logged:
             print(
                 "[presenter] hud_cuda_interop=disabled after window resize; "
-                "using host HUD upload so model CUDA graph resources are not "
-                "recreated during interactive resizing",
+                "could not recreate shared CUDA/Vulkan resources",
                 flush=True,
             )
             self._cuda_hud_resize_logged = True
@@ -1515,7 +1545,12 @@ class SlangPyHudPresenter:
                 font=self._font_tiny,
             )
 
-        wheel_center = (center_x, speed_y + 185)
+        # The wheel sits a little below the speed readout. Pedals are
+        # anchored to ``speed_y`` (NOT the wheel center) below, so this
+        # vertical nudge can be tuned without dragging the pedals / BEV
+        # down with it -- and so the pedal + BEV geometry stays in lockstep
+        # with the cached chrome in ``_get_panel_chrome``.
+        wheel_center = (center_x, speed_y + 210)
         self._draw_wheel(canvas, draw, wheel_center, 112, wheel_state.steering)
 
         angle_text = f"{int(wheel_state.steering * 450):+}\u00b0"
@@ -1528,7 +1563,7 @@ class SlangPyHudPresenter:
             font=self._font_medium,
         )
 
-        pedals_y = wheel_center[1] + 180
+        pedals_y = speed_y + 365
         self._draw_pedals(canvas, draw, panel_rect, pedals_y, wheel_state)
 
         controls_bottom_y = pedals_y + 220
@@ -1663,9 +1698,11 @@ class SlangPyHudPresenter:
             font=self._font_tiny,
         )
 
-        # BEV chrome (cream background + green outline + title).
-        wheel_center_y = speed_y + 185
-        pedals_y = wheel_center_y + 180
+        # BEV chrome (cream background + green outline + title). Pedals are
+        # anchored to ``speed_y`` here; keep this in lockstep with the same
+        # ``pedals_y`` / ``controls_bottom_y`` computation in ``_draw_panel``
+        # so the BEV foreground lands on this cached background.
+        pedals_y = speed_y + 365
         controls_bottom_y = pedals_y + 220
         bev_top = controls_bottom_y + BEV_PANEL_TOP_GAP
         bev_height = panel_h - bev_top - BEV_PANEL_BOTTOM_MARGIN
@@ -1826,7 +1863,12 @@ class SlangPyHudPresenter:
             )
         if brake_pil is not None:
             brake_img = self._fit_pedal(brake_pil, "B", target_w, target_h)
-            canvas.alpha_composite(brake_img, (brake_x, pedals_y))
+            # The brake sprite is wide/short, so aspect-fitting it into the
+            # tall pedal slot leaves it hugging the top. Center it vertically
+            # in the slot so it sits lower, roughly level with the throttle
+            # (mirrors AlpaSim's ``(throttle_h - brake_h) // 2`` offset).
+            brake_dy = max(0, (target_h - brake_img.height) // 2)
+            canvas.alpha_composite(brake_img, (brake_x, pedals_y + brake_dy))
         else:
             self._draw_pedal_bar(
                 draw,
@@ -2078,7 +2120,7 @@ class SlangPyHudPresenter:
             top = items_top + idx * item_h
             rect = (sx, top, sr, top + item_h)
             self._scene_item_rects.append((rect, scene))
-            if scene.path == self._current_scene:
+            if self._scene_option_matches_current(scene):
                 draw.rectangle(rect, fill=ACTIVE_BG + (255,))
             elif scene.label == self._hovered_scene_label:
                 draw.rectangle(rect, fill=HOVER_BG + (255,))
@@ -2172,15 +2214,40 @@ class SlangPyHudPresenter:
 
     def _current_scene_option(self) -> Any:
         for option in self._scene_options:
-            if option.path == self._current_scene:
+            if self._scene_option_matches_current(option):
                 return option
         return None
 
+    def _scene_option_matches_current(self, option: Any) -> bool:
+        current = self._current_scene
+        if option.path == current or str(option.path) == str(current):
+            return True
+        for path in getattr(option, "variant_paths", {}).values():
+            if path == current or str(path) == str(current):
+                return True
+        return False
+
     def _update_speed(self, wheel_state: Any) -> None:
-        # Magnitude: the digit shows speed, and reverse is conveyed by the
-        # "R" indicator, so a reverse target reads as a positive number that
+        # Drive the digit from the *authoritative* ego speed the simulation
+        # publishes once per chunk (``KeyboardState.vehicle_state``), so the
+        # readout always matches the vehicle the user is actually watching --
+        # the same source the browser/MJPEG ``/state`` readout already uses.
+        # The HUD's own ``target_speed_mps`` integrator (``wheel_state``) is a
+        # separate model that drifts from the ego and never resets on R /
+        # respawn, which is exactly the mismatch we're fixing here; it stays
+        # responsible only for force-feedback and the pedal chrome.
+        #
+        # Magnitude only: the digit shows speed and reverse is conveyed by the
+        # "R" indicator, so a reverse ego reads as a positive number that
         # dips to 0 at the direction change.
-        target_mph = abs(wheel_state.target_speed_mps) * 2.2369362920544
+        telemetry = self._keyboard.vehicle_state
+        if telemetry is not None:
+            target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
+        else:
+            # No chunk yet (warmup / between scenes): hold at zero rather than
+            # showing the integrator's creep-to-10mph target before the ego
+            # has actually moved.
+            target_mph = 0.0
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
 
@@ -2196,6 +2263,7 @@ class SlangPyHudPresenter:
             "s": _lookup_key(spy.KeyCode, "s"),
             "d": _lookup_key(spy.KeyCode, "d"),
             "r": _lookup_key(spy.KeyCode, "r"),
+            "x": _lookup_key(spy.KeyCode, "x"),
             "space": _lookup_key(spy.KeyCode, "space"),
             "up": _lookup_key(spy.KeyCode, "up", "arrow_up"),
             "down": _lookup_key(spy.KeyCode, "down", "arrow_down"),
@@ -2257,6 +2325,8 @@ class SlangPyHudPresenter:
             self._keyboard.set_view_mode("rgb")
         elif self._key_matches(key, "r"):
             self._keyboard.request_reset()
+        elif self._key_matches(key, "x"):
+            self.exit_scene()
 
     def _expire_pending_drive_releases(self) -> None:
         """Commit any debounced release whose grace window has passed.
@@ -2429,6 +2499,8 @@ class SlangPyHudPresenter:
         self._args.scene = scene_path
         self._args.variant = variant
         self._pending_scene_change = (scene_path, variant)
+        # An explicit scene pick supersedes any pending exit-to-selection.
+        self._pending_exit_scene = False
         self._should_close_flag = True
         # Drop the wheel-set DriverCommand so input state is clean for
         # the next scene -- otherwise a stale steer/throttle could
@@ -2440,6 +2512,45 @@ class SlangPyHudPresenter:
     def pending_scene_change(self) -> tuple[Any, str] | None:
         """``(scene_path, variant)`` if a dropdown click is pending, else None."""
         return self._pending_scene_change
+
+    def exit_scene(self) -> None:
+        """Request a return to the scene selector, keeping the window alive.
+
+        Mirrors :meth:`_signal_scene_change`: flips the close flag so
+        :func:`run_main_loop` exits and ``app.run_scene`` returns, but sets
+        ``_pending_exit_scene`` (instead of ``_pending_scene_change``) so the
+        demo's outer loop re-enters :meth:`wait_for_scene_selection` rather
+        than loading a new scene. No-op unless a scene is actually running, so
+        pressing ``x`` (or a bound exit button) at the selector does nothing.
+        """
+        if not self._engine_active:
+            return
+        self._pending_exit_scene = True
+        # An explicit exit overrides any scene change picked in the same tick.
+        self._pending_scene_change = None
+        self._should_close_flag = True
+        # Clean input state so a stale steer/throttle can't leak into the
+        # next scene the user eventually picks.
+        self._keyboard.set_drive_command(None)
+
+    @property
+    def pending_exit_scene(self) -> bool:
+        """True when the user asked to exit back to the scene selector."""
+        return self._pending_exit_scene
+
+    def acknowledge_exit_scene(self) -> None:
+        """Clear the exit request and reopen the window for scene selection.
+
+        Called by the demo's outer loop just before it re-enters
+        :meth:`wait_for_scene_selection`. Resets the close flag (so the
+        selection loop runs) and drops all per-rollout view state so the
+        selector shows the clean "Ready - pick a scene" / "WAITING FOR
+        BEV..." state rather than ghosting the just-exited rollout's last
+        camera frame, BEV minimap, and speed.
+        """
+        self._pending_exit_scene = False
+        self._should_close_flag = False
+        self._reset_scene_view_state()
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
@@ -2532,12 +2643,25 @@ class SlangPyHudPresenter:
         so the chrome reflects the new selection.
         """
         self._pending_scene_change = None
+        self._pending_exit_scene = False
         self._should_close_flag = False
         self._current_scene = scene_path
         self._selected_variant = variant
+        self._reset_scene_view_state()
+
+    def _reset_scene_view_state(self) -> None:
+        """Drop all per-rollout view state so the next state starts clean.
+
+        Shared by :meth:`acknowledge_scene_change` (new scene about to load)
+        and :meth:`acknowledge_exit_scene` (returning to the selector). Clears
+        the camera frame, BEV minimap, cached chrome, speed digit, and
+        telemetry so the camera area falls back to its placeholder ("Ready -
+        pick a scene" / "Loading Scene...") and the BEV panel to "WAITING FOR
+        BEV..." instead of ghosting the just-ended rollout's last frame.
+        """
         self._scene_dropdown_open = False
         self._variant_dropdown_open = False
-        # The new backend renders into a fresh ``rgb_host_uint8`` buffer
+        # The next backend renders into a fresh ``rgb_host_uint8`` buffer
         # so the camera resize cache (keyed on ``id(buffer)``) is now
         # stale; drop it. Same for the BEV cache.
         self._camera_resize_cache_key = None
@@ -2546,12 +2670,15 @@ class SlangPyHudPresenter:
         self._latest_bev_pil = None
         self._bev_panel_cache_key = None
         self._bev_panel_cache = None
-        # Panel chrome shows the new scene label, so its cache key
-        # changes naturally; explicitly invalidate to be safe.
+        # Panel chrome shows the scene label, so its cache key changes
+        # naturally; explicitly invalidate to be safe.
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
         self._has_camera_frame = False
         self._speed_mph = 0.0
+        # Forget the previous rollout's speed so the digit doesn't ramp back
+        # toward it; a new rollout republishes telemetry as soon as it starts.
+        self._keyboard.clear_telemetry()
         self._pending_drive_releases.clear()
 
     def set_wheel(self, wheel: Any | None) -> None:

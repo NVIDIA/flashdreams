@@ -422,6 +422,26 @@ p.fd-hero-title.rubric,
     line-height: 1.4;
 }
 
+/* Linked KPI stat tile — a sphinx-design `grid-item-card` with
+   `:class-card: fd-stat` and a `:link:` to the model's profiling
+   benchmark. The `.fd-stat` rule above already paints the card
+   (border, radius, surface, padding); here we neutralize the leftover
+   `.sd-card` chrome so the linked card matches a standalone `.fd-stat`,
+   and add an accent border on hover as the link affordance. */
+.sd-card.fd-stat {
+    text-decoration: none;
+    box-shadow: none;
+}
+.sd-card.fd-stat > .sd-card-body {
+    padding: 0;
+}
+.sd-card.fd-stat:hover {
+    border-color: var(--fd-accent);
+    box-shadow: none;
+    transform: none;
+    text-decoration: none;
+}
+
 
 /* 4.6 Comparison table ----------------------------------------------------- */
 
@@ -604,19 +624,17 @@ p.fd-hero-title.rubric,
 
 /* ----- 5. Project-wide header chrome hide -------------------------------- */
 
-/* Drop doc-y header chrome on every page.
+/* Drop the pydata version subtitle ("FlashDreams v0.1.0a2") rendered
+   under the logo via `<p class="title logo__title">` — it reads as a
+   docs build tag on a front-of-site hero.
 
-   pydata-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
-   under the logo via `<p class="title logo__title">`, and a docs-search
-   button in the navbar. On a front-of-site page with a hero they read
-   as a docs build tag. Apply unconditionally — the site uses an
-   in-page search via sphinx-design / the navbar search button. */
+   The navbar search button is intentionally NOT hidden: it shows on
+   every page. On reference-docs pages (which carry an inline
+   `search-field` in the sidebar — see `html_sidebars`) the theme's
+   button focuses that field; on pages without one it opens the
+   `pst-search-dialog` modal, so every page stays searchable. */
 
-.navbar-brand .logo__title,
-.search-button,
-.search-button-field,
-.navbar-persistent--container,
-.navbar-persistent--mobile {
+.navbar-brand .logo__title {
     display: none !important;
 }
 

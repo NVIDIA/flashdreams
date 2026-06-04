@@ -27,6 +27,9 @@ class LocalVideoModelAdapter:
         self._backend.warmup_model()
 
     def load_scene(self, scene: SceneBundle) -> None:
+        # Scene/variant switches must not carry over rollout cache, text/image
+        # embeddings, or first-chunk state from the previous selection.
+        self._backend.reset_scene_conditioning()
         self._backend.load_scene(scene)
         # A scene (re)load restarts the rollout: the next chunk must be a
         # first chunk so the world-model session re-initialises its cache
@@ -40,4 +43,5 @@ class LocalVideoModelAdapter:
         return self._backend.render_next_chunk(trajectory)
 
     def reset(self) -> None:
+        self._backend.reset()
         self._is_first_chunk = True
