@@ -261,6 +261,7 @@ Start here
 
    Installation <quickstart/installation>
    Launch your first model <quickstart/first_world_model>
+   Troubleshooting <troubleshooting>
 
 .. toctree::
    :maxdepth: 1
