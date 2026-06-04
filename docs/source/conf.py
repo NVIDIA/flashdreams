@@ -34,12 +34,6 @@ version = release if release[:1].isalpha() else f"v{release}"
 # caught early (locally and in CI).
 warningiserror = True
 
-# Suppress MyST cross-reference warnings for `.. include::`d markdown that
-# uses GitHub-relative file links (e.g. CONTRIBUTING.md links to `LICENSE`,
-# `reuse.toml`). Those resolve fine when GitHub renders the file standalone
-# but have no analog in the Sphinx build.
-suppress_warnings = ["myst.xref_missing"]
-
 # Auto-generate anchors for markdown headings up to H3 so cross-references
 # like `[Project governance](#project-governance)` resolve when MD is
 # included via `.. include:: ... :parser: myst_parser.sphinx_`.
@@ -97,15 +91,12 @@ html_theme_options = {
     # via that PR.
     "secondary_sidebar_items": {
         "index": [],
-        "community/index": [],
-        "community/contribute": [],
-        "community/discord": [],
-        "community/faq": [],
-        "community/support": [],
+        "benchmarks": [],
+        "community/*": [],
         "quickstart/*": [],
-        "developer_guides/*": ["page-toc"],
-        "models/*": [],
+        "models/*": ["page-toc"],
         "documentation": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
         "api/*": ["page-toc"],
     },
     "pygments_light_style": "tango",
@@ -178,7 +169,7 @@ html_sidebars = {
     "community/support": [],
     "quickstart/*": [],
     "developer_guides/*": ["search-field", "sidebar-nav-bs"],
-    "models/*": [],
+    "models/*": ["sidebar-nav-bs"],
     "documentation": ["search-field", "sidebar-nav-bs"],
     "api/*": ["search-field", "sidebar-nav-bs"],
 }
