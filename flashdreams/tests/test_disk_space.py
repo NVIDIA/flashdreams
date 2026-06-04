@@ -19,16 +19,25 @@ def _fake_disk_usage(*, free: int) -> SimpleNamespace:
     return SimpleNamespace(total=10 * 1024**3, used=10 * 1024**3 - free, free=free)
 
 
-def test_default_preflight_thresholds_match_flashdreams_storage_guidance(
+def test_default_preflight_thresholds_are_runtime_reserves(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(disk.CACHE_MIN_FREE_ENV, raising=False)
     monkeypatch.delenv(disk.OUTPUT_MIN_FREE_ENV, raising=False)
     monkeypatch.delenv(disk.TMP_MIN_FREE_ENV, raising=False)
 
-    assert disk.cache_min_free_bytes() == disk.bytes_from_gib(100)
+    assert disk.cache_min_free_bytes() == disk.bytes_from_gib(20)
     assert disk.output_min_free_bytes() == disk.bytes_from_gib(20)
     assert disk.tmp_min_free_bytes() == disk.bytes_from_gib(20)
+
+
+def test_huggingface_cache_dir_uses_hub_constant(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(disk, "HUGGINGFACE_HUB_CACHE", str(tmp_path / "hub"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "ignored"))
+
+    assert disk.default_huggingface_cache_dir() == tmp_path / "hub"
 
 
 def test_ensure_free_disk_reports_path_free_required_and_env(

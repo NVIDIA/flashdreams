@@ -24,7 +24,9 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-DEFAULT_CACHE_MIN_FREE_GB = 100.0
+from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+
+DEFAULT_CACHE_MIN_FREE_GB = 20.0
 DEFAULT_OUTPUT_MIN_FREE_GB = 20.0
 DEFAULT_TMP_MIN_FREE_GB = 20.0
 
@@ -37,8 +39,6 @@ _DISK_ERROR_PHRASES = (
     "errno 28",
     "enospc",
     "disk quota exceeded",
-    "not enough free disk",
-    "insufficient disk space",
 )
 
 
@@ -78,10 +78,7 @@ def default_flashdreams_cache_dir() -> Path:
 
 def default_huggingface_cache_dir() -> Path:
     """Return the Hugging Face Hub cache directory used for model downloads."""
-    if "HF_HUB_CACHE" in os.environ:
-        return Path(os.path.expanduser(os.environ["HF_HUB_CACHE"]))
-    hf_home = Path(os.path.expanduser(os.getenv("HF_HOME", "~/.cache/huggingface")))
-    return hf_home / "hub"
+    return Path(HUGGINGFACE_HUB_CACHE).expanduser()
 
 
 def default_temp_dir() -> Path:
