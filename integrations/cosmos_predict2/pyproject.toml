@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-cosmos-predict2"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Cosmos-Predict2 T2V non-streaming inference plugin for flashdreams."
 readme = "README.md"
 requires-python = ">=3.10"

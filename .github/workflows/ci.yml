@@ -97,6 +97,10 @@ jobs:
       # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job
       # uses ~9GB peak memory).
       MAX_JOBS: 8
+      OMNIDREAMS_QUALITY_REFERENCE_REPO: ${{ vars.OMNIDREAMS_QUALITY_REFERENCE_REPO || 'nvidia/omni-dreams-samples' }}
+      OMNIDREAMS_QUALITY_REFERENCE_PATH: ${{ vars.OMNIDREAMS_QUALITY_REFERENCE_PATH || 'data/quality_references/single_view/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae/239560dc-33d1-11ef-9720-00044bcbccac/reference_compare_region.mp4' }}
+      OMNIDREAMS_QUALITY_REFERENCE_CLIP: /tmp/omnidreams_quality_reference/reference_compare_region.mp4
+      OMNIDREAMS_QUALITY_ARTIFACT_DIR: /tmp/omnidreams_quality_artifacts
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -153,10 +157,46 @@ jobs:
           echo "Verifying GPU access..."
           nvidia-smi
 
+      - name: Download Omnidreams quality reference
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mkdir -p "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")"
+          if [ -n "${HF_TOKEN:-}" ]; then
+            uv run --no-sync hf download \
+              "${OMNIDREAMS_QUALITY_REFERENCE_REPO}" \
+              "${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
+              --repo-type dataset \
+              --local-dir "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")" \
+              --token "${HF_TOKEN}"
+          else
+            uv run --no-sync hf download \
+              "${OMNIDREAMS_QUALITY_REFERENCE_REPO}" \
+              "${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
+              --repo-type dataset \
+              --local-dir "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")"
+          fi
+          cp \
+            "$(dirname "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}")/${OMNIDREAMS_QUALITY_REFERENCE_PATH}" \
+            "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}"
+          test -s "${OMNIDREAMS_QUALITY_REFERENCE_CLIP}"
+
       - name: Run GPU unit tests
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          FLASHDREAMS_OMNIDREAMS_QUALITY_REFERENCE_CLIP: ${{ env.OMNIDREAMS_QUALITY_REFERENCE_CLIP }}
+          FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA: "1"
+          FLASHDREAMS_OMNIDREAMS_QUALITY_TOTAL_BLOCKS: "4"
+          FLASHDREAMS_OMNIDREAMS_QUALITY_ARTIFACT_DIR: ${{ env.OMNIDREAMS_QUALITY_ARTIFACT_DIR }}
         run: uv run --no-sync pytest -m ci_gpu -v
+
+      - name: Upload Omnidreams quality artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnidreams-quality-artifacts
+          path: ${{ env.OMNIDREAMS_QUALITY_ARTIFACT_DIR }}
+          if-no-files-found: ignore
 
       - name: Trim uv cache for upload
         if: always()

@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-fastvideo-causal-wan22"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "FastVideo CausalWan 2.2 14B MoE distilled streaming T2V inference, packaged as a flashdreams plugin."
 readme = "README.md"
 requires-python = ">=3.10"

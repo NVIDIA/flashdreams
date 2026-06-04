@@ -45,7 +45,8 @@ SPDX-License-Identifier: Apache-2.0
 #}
 {% set _fd_is_reference = pagename.startswith('api/')
                           or pagename == 'documentation'
-                          or pagename.startswith('developer_guides/') %}
+                          or pagename.startswith('developer_guides/')
+                          or pagename in ('search', 'genindex', 'py-modindex') %}
 
 {% block docs_main %}
   {% if _fd_is_reference %}

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -95,6 +96,7 @@ class WorldModelRenderBackend(RenderBackend):
         # Per-scene conditioning prep. On the default path this is a no-op
         # (the prompt is re-embedded per rollout in the session); under
         # --offload-text-encoder it (re)builds the per-scene embeddings.
+        _log_prompt_handoff("load_scene.prepare_for_scene", scene)
         self._session.prepare_for_scene(
             initial_rgb=scene.initial_rgb, prompt=scene.prompt
         )
@@ -142,6 +144,7 @@ class WorldModelRenderBackend(RenderBackend):
                 f"dir={self._manifest.debug_condition_frame_dir}",
                 flush=True,
             )
+        _log_prompt_handoff("first_chunk.start", scene)
         model_frames = self._session.start(
             scene.initial_rgb, condition_frames, scene.prompt
         )
@@ -202,6 +205,14 @@ class WorldModelRenderBackend(RenderBackend):
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="omnidreams",
         )
+
+    def reset(self) -> None:
+        self._session.reset()
+        self._next_chunk_count = 0
+
+    def reset_scene_conditioning(self) -> None:
+        self._session.reset(clear_precomputed_embeddings=True)
+        self._next_chunk_count = 0
 
     def close(self) -> None:
         self._session.close()
@@ -270,3 +281,18 @@ class WorldModelRenderBackend(RenderBackend):
                 )
             )
         return tuple(merged)
+
+
+def _log_prompt_handoff(stage: str, scene: SceneBundle) -> None:
+    prompt = scene.prompt
+    prompt_text = " ".join(prompt.split())
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    print(
+        "[world-model] prompt_handoff "
+        f"stage={stage!r} "
+        f"scene={scene.scene_path.name!r} "
+        f"prompt_sha256={prompt_hash!r} "
+        f"length={len(prompt)} "
+        f"text={prompt_text!r}",
+        flush=True,
+    )

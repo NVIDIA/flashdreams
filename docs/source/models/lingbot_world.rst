@@ -39,6 +39,12 @@ Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a
      <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~120 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 
