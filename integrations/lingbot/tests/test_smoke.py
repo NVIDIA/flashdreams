@@ -25,7 +25,10 @@ import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
 from lingbot.config import RUNNER_CONFIGS
-from lingbot.transformer import LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
+from lingbot.transformer import (
+    LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB,
+    LingbotWorldTransformerConfig,
+)
 
 from flashdreams.infra.runner import RunnerConfig
 
@@ -61,7 +64,10 @@ def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
     """LingBot's large checkpoint should preflight its documented first-run budget."""
     for cfg in RUNNER_CONFIGS.values():
         transformer = cfg.pipeline.diffusion_model.transformer
-        assert transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
+        assert isinstance(transformer, LingbotWorldTransformerConfig)
+        assert (
+            transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
+        )
 
 
 def test_entry_points_match_module_literals() -> None:
