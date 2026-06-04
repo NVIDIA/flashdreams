@@ -88,9 +88,17 @@ def default_temp_dir() -> Path:
     return Path(tempfile.gettempdir())
 
 
-def cache_min_free_bytes() -> int:
-    """Return the generic cache-space preflight threshold."""
-    return min_free_bytes_from_env(CACHE_MIN_FREE_ENV, DEFAULT_CACHE_MIN_FREE_GB)
+def cache_min_free_bytes(default_gb: float | None = None) -> int:
+    """Return the cache-space preflight threshold.
+
+    ``default_gb`` lets model-specific callers use a larger first-run
+    requirement while preserving the same ``FLASHDREAMS_MIN_CACHE_FREE_GB``
+    override used by the generic cache preflight.
+    """
+    return min_free_bytes_from_env(
+        CACHE_MIN_FREE_ENV,
+        DEFAULT_CACHE_MIN_FREE_GB if default_gb is None else default_gb,
+    )
 
 
 def output_min_free_bytes() -> int:

@@ -31,6 +31,16 @@ def test_default_preflight_thresholds_are_runtime_reserves(
     assert disk.tmp_min_free_bytes() == disk.bytes_from_gib(20)
 
 
+def test_model_cache_threshold_uses_model_default_unless_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(disk.CACHE_MIN_FREE_ENV, raising=False)
+    assert disk.cache_min_free_bytes(default_gb=200) == disk.bytes_from_gib(200)
+
+    monkeypatch.setenv(disk.CACHE_MIN_FREE_ENV, "5")
+    assert disk.cache_min_free_bytes(default_gb=200) == disk.bytes_from_gib(5)
+
+
 def test_huggingface_cache_dir_uses_hub_constant(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

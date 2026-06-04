@@ -24,7 +24,7 @@ from typing import Literal, overload
 from urllib.parse import unquote, urlparse
 
 import torch
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, try_to_load_from_cache
 from loguru import logger
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
@@ -61,6 +61,66 @@ def _preflight_hf_cache(
         env_vars=("HF_HOME", "HF_HUB_CACHE", CACHE_MIN_FREE_ENV),
         settings=settings,
     )
+    return min_bytes
+
+
+def _hf_cache_filename(filename: str, subfolder: str | None) -> str:
+    return f"{subfolder.rstrip('/')}/{filename}" if subfolder else filename
+
+
+def _is_hf_file_cached(
+    *,
+    repo_id: str,
+    filename: str,
+    subfolder: str | None,
+    revision: str,
+) -> bool:
+    try:
+        cached = try_to_load_from_cache(
+            repo_id=repo_id,
+            filename=_hf_cache_filename(filename, subfolder),
+            revision=revision,
+        )
+    except Exception:
+        return False
+    return isinstance(cached, str) and os.path.exists(cached)
+
+
+def _preflight_checkpoint_cache_requirement(
+    *,
+    label: str,
+    min_free_gb: float | None,
+    settings: dict[str, object] | None = None,
+    local_cache_path: str | None = None,
+) -> int | None:
+    """Run a one-time first-run checkpoint storage preflight.
+
+    This is intentionally separate from the generic per-write 20 GiB reserve:
+    large sharded checkpoints consume space in stages, so reapplying a 200 GiB
+    requirement before every shard or merged-cache write would fail after an
+    otherwise valid partial download has already used disk.
+    """
+    if min_free_gb is None:
+        return None
+    min_bytes = cache_min_free_bytes(min_free_gb)
+    if min_bytes <= 0:
+        return min_bytes
+
+    ensure_free_disk(
+        default_huggingface_cache_dir(),
+        required_bytes=min_bytes,
+        label=label,
+        env_vars=("HF_HOME", "HF_HUB_CACHE", CACHE_MIN_FREE_ENV),
+        settings=settings,
+    )
+    if local_cache_path is not None:
+        ensure_free_disk(
+            os.path.dirname(local_cache_path) or ".",
+            required_bytes=min_bytes,
+            label=f"{label} merged cache",
+            env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+            settings=settings,
+        )
     return min_bytes
 
 
@@ -273,6 +333,7 @@ def _load_sharded_safetensors_index_checkpoint(
     checkpoint_path: str,
     local_cache_dir: str,
     map_location: str | torch.device,
+    checkpoint_min_free_gb: float | None = None,
 ) -> dict[str, torch.Tensor]:
     """Load HF-style sharded safetensors (index.json + shards) into one state dict."""
     if local_cache_dir is None:
@@ -296,6 +357,12 @@ def _load_sharded_safetensors_index_checkpoint(
             "filename": index_filename,
             "revision": revision,
         }
+        _preflight_checkpoint_cache_requirement(
+            label="Hugging Face sharded checkpoint cache",
+            min_free_gb=checkpoint_min_free_gb,
+            settings=settings,
+            local_cache_path=cache_path,
+        )
         min_bytes = _preflight_hf_cache(
             label="Hugging Face checkpoint index cache",
             settings=settings,
@@ -412,7 +479,11 @@ def _parse_huggingface_checkpoint_url(
     return repo_id, filename, subfolder, revision
 
 
-def _download_checkpoint_from_huggingface_url(url: str) -> str:
+def _download_checkpoint_from_huggingface_url(
+    url: str,
+    *,
+    checkpoint_min_free_gb: float | None = None,
+) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
     logger.info(f"Downloading checkpoint from Hugging Face: {url}")
@@ -421,6 +492,17 @@ def _download_checkpoint_from_huggingface_url(url: str) -> str:
         "filename": filename,
         "revision": revision,
     }
+    if not _is_hf_file_cached(
+        repo_id=repo_id,
+        filename=filename,
+        subfolder=subfolder,
+        revision=revision,
+    ):
+        _preflight_checkpoint_cache_requirement(
+            label="Hugging Face checkpoint cache",
+            min_free_gb=checkpoint_min_free_gb,
+            settings=settings,
+        )
     min_bytes = _preflight_hf_cache(
         label="Hugging Face checkpoint cache",
         settings=settings,
@@ -559,6 +641,7 @@ def load_single_checkpoint(
     local_cache_dir: str = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
     credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
+    checkpoint_min_free_gb: float | None = None,
 ) -> dict[str, torch.Tensor]:
     """Load a single-file checkpoint from local disk, S3, or a Hugging Face URL.
 
@@ -572,6 +655,9 @@ def load_single_checkpoint(
         local_cache_dir: Directory for S3 / merged-safetensors caches.
         credential_path: S3 credentials path.
         map_location: Device to map tensors to (``.pt`` / ``.pth`` / ``.ckpt`` only).
+        checkpoint_min_free_gb: Optional first-run free-space requirement in
+            GiB for Hugging Face checkpoint downloads. The
+            ``FLASHDREAMS_MIN_CACHE_FREE_GB`` environment override still wins.
 
     Returns:
         State dict.
@@ -587,7 +673,10 @@ def load_single_checkpoint(
                 "use a Hugging Face file URL or a local index path."
             )
         return _load_sharded_safetensors_index_checkpoint(
-            checkpoint_path, local_cache_dir, map_location
+            checkpoint_path,
+            local_cache_dir,
+            map_location,
+            checkpoint_min_free_gb=checkpoint_min_free_gb,
         )
 
     is_s3_path = checkpoint_path.startswith("s3://")
@@ -603,7 +692,10 @@ def load_single_checkpoint(
 
     # For Hugging Face URLs, use HF cache and then load locally.
     if is_hf_url:
-        local_path = _download_checkpoint_from_huggingface_url(checkpoint_path)
+        local_path = _download_checkpoint_from_huggingface_url(
+            checkpoint_path,
+            checkpoint_min_free_gb=checkpoint_min_free_gb,
+        )
         return _load_checkpoint_from_local(local_path, ext, map_location)
 
     # For S3 paths, check local cache first
@@ -707,6 +799,7 @@ def load_checkpoint(
     credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
+    checkpoint_min_free_gb: float | None = None,
 ) -> dict[str, torch.Tensor]: ...
 
 
@@ -719,6 +812,7 @@ def load_checkpoint(
     credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
+    checkpoint_min_free_gb: float | None = None,
 ) -> torch.nn.Module: ...
 
 
@@ -730,6 +824,7 @@ def load_checkpoint(
     credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
+    checkpoint_min_free_gb: float | None = None,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
     """Load checkpoints from S3, local disk, or Hugging Face.
 
@@ -747,6 +842,9 @@ def load_checkpoint(
         credential_path: S3 credentials path.
         map_location: Device to map tensors to (single-file only).
         check_success: Verify DCP load actually changed weights.
+        checkpoint_min_free_gb: Optional first-run free-space requirement in
+            GiB for Hugging Face checkpoint downloads. The
+            ``FLASHDREAMS_MIN_CACHE_FREE_GB`` environment override still wins.
 
     Returns:
         State dict if ``model`` is ``None``, otherwise ``model`` with weights
@@ -778,6 +876,7 @@ def load_checkpoint(
             local_cache_dir=local_cache_dir,
             credential_path=credential_path,
             map_location=map_location,
+            checkpoint_min_free_gb=checkpoint_min_free_gb,
         )
         if model is not None:
             model.load_state_dict(state_dict)
