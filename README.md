@@ -26,6 +26,26 @@ environments, and more.
 
 https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 
+## System Requirements
+
+- NVIDIA GPU with **80 GB VRAM or more** (e.g. H100 80GB), see notes below.
+- NVIDIA driver from the **R580 series or newer** (compatible with CUDA 13.x)
+- **CUDA 13.x** (PyTorch `2.11.0+cu130` and the `nvidia-*-cu13` libraries are
+  resolved by `uv sync`. A system CUDA toolkit is needed only for the
+  developer extras and is included in `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`)
+- **Python >= 3.10**
+- **PyTorch >= 2.11.0+cu130** (`>= 2.9` for bare PyPI library install)
+- Linux x86-64 or arm64
+- **100 GB+ free storage space** recommended for environment and model checkpoints.
+- Docker with the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  (optional, only for the container workflow)
+
+> Development and testing were performed on GPUs with **80 GB of VRAM or more**.
+> Inference can fail (out-of-memory) on consumer and even enthusiast GPUs.
+> Per-model GPU and VRAM requirements are listed on each model page in
+> [the model gallery](https://nvidia.github.io/flashdreams/main/models/index.html).
+
 ## Quickstart
 
 The complete setup is in
@@ -57,6 +77,11 @@ You can also install FlashDreams as a library from PyPI:
 ```bash
 pip install flashdreams
 ```
+
+### Try the interactive driving demo
+
+Drive a world model in real time with the OmniDreams `interactive-drive` demo. See the
+**[interactive demo guide](https://nvidia.github.io/flashdreams/main/models/omnidreams.html#launch-the-interactive-demo)**.
 
 ## Supported models
 

@@ -7,6 +7,8 @@ description: Navigate the flashdreams package layout and integration architectur
 
 A map of how `flashdreams/` is organized and how a single rollout flows through the framework. Read once before adding a integration under `flashdreams/flashdreams/integrations/` or restructuring an existing one. Keep docstrings consistent with the `python-docstring-style` skill.
 
+> For the **step-by-step procedure** of doing an integration end-to-end (scope → scaffold → recipe → checkpoint remap → conditioners → runner → verify → perf), see the **`integrate-a-model`** skill. This skill is the *map*; that one is the *route*.
+
 > **The fastest way to learn this codebase is to clone the structure of `integrations/template/`.** It is the reference integration — every contract this skill describes is wired up there in its minimal form. Skim it side-by-side with this document.
 
 ## TL;DR

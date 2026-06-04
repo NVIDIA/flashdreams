@@ -27,6 +27,12 @@ Wan2.1
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~46 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 

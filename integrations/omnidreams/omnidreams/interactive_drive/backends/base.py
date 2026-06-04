@@ -60,6 +60,23 @@ class RenderBackend(ABC):
         self.warmup_model()
         self.load_scene(scene)
 
+    def reset(self) -> None:
+        """Reset the current rollout while keeping the current scene conditioning.
+
+        Backends with per-rollout state should override this. The default is
+        a no-op so pure raster backends do not need reset-specific code.
+        """
+        return
+
+    def reset_scene_conditioning(self) -> None:
+        """Reset all state that must not carry across scene/variant changes.
+
+        Manual resets should normally keep the same prompt/first-frame
+        embeddings. Scene switches must not, so the local video adapter calls
+        this before binding a newly selected scene.
+        """
+        self.reset()
+
     @abstractmethod
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raise NotImplementedError
