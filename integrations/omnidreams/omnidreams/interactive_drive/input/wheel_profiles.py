@@ -217,9 +217,7 @@ def query_ff_features(path: Path) -> frozenset[int]:
             buf = array.array("B", [0] * nbytes)
             fcntl.ioctl(handle.fileno(), EVIOCGBIT_FF(nbytes), buf)
             return frozenset(
-                code
-                for code in range(nbytes * 8)
-                if buf[code // 8] & (1 << (code % 8))
+                code for code in range(nbytes * 8) if buf[code // 8] & (1 << (code % 8))
             )
     except OSError:
         return frozenset()
@@ -404,6 +402,7 @@ def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict:
     the result back through :func:`load_wheel_profiles` reproduces an equal
     :class:`WheelProfile`.
     """
+
     def _binding(b: Binding) -> dict:
         return {"device": int(b.device), "code": int(b.code)}
 
@@ -670,15 +669,16 @@ class ConstantForceFFB(_FFBBackend):
             self._last_level = level
 
     def set_test_force(self, fraction: float) -> None:
-        """Apply a steady sideways force (used by the FFB test button).
+        """Apply a sideways force (used by the FFB test button).
 
-        A constant-force wheel produces nothing at rest, so the test tugs the
-        wheel to one side at *fraction* of full scale to prove the motor and
-        permissions work.
+        A constant-force wheel produces nothing at rest, so the test drives a
+        signed *fraction* of full scale (positive and negative) to prove the
+        motor and permissions work; the caller oscillates it to wiggle.
         """
         if self._fd is None or self._effect_id < 0:
             return
-        level = max(-0x7FFF, min(0x7FFF, int(max(0.0, min(1.0, fraction)) * 0x7FFF)))
+        fraction = max(-1.0, min(1.0, fraction))
+        level = max(-0x7FFF, min(0x7FFF, int(fraction * 0x7FFF)))
         self._upload_constant(level)
         self._last_level = level
 

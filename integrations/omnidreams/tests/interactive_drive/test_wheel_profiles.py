@@ -94,7 +94,9 @@ def _multi_device_profile() -> WheelProfile:
         display_name="Wheel + separate pedals",
         devices=(
             DeviceSpec(detection_patterns=("Fanatec CSL DD",), display_name="Base"),
-            DeviceSpec(detection_patterns=("Heusinkveld Pedals",), display_name="Pedals"),
+            DeviceSpec(
+                detection_patterns=("Heusinkveld Pedals",), display_name="Pedals"
+            ),
         ),
         axis_map={
             "steering": Binding(0, 0x00),
@@ -287,17 +289,19 @@ def test_resolve_profile_devices_maps_each_device(monkeypatch) -> None:
     from omnidreams.interactive_drive import demo
 
     # Pretend every bound axis exists on whichever device we query.
-    monkeypatch.setattr(demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535))
-    resolved = demo._resolve_profile_devices(
-        _multi_device_profile(), (_BASE, _PEDALS)
+    monkeypatch.setattr(
+        demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535)
     )
+    resolved = demo._resolve_profile_devices(_multi_device_profile(), (_BASE, _PEDALS))
     assert resolved == {0: _BASE.path, 1: _PEDALS.path}
 
 
 def test_resolve_profile_devices_requires_steering(monkeypatch) -> None:
     from omnidreams.interactive_drive import demo
 
-    monkeypatch.setattr(demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535))
+    monkeypatch.setattr(
+        demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535)
+    )
     # Only the pedal set is connected; without the steering device, None.
     assert demo._resolve_profile_devices(_multi_device_profile(), (_PEDALS,)) is None
 
@@ -305,7 +309,9 @@ def test_resolve_profile_devices_requires_steering(monkeypatch) -> None:
 def test_resolve_profile_devices_degrades_when_extra_missing(monkeypatch) -> None:
     from omnidreams.interactive_drive import demo
 
-    monkeypatch.setattr(demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535))
+    monkeypatch.setattr(
+        demo, "_query_axis_range", lambda path, code: AxisRange(0, 65535)
+    )
     # Steering device present, pedal device absent: pedals (index 1) are simply
     # left unresolved rather than failing the whole profile.
     resolved = demo._resolve_profile_devices(_multi_device_profile(), (_BASE,))

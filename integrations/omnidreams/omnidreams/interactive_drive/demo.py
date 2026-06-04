@@ -1473,9 +1473,7 @@ def _profile_for_device(
         steering_index = profile.axis_map["steering"].device
         if steering_index >= len(profile.devices):
             continue
-        strength = _spec_match_strength(
-            fake_device, profile, steering_index
-        )
+        strength = _spec_match_strength(fake_device, profile, steering_index)
         if strength > 0 and (best is None or strength > best[0]):
             best = (strength, profile)
     return best[1] if best is not None else None
@@ -1526,9 +1524,7 @@ def _detect_wheel(
     return None
 
 
-def _spec_match_strength(
-    device: EvdevDevice, profile: WheelProfile, index: int
-) -> int:
+def _spec_match_strength(device: EvdevDevice, profile: WheelProfile, index: int) -> int:
     """Match score for *device* vs ``profile.devices[index]``.
 
     0 none, 1 substring, 2 exact name. A non-zero score also requires every
@@ -1543,9 +1539,7 @@ def _spec_match_strength(
     required = {
         binding.code for binding in profile.axis_map.values() if binding.device == index
     }
-    if not all(
-        _query_axis_range(device.path, code) is not None for code in required
-    ):
+    if not all(_query_axis_range(device.path, code) is not None for code in required):
         return 0
     return name_match_strength(device.name, spec.detection_patterns)
 

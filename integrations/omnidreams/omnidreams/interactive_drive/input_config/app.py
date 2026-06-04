@@ -87,6 +87,9 @@ _CANVAS_H = 150
 # step auto-binds that axis. The leeway keeps idle jitter or an accidental
 # nudge of a different control from being picked.
 _DETECT_FRACTION = 0.18
+# Live loop period and the rate the constant-force FFB test wiggles the wheel.
+_TICK_MS = 60
+_FFB_WIGGLE_HZ = 1.2
 
 
 def _axis_label(code: int) -> str:
@@ -110,6 +113,9 @@ class ConfigApp:
         self.devices: tuple[EvdevDevice, ...] = ()
         self._device_by_path: dict[Path, EvdevDevice] = {}
         self._ffb: AutocenterFFB | ConstantForceFFB | None = None
+        # Constant-force test oscillation (wiggle): amplitude + running phase.
+        self._ffb_wiggle_gain = 0.0
+        self._ffb_wiggle_phase = 0.0
         self._saved = False
         self._step_index = 0
         # When set to ``(path, profile)`` the editor screen is shown instead
@@ -192,6 +198,9 @@ class ConfigApp:
         return steps[min(self._step_index, len(steps) - 1)]
 
     def _render(self) -> None:
+        # Stop any active FFB test so the wheel is never left under force when
+        # navigating away from an FFB page (the backend holds its own fd).
+        self._ffb_stop()
         self._clear_content()
         self._recording_key = None
         self._record_buttons = {}
@@ -417,14 +426,29 @@ class ConfigApp:
         )
 
         axis_map = profile.axis_map
+
+        def _axis_desc(key: str) -> str:
+            binding = axis_map.get(key)
+            if binding is None:
+                return f"{key} unset"
+            text = f"{key} 0x{binding.code:02x}"
+            # Name the device only when the profile spans more than one.
+            if len(profile.devices) > 1 and binding.device < len(profile.devices):
+                spec = profile.devices[binding.device]
+                name = (
+                    spec.display_name
+                    or (spec.detection_patterns[0] if spec.detection_patterns else "")
+                    or f"device {binding.device}"
+                )
+                text += f" on {name}"
+            return text
+
         ttk.Label(
             self.content,
             foreground="#666",
             text=(
                 "Axes (recalibrate by creating a new profile): "
-                f"steering 0x{axis_map.get('steering', 0):02x}, "
-                f"throttle 0x{axis_map.get('throttle', 0):02x}, "
-                f"brake 0x{axis_map.get('brake', 0):02x}"
+                + ", ".join(_axis_desc(k) for k in ("steering", "throttle", "brake"))
             ),
         ).pack(anchor="w", pady=(4, 6))
 
@@ -457,6 +481,12 @@ class ConfigApp:
             state="readonly",
             width=14,
         ).pack(side="left")
+        ttk.Button(ffb_row, text="Test", command=self._edit_ffb_test).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(ffb_row, text="Stop", command=self._ffb_stop).pack(
+            side="left", padx=4
+        )
 
         ttk.Label(self.content, text="Detection patterns (one per line):").pack(
             anchor="w", pady=(6, 0)
@@ -894,14 +924,25 @@ class ConfigApp:
         primary = self._primary_session()
         return primary.device_path if primary is not None else None
 
-    def _ffb_test(self) -> None:
-        device_path = self._ffb_device_path()
-        if device_path is None:
-            return
+    def _edit_ffb_device_path(self) -> Path | None:
+        """Steering device's path for the editor's FFB test (its open session)."""
+        if self._editing is None:
+            return None
+        _path, profile = self._editing
+        steering_index = profile.axis_map["steering"].device
+        session = self._edit_sessions_by_index.get(steering_index)
+        return session.device_path if session is not None else None
+
+    def _run_ffb_test(self, device_path: Path | None, gain: float, mode: str) -> None:
+        """Shared FFB test used by the wizard and the editor."""
         self._ffb_stop()
-        gain = float(self.ffb_gain_var.get())
-        features = query_ff_features(device_path)
-        ffb = create_ffb_backend(self.ffb_mode_var.get(), features)
+        if device_path is None:
+            messagebox.showinfo(
+                "Force feedback unavailable",
+                "Connect the wheel and select it so it can be tested.",
+            )
+            return
+        ffb = create_ffb_backend(mode, query_ff_features(device_path))
         ffb.init(device_path, gain)
         if not ffb.available:
             messagebox.showinfo(
@@ -910,14 +951,31 @@ class ConfigApp:
                 "the selected effect, or write permission is missing).",
             )
             return
-        # Constant force does nothing at rest, so tug to one side to test it.
+        # Constant force does nothing at rest. Autocenter just stiffens; for
+        # constant force we wiggle the wheel back and forth (driven in _tick).
         if isinstance(ffb, ConstantForceFFB):
-            ffb.set_test_force(gain)
+            self._ffb_wiggle_gain = gain
+            self._ffb_wiggle_phase = 0.0
         else:
             ffb.set_autocenter(gain)
         self._ffb = ffb
 
+    def _ffb_test(self) -> None:
+        self._run_ffb_test(
+            self._ffb_device_path(),
+            float(self.ffb_gain_var.get()),
+            self.ffb_mode_var.get(),
+        )
+
+    def _edit_ffb_test(self) -> None:
+        self._run_ffb_test(
+            self._edit_ffb_device_path(),
+            float(self._edit_ffb_gain.get()),
+            self._edit_ffb_mode.get(),
+        )
+
     def _ffb_stop(self) -> None:
+        self._ffb_wiggle_gain = 0.0
         if self._ffb is not None:
             self._ffb.cleanup()
             self._ffb = None
@@ -925,9 +983,7 @@ class ConfigApp:
     def _build_details(self) -> None:
         self.title_var.set("Settings & detection")
         steer_path = self.state.get("steering_device_path")
-        default_name = (
-            self._short_name(Path(steer_path)) if steer_path else "My device"
-        )
+        default_name = self._short_name(Path(steer_path)) if steer_path else "My device"
         controller = self.state.get("device_type") == "controller"
         self.display_name_var = tk.StringVar(
             value=self.state.get("display_name", default_name)
@@ -1227,8 +1283,18 @@ class ConfigApp:
                 callback = self._detect_callbacks.get(key)
                 if callback is not None:
                     callback(path, axis, base, peak)
+        self._drive_ffb_wiggle()
         self._draw_live()
-        self.root.after(60, self._tick)
+        self.root.after(_TICK_MS, self._tick)
+
+    def _drive_ffb_wiggle(self) -> None:
+        """Oscillate the constant-force test so the wheel rocks left/right."""
+        if self._ffb_wiggle_gain <= 0.0 or not isinstance(self._ffb, ConstantForceFFB):
+            return
+        self._ffb_wiggle_phase += 2.0 * math.pi * _FFB_WIGGLE_HZ * (_TICK_MS / 1000.0)
+        self._ffb.set_test_force(
+            self._ffb_wiggle_gain * math.sin(self._ffb_wiggle_phase)
+        )
 
     # -- live wheel / pedal / axis visualization ------------------------
 
