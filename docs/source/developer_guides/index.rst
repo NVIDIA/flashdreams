@@ -33,12 +33,6 @@ Guides
 .. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
 .. - :doc:`Interactive serving </developer_guides/interactive_serving>`
 
-.. Hidden toctree so the three non-orphan children are reachable from
-.. a toctree on this branch's navbar topology. main relied on a
-.. `:caption: Developer guides` block in the master toctree (`docs/source/
-.. index.rst`); the 4-tab restructure dropped that block, so the toctree
-.. lives here instead.
-
 .. toctree::
    :hidden:
    :maxdepth: 1
@@ -46,3 +40,6 @@ Guides
    inference_pipeline_overview
    config_system
    new_integration
+.. Temporarily commented out for internal development:
+..   usage_patterns
+..   interactive_serving
