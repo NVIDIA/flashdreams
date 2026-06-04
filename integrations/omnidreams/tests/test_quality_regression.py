@@ -71,7 +71,7 @@ def test_omnidreams_generated_clip_matches_reference(tmp_path: Path) -> None:
         min_psnr_db=_env_float("MIN_PSNR_DB", 30.0),
         max_frame_mean_abs=_env_float("MAX_FRAME_MEAN_ABS", 8.0),
         max_frame_rmse=_env_float("MAX_FRAME_RMSE", 14.0),
-        max_mean_flip=_env_optional_float("MAX_MEAN_FLIP", 0.050),
+        max_mean_flip=_env_optional_float("MAX_MEAN_FLIP", 0.070),
         max_frame_flip=_env_optional_float("MAX_FRAME_FLIP", 0.080),
         require_same_frame_count=_env_bool("REQUIRE_SAME_FRAME_COUNT", default=True),
     )

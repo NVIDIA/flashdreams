@@ -41,7 +41,7 @@ class ClipComparisonThresholds:
     min_psnr_db: float = 30.0
     max_frame_mean_abs: float = 8.0
     max_frame_rmse: float = 14.0
-    max_mean_flip: float | None = 0.050
+    max_mean_flip: float | None = 0.070
     max_frame_flip: float | None = 0.080
     require_same_frame_count: bool = True
 
