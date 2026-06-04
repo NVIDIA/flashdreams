@@ -24,7 +24,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-DEFAULT_CACHE_MIN_FREE_GB = 150.0
+DEFAULT_CACHE_MIN_FREE_GB = 100.0
 DEFAULT_OUTPUT_MIN_FREE_GB = 20.0
 DEFAULT_TMP_MIN_FREE_GB = 20.0
 
@@ -116,7 +116,7 @@ def _format_bytes(num_bytes: int | None) -> str:
                 return f"{int(value)} {unit}"
             return f"{value:.1f} {unit}"
         value /= 1024.0
-    return f"{value:.1f} TiB"
+    raise AssertionError("unreachable")
 
 
 def _nearest_existing_path(path: Path) -> Path | None:
@@ -204,10 +204,17 @@ def format_disk_space_message(
         lines.extend(env_setting_lines)
 
     lines.append("")
-    lines.append(
-        "Move HF_HOME/HF_HUB_CACHE, FLASHDREAMS_CACHE_DIR, TMPDIR, or "
-        "--output-dir to a filesystem with more free space."
+    hint_targets = [
+        name for name in env_vars if not name.startswith("FLASHDREAMS_MIN_")
+    ]
+    if settings is not None:
+        hint_targets.extend(key for key in settings if key.startswith("--"))
+    hint = (
+        ", ".join(dict.fromkeys(hint_targets))
+        if hint_targets
+        else "the relevant cache or output directory"
     )
+    lines.append(f"Move {hint} to a filesystem with more free space.")
     min_envs = [name for name in env_vars if name.startswith("FLASHDREAMS_MIN_")]
     if min_envs:
         lines.append(
@@ -307,11 +314,10 @@ def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
         seen.add(ident)
         out.append(item)
         cause = item.__cause__
-        context = item.__context__
         if cause is not None:
             stack.append(cause)
-        if context is not None:
-            stack.append(context)
+        elif not item.__suppress_context__ and item.__context__ is not None:
+            stack.append(item.__context__)
     return out
 
 

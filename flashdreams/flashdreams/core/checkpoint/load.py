@@ -216,14 +216,15 @@ def _parallel_hf_hub_download_shards(
     """Download unique shard files in parallel processes; returns shard -> local path."""
     if not shard_files:
         return {}
-    _preflight_hf_cache(
-        label="Hugging Face checkpoint shard cache",
-        settings={"repo": repo_id, "revision": revision},
-    )
     if len(shard_files) == 1:
         s = shard_files[0]
         _, path = _hf_hub_download_shard_task((repo_id, s, subfolder, revision))
         return {s: path}
+
+    _preflight_hf_cache(
+        label="Hugging Face checkpoint shard cache",
+        settings={"repo": repo_id, "revision": revision},
+    )
 
     env_cap = os.getenv("FLASHDREAMS_HF_SHARD_DOWNLOAD_WORKERS")
     if env_cap is not None:

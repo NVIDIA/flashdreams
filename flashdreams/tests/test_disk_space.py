@@ -19,14 +19,14 @@ def _fake_disk_usage(*, free: int) -> SimpleNamespace:
     return SimpleNamespace(total=10 * 1024**3, used=10 * 1024**3 - free, free=free)
 
 
-def test_default_preflight_thresholds_match_omni_dreams_parity(
+def test_default_preflight_thresholds_match_flashdreams_storage_guidance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(disk.CACHE_MIN_FREE_ENV, raising=False)
     monkeypatch.delenv(disk.OUTPUT_MIN_FREE_ENV, raising=False)
     monkeypatch.delenv(disk.TMP_MIN_FREE_ENV, raising=False)
 
-    assert disk.cache_min_free_bytes() == disk.bytes_from_gib(150)
+    assert disk.cache_min_free_bytes() == disk.bytes_from_gib(100)
     assert disk.output_min_free_bytes() == disk.bytes_from_gib(20)
     assert disk.tmp_min_free_bytes() == disk.bytes_from_gib(20)
 
@@ -56,6 +56,7 @@ def test_ensure_free_disk_reports_path_free_required_and_env(
     assert "Required: 2.0 GiB" in message
     assert "FLASHDREAMS_CACHE_DIR:" in message
     assert f"{disk.CACHE_MIN_FREE_ENV}:" in message
+    assert "Move FLASHDREAMS_CACHE_DIR to a filesystem with more free space." in message
 
 
 def test_enospc_exception_chain_formats_cause_path_and_settings(
@@ -93,6 +94,19 @@ def test_enospc_exception_chain_formats_cause_path_and_settings(
     assert "Cause:    OSError: [Errno 28] No space left on device" in message
     assert "--output-dir:" in message
     assert "TMPDIR:" in message
+    assert "Move TMPDIR, --output-dir to a filesystem with more free space." in message
+
+
+def test_suppressed_enospc_context_is_not_treated_as_disk_error(
+    tmp_path,
+) -> None:
+    try:
+        try:
+            raise OSError(errno.ENOSPC, "No space left on device", str(tmp_path))
+        except OSError:
+            raise RuntimeError("real non-disk failure") from None
+    except RuntimeError as exc:
+        assert disk.disk_space_error_from_exception(exc) is None
 
 
 def test_cli_disk_handler_prints_message_without_traceback(
