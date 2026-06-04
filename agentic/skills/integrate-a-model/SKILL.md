@@ -107,7 +107,9 @@ entry point via `FLASHDREAMS_RUNNER_CONFIGS="my-model-slug=my_model.config:RUNNE
 
 In `config.py`, `copy.deepcopy` the closest base pipeline and swap the pieces that
 differ — encoder / transformer.network / scheduler — into model-specific subclasses.
-Ship **one module-level literal** `PIPELINE_<NAME>` (no `build_*` factories) + a
+Ship **one module-level literal** `PIPELINE_<NAME>` (no `build_*` factories for the
+config-only / runner-plugin lanes; the full-native-port lane like `flashvsr` uses real
+builder helpers for dynamic-resolution variants — see Phase 0) + a
 `RUNNER_<NAME>` literal + a `<NAME>_CONFIGS` dict keyed by `name`. See
 `hy_worldplay/config.py::_build_hy_worldplay_pipeline`.
 
