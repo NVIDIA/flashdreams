@@ -29,7 +29,18 @@ say so up front.
 
 ## Phase 0 — Scope (½–2 days; do this before promising a timeline)
 
-Answer these from the upstream repo + model card, and write the answers down:
+**First pick the integration lane** — the `integrations/` directory has several, and they
+differ a lot in effort. HY-WorldPlay is the *runner-plugin* lane, **not** the universal
+pattern:
+
+| Lane | What it is | Examples | Effort |
+|---|---|---|---|
+| **Config-only recipe** | just `config.py` literals over an existing backbone; no new runner | `wan22` | smallest |
+| **Runner plugin** | recipe + a `flashdreams-run` runner (+ light model deltas) | `self_forcing`, `causal_forcing` (light Wan variants), `hy_worldplay` (heavier: conditioner deltas) | small–medium |
+| **Serving adapter** | adds serving/runtime surfaces on top of a runner | `lingbot` | medium |
+| **Full native port / builder variants** | real builder helpers, dynamic-resolution variants, a network ported from scratch | `flashvsr` | largest |
+
+Then answer these from the upstream repo + model card, and write the answers down:
 
 1. **Backbone family.** Is it a Wan/DiT variant? Diffusion-transformer? → which existing
    recipe is the closest base. (Decisive for the estimate.)
@@ -46,30 +57,51 @@ Output: a one-paragraph scope note + the "closest base recipe" decision. If the 
 (1) is "novel architecture", flag it — the rest of this playbook still applies but Phase
 2/4 grow a lot.
 
-## Phase 1 — Scaffold the plugin
+## Phase 1 — Scaffold the plugin (pick in-tree or out-of-tree)
 
-Integrations ship as **uv workspace-member plugins** under `integrations/<name>/`
-(mirror `integrations/self_forcing/` / `integrations/hy_worldplay/`):
+The package layout is the same either way; only *where it lives* and *how its version is
+managed* differ. The discovery seam for both is `flashdreams/plugins/registry.py`:
+runners are found via the `flashdreams.runner_configs` entry point (group
+`ENTRY_POINT_GROUP`), or the `FLASHDREAMS_RUNNER_CONFIGS` env var during dev. The package
+body is identical to either reference below.
 
 ```
-integrations/<name>/
-├── pyproject.toml          # name flashdreams-<name>, version matches flashdreams, dep on flashdreams
-├── <name>/
-│   ├── __init__.py
-│   ├── config.py           # static pipeline + runner config literals
-│   ├── runner.py           # RunnerConfig + Runner.run()
-│   └── _*.py               # model-specific subclasses (encoder/transformer/network)
-└── tests/
-    ├── test_smoke.py       # ci_cpu: import + static-config assertions
-    └── parity_check/       # GPU parity harness (gitignored heavy deps)
+<pkg>/
+├── __init__.py
+├── config.py      # static PIPELINE_<NAME> + RUNNER_<NAME> + <NAME>_CONFIGS literals
+├── runner.py      # RunnerConfig + Runner.run()
+└── _*.py          # model-specific subclasses (encoder/transformer/network)
+tests/
+├── test_smoke.py  # ci_cpu: import + static-config assertions
+└── parity_check/  # GPU parity harness (gitignored heavy deps)
 ```
 
+**Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
+`integrations/self_forcing/` / `integrations/hy_worldplay/`):
 - The repo-root `integrations/*` glob auto-adds it to the uv workspace.
-- Register the runner under the `flashdreams.runner_configs` entry point (so
-  `flashdreams-run <slug>` finds it) — copy the `[project.entry-points]` block from a
-  sibling.
-- `version` must match `flashdreams._version.__version__`; the `sync-version`
-  pre-commit hook enforces it (CI fails otherwise).
+- `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
+  `sync-version` pre-commit hook enforces it (CI fails otherwise).
+- `[project.entry-points."flashdreams.runner_configs"]` maps slug → config (see
+  `integrations/hy_worldplay/pyproject.toml`):
+  ```toml
+  [project.entry-points."flashdreams.runner_configs"]
+  "hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
+  ```
+
+**Lane B — out-of-tree (your own pip-installable repo)**, the supported path for external
+contributors who don't want to land in flashdreams. Same package body; standalone
+`pyproject.toml` that just depends on `flashdreams` and exposes the same entry point:
+```toml
+[project]
+name = "my-model-flashdreams"
+dependencies = ["flashdreams"]            # no version-sync constraint here
+
+[project.entry-points."flashdreams.runner_configs"]
+"my-model-slug" = "my_model.config:RUNNER_MY_MODEL"
+```
+`pip install -e .` and `flashdreams-run my-model-slug` discovers it via the entry point —
+no fork of flashdreams needed. During development before install, point at it without an
+entry point via `FLASHDREAMS_RUNNER_CONFIGS="my-model-slug=my_model.config:RUNNER_MY_MODEL"`.
 
 ## Phase 2 — Recipe config (subclass the base, ship a static literal)
 
@@ -112,37 +144,41 @@ let unmatched keys fall through (they show up as `unexpected_keys`, which the bi
 check below catches).
 
 **Verify the remap is a key/shape bijection on CPU — no GPU needed.** This is the
-single most valuable check. Build the model on `meta` and diff against the checkpoint
-keys; any model key the transform doesn't supply stays on `meta` and `.to(device)`
-later raises "Cannot copy out of meta tensor". Read names+shapes from the checkpoint
-*without* loading weights via `safetensors.safe_open` (per-shard, walking the
-`.index.json` `weight_map`):
+single most valuable check. Build the model on `meta` and diff against the checkpoint;
+any model key the transform doesn't supply stays on `meta` and `.to(device)` later
+raises "Cannot copy out of meta tensor". Your `state_dict_transform` takes a
+`{name: tensor}` dict (it renames keys, tensors ride along), so feed it a **zero-memory
+stand-in**: real key names, `meta` tensors of the real shapes (read from the safetensors
+headers without loading weights). This runs the *actual* transform and costs no memory:
 
 ```python
-import json, glob, torch
+import json, torch
 from safetensors import safe_open
+from my_model.config import my_state_dict_transform   # the real transform you wrote
 
 with torch.device("meta"):
     net = MyNetworkConfig().setup()
 model = {k: tuple(v.shape) for k, v in net.state_dict().items()}
 
-ckpt = {}                                                   # name -> shape, no weights
+raw = {}                                              # {name: meta tensor}, no weights
 index = json.load(open(f"{ckpt_dir}/diffusion_pytorch_model.safetensors.index.json"))
 for shard in set(index["weight_map"].values()):
     with safe_open(f"{ckpt_dir}/{shard}", framework="pt") as f:
         for k in f.keys():
-            ckpt[k] = tuple(f.get_slice(k).get_shape())
-ckpt = {k: ckpt[k] for k in my_state_dict_transform_keys(ckpt)}  # apply your rename
+            raw[k] = torch.empty(f.get_slice(k).get_shape(), device="meta")
 
-missing  = set(model) - set(ckpt)        # would stay on meta — must be empty
-extra    = set(ckpt) - set(model)         # unexpected keys — must be empty
-shapemm  = [k for k in model if k in ckpt and model[k] != ckpt[k]]
+ckpt = {k: tuple(v.shape) for k, v in my_state_dict_transform(raw).items()}
+
+missing = set(model) - set(ckpt)        # would stay on meta — must be empty
+extra   = set(ckpt) - set(model)        # unexpected keys — must be empty
+shapemm = [k for k in model if k in ckpt and model[k] != ckpt[k]]
 assert not missing and not extra and not shapemm, (missing, extra, shapemm)
 ```
 
-Codify it as a `ci_cpu` test (`test_*_remap_is_full_bijection`) + spot-checks against
-real key strings (`test_*_remap_spot_checks_real_keys`). (For a single-file `.pth`,
-`torch.load(..., map_location="meta")` gives the same name→shape dict.)
+(For a single-file `.pth`: `raw = torch.load(path, map_location="meta", weights_only=True)`
+gives the `{name: tensor}` dict directly; skip the safetensors loop.) Codify it as a
+`ci_cpu` test (`test_*_remap_is_full_bijection`) + spot-checks against real key strings
+(`test_*_remap_spot_checks_real_keys`).
 
 **Before flipping a default checkpoint source, prove weight-equality.** If you switch
 the production config to a different checkpoint (e.g. native `.pth` instead of diffusers),
