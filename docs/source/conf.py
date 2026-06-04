@@ -78,6 +78,15 @@ html_theme_options = {
         "image_light": "_static/horizontal-light.svg",
         "image_dark": "_static/horizontal-dark.svg",
     },
+    # Google Analytics (GA4). pydata-sphinx-theme injects the gtag.js
+    # snippet natively from this option (it also emits a GDPR
+    # `gtag('consent', 'default', ...)` block with storage denied by
+    # default). Previously this was a hand-rolled gtag snippet in a
+    # furo `base.html` template override; furo had no native analytics
+    # option, but pydata does, so the template override is gone.
+    "analytics": {
+        "google_analytics_id": "G-Q44TKZ8777",
+    },
     # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
     # layout pages (homepage, community, quickstart, models gallery +
     # per-model pages) render without a right sidebar; the reference-
