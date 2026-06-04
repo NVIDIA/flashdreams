@@ -140,9 +140,10 @@ Hugging Face dataset before running `pytest -m ci_gpu`, then sets
 `FLASHDREAMS_OMNIDREAMS_QUALITY_REFERENCE_CLIP`,
 `FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA=1`, and
 `FLASHDREAMS_OMNIDREAMS_QUALITY_TOTAL_BLOCKS=4`. The default dataset is
-`jarcherNV/omni-dreams-quality-references`; set the repository variable
-`OMNIDREAMS_QUALITY_REFERENCE_REPO` when the references move to an official
-namespace. Set `OMNIDREAMS_QUALITY_REFERENCE_PATH` if the file path changes.
+`nvidia/omni-dreams-samples`. Set the repository variable
+`OMNIDREAMS_QUALITY_REFERENCE_REPO` if the references need to be read from a
+different dataset. Set `OMNIDREAMS_QUALITY_REFERENCE_PATH` if the file path
+changes.
 The job uploads the generated comparison artifacts as a GitHub Actions artifact
 named `omnidreams-quality-artifacts`.
 
