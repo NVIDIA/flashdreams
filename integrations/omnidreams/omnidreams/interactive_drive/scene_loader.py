@@ -100,6 +100,12 @@ def _load_initial_image(
         raise FileNotFoundError(
             "No frames/<camera>/*.jpeg or first_image*.png found in the USDZ archive"
         )
+    _log_initial_frame_selection(
+        zf,
+        variant=variant,
+        camera_name=camera_name,
+        source=name,
+    )
     with Image.open(io.BytesIO(zf.read(name))) as image:
         rgb = image.convert("RGB")
         resized = rgb.resize(raster.resolution_wh, resample=Image.Resampling.BILINEAR)
@@ -232,6 +238,24 @@ def _log_prompt_selection(
         f"ignored_files={ignored_files or '<none>'!r} "
         f"length={len(prompt)} "
         f"text={prompt_text!r}",
+        flush=True,
+    )
+
+
+def _log_initial_frame_selection(
+    zf: zipfile.ZipFile,
+    *,
+    variant: str,
+    camera_name: str,
+    source: str,
+) -> None:
+    scene_name = Path(str(zf.filename)).name if zf.filename is not None else "<archive>"
+    print(
+        "[scene_loader] initial_frame "
+        f"scene={scene_name!r} "
+        f"requested_variant={variant!r} "
+        f"camera={camera_name!r} "
+        f"source={source!r}",
         flush=True,
     )
 

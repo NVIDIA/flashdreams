@@ -244,6 +244,29 @@ def test_model_rgb_does_not_materialize_host_frame_when_cuda_source_is_pending()
     assert lazy.numpy_calls == 0
 
 
+def test_hud_recreates_cuda_interop_after_resize() -> None:
+    presenter = _hud_presenter_without_window()
+    old_interop = object()
+    new_interop = object()
+    created_sizes: list[tuple[int, int]] = []
+    presenter._cuda_hud_interop = old_interop
+    presenter._retired_cuda_hud_interops = []
+    presenter._cuda_hud_resize_logged = True
+
+    def create_interop(width: int, height: int) -> object:
+        created_sizes.append((width, height))
+        return new_interop
+
+    presenter._create_cuda_hud_interop = create_interop
+
+    presenter._recreate_cuda_hud_interop_after_resize(123, 456)
+
+    assert presenter._retired_cuda_hud_interops == [old_interop]
+    assert presenter._cuda_hud_interop is new_interop
+    assert created_sizes == [(123, 456)]
+    assert presenter._cuda_hud_resize_logged is False
+
+
 def test_model_rgb_does_not_fallback_to_host_when_interop_buffers_are_busy() -> None:
     presenter = _presenter_without_window()
     lazy = _LazyFrame()
@@ -381,15 +404,17 @@ def test_hud_world_model_loading_pumps_events_and_presents_placeholder() -> None
     ]
 
 
-def test_hud_resize_updates_presenter_texture_without_recreating_cuda_interop() -> None:
+def test_hud_resize_updates_presenter_texture_and_recreates_cuda_interop() -> None:
     presenter = _hud_presenter_without_window()
     configured: list[tuple[int, int]] = []
+    created: list[tuple[int, int]] = []
 
     class _Interop:
         def close(self) -> None:
             raise AssertionError("resize should not destroy CUDA interop in place")
 
     interop = _Interop()
+    new_interop = _Interop()
     presenter._configured_size = (1920, 1080)
     presenter._surface_format = object()
     presenter._display_texture = "old-texture"
@@ -412,6 +437,9 @@ def test_hud_resize_updates_presenter_texture_without_recreating_cuda_interop() 
         width,
         height,
     )
+    presenter._create_cuda_hud_interop = lambda width, height: (
+        created.append((width, height)) or new_interop
+    )
 
     assert presenter._apply_resize(1000, 700)
 
@@ -419,7 +447,8 @@ def test_hud_resize_updates_presenter_texture_without_recreating_cuda_interop() 
     assert presenter._configured_size == (1000, 700)
     assert presenter._display_texture == ("texture", 1000, 700)
     assert presenter._canvas.size == (1000, 700)
-    assert presenter._cuda_hud_interop is None
+    assert created == [(1000, 700)]
+    assert presenter._cuda_hud_interop is new_interop
     assert presenter._retired_cuda_hud_interops == [interop]
 
 

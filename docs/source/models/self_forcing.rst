@@ -40,6 +40,12 @@ gap and enabling efficient streaming generation quality.
      <a href="https://self-forcing.github.io/">Self-Forcing project page</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~24 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 

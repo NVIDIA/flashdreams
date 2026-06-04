@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-wan22"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Wan 2.2 TI2V-5B inference recipe config for flashdreams."
 readme = "README.md"
 requires-python = ">=3.10"
