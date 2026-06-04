@@ -514,6 +514,16 @@ class ConfigApp:
         if not patterns:
             messagebox.showwarning("Not ready", "Add at least one detection pattern.")
             return
+        # The editor's pattern box maps to the primary device; keep any other
+        # devices' patterns untouched. ``detection_patterns`` is a read-only
+        # accessor, so update the device list rather than that property.
+        if profile.devices:
+            devices = (
+                replace(profile.devices[0], detection_patterns=patterns),
+                *profile.devices[1:],
+            )
+        else:
+            devices = (DeviceSpec(detection_patterns=patterns),)
         updated = replace(
             profile,
             display_name=self._edit_display_name.get().strip() or profile.display_name,
@@ -524,7 +534,7 @@ class ConfigApp:
             ffb_mode=str(self._edit_ffb_mode.get() or "auto"),
             steering_range=float(self._edit_range.get()),
             steering_deadzone=float(self._edit_deadzone.get()),
-            detection_patterns=patterns,
+            devices=devices,
             is_default=bool(self._edit_default.get()),
         )
         update_profile_file(path, updated)
