@@ -76,10 +76,30 @@ class EvdevDevice:
 
 
 @dataclass(frozen=True)
+class DeviceSpec:
+    """One physical evdev device a profile binds, matched by name at launch."""
+
+    detection_patterns: tuple[str, ...]
+    display_name: str = ""
+
+
+@dataclass(frozen=True)
+class Binding:
+    """An axis or button on a specific device (``device`` indexes ``devices``)."""
+
+    device: int
+    code: int
+
+
+@dataclass(frozen=True)
 class WheelProfile:
     """A driving-input profile (steering wheel or game controller).
 
-    ``axis_map`` holds the evdev ABS codes for steering / throttle / brake.
+    A profile binds one or more :class:`DeviceSpec` devices; each axis and
+    button is a :class:`Binding` naming the device (by index into
+    ``devices``) and its evdev code. This lets a profile span devices -- a
+    wheel base plus a separate-brand pedal set, say.
+
     ``inverted_pedals`` is shared by throttle and brake: ``True`` when the
     control rests at its axis maximum and falls toward the minimum when
     engaged (typical of wheel pedals), ``False`` when it rests at the
@@ -88,8 +108,8 @@ class WheelProfile:
 
     name: str
     display_name: str
-    detection_patterns: tuple[str, ...]
-    axis_map: dict[str, int]
+    devices: tuple[DeviceSpec, ...]
+    axis_map: dict[str, Binding]
     inverted_pedals: bool = True
     invert_steering: bool = False
     ffb_enabled: bool = False
@@ -99,18 +119,23 @@ class WheelProfile:
     ffb_mode: str = "auto"
     threshold: float = 0.12
     is_default: bool = False
-    # evdev button codes (EV_KEY) bound to actions; empty when unbound.
-    reverse_buttons: tuple[int, ...] = ()
-    reset_buttons: tuple[int, ...] = ()
+    # Buttons (EV_KEY) bound to actions; empty when unbound.
+    reverse_buttons: tuple[Binding, ...] = ()
+    reset_buttons: tuple[Binding, ...] = ()
     # Button(s) that exit the running scene and return to the scene
     # selector (the HUD's ``x`` key does the same). Lets long-running
     # demos drop back to "select a scene" from the wheel without a
     # keyboard.
-    exit_buttons: tuple[int, ...] = ()
+    exit_buttons: tuple[Binding, ...] = ()
     # Steering feel: output scale (``< 1`` = less sensitive) and a center
     # deadzone fraction (hides analog-stick drift on game controllers).
     steering_range: float = 1.0
     steering_deadzone: float = 0.0
+
+    @property
+    def detection_patterns(self) -> tuple[str, ...]:
+        """Patterns of the first (primary) device, for single-device callers."""
+        return self.devices[0].detection_patterns if self.devices else ()
 
 
 def apply_steering_curve(
@@ -282,18 +307,57 @@ def user_wheel_profiles_dir() -> Path:
     return FLASHDREAMS_CACHE_DIR / "interactive-drive" / "wheels"
 
 
+def _binding_from_data(value, fallback_device: int = 0) -> Binding:
+    """Parse one axis/button binding from YAML.
+
+    Accepts the structured ``{device, code}`` mapping or a bare int code
+    (legacy single-device profiles), which binds to *fallback_device*.
+    """
+    if isinstance(value, dict):
+        return Binding(
+            device=int(value.get("device", fallback_device)),
+            code=int(value["code"]),
+        )
+    return Binding(device=fallback_device, code=int(value))
+
+
+def _buttons_from_data(value) -> tuple[Binding, ...]:
+    return tuple(_binding_from_data(item) for item in (value or ()))
+
+
+def _devices_from_data(data: dict) -> tuple[DeviceSpec, ...]:
+    """Read the device list, migrating legacy top-level ``detection_patterns``."""
+    raw_devices = data.get("devices")
+    if raw_devices:
+        return tuple(
+            DeviceSpec(
+                detection_patterns=tuple(
+                    str(p) for p in (entry.get("detection_patterns") or ())
+                ),
+                display_name=str(entry.get("display_name", "")),
+            )
+            for entry in raw_devices
+        )
+    return (
+        DeviceSpec(
+            detection_patterns=tuple(
+                str(pattern) for pattern in data.get("detection_patterns", ())
+            )
+        ),
+    )
+
+
 def _profile_from_data(data: dict, fallback_name: str) -> WheelProfile:
     axis_map = {
-        str(key): int(value) for key, value in (data.get("axis_map") or {}).items()
+        str(key): _binding_from_data(value)
+        for key, value in (data.get("axis_map") or {}).items()
     }
     pedal = data.get("pedal", {}) or {}
     ffb = data.get("ffb", {}) or {}
     return WheelProfile(
         name=str(data.get("name", fallback_name)),
         display_name=str(data.get("display_name", data.get("name", fallback_name))),
-        detection_patterns=tuple(
-            str(pattern) for pattern in data.get("detection_patterns", ())
-        ),
+        devices=_devices_from_data(data),
         axis_map=axis_map,
         inverted_pedals=bool(pedal.get("inverted", data.get("inverted_pedals", True))),
         invert_steering=bool(data.get("invert_steering", False)),
@@ -302,9 +366,9 @@ def _profile_from_data(data: dict, fallback_name: str) -> WheelProfile:
         ffb_mode=str(ffb.get("mode", "auto")),
         threshold=float(data.get("threshold", 0.12)),
         is_default=bool(data.get("is_default", False)),
-        reverse_buttons=tuple(int(b) for b in data.get("reverse_buttons", ()) or ()),
-        reset_buttons=tuple(int(b) for b in data.get("reset_buttons", ()) or ()),
-        exit_buttons=tuple(int(b) for b in data.get("exit_buttons", ()) or ()),
+        reverse_buttons=_buttons_from_data(data.get("reverse_buttons")),
+        reset_buttons=_buttons_from_data(data.get("reset_buttons")),
+        exit_buttons=_buttons_from_data(data.get("exit_buttons")),
         steering_range=float(data.get("steering_range", 1.0)),
         steering_deadzone=float(data.get("steering_deadzone", 0.0)),
     )
@@ -340,15 +404,24 @@ def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict:
     the result back through :func:`load_wheel_profiles` reproduces an equal
     :class:`WheelProfile`.
     """
+    def _binding(b: Binding) -> dict:
+        return {"device": int(b.device), "code": int(b.code)}
+
     return {
         "name": profile.name,
         "display_name": profile.display_name,
         "is_default": profile.is_default,
-        "detection_patterns": list(profile.detection_patterns),
+        "devices": [
+            {
+                "display_name": device.display_name,
+                "detection_patterns": list(device.detection_patterns),
+            }
+            for device in profile.devices
+        ],
         "axis_map": {
-            "steering": int(profile.axis_map["steering"]),
-            "throttle": int(profile.axis_map["throttle"]),
-            "brake": int(profile.axis_map["brake"]),
+            "steering": _binding(profile.axis_map["steering"]),
+            "throttle": _binding(profile.axis_map["throttle"]),
+            "brake": _binding(profile.axis_map["brake"]),
         },
         "pedal": {"inverted": profile.inverted_pedals},
         "invert_steering": profile.invert_steering,
@@ -358,9 +431,9 @@ def wheel_profile_to_yaml_dict(profile: WheelProfile) -> dict:
             "mode": profile.ffb_mode,
         },
         "threshold": profile.threshold,
-        "reverse_buttons": list(profile.reverse_buttons),
-        "reset_buttons": list(profile.reset_buttons),
-        "exit_buttons": list(profile.exit_buttons),
+        "reverse_buttons": [_binding(b) for b in profile.reverse_buttons],
+        "reset_buttons": [_binding(b) for b in profile.reset_buttons],
+        "exit_buttons": [_binding(b) for b in profile.exit_buttons],
         "steering_range": profile.steering_range,
         "steering_deadzone": profile.steering_deadzone,
     }

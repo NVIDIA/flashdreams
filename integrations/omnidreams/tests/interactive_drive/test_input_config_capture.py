@@ -10,7 +10,11 @@ resting at zero) correctly from captured raw samples.
 
 from __future__ import annotations
 
-from omnidreams.interactive_drive.input.wheel_profiles import AxisRange
+from omnidreams.interactive_drive.input.wheel_profiles import (
+    AxisRange,
+    Binding,
+    DeviceSpec,
+)
 from omnidreams.interactive_drive.input_config.capture import (
     build_profile,
     detect_moved_axis,
@@ -88,23 +92,55 @@ def test_build_profile_assembles_axis_map_and_flags() -> None:
     profile = build_profile(
         name="my-gamepad",
         display_name="Game controller",
-        detection_patterns=("Generic Gamepad",),
-        steering_axis=0x00,
-        throttle_axis=0x05,
-        brake_axis=0x02,
+        devices=(DeviceSpec(detection_patterns=("Generic Gamepad",)),),
+        axis_map={
+            "steering": Binding(0, 0x00),
+            "throttle": Binding(0, 0x05),
+            "brake": Binding(0, 0x02),
+        },
         invert_steering=False,
         inverted_pedals=False,
         ffb_enabled=False,
         ffb_gain=0.0,
         is_default=False,
-        reverse_buttons=(304,),
-        reset_buttons=(305,),
-        exit_buttons=(306,),
+        reverse_buttons=(Binding(0, 304),),
+        reset_buttons=(Binding(0, 305),),
+        exit_buttons=(Binding(0, 306),),
     )
-    assert profile.axis_map == {"steering": 0x00, "throttle": 0x05, "brake": 0x02}
+    assert profile.axis_map == {
+        "steering": Binding(0, 0x00),
+        "throttle": Binding(0, 0x05),
+        "brake": Binding(0, 0x02),
+    }
     assert profile.inverted_pedals is False
     assert profile.ffb_enabled is False
     assert profile.detection_patterns == ("Generic Gamepad",)
-    assert profile.reverse_buttons == (304,)
-    assert profile.reset_buttons == (305,)
-    assert profile.exit_buttons == (306,)
+    assert profile.reverse_buttons == (Binding(0, 304),)
+    assert profile.reset_buttons == (Binding(0, 305),)
+    assert profile.exit_buttons == (Binding(0, 306),)
+
+
+def test_build_profile_supports_axes_split_across_devices() -> None:
+    # Steering on the wheel base (device 0), pedals on a separate device 1.
+    profile = build_profile(
+        name="wheel-plus-pedals",
+        display_name="Wheel + pedals",
+        devices=(
+            DeviceSpec(detection_patterns=("Wheel Base",)),
+            DeviceSpec(detection_patterns=("USB Pedals",)),
+        ),
+        axis_map={
+            "steering": Binding(0, 0x00),
+            "throttle": Binding(1, 0x00),
+            "brake": Binding(1, 0x01),
+        },
+        invert_steering=False,
+        inverted_pedals=False,
+        ffb_enabled=True,
+        ffb_gain=0.5,
+        is_default=False,
+    )
+    assert len(profile.devices) == 2
+    assert profile.axis_map["steering"].device == 0
+    assert profile.axis_map["throttle"].device == 1
+    assert profile.axis_map["brake"].device == 1

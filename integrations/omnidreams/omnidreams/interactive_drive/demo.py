@@ -28,6 +28,7 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     EVDEV_EVENT_FORMAT,
     EVDEV_EVENT_SIZE,
     AxisRange,
+    Binding,
     EvdevDevice,
     WheelProfile,
     apply_steering_curve,
@@ -241,7 +242,7 @@ class WheelBridge:
     def __init__(
         self,
         *,
-        device_path: Path,
+        device_paths: dict[int, Path],
         profile: WheelProfile,
         control: Any,
     ) -> None:
@@ -250,102 +251,135 @@ class WheelBridge:
         # ``release_all()``. In-process the slangpy HUD passes a
         # :class:`KeyboardStateDriveSink`; the wheel reader thread
         # then writes to ``KeyboardState`` directly with no HTTP hop.
-        self._device_path = device_path
+        #
+        # ``device_paths`` maps each device index (into ``profile.devices``)
+        # to its resolved evdev path; a profile may span several devices.
+        self._device_paths = dict(device_paths)
         self._profile = profile
         self._control = control
-        self._steering_axis = int(profile.axis_map["steering"])
-        self._throttle_axis = int(profile.axis_map["throttle"])
-        self._brake_axis = int(profile.axis_map["brake"])
+        self._steering = profile.axis_map["steering"]
+        self._throttle = profile.axis_map["throttle"]
+        self._brake = profile.axis_map["brake"]
         self._inverted_pedals = bool(profile.inverted_pedals)
         self._invert_steering = bool(profile.invert_steering)
         self._steering_range = float(profile.steering_range)
         self._steering_deadzone = float(profile.steering_deadzone)
         self._threshold = float(profile.threshold)
-        self._reverse_buttons = {int(b) for b in profile.reverse_buttons}
-        self._reset_buttons = {int(b) for b in profile.reset_buttons}
-        self._exit_buttons = {int(b) for b in profile.exit_buttons}
+        self._reverse_buttons = set(profile.reverse_buttons)
+        self._reset_buttons = set(profile.reset_buttons)
+        self._exit_buttons = set(profile.exit_buttons)
         self._reverse = False
-        self._button_states: dict[int, int] = {}
-        # Real backend is resolved against the device in ``start()``.
+        self._button_states: dict[Binding, int] = {}
+        # Real backend is resolved against the steering device in ``start()``.
         self._ffb = create_ffb_backend(profile.ffb_mode, frozenset())
-        self._axis_ranges: dict[int, AxisRange] = {}
-        self._raw_axes: dict[int, int] = {}
+        # Axes are keyed by ``(device_index, code)`` so the same evdev code on
+        # two devices (e.g. ABS_X on both a wheel and a pedal set) stays apart.
+        self._axis_ranges: dict[tuple[int, int], AxisRange] = {}
+        self._raw_axes: dict[tuple[int, int], int] = {}
         self._state = WheelState()
         self._state_lock = threading.Lock()
         self._last_update_s = time.monotonic()
         self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
 
     @property
     def state(self) -> WheelState:
         with self._state_lock:
             return WheelState(**self._state.__dict__)
 
-    def start(self) -> None:
-        self._axis_ranges = {
-            axis: _query_axis_range(self._device_path, axis)
-            or AxisRange(minimum=0, maximum=65535)
-            for axis in (self._steering_axis, self._throttle_axis, self._brake_axis)
-        }
-        self._raw_axes = {
-            self._steering_axis: int(self._axis_ranges[self._steering_axis].center),
-            self._throttle_axis: self._released_pedal_raw(self._throttle_axis),
-            self._brake_axis: self._released_pedal_raw(self._brake_axis),
-        }
-        ffb_backend = "off"
-        if self._profile.ffb_enabled:
-            features = query_ff_features(self._device_path)
-            self._ffb = create_ffb_backend(self._profile.ffb_mode, features)
-            self._ffb.init(self._device_path, self._profile.ffb_gain)
-            ffb_backend = type(self._ffb).__name__
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._run, name="interactive-drive-wheel", daemon=True
+    @staticmethod
+    def _key(binding: Binding) -> tuple[int, int]:
+        return (binding.device, binding.code)
+
+    def _range(self, binding: Binding) -> AxisRange:
+        return self._axis_ranges.get(self._key(binding)) or AxisRange(
+            minimum=0, maximum=65535
         )
-        self._thread.start()
+
+    def _raw(self, binding: Binding) -> int:
+        return self._raw_axes.get(self._key(binding), int(self._range(binding).center))
+
+    def start(self) -> None:
+        for binding in (self._steering, self._throttle, self._brake):
+            path = self._device_paths.get(binding.device)
+            if path is None:
+                continue
+            self._axis_ranges[self._key(binding)] = _query_axis_range(
+                path, binding.code
+            ) or AxisRange(minimum=0, maximum=65535)
+        # Seed raw values so unmoved controls read centered / released until
+        # their first event arrives.
+        self._raw_axes[self._key(self._steering)] = int(
+            self._range(self._steering).center
+        )
+        self._raw_axes[self._key(self._throttle)] = self._released_pedal_raw(
+            self._throttle
+        )
+        self._raw_axes[self._key(self._brake)] = self._released_pedal_raw(self._brake)
+
+        ffb_backend = "off"
+        steer_path = self._device_paths.get(self._steering.device)
+        if self._profile.ffb_enabled and steer_path is not None:
+            features = query_ff_features(steer_path)
+            self._ffb = create_ffb_backend(self._profile.ffb_mode, features)
+            self._ffb.init(steer_path, self._profile.ffb_gain)
+            ffb_backend = type(self._ffb).__name__
+
+        self._stop_event.clear()
+        for index, path in self._device_paths.items():
+            thread = threading.Thread(
+                target=self._run,
+                args=(index, path),
+                name=f"interactive-drive-wheel-{index}",
+                daemon=True,
+            )
+            self._threads.append(thread)
+            thread.start()
         print(
-            f"[demo] wheel profile={self._profile.name} device={self._device_path} "
-            f"axes={self._profile.axis_map} ranges={self._axis_ranges} "
+            f"[demo] wheel profile={self._profile.name} devices={self._device_paths} "
+            f"axis_map={self._profile.axis_map} ranges={self._axis_ranges} "
             f"invert_steering={self._invert_steering} "
             f"steering_range={self._steering_range} "
             f"steering_deadzone={self._steering_deadzone} "
             f"inverted_pedals={self._inverted_pedals} "
-            f"ffb_mode={self._profile.ffb_mode} ffb={ffb_backend} "
-            f"reverse_buttons={sorted(self._reverse_buttons)} "
-            f"reset_buttons={sorted(self._reset_buttons)}",
+            f"ffb_mode={self._profile.ffb_mode} ffb={ffb_backend}",
             flush=True,
         )
 
     def stop(self) -> None:
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
+        for thread in self._threads:
+            thread.join(timeout=1.0)
+        self._threads.clear()
         self._ffb.cleanup()
         self._control.release_all()
 
-    def _run(self) -> None:
+    def _run(self, device_index: int, path: Path) -> None:
+        # Only the steering device's reader publishes controls + drives FFB;
+        # the other readers just keep ``_raw_axes`` current for it to sample.
+        is_primary = device_index == self._steering.device
         try:
-            fd = os.open(self._device_path, os.O_RDONLY | os.O_NONBLOCK)
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError as exc:
-            print(
-                f"[demo] failed to open wheel device {self._device_path}: {exc}",
-                flush=True,
-            )
+            print(f"[demo] failed to open wheel device {path}: {exc}", flush=True)
             return
         try:
-            with self._state_lock:
-                self._state.connected = True
+            if is_primary:
+                with self._state_lock:
+                    self._state.connected = True
             while not self._stop_event.is_set():
                 readable, _, _ = select.select([fd], [], [], 0.02)
                 if readable:
-                    self._read_events(fd)
-                self._publish_controls()
+                    self._read_events(fd, device_index)
+                if is_primary:
+                    self._publish_controls()
         finally:
             os.close(fd)
-            with self._state_lock:
-                self._state.connected = False
+            if is_primary:
+                with self._state_lock:
+                    self._state.connected = False
 
-    def _read_events(self, fd: int) -> None:
+    def _read_events(self, fd: int, device_index: int) -> None:
         try:
             data = os.read(fd, EVDEV_EVENT_SIZE * 32)
         except BlockingIOError:
@@ -355,38 +389,35 @@ class WheelBridge:
                 EVDEV_EVENT_FORMAT, data[offset : offset + EVDEV_EVENT_SIZE]
             )
             if event_type == EV_ABS:
-                self._raw_axes[int(code)] = int(value)
+                self._raw_axes[(device_index, int(code))] = int(value)
             elif event_type == EV_KEY:
-                self._handle_button(int(code), int(value))
+                self._handle_button(device_index, int(code), int(value))
 
-    def _handle_button(self, code: int, value: int) -> None:
+    def _handle_button(self, device_index: int, code: int, value: int) -> None:
         # Act on the rising edge (press) so a held button fires once.
         # Reverse toggles a sticky flag fed into every drive command; reset
         # is forwarded through the control sink, which owns the
         # KeyboardState the runtime loop reads.
-        prev = self._button_states.get(code, 0)
-        self._button_states[code] = value
+        binding = Binding(device=device_index, code=code)
+        prev = self._button_states.get(binding, 0)
+        self._button_states[binding] = value
         if value != 1 or prev == 1:
             return
-        if code in self._reverse_buttons:
+        if binding in self._reverse_buttons:
             self._reverse = not self._reverse
-        elif code in self._reset_buttons:
+        elif binding in self._reset_buttons:
             request_reset = getattr(self._control, "request_reset", None)
             if request_reset is not None:
                 request_reset()
-        elif code in self._exit_buttons:
+        elif binding in self._exit_buttons:
             request_exit_scene = getattr(self._control, "request_exit_scene", None)
             if request_exit_scene is not None:
                 request_exit_scene()
 
     def _publish_controls(self) -> None:
-        steering = self._normalize_steering(self._raw_axes[self._steering_axis])
-        throttle = self._normalize_pedal(
-            self._throttle_axis, self._raw_axes[self._throttle_axis]
-        )
-        brake = self._normalize_pedal(
-            self._brake_axis, self._raw_axes[self._brake_axis]
-        )
+        steering = self._normalize_steering(self._steering)
+        throttle = self._normalize_pedal(self._throttle)
+        brake = self._normalize_pedal(self._brake)
         target_speed = self._update_target_speed(throttle=throttle, brake=brake)
         with self._state_lock:
             self._state.steering = steering
@@ -400,30 +431,33 @@ class WheelBridge:
         )
         self._ffb.update(
             speed_mps=abs(target_speed),
-            steering_raw=self._raw_axes[self._steering_axis],
-            center=int(self._axis_ranges[self._steering_axis].center),
+            steering_raw=self._raw(self._steering),
+            center=int(self._range(self._steering).center),
             gain=self._profile.ffb_gain,
         )
 
-    def _normalize_steering(self, raw: int) -> float:
-        axis_range = self._axis_ranges[self._steering_axis]
-        value = (float(raw) - axis_range.center) / (axis_range.span * 0.5)
+    def _normalize_steering(self, binding: Binding) -> float:
+        axis_range = self._range(binding)
+        value = (float(self._raw(binding)) - axis_range.center) / (
+            axis_range.span * 0.5
+        )
         if self._invert_steering:
             value = -value
         return apply_steering_curve(
             value, deadzone=self._steering_deadzone, scale=self._steering_range
         )
 
-    def _normalize_pedal(self, axis: int, raw: int) -> float:
-        axis_range = self._axis_ranges[axis]
+    def _normalize_pedal(self, binding: Binding) -> float:
+        axis_range = self._range(binding)
+        raw = float(self._raw(binding))
         if self._inverted_pedals:
-            value = (float(axis_range.maximum) - float(raw)) / axis_range.span
+            value = (float(axis_range.maximum) - raw) / axis_range.span
         else:
-            value = (float(raw) - float(axis_range.minimum)) / axis_range.span
+            value = (raw - float(axis_range.minimum)) / axis_range.span
         return max(0.0, min(1.0, value))
 
-    def _released_pedal_raw(self, axis: int) -> int:
-        axis_range = self._axis_ranges[axis]
+    def _released_pedal_raw(self, binding: Binding) -> int:
+        axis_range = self._range(binding)
         return axis_range.maximum if self._inverted_pedals else axis_range.minimum
 
     def _update_target_speed(self, *, throttle: float, brake: float) -> float:
@@ -816,9 +850,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # the single keyboard means it never needs rebinding across scenes.
     wheel: Any = None
     if wheel_selection is not None:
-        profile, device_path = wheel_selection
+        profile, device_paths = wheel_selection
         wheel = WheelBridge(
-            device_path=device_path,
+            device_paths=device_paths,
             profile=profile,
             control=KeyboardStateDriveSink(app.keyboard),
         )
@@ -1375,16 +1409,17 @@ def _merged_wheel_profiles(cli_profiles_dir: Path) -> tuple[WheelProfile, ...]:
     return tuple(merged.values())
 
 
-def _select_wheel(args: argparse.Namespace) -> tuple[WheelProfile, Path] | None:
+def _select_wheel(
+    args: argparse.Namespace,
+) -> tuple[WheelProfile, dict[int, Path]] | None:
     profiles = _merged_wheel_profiles(args.wheel_profiles_dir)
     profile = _profile_by_name(profiles, args.wheel_profile)
     device_path: Path | None = args.wheel_device
 
     if profile is None and device_path is not None:
         # ``--wheel-profile auto`` with an explicit ``--wheel-device``:
-        # don't run the device-scan auto-detect (which would ignore the
-        # user's path); just read the device name and match it against
-        # the loaded profiles.
+        # match the named device against each profile's steering device, then
+        # resolve any extra devices the profile binds by name.
         profile = _profile_for_device(profiles, device_path)
         if profile is None:
             print(
@@ -1393,6 +1428,9 @@ def _select_wheel(args: argparse.Namespace) -> tuple[WheelProfile, Path] | None:
                 flush=True,
             )
             return None
+        device_paths = _resolve_profile_devices(
+            profile, _scan_evdev_devices(), override=device_path
+        )
     elif profile is None:
         selection = _detect_wheel(profiles)
         if selection is None:
@@ -1400,20 +1438,20 @@ def _select_wheel(args: argparse.Namespace) -> tuple[WheelProfile, Path] | None:
                 "[demo] no wheel detected; use --wheel-device or --no-wheel", flush=True
             )
             return None
-        profile, device_path = selection
-    elif device_path is None:
-        device = _detect_device_for_profile(profile)
-        if device is None:
-            print(
-                f"[demo] wheel profile {profile.name!r} did not match any evdev device",
-                flush=True,
-            )
-            return None
-        device_path = device.path
+        profile, device_paths = selection
+    else:
+        device_paths = _resolve_profile_devices(
+            profile, _scan_evdev_devices(), override=device_path
+        )
 
-    assert device_path is not None
+    if device_paths is None:
+        print(
+            f"[demo] wheel profile {profile.name!r} did not match any evdev device",
+            flush=True,
+        )
+        return None
     profile = _apply_wheel_overrides(profile, args)
-    return profile, device_path
+    return profile, device_paths
 
 
 def _profile_for_device(
@@ -1421,9 +1459,9 @@ def _profile_for_device(
 ) -> WheelProfile | None:
     """Pick the best profile for an explicit ``--wheel-device`` path.
 
-    Prefers ``is_default``-flagged profiles (same priority order as
-    :func:`_detect_wheel`) and matches by the device's reported evdev
-    name. Returns ``None`` when no profile's detection patterns match.
+    The named device is the wheel, so it is matched against each profile's
+    steering device. Prefers ``is_default``-flagged profiles; returns ``None``
+    when no profile's steering-device patterns match.
     """
     name = _read_evdev_name(device_path)
     if name is None:
@@ -1432,7 +1470,12 @@ def _profile_for_device(
     ordered = sorted(profiles, key=lambda p: p.is_default, reverse=True)
     best: tuple[int, WheelProfile] | None = None
     for profile in ordered:
-        strength = _profile_device_match_strength(fake_device, profile)
+        steering_index = profile.axis_map["steering"].device
+        if steering_index >= len(profile.devices):
+            continue
+        strength = _spec_match_strength(
+            fake_device, profile, steering_index
+        )
         if strength > 0 and (best is None or strength > best[0]):
             best = (strength, profile)
     return best[1] if best is not None else None
@@ -1455,7 +1498,7 @@ def _profile_by_name(
 
 def _detect_wheel(
     profiles: tuple[WheelProfile, ...],
-) -> tuple[WheelProfile, Path] | None:
+) -> tuple[WheelProfile, dict[int, Path]] | None:
     # Sort default-flagged profiles to the FRONT (highest priority) so the
     # detection loop matches them before any future generic / fallback
     # profile that might overlap on the device-name pattern. ``False < True``
@@ -1466,14 +1509,14 @@ def _detect_wheel(
     )
     devices = _scan_evdev_devices()
     for profile in ordered_profiles:
-        device = _best_device_for_profile(profile, devices)
-        if device is not None:
+        device_paths = _resolve_profile_devices(profile, devices)
+        if device_paths is not None:
             print(
                 f"[demo] auto-detected wheel profile={profile.name} "
-                f"device={device.path} name={device.name!r}",
+                f"devices={device_paths}",
                 flush=True,
             )
-            return profile, device.path
+            return profile, device_paths
     if devices:
         print(
             "[demo] evdev devices seen but no wheel profile matched: "
@@ -1483,44 +1526,74 @@ def _detect_wheel(
     return None
 
 
-def _detect_device_for_profile(profile: WheelProfile) -> EvdevDevice | None:
-    return _best_device_for_profile(profile, _scan_evdev_devices())
+def _spec_match_strength(
+    device: EvdevDevice, profile: WheelProfile, index: int
+) -> int:
+    """Match score for *device* vs ``profile.devices[index]``.
 
-
-def _profile_device_match_strength(device: EvdevDevice, profile: WheelProfile) -> int:
-    """Match score for *device* vs *profile*: 0 none, 1 substring, 2 exact name.
-
-    A non-zero score also requires every axis in the profile's ``axis_map``
-    to exist on the device. The exact-name tier is what stops a profile
-    captured from e.g. ``"Wireless Controller"`` from binding a sibling node
-    (``"Wireless Controller Motion Sensors"``) whose name merely contains the
-    pattern and may even expose overlapping axes.
+    0 none, 1 substring, 2 exact name. A non-zero score also requires every
+    axis the profile binds to this device index to exist on the device. The
+    exact-name tier stops a profile captured from e.g. ``"Wireless
+    Controller"`` from binding a sibling node (``"... Motion Sensors"``)
+    whose name merely contains the pattern.
     """
-    if not profile.detection_patterns:
+    spec = profile.devices[index]
+    if not spec.detection_patterns:
         return 0
-    required_axes = {int(axis) for axis in profile.axis_map.values()}
+    required = {
+        binding.code for binding in profile.axis_map.values() if binding.device == index
+    }
     if not all(
-        _query_axis_range(device.path, axis) is not None for axis in required_axes
+        _query_axis_range(device.path, code) is not None for code in required
     ):
         return 0
-    return name_match_strength(device.name, profile.detection_patterns)
+    return name_match_strength(device.name, spec.detection_patterns)
 
 
-def _best_device_for_profile(
-    profile: WheelProfile, devices: tuple[EvdevDevice, ...]
+def _best_device_for_spec(
+    profile: WheelProfile, index: int, devices: tuple[EvdevDevice, ...]
 ) -> EvdevDevice | None:
-    """Return the device matching *profile* best, preferring an exact name.
-
-    Among all connected devices an exact-name match always beats a substring
-    match, so the real controller node wins over a same-named sensor/touchpad
-    sibling regardless of scan order.
-    """
+    """Best connected device for ``profile.devices[index]`` (exact name first)."""
     best: tuple[int, EvdevDevice] | None = None
     for device in devices:
-        strength = _profile_device_match_strength(device, profile)
+        strength = _spec_match_strength(device, profile, index)
         if strength > 0 and (best is None or strength > best[0]):
             best = (strength, device)
     return best[1] if best is not None else None
+
+
+def _resolve_profile_devices(
+    profile: WheelProfile,
+    devices: tuple[EvdevDevice, ...],
+    *,
+    override: Path | None = None,
+) -> dict[int, Path] | None:
+    """Resolve each of a profile's device indices to a connected evdev path.
+
+    *override* forces the steering device's path (an explicit
+    ``--wheel-device``). The steering device is required -- ``None`` is
+    returned if it cannot be found -- while devices used only by other
+    controls degrade gracefully (a warning, their controls inactive).
+    """
+    steering_index = profile.axis_map["steering"].device
+    resolved: dict[int, Path] = {}
+    for index in range(len(profile.devices)):
+        if override is not None and index == steering_index:
+            resolved[index] = override
+            continue
+        device = _best_device_for_spec(profile, index, devices)
+        if device is not None:
+            resolved[index] = device.path
+        elif index == steering_index:
+            return None
+        else:
+            print(
+                f"[demo] wheel profile {profile.name!r}: device {index} "
+                f"({list(profile.devices[index].detection_patterns)}) not found; "
+                "its controls will be inactive",
+                flush=True,
+            )
+    return resolved
 
 
 def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
@@ -1593,12 +1666,15 @@ def _apply_wheel_overrides(
     profile: WheelProfile, args: argparse.Namespace
 ) -> WheelProfile:
     axis_map = dict(profile.axis_map)
-    if args.wheel_steering_axis is not None:
-        axis_map["steering"] = int(args.wheel_steering_axis)
-    if args.wheel_throttle_axis is not None:
-        axis_map["throttle"] = int(args.wheel_throttle_axis)
-    if args.wheel_brake_axis is not None:
-        axis_map["brake"] = int(args.wheel_brake_axis)
+
+    def override(key: str, value) -> None:
+        # Override the evdev code only; the binding keeps its device.
+        if value is not None:
+            axis_map[key] = replace(axis_map[key], code=int(value))
+
+    override("steering", args.wheel_steering_axis)
+    override("throttle", args.wheel_throttle_axis)
+    override("brake", args.wheel_brake_axis)
     inverted = (
         profile.inverted_pedals
         if args.wheel_pedals_inverted is None
