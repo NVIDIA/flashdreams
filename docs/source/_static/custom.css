@@ -27,9 +27,10 @@ SPDX-License-Identifier: Apache-2.0
         4.4 Stat block, 4.5 Callout, 4.6 Placeholder admonition)
      5. Header chrome hide
      6. Front-of-site marketing layout
-     7. Misc upstream tweaks
-     8. Reference-docs model-page components
-     9. Unwired components — not yet used by any page (see TODO)
+     7. Homepage "Supported Models" rail
+     8. Misc upstream tweaks
+     9. Reference-docs model-page components
+    10. Unwired components — not yet used by any page (see TODO)
    ========================================================================== */
 
 
@@ -125,8 +126,10 @@ html[data-theme="dark"] {
 
 /* sphinx-design and pydata-sphinx-theme both define their own accent
    palettes. Re-bind the most visible ones to --fd-accent so buttons,
-   links, and focus rings all use the same color. */
-html {
+   links (including clicked/visited ones), and focus rings all use the
+   same green. */
+html[data-theme="light"],
+html[data-theme="dark"] {
     --pst-color-primary:        var(--fd-accent);
     --pst-color-primary-bg:     var(--fd-accent-soft);
     --pst-color-link:           var(--fd-accent);
@@ -1285,7 +1288,104 @@ body.fd-page-landing .fd-split-text .highlight {
 }
 
 
-/* ----- 6. Misc upstream tweaks ------------------------------------------- */
+/* ----- 7. Homepage "Supported Models" rail ------------------------------ */
+
+/* Right-hand secondary sidebar shown ONLY on the homepage (wired in by
+   `_templates/layout.html` for `master_doc`, populated by
+   `js/supported_models_nav.js`). The marketing layout runs full-bleed with
+   centered bands, so there's no content column to dock against — the rail
+   floats `position: fixed` in the right gutter and only appears once the
+   viewport is wide enough to clear the centered --fd-max-content column
+   (below that it's display:none and the on-page grid is the only nav).
+
+   Hidden until JS finishes: `[hidden]` + the default `display: none` keep
+   it out until `.is-ready` is added inside the wide-screen media query. */
+.fd-models-nav {
+    display: none;
+}
+
+/* Anchor offset so in-page jumps clear the sticky navbar. Applied by JS to
+   each model card's grid column (`.sd-col`). */
+.fd-model-anchor {
+    scroll-margin-top: calc(var(--pst-header-height, 4rem) + 1.5rem);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+/* Breakpoint in `em` (relative to the browser's default font size, so it
+   scales with a reader's accessibility font setting). Media queries can't
+   read `var()`, so this can't literally reference --fd-max-content; the
+   value is derived from it: the rail docks at 50% + 36rem (half the 72rem
+   content column) + 1.5rem and is 11rem wide, so its right edge sits at
+   50% + 48.5rem. It clears the viewport edge once ~50vw >= ~49rem, i.e.
+   ~98rem; 100em (1600px @ 16px) adds a little breathing room. If you change
+   --fd-max-content, nudge this to match (rough rule: content-rem + 28). */
+@media (min-width: 100em) {
+    .fd-models-nav.is-ready {
+        display: block;
+        position: fixed;
+        z-index: 5;
+        top: calc(var(--pst-header-height, 4rem) + 2.5rem);
+        /* Dock just to the right of the centered content column. */
+        left: calc(50% + (var(--fd-max-content) / 2) + 1.5rem);
+        width: 11rem;
+        max-height: calc(100vh - var(--pst-header-height, 4rem) - 5rem);
+        overflow-y: auto;
+    }
+}
+
+.fd-models-nav__title {
+    font-size: var(--fd-text-sm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fd-text-muted);
+    margin-bottom: var(--fd-space-3);
+    padding-left: var(--fd-space-3);
+}
+
+/* The list carries the rail "spine"; active links paint an accent segment
+   over it via their own left border (negative margin overlays the spine). */
+.fd-models-nav__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 2px solid var(--fd-border);
+}
+
+.fd-models-nav__item {
+    margin: 0;
+}
+
+.fd-models-nav__link {
+    display: block;
+    padding: var(--fd-space-1) 0 var(--fd-space-1) var(--fd-space-3);
+    margin-left: -2px;
+    font-size: var(--fd-text-sm);
+    line-height: 1.4;
+    color: var(--fd-text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: color var(--fd-transition), border-color var(--fd-transition);
+}
+
+.fd-models-nav__link:hover,
+.fd-models-nav__link:focus-visible {
+    color: var(--fd-text);
+}
+
+.fd-models-nav__link.is-active {
+    color: var(--fd-accent);
+    border-left-color: var(--fd-accent);
+    font-weight: 600;
+}
+
+
+/* ----- 8. Misc upstream tweaks ------------------------------------------- */
 
 /* Drop the "FlashDreams" caption row above the sidebar nav — it just
    echoes the toctree caption from the root index.rst and adds noise on
@@ -1313,7 +1413,7 @@ body.fd-page-landing .fd-split-text .highlight {
 }
 
 
-/* ----- 7. Reference-docs model-page components --------------------------- */
+/* ----- 9. Reference-docs model-page components --------------------------- */
 
 /* Used by the per-model RST pages under `models/*.rst` (raw HTML blocks
    that render the "Blog / Model page / Code / arXiv" link row and the
@@ -1602,7 +1702,7 @@ img.zoomable,
 }
 
 
-/* ----- 9. Unwired components --------------------------------------------- */
+/* ----- 10. Unwired components -------------------------------------------- */
 
 /* TODO: No page currently uses any of the components below. They are
    token-clean and ready to use, but unconsumed — before shipping, either

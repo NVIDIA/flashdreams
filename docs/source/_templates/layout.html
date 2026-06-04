@@ -36,6 +36,12 @@ SPDX-License-Identifier: Apache-2.0
     <div class="fd-landing-main">
       {{ body }}
     </div>
+    {# Homepage only: a right-hand "Supported Models" rail. It floats in the
+       right gutter on wide screens and is populated by
+       js/supported_models_nav.js from the on-page model grid. #}
+    {% if pagename == master_doc %}
+      {% include "components/supported-models-nav.html" %}
+    {% endif %}
     {# Intentionally omit pydata's trailing bd-footer-content <footer>
        (unused here; the CSS would paint it as an empty band). Site-wide
        copyright still renders in the outer bd-footer below <main>. #}
