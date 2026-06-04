@@ -26,6 +26,12 @@ Causal Wan2.2
 CausalWan2.2 is a `FastVideo <https://github.com/hao-ai-lab/FastVideo>`_-released
 14B MoE causal-diffusion variant of Wan 2.2 with 8-step inference.
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~112 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 

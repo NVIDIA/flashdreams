@@ -46,6 +46,12 @@ algorithm.
      <a href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/">Cosmos-Predict2.5 project page</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~80 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 

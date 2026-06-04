@@ -176,10 +176,10 @@ html_sidebars = {
     "community/faq": [],
     "community/support": [],
     "quickstart/*": [],
-    "developer_guides/*": ["sidebar-nav-bs"],
+    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
     "models/*": [],
-    "documentation": [],
-    "api/*": ["sidebar-nav-bs"],
+    "documentation": ["search-field", "sidebar-nav-bs"],
+    "api/*": ["search-field", "sidebar-nav-bs"],
 }
 
 html_context = {

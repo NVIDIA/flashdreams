@@ -60,6 +60,7 @@ from omnidreams.transformer import (
 from omnidreams.transformer.impl.network import CosmosDiTNetworkCache
 from torch import Tensor
 
+from flashdreams.core.attention import BlockKVCache
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
@@ -416,7 +417,12 @@ def _make_cosmos_streaming_workspace(
 
 
 class _CosmosNetworkShapeOps(torch.nn.Module):
-    """Weightless replacement for CosmosDiTNetwork patch/unpatch helpers."""
+    """Lightweight replacement for CosmosDiTNetwork patch/cache helpers.
+
+    FP8 native execution can drop the full PyTorch DiT after the first rollout,
+    but scene switches still need fresh cross-attention K/V from the new text
+    context. Keep only the small projection subset needed for cache init.
+    """
 
     def __init__(
         self,
@@ -425,11 +431,13 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
         device: torch.device,
         dtype: torch.dtype,
         cache_templates: tuple[CosmosDiTNetworkCache, ...] = (),
+        cross_cache_weights: Mapping[str, Tensor] | None = None,
     ) -> None:
         super().__init__()
         self.config = config
         self._cache_templates = cache_templates
         self._cache_template_index = 0
+        self._cross_cache_weights = dict(cross_cache_weights or {})
         self._device_anchor = torch.nn.Parameter(
             torch.empty(0, device=device, dtype=dtype),
             requires_grad=False,
@@ -452,8 +460,7 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
         sink_size: int,
         context: Tensor,
     ) -> CosmosDiTNetworkCache:
-        """Clone the pre-release cache template for a new FP8 rollout."""
-        del context
+        """Clone the geometry template and rebuild prompt-dependent K/V."""
         if self._cache_template_index >= len(self._cache_templates):
             raise RuntimeError(
                 "optimized native FP8 DiT released the upstream network before a "
@@ -472,7 +479,54 @@ class _CosmosNetworkShapeOps(torch.nn.Module):
                 "optimized native FP8 DiT cache template geometry does not match "
                 "the requested rollout reset geometry."
             )
-        return _clone_network_cache(template)
+        cache = _clone_network_cache(template)
+        context = self._project_crossattn_context(context)
+        for block_idx, block_cache in enumerate(cache.block_caches):
+            block_cache.cross_attn = self._make_cross_attn_cache(block_idx, context)
+        return cache
+
+    def _weight(self, key: str, *, like: Tensor) -> Tensor:
+        try:
+            weight = self._cross_cache_weights[key]
+        except KeyError as exc:
+            raise RuntimeError(
+                "optimized native FP8 DiT cannot rebuild cross-attention cache "
+                f"after releasing the PyTorch network; missing weight {key!r}."
+            ) from exc
+        return weight.to(device=like.device, dtype=like.dtype)
+
+    def _project_crossattn_context(self, context: Tensor) -> Tensor:
+        if not getattr(self.config, "use_crossattn_projection", False):
+            return context
+        weight = self._weight("crossattn_proj.0.weight", like=context)
+        bias = self._weight("crossattn_proj.0.bias", like=context)
+        return F.gelu(F.linear(context, weight, bias))
+
+    def _make_cross_attn_cache(self, block_idx: int, context: Tensor) -> BlockKVCache:
+        prefix = f"blocks.{block_idx}.cross_attn."
+        k_weight = self._weight(prefix + "k_proj.weight", like=context)
+        v_weight = self._weight(prefix + "v_proj.weight", like=context)
+        k_norm_weight = self._weight(prefix + "k_norm.weight", like=context)
+
+        batch_shape = context.shape[:-2]
+        batch_size = math.prod(batch_shape)
+        token_count = int(context.shape[-2])
+        inner_dim = int(k_weight.shape[0])
+        num_heads = int(self.config.num_heads)
+        if inner_dim % num_heads != 0:
+            raise RuntimeError(
+                f"cross-attention inner_dim={inner_dim} is not divisible by "
+                f"num_heads={num_heads}"
+            )
+        head_dim = inner_dim // num_heads
+        k = F.linear(context, k_weight).reshape(
+            batch_size, token_count, num_heads, head_dim
+        )
+        k = F.rms_norm(k, (head_dim,), weight=k_norm_weight, eps=1e-6)
+        v = F.linear(context, v_weight).reshape(
+            batch_size, token_count, num_heads, head_dim
+        )
+        return BlockKVCache.from_tensor(k.contiguous(), v.contiguous(), seq_dim=-3)
 
     def patchify_and_maybe_split_cp(
         self,
@@ -732,6 +786,7 @@ class OptimizedDiTExecutor:
         self._sparge_hybrid_phase = 0
 
         self._optimized_weights: dict[str, Tensor] | None = None
+        self._cross_cache_weights: dict[str, Tensor] | None = None
         self._bf16_runtime: dict[str, Any] | None = None
         self._fp8_runtime: dict[str, Any] | None = None
         self._bf16_runtime_device: torch.device | None = None
@@ -995,6 +1050,7 @@ class OptimizedDiTExecutor:
         """Snapshot ``self.network.state_dict()`` once. Idempotent."""
         if self._optimized_weights is None:
             state_dict = self.network.state_dict()
+            self._snapshot_cross_cache_weights(state_dict)
             if self._uses_fp8_dit:
                 from cosmos_fp8_utils import (
                     prepare_cosmos_quantized_streaming_weights,
@@ -1029,6 +1085,25 @@ class OptimizedDiTExecutor:
                 self._optimized_weights = prepare_cosmos_streaming_weights(state_dict)
         return self._optimized_weights
 
+    def _snapshot_cross_cache_weights(self, state_dict: Mapping[str, Tensor]) -> None:
+        if self._cross_cache_weights is not None:
+            return
+        keys: list[str] = []
+        if getattr(self.network.config, "use_crossattn_projection", False):
+            keys.extend(["crossattn_proj.0.weight", "crossattn_proj.0.bias"])
+        for block_idx in range(int(self.config.network.num_blocks)):
+            prefix = f"blocks.{block_idx}.cross_attn."
+            keys.extend(
+                [
+                    prefix + "k_proj.weight",
+                    prefix + "v_proj.weight",
+                    prefix + "k_norm.weight",
+                ]
+            )
+        self._cross_cache_weights = {
+            key: state_dict[key].detach().contiguous() for key in keys
+        }
+
     def _drop_redundant_bf16_prepared_weights(self) -> None:
         """Remove BF16 prepared aliases superseded by FP8 prepared weights."""
         if self._optimized_weights is None:
@@ -1053,6 +1128,7 @@ class OptimizedDiTExecutor:
             device=next(self.network.parameters()).device,
             dtype=self.config.dtype,
             cache_templates=self._optimized_network_cache_templates,
+            cross_cache_weights=self._cross_cache_weights,
         )
         # After release, optimized native's own _optimized_call owns CUDA graph capture.
         # The parent graph wrappers point at the freed PyTorch network and

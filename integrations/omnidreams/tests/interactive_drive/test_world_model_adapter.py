@@ -238,3 +238,31 @@ def test_session_offload_reuses_precomputed_embeddings_after_reset() -> None:
     )
 
     session.close()
+
+
+def test_session_offload_reruns_embeddings_after_scene_conditioning_reset() -> None:
+    fake_pipeline = _FakePipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        offload_text_encoder=True,
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    session.warmup_model()
+
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+
+    session.start(initial_rgb, first_condition_frames, "clear prompt")
+    session.reset(clear_precomputed_embeddings=True)
+    session.start(initial_rgb, first_condition_frames, "snow prompt")
+
+    assert len(fake_pipeline.precompute_calls) == 2
+    assert fake_pipeline.precompute_calls[0]["text"] == [["clear prompt"]]
+    assert fake_pipeline.precompute_calls[1]["text"] == [["snow prompt"]]
+    assert len(fake_pipeline.initialize_from_embeddings_calls) == 2
+    assert (
+        fake_pipeline.initialize_from_embeddings_calls[1]["text_embeddings"]
+        is not fake_pipeline.initialize_from_embeddings_calls[0]["text_embeddings"]
+    )
+
+    session.close()

@@ -39,6 +39,12 @@ interactive video generation.
      <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
    </p>
 
+Requirements
+------------
+
+- **Minimum VRAM**: ~24 GB.
+- **PyTorch**: >= 2.9.
+
 Installation
 ------------
 
