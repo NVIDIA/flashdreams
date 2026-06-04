@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from loguru import logger
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
@@ -41,6 +42,7 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     scan_evdev_devices,
     user_wheel_profiles_dir,
 )
+from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
@@ -335,7 +337,7 @@ class WheelBridge:
             )
             self._threads.append(thread)
             thread.start()
-        print(
+        logger.info(
             f"[demo] wheel profile={self._profile.name} devices={self._device_paths} "
             f"axis_map={self._profile.axis_map} ranges={self._axis_ranges} "
             f"invert_steering={self._invert_steering} "
@@ -343,7 +345,6 @@ class WheelBridge:
             f"steering_deadzone={self._steering_deadzone} "
             f"inverted_pedals={self._inverted_pedals} "
             f"ffb_mode={self._profile.ffb_mode} ffb={ffb_backend}",
-            flush=True,
         )
 
     def stop(self) -> None:
@@ -361,7 +362,7 @@ class WheelBridge:
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError as exc:
-            print(f"[demo] failed to open wheel device {path}: {exc}", flush=True)
+            logger.info(f"[demo] failed to open wheel device {path}: {exc}")
             return
         try:
             if is_primary:
@@ -670,10 +671,9 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
     if scene.exists():
         return scene
     if allow_skip and _has_discoverable_scenes(scene_dir, scene):
-        print(
+        logger.info(
             f"[interactive-drive] default scene '{scene.name}' is not staged; "
             f"using the scenes already present under {scene_dir} instead.",
-            flush=True,
         )
         return scene
     cache_dir = scenes_cache_root().resolve()
@@ -689,7 +689,7 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
             "Either export HF_TOKEN to enable auto-staging on launch, or run:\n"
             f"  uv run --package flashdreams-omnidreams omnidreams-prepare --scene-uuid {bare_uuid}"
         )
-    print(
+    logger.info(
         f"[interactive-drive] Scene '{stem}' not found locally; "
         "auto-staging from Hugging Face (one-time download)..."
     )
@@ -705,25 +705,24 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
             if uuid == bare_uuid and variant != _scenes.SCENE_VARIANT_DEFAULT
         ]
     except Exception as exc:  # noqa: BLE001 - best-effort; base scene already staged
-        print(
+        logger.info(
             f"[interactive-drive] could not enumerate scene variants ({exc}); "
             "staged the base scene only.",
-            flush=True,
         )
         sibling_variants = []
     for variant in sibling_variants:
         try:
             stage_scene(bare_uuid, variant=variant, force=False)
         except Exception as exc:  # noqa: BLE001 - skip a variant, keep the rest
-            print(
+            logger.info(
                 f"[interactive-drive] failed to stage variant {variant!r} "
                 f"({exc}); skipping.",
-                flush=True,
             )
     return staged_default
 
 
 def main() -> None:
+    configure_logging()
     args = build_parser().parse_args()
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
@@ -1031,18 +1030,16 @@ def _run_streaming(args: argparse.Namespace) -> None:
         # model..." while warmup runs in the background, then "Select a
         # scene to begin") so connected browsers have something to render
         # while the wait spins.
-        print(
+        logger.info(
             "[demo] streaming presenter waiting for first scene selection...",
-            flush=True,
         )
         request = presenter.wait_for_scene_selection()
         if request is None:
             return  # presenter closed before any selection (Ctrl-C)
         scene_path, variant = request
         presenter.acknowledge_scene_change(scene_path, variant)
-        print(
+        logger.info(
             f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-            flush=True,
         )
 
         while True:
@@ -1062,10 +1059,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
                 break
             scene_path, variant = requested
             presenter.acknowledge_scene_change(scene_path, variant)
-            print(
+            logger.info(
                 f"[demo] streaming scene change -> {scene_path.name} "
                 f"variant={variant!r}",
-                flush=True,
             )
     finally:
         app.shutdown()
@@ -1139,7 +1135,7 @@ def _discover_scene_options(
         _scene_option_for_group(variant_paths)
         for _uuid, variant_paths in sorted(grouped.items())
     )
-    print(
+    logger.info(
         "[demo] discovered scenes: "
         + (
             ", ".join(
@@ -1148,7 +1144,6 @@ def _discover_scene_options(
             if options
             else "<none>"
         ),
-        flush=True,
     )
     return options
 
@@ -1422,10 +1417,9 @@ def _select_wheel(
         # resolve any extra devices the profile binds by name.
         profile = _profile_for_device(profiles, device_path)
         if profile is None:
-            print(
+            logger.info(
                 f"[demo] no wheel profile matched device {device_path}; "
                 "pass --wheel-profile <name> explicitly",
-                flush=True,
             )
             return None
         device_paths = _resolve_profile_devices(
@@ -1434,9 +1428,7 @@ def _select_wheel(
     elif profile is None:
         selection = _detect_wheel(profiles)
         if selection is None:
-            print(
-                "[demo] no wheel detected; use --wheel-device or --no-wheel", flush=True
-            )
+            logger.info("[demo] no wheel detected; use --wheel-device or --no-wheel")
             return None
         profile, device_paths = selection
     else:
@@ -1445,9 +1437,8 @@ def _select_wheel(
         )
 
     if device_paths is None:
-        print(
+        logger.info(
             f"[demo] wheel profile {profile.name!r} did not match any evdev device",
-            flush=True,
         )
         return None
     profile = _apply_wheel_overrides(profile, args)
@@ -1509,17 +1500,15 @@ def _detect_wheel(
     for profile in ordered_profiles:
         device_paths = _resolve_profile_devices(profile, devices)
         if device_paths is not None:
-            print(
+            logger.info(
                 f"[demo] auto-detected wheel profile={profile.name} "
                 f"devices={device_paths}",
-                flush=True,
             )
             return profile, device_paths
     if devices:
-        print(
+        logger.info(
             "[demo] evdev devices seen but no wheel profile matched: "
             + ", ".join(f"{device.path}:{device.name}" for device in devices),
-            flush=True,
         )
     return None
 
@@ -1581,11 +1570,10 @@ def _resolve_profile_devices(
         elif index == steering_index:
             return None
         else:
-            print(
+            logger.info(
                 f"[demo] wheel profile {profile.name!r}: device {index} "
                 f"({list(profile.devices[index].detection_patterns)}) not found; "
                 "its controls will be inactive",
-                flush=True,
             )
     return resolved
 
@@ -1594,9 +1582,8 @@ def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
     assets_dir = control_assets_dir or _BUNDLED_CONTROL_ASSETS_DIR
     if not assets_dir.is_dir():
         if control_assets_dir is not None:
-            print(
+            logger.info(
                 f"[demo] control assets not found at {assets_dir}; using vector fallback",
-                flush=True,
             )
         return ControlAssets(
             steering_wheel=None,
@@ -1622,11 +1609,10 @@ def _load_control_assets(control_assets_dir: Path | None) -> ControlAssets:
         ),
     )
     if assets.complete:
-        print(f"[demo] loaded AlpaSim control assets from {assets_dir}", flush=True)
+        logger.info(f"[demo] loaded AlpaSim control assets from {assets_dir}")
     else:
-        print(
+        logger.info(
             f"[demo] incomplete control assets at {assets_dir}; missing files use vector fallback",
-            flush=True,
         )
     return assets
 

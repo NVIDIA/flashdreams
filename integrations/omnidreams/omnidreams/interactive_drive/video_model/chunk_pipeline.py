@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from loguru import logger
 from omnidreams.interactive_drive.runtime.timing import ChunkTimes
 from omnidreams.interactive_drive.types import (
     FrameChunk,
@@ -152,20 +153,18 @@ class ChunkPipeline:
         submit_generation = self._bump_generation()
         cleared = self._clear_frame_queue()
         if cleared:
-            print(
+            logger.info(
                 "[chunk-pipeline] cleared stale frame queue "
                 f"frames={cleared} generation={submit_generation}",
-                flush=True,
             )
 
         def load_scene_command(backend: VideoModelBackend) -> bool:
             if submit_generation != self.current_generation:
-                print(
+                logger.info(
                     "[chunk-pipeline] skip stale scene load "
                     f"scene={scene.scene_path.name!r} "
                     f"submit_generation={submit_generation} "
                     f"current_generation={self.current_generation}",
-                    flush=True,
                 )
                 return True
             backend.load_scene(scene)
@@ -184,11 +183,10 @@ class ChunkPipeline:
             chunk_times.chunk_render_start_time = time.perf_counter()
             if submit_generation != self.current_generation:
                 chunk_times.chunk_ready_time = time.perf_counter()
-                print(
+                logger.info(
                     "[chunk-pipeline] skip stale render "
                     f"submit_generation={submit_generation} "
                     f"current_generation={self.current_generation}",
-                    flush=True,
                 )
                 return True
             frame_chunk = backend.render_chunk(trajectory)
@@ -228,10 +226,9 @@ class ChunkPipeline:
         generation = self._bump_generation()
         cleared = self._clear_frame_queue()
         if cleared:
-            print(
+            logger.info(
                 "[chunk-pipeline] cleared stale frame queue "
                 f"frames={cleared} generation={generation}",
-                flush=True,
             )
 
         def reset_command(backend: VideoModelBackend) -> bool:
@@ -248,12 +245,11 @@ class ChunkPipeline:
     def _worker(self) -> None:
         try:
             warmup_start = time.perf_counter()
-            print("[chunk-pipeline] warmup start", flush=True)
+            logger.info("[chunk-pipeline] warmup start")
             self._backend.warmup_model()
             warmup_elapsed_ms = (time.perf_counter() - warmup_start) * 1000.0
-            print(
+            logger.info(
                 f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
-                flush=True,
             )
             self._model_ready.set()
             while True:

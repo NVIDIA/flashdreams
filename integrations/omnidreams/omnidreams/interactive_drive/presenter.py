@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.cuda_env import (
     DISABLE_CUDA_INTEROP_ENV,
@@ -22,7 +23,7 @@ class SlangPyPresenter:
         except ImportError as exc:
             raise RuntimeError(
                 "SlangPy is required for the presenter. Install with"
-                " `uv sync --package flashdreams-omnidreams`."
+                " `uv sync --package flashdreams-omnidreams --extra interactive-drive`."
             ) from exc
 
         self._spy = spy
@@ -36,13 +37,12 @@ class SlangPyPresenter:
             resizable=False,
         )
         self._device = self._create_device()
-        print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
+        logger.info(f"[presenter] device={self._device.info.adapter_name}")
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
         self._display_format = spy.Format.rgba8_unorm
-        print(
+        logger.info(
             f"[presenter] surface preferred={self._surface.info.preferred_format} chosen={self._surface_format} display={self._display_format}",
-            flush=True,
         )
         self._surface.configure(
             width=raster.width, height=raster.height, format=self._surface_format
@@ -119,10 +119,9 @@ class SlangPyPresenter:
         try:
             return self._spy.Device(**device_kwargs)
         except RuntimeError as exc:
-            print(
+            logger.info(
                 "[presenter] CUDA interop device creation failed; retrying Vulkan without "
                 f"interop ({exc})",
-                flush=True,
             )
             self._cuda_interop_unavailable_reason = "device creation failed"
             return self._spy.Device(
@@ -158,17 +157,14 @@ class SlangPyPresenter:
 
     def _create_cuda_rgb_interop(self):
         if env_truthy(DISABLE_CUDA_INTEROP_ENV):
-            print(
+            logger.info(
                 f"[presenter] cuda_interop=disabled by {DISABLE_CUDA_INTEROP_ENV}; "
                 "using host RGB upload",
-                flush=True,
             )
             return None
         if not self._device.supports_cuda_interop:
             reason = self._cuda_interop_unavailable_reason or "unsupported"
-            print(
-                f"[presenter] cuda_interop={reason}; using host RGB upload", flush=True
-            )
+            logger.info(f"[presenter] cuda_interop={reason}; using host RGB upload")
             return None
         try:
             interop = _CudaRGBInterop(
@@ -178,12 +174,11 @@ class SlangPyPresenter:
                 height=self._raster.height,
             )
         except Exception as exc:
-            print(
+            logger.info(
                 f"[presenter] cuda_interop=unavailable; using host RGB upload ({exc})",
-                flush=True,
             )
             return None
-        print("[presenter] cuda_interop=enabled", flush=True)
+        logger.info("[presenter] cuda_interop=enabled")
         return interop
 
     def _present_cuda_rgb(
@@ -421,10 +416,9 @@ class _CudaRGBInterop:
             self._cuda_device
         ):
             if not self._device_mismatch_logged:
-                print(
+                logger.info(
                     "[presenter] cuda_interop skipped: model RGB tensor is on "
                     f"{tensor.device}, presenter shared buffer is on {self._cuda_device}",
-                    flush=True,
                 )
                 self._device_mismatch_logged = True
             return None

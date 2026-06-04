@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 import yaml
+from loguru import logger
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.colors import (
     BBOX_V3_COLORS,
@@ -228,7 +229,7 @@ def _log_prompt_selection(
 ) -> None:
     scene_name = Path(str(zf.filename)).name if zf.filename is not None else "<archive>"
     prompt_text = " ".join(prompt.split())
-    print(
+    logger.info(
         "[scene_loader] prompt "
         f"scene={scene_name!r} "
         f"requested_variant={variant!r} "
@@ -238,7 +239,6 @@ def _log_prompt_selection(
         f"ignored_files={ignored_files or '<none>'!r} "
         f"length={len(prompt)} "
         f"text={prompt_text!r}",
-        flush=True,
     )
 
 
@@ -250,13 +250,12 @@ def _log_initial_frame_selection(
     source: str,
 ) -> None:
     scene_name = Path(str(zf.filename)).name if zf.filename is not None else "<archive>"
-    print(
+    logger.info(
         "[scene_loader] initial_frame "
         f"scene={scene_name!r} "
         f"requested_variant={variant!r} "
         f"camera={camera_name!r} "
         f"source={source!r}",
-        flush=True,
     )
 
 
@@ -591,12 +590,11 @@ def _build_cuboid_layer(
         orientation = (float(qx), float(qy), float(qz), float(qw))
         groups.append(_build_cuboid_edges(center, dims, orientation))
     if null_orientation_rows:
-        print(
+        logger.info(
             f"[scene_loader] {layer_name}: {null_orientation_rows} of "
             f"{len(rows)} cuboid(s) had null orientation in the parquet; "
             f"rendered as identity-rotated. Upstream dataset bug "
             f"(missing pose-fit for some features).",
-            flush=True,
         )
     return WorldLineSegments(
         segments_world=concatenate_segments(groups),
@@ -875,10 +873,9 @@ def _load_ground_mesh(
     try:
         vertices, faces = load_mesh_vf(zf.read(_GROUND_MESH_NAME))
     except (ValueError, TypeError) as exc:
-        print(
+        logger.info(
             f"[scene_loader] failed to parse {_GROUND_MESH_NAME}: {exc}; "
             "ground-snap will no-op for this scene.",
-            flush=True,
         )
         return None, None
     return vertices.astype(np.float32), faces.astype(np.int32)
