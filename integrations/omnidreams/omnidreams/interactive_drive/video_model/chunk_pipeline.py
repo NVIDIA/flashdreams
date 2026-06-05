@@ -88,6 +88,10 @@ class ChunkPipeline:
         # Lets callers overlap the scene-selection wait with the model load
         # and show a "ready" affordance once the model is resident.
         self._model_ready = threading.Event()
+        # Set once the worker queues its first generated chunk -- i.e. the
+        # one-time first-chunk optimization is done. Never cleared; the model
+        # stays optimized across resets and scene switches.
+        self._first_chunk_produced = threading.Event()
         # Monotonic generation bumped on every reset / scene switch. Renders
         # submitted under an older generation are superseded: their frames
         # are dropped instead of presented, so a reset or scene load doesn't
@@ -108,6 +112,11 @@ class ChunkPipeline:
     def model_ready(self) -> threading.Event:
         """Event set when scene-independent model warmup has completed."""
         return self._model_ready
+
+    @property
+    def first_chunk_produced(self) -> threading.Event:
+        """Event set once the worker has queued its first generated chunk."""
+        return self._first_chunk_produced
 
     @property
     def current_generation(self) -> int:
@@ -207,6 +216,8 @@ class ChunkPipeline:
                         generation=submit_generation,
                     )
                 )
+            if frame_chunk.frames:
+                self._first_chunk_produced.set()
             return True
 
         self._command_queue.put(render_command)

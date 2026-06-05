@@ -59,6 +59,12 @@ class WorldModelRenderBackend(RenderBackend):
     def can_prewarm(self) -> bool:
         return self._session.can_prewarm
 
+    @property
+    def optimizes_on_first_chunk(self) -> bool:
+        # First chunk triggers compile / CUDA-graph capture / Triton autotune,
+        # which can take minutes on the first launch.
+        return True
+
     def warmup_model(self) -> None:
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(

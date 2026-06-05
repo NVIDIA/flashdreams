@@ -2531,14 +2531,27 @@ class SlangPyHudPresenter:
 
         Called by the demo's outer loop just before it re-enters
         :meth:`wait_for_scene_selection`. Resets the close flag (so the
-        selection loop runs) and drops all per-rollout view state so the
-        selector shows the clean "Ready - pick a scene" / "WAITING FOR
-        BEV..." state rather than ghosting the just-exited rollout's last
-        camera frame, BEV minimap, and speed.
+        selection loop runs), resets the selected variant, and drops all
+        per-rollout view state so the selector shows the clean "Ready - pick a
+        scene" / "WAITING FOR BEV..." state rather than ghosting the
+        just-exited rollout's last camera frame, BEV minimap, and speed.
         """
         self._pending_exit_scene = False
         self._should_close_flag = False
+        self._reset_selected_variant_to_default()
         self._reset_scene_view_state()
+
+    def _reset_selected_variant_to_default(self) -> None:
+        """Point ``_selected_variant`` at the current scene's first variant.
+
+        Otherwise the "Variant:" header keeps showing the exited rollout's
+        weather variant, which a fresh scene pick (always ``scene.variants[0]``)
+        won't load. Falls back to ``"default"`` if the scene can't be resolved.
+        """
+        option = self._current_scene_option()
+        self._selected_variant = (
+            option.variants[0] if option is not None and option.variants else "default"
+        )
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
