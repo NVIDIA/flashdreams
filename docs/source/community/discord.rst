@@ -21,7 +21,7 @@ hours, and take part in technical discussion with the FlashDreams team and
 community.
 
 If you are new, start with the
-`server invite <https://discord.com/invite/nvidiaomniverse>`__ toon-board,
+`server invite <https://discord.com/invite/nvidiaomniverse>`__ to on-board,
 then drop into the project channels below.
 
 Channels
