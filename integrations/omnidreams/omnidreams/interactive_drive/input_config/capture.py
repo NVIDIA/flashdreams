@@ -32,6 +32,8 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     EVDEV_EVENT_FORMAT,
     EVDEV_EVENT_SIZE,
     AxisRange,
+    Binding,
+    DeviceSpec,
     WheelProfile,
     read_axis_states,
 )
@@ -68,6 +70,40 @@ def select_axis_by_span(
             best_fraction = fraction
             best_code = code
     return best_code if best_fraction >= min_fraction else None
+
+
+def select_axis_across(
+    sessions: dict[Path, "CaptureSession"],
+    *,
+    min_fraction: float = MIN_MOVE_FRACTION,
+) -> tuple[Path, int] | None:
+    """Return ``(device_path, axis)`` for the control moved most across devices.
+
+    Lets the wizard bind a control to whichever selected device it moved on.
+    """
+    best: tuple[float, Path, int] | None = None
+    for path, session in sessions.items():
+        ranges = session.axis_ranges
+        for code, observed_range in session.observed_ranges().items():
+            full = ranges.get(code)
+            span = full.span if full is not None else 65535.0
+            fraction = observed_range.span / span
+            if best is None or fraction > best[0]:
+                best = (fraction, path, code)
+    if best is None or best[0] < min_fraction:
+        return None
+    return best[1], best[2]
+
+
+def pressed_button_across(
+    sessions: dict[Path, "CaptureSession"],
+) -> tuple[Path, int] | None:
+    """Return ``(device_path, code)`` of a button pressed on any device."""
+    for path, session in sessions.items():
+        pressed = session.pressed_buttons()
+        if pressed:
+            return path, min(pressed)
+    return None
 
 
 def peak_from_observed(observed_range: AxisRange, reference: float) -> int:
@@ -131,41 +167,41 @@ def build_profile(
     *,
     name: str,
     display_name: str,
-    detection_patterns: tuple[str, ...],
-    steering_axis: int,
-    throttle_axis: int,
-    brake_axis: int,
+    devices: tuple[DeviceSpec, ...],
+    axis_map: dict[str, Binding],
     invert_steering: bool,
     inverted_pedals: bool,
     ffb_enabled: bool,
     ffb_gain: float,
     is_default: bool,
-    reverse_buttons: tuple[int, ...] = (),
-    reset_buttons: tuple[int, ...] = (),
-    exit_buttons: tuple[int, ...] = (),
+    ffb_mode: str = "auto",
+    reverse_buttons: tuple[Binding, ...] = (),
+    reset_buttons: tuple[Binding, ...] = (),
+    exit_buttons: tuple[Binding, ...] = (),
     steering_range: float = 1.0,
     steering_deadzone: float = 0.0,
     threshold: float = 0.12,
 ) -> WheelProfile:
-    """Assemble captured calibration values into a :class:`WheelProfile`."""
+    """Assemble captured calibration values into a :class:`WheelProfile`.
+
+    ``devices`` is the ordered device list; ``axis_map`` and the button
+    tuples hold :class:`Binding`s whose ``device`` indexes into it.
+    """
     return WheelProfile(
         name=name,
         display_name=display_name,
-        detection_patterns=tuple(detection_patterns),
-        axis_map={
-            "steering": int(steering_axis),
-            "throttle": int(throttle_axis),
-            "brake": int(brake_axis),
-        },
+        devices=tuple(devices),
+        axis_map=dict(axis_map),
         inverted_pedals=bool(inverted_pedals),
         invert_steering=bool(invert_steering),
         ffb_enabled=bool(ffb_enabled),
         ffb_gain=float(ffb_gain),
+        ffb_mode=str(ffb_mode),
         threshold=float(threshold),
         is_default=bool(is_default),
-        reverse_buttons=tuple(int(b) for b in reverse_buttons),
-        reset_buttons=tuple(int(b) for b in reset_buttons),
-        exit_buttons=tuple(int(b) for b in exit_buttons),
+        reverse_buttons=tuple(reverse_buttons),
+        reset_buttons=tuple(reset_buttons),
+        exit_buttons=tuple(exit_buttons),
         steering_range=float(steering_range),
         steering_deadzone=float(steering_deadzone),
     )

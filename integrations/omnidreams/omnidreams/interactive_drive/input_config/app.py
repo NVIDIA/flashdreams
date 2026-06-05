@@ -21,15 +21,21 @@ from dataclasses import replace
 from pathlib import Path
 
 import yaml
+from loguru import logger
 from omnidreams.interactive_drive.input.wheel_profiles import (
     AutocenterFFB,
+    Binding,
+    ConstantForceFFB,
+    DeviceSpec,
     EvdevDevice,
     apply_steering_curve,
+    create_ffb_backend,
     delete_profile_file,
     list_device_axes,
     load_wheel_profile_files,
     name_match_strength,
     profile_filename,
+    query_ff_features,
     save_wheel_profile,
     scan_evdev_devices,
     update_profile_file,
@@ -42,8 +48,10 @@ from omnidreams.interactive_drive.input_config.capture import (
     infer_pedal_inverted,
     infer_steering_invert,
     peak_from_observed,
-    select_axis_by_span,
+    pressed_button_across,
+    select_axis_across,
 )
+from omnidreams.interactive_drive.log import configure_logging
 
 try:  # Tkinter is stdlib but needs the system Tk package installed.
     import tkinter as tk
@@ -81,14 +89,13 @@ _CANVAS_H = 150
 # step auto-binds that axis. The leeway keeps idle jitter or an accidental
 # nudge of a different control from being picked.
 _DETECT_FRACTION = 0.18
+# Live loop period and the rate the constant-force FFB test wiggles the wheel.
+_TICK_MS = 60
+_FFB_WIGGLE_HZ = 1.2
 
 
 def _axis_label(code: int) -> str:
     return f"0x{code:02x} ({_ABS_NAMES.get(code, f'ABS_{code}')})"
-
-
-def _axis_from_label(label: str) -> int:
-    return int(label.split()[0], 16)
 
 
 class ConfigApp:
@@ -102,9 +109,15 @@ class ConfigApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.state: dict = {}
-        self.session: CaptureSession | None = None
+        # One capture session per selected device, keyed by device path (in
+        # selection order). A profile can bind controls across several.
+        self.sessions: dict[Path, CaptureSession] = {}
         self.devices: tuple[EvdevDevice, ...] = ()
-        self._ffb: AutocenterFFB | None = None
+        self._device_by_path: dict[Path, EvdevDevice] = {}
+        self._ffb: AutocenterFFB | ConstantForceFFB | None = None
+        # Constant-force test oscillation (wiggle): amplitude + running phase.
+        self._ffb_wiggle_gain = 0.0
+        self._ffb_wiggle_phase = 0.0
         self._saved = False
         self._step_index = 0
         # When set to ``(path, profile)`` the editor screen is shown instead
@@ -187,6 +200,9 @@ class ConfigApp:
         return steps[min(self._step_index, len(steps) - 1)]
 
     def _render(self) -> None:
+        # Stop any active FFB test so the wheel is never left under force when
+        # navigating away from an FFB page (the backend holds its own fd).
+        self._ffb_stop()
         self._clear_content()
         self._recording_key = None
         self._record_buttons = {}
@@ -226,7 +242,7 @@ class ConfigApp:
 
     def _on_back(self) -> None:
         if self._editing is not None:
-            self._stop_session()
+            self._stop_sessions()
             self._editing = None
             self._render()
             return
@@ -297,15 +313,28 @@ class ConfigApp:
     # -- existing-profile management + editor ---------------------------
 
     def _refresh_welcome(self) -> None:
-        self._stop_session()
+        self._stop_sessions()
         self._editing = None
         self._step_index = 0
         self._render()
 
-    def _stop_session(self) -> None:
-        if self.session is not None:
-            self.session.stop()
-            self.session = None
+    def _stop_sessions(self) -> None:
+        for session in self.sessions.values():
+            session.stop()
+        self.sessions.clear()
+
+    def _reset_all_observed(self) -> None:
+        for session in self.sessions.values():
+            session.reset_observed()
+
+    def _primary_session(self) -> CaptureSession | None:
+        """First open session, used for generic 'a device is selected' checks."""
+        return next(iter(self.sessions.values()), None)
+
+    def _short_name(self, path: Path) -> str:
+        """Short device label for axis/binding menus."""
+        device = self._device_by_path.get(path)
+        return device.name if device is not None else str(path)
 
     def _start_edit(self, path, profile) -> None:
         self._editing = (path, profile)
@@ -353,22 +382,33 @@ class ConfigApp:
         self._edit_invert_pedals = tk.BooleanVar(value=profile.inverted_pedals)
         self._edit_ffb = tk.BooleanVar(value=profile.ffb_enabled)
         self._edit_ffb_gain = tk.DoubleVar(value=profile.ffb_gain)
+        self._edit_ffb_mode = tk.StringVar(value=profile.ffb_mode or "auto")
         self._edit_range = tk.DoubleVar(value=profile.steering_range)
         self._edit_deadzone = tk.DoubleVar(value=profile.steering_deadzone)
         self._edit_default = tk.BooleanVar(value=profile.is_default)
 
-        # Open a live session for this profile's connected device so the
-        # steering preview below reflects the deadzone / sensitivity sliders
-        # as you drag them.
-        self._stop_session()
-        device = self._find_profile_device(profile)
-        if device is not None:
-            try:
-                session = CaptureSession(device.path)
-                session.start()
-                self.session = session
-            except OSError:
-                self.session = None
+        # Open a session per connected device for the live preview;
+        # ``_edit_sessions_by_index`` lets it resolve per-device bindings.
+        self._stop_sessions()
+        self._edit_sessions_by_index = {}
+        primary_device = None
+        for index in range(len(profile.devices)):
+            found = self._find_device_for_spec(profile, index)
+            if found is None:
+                continue
+            if primary_device is None:
+                primary_device = found
+            session = self.sessions.get(found.path)
+            if session is None:
+                try:
+                    session = CaptureSession(found.path)
+                    session.start()
+                except OSError:
+                    continue
+                self.sessions[found.path] = session
+                self._device_by_path[found.path] = found
+            self._edit_sessions_by_index[index] = session
+        device = primary_device
         ttk.Label(
             self.content,
             foreground="#2f8f2f",
@@ -388,14 +428,29 @@ class ConfigApp:
         )
 
         axis_map = profile.axis_map
+
+        def _axis_desc(key: str) -> str:
+            binding = axis_map.get(key)
+            if binding is None:
+                return f"{key} unset"
+            text = f"{key} 0x{binding.code:02x}"
+            # Name the device only when the profile spans more than one.
+            if len(profile.devices) > 1 and binding.device < len(profile.devices):
+                spec = profile.devices[binding.device]
+                name = (
+                    spec.display_name
+                    or (spec.detection_patterns[0] if spec.detection_patterns else "")
+                    or f"device {binding.device}"
+                )
+                text += f" on {name}"
+            return text
+
         ttk.Label(
             self.content,
             foreground="#666",
             text=(
                 "Axes (recalibrate by creating a new profile): "
-                f"steering 0x{axis_map.get('steering', 0):02x}, "
-                f"throttle 0x{axis_map.get('throttle', 0):02x}, "
-                f"brake 0x{axis_map.get('brake', 0):02x}"
+                + ", ".join(_axis_desc(k) for k in ("steering", "throttle", "brake"))
             ),
         ).pack(anchor="w", pady=(4, 6))
 
@@ -420,6 +475,20 @@ class ConfigApp:
             length=200,
             variable=self._edit_ffb_gain,
         ).pack(side="left", padx=8)
+        ttk.Label(ffb_row, text="Mode").pack(side="left", padx=(8, 2))
+        ttk.Combobox(
+            ffb_row,
+            textvariable=self._edit_ffb_mode,
+            values=("auto", "autocenter", "constant_force"),
+            state="readonly",
+            width=14,
+        ).pack(side="left")
+        ttk.Button(ffb_row, text="Test", command=self._edit_ffb_test).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(ffb_row, text="Stop", command=self._ffb_stop).pack(
+            side="left", padx=4
+        )
 
         ttk.Label(self.content, text="Detection patterns (one per line):").pack(
             anchor="w", pady=(6, 0)
@@ -447,6 +516,16 @@ class ConfigApp:
         if not patterns:
             messagebox.showwarning("Not ready", "Add at least one detection pattern.")
             return
+        # The editor's pattern box maps to the primary device; keep any other
+        # devices' patterns untouched. ``detection_patterns`` is a read-only
+        # accessor, so update the device list rather than that property.
+        if profile.devices:
+            devices = (
+                replace(profile.devices[0], detection_patterns=patterns),
+                *profile.devices[1:],
+            )
+        else:
+            devices = (DeviceSpec(detection_patterns=patterns),)
         updated = replace(
             profile,
             display_name=self._edit_display_name.get().strip() or profile.display_name,
@@ -454,9 +533,10 @@ class ConfigApp:
             inverted_pedals=bool(self._edit_invert_pedals.get()),
             ffb_enabled=bool(self._edit_ffb.get()),
             ffb_gain=float(self._edit_ffb_gain.get()),
+            ffb_mode=str(self._edit_ffb_mode.get() or "auto"),
             steering_range=float(self._edit_range.get()),
             steering_deadzone=float(self._edit_deadzone.get()),
-            detection_patterns=patterns,
+            devices=devices,
             is_default=bool(self._edit_default.get()),
         )
         update_profile_file(path, updated)
@@ -470,7 +550,7 @@ class ConfigApp:
         self._refresh_welcome()
 
     def _build_device(self) -> None:
-        self.title_var.set("Select your device")
+        self.title_var.set("Select your device(s)")
         ttk.Label(
             self.content,
             wraplength=680,
@@ -478,13 +558,17 @@ class ConfigApp:
             text=(
                 "Pick your device, then operate any control -- the Live inputs panel "
                 "below updates so you can confirm you chose the right one (some "
-                "devices expose several nodes). Then click Next."
+                "devices expose several nodes). Ctrl+click to select more than one "
+                "device when your controls are split across devices (for example a "
+                "wheel base plus a separate-brand pedal set). Then click Next."
             ),
         ).pack(anchor="w", pady=(0, 8))
 
         row = ttk.Frame(self.content)
         row.pack(fill="both", expand=True)
-        self.device_list = tk.Listbox(row, height=7, exportselection=False)
+        self.device_list = tk.Listbox(
+            row, height=7, exportselection=False, selectmode="extended"
+        )
         self.device_list.pack(side="left", fill="both", expand=True)
         scroll = ttk.Scrollbar(row, command=self.device_list.yview)
         scroll.pack(side="right", fill="y")
@@ -495,40 +579,53 @@ class ConfigApp:
             anchor="w", pady=8
         )
         self._refresh_devices()
+        self._restore_device_selection()
 
     def _refresh_devices(self) -> None:
         self.devices = scan_evdev_devices()
+        self._device_by_path = {device.path: device for device in self.devices}
         self.device_list.delete(0, "end")
         for device in self.devices:
             self.device_list.insert("end", f"{device.name}  [{device.path}]")
         if not self.devices:
             self.device_list.insert("end", "(no readable input devices found)")
 
+    def _restore_device_selection(self) -> None:
+        """Reselect already-open devices when returning to the device step."""
+        for i, device in enumerate(self.devices):
+            if device.path in self.sessions:
+                self.device_list.selection_set(i)
+
     def _on_device_selected(self, _event=None) -> None:
-        selection = self.device_list.curselection()
-        if not selection or not self.devices:
+        if not self.devices:
             return
-        device = self.devices[selection[0]]
-        if self.session is not None and self.session.device_path == device.path:
-            return
-        if self.session is not None:
-            self.session.stop()
-            self.session = None
-        session = CaptureSession(device.path)
-        try:
-            session.start()
-        except PermissionError:
-            messagebox.showerror(
-                "Permission denied",
-                f"Cannot read {device.path}.\n\nAdd your user to the 'input' group "
-                "(then log out/in) or add a udev rule, and try again.",
-            )
-            return
-        except OSError as exc:
-            messagebox.showerror("Cannot open device", f"{device.path}: {exc}")
-            return
-        self.session = session
-        self.state["device"] = device
+        selected_paths = [
+            self.devices[i].path
+            for i in self.device_list.curselection()
+            if i < len(self.devices)
+        ]
+        # Close sessions for devices that were deselected.
+        for path in list(self.sessions):
+            if path not in selected_paths:
+                self.sessions.pop(path).stop()
+        # Open a session for each newly selected device.
+        for path in selected_paths:
+            if path in self.sessions:
+                continue
+            session = CaptureSession(path)
+            try:
+                session.start()
+            except PermissionError:
+                messagebox.showerror(
+                    "Permission denied",
+                    f"Cannot read {path}.\n\nAdd your user to the 'input' group "
+                    "(then log out/in) or add a udev rule, and try again.",
+                )
+                continue
+            except OSError as exc:
+                messagebox.showerror("Cannot open device", f"{path}: {exc}")
+                continue
+            self.sessions[path] = session
 
     def _build_controls(self) -> None:
         self.title_var.set("Calibrate controls")
@@ -568,37 +665,41 @@ class ConfigApp:
             command=self._apply_pedal_invert,
         ).pack(anchor="w", pady=(6, 0))
 
+    def _control_label(self, path: Path, code: int) -> str:
+        """Device-qualified axis label, e.g. ``"Fanatec CSL: 0x00 (ABS_X)"``."""
+        return f"{self._short_name(path)}: {_axis_label(code)}"
+
     def _steering_section(self, parent, control: str) -> None:
         self.invert_steering_var = tk.BooleanVar(
             value=self.state.get("invert_steering", False)
         )
-        self._steering_axis_choice = tk.StringVar(
-            value=self.state.get("_steering_axis_label", "")
-        )
+        choice = tk.StringVar(value=self.state.get("_steering_axis_label", ""))
         result = tk.StringVar(value=self.state.get("_steering_summary", ""))
         ttk.Label(
             parent, text=f"Click Start, then turn the {control} a little to the LEFT."
         ).pack(anchor="w")
 
-        def on_detect(axis: int, base: int, peak: int) -> None:
-            rng = self.session.axis_ranges[axis]
+        def on_detect(path: Path, axis: int, base: int, peak: int) -> None:
+            rng = self.sessions[path].axis_ranges[axis]
             # ``peak`` is the deflected value; if turning left lowered the raw
             # value the steering sign must be flipped.
             invert = bool(infer_steering_invert(peak, base))
+            label = self._control_label(path, axis)
             self.state["steering_axis"] = axis
+            self.state["steering_device_path"] = str(path)
             self.state["invert_steering"] = invert
-            self.state["_steering_axis_label"] = _axis_label(axis)
+            self.state["_steering_axis_label"] = label
             self.state["_steering_summary"] = (
-                f"Steering on {_axis_label(axis)} (range {rng.minimum}..{rng.maximum}), invert={invert}"
+                f"Steering on {label} (range {rng.minimum}..{rng.maximum}), invert={invert}"
             )
             self.invert_steering_var.set(invert)
-            self._steering_axis_choice.set(_axis_label(axis))
+            choice.set(label)
             result.set(self.state["_steering_summary"])
 
         row = ttk.Frame(parent)
         row.pack(anchor="w", fill="x", pady=4)
         self._record_button(row, "steering", on_detect, result)
-        self._axis_override(row, self._steering_axis_choice)
+        self._axis_override(row, "steering", choice, result)
         ttk.Label(
             parent, textvariable=result, foreground="#2f6fbf", wraplength=660
         ).pack(anchor="w")
@@ -610,33 +711,34 @@ class ConfigApp:
         ).pack(anchor="w")
 
     def _pedal_section(self, parent, key: str, control: str) -> None:
-        axis_choice = tk.StringVar(value=self.state.get(f"_{key}_axis_label", ""))
+        choice = tk.StringVar(value=self.state.get(f"_{key}_axis_label", ""))
         result = tk.StringVar(value=self.state.get(f"_{key}_summary", ""))
-        setattr(self, f"_{key}_axis_choice", axis_choice)
         ttk.Label(parent, text=f"Click Start, then press the {control} a little.").pack(
             anchor="w"
         )
 
-        def on_detect(axis: int, base: int, peak: int) -> None:
+        def on_detect(path: Path, axis: int, base: int, peak: int) -> None:
             inverted = bool(infer_pedal_inverted(base, peak))
+            label = self._control_label(path, axis)
             self.state[f"{key}_axis"] = axis
+            self.state[f"{key}_device_path"] = str(path)
             self.state[f"{key}_inverted"] = inverted
             # Throttle defines the shared pedal-invert flag; brake seeds it
             # only when throttle hasn't been calibrated yet.
             if key == "throttle" or "throttle_inverted" not in self.state:
                 self.state["inverted_pedals"] = inverted
                 self.invert_pedals_var.set(inverted)
-            self.state[f"_{key}_axis_label"] = _axis_label(axis)
+            self.state[f"_{key}_axis_label"] = label
             self.state[f"_{key}_summary"] = (
-                f"{key.capitalize()} on {_axis_label(axis)} (inverted={inverted})"
+                f"{key.capitalize()} on {label} (inverted={inverted})"
             )
-            axis_choice.set(_axis_label(axis))
+            choice.set(label)
             result.set(self.state[f"_{key}_summary"])
 
         row = ttk.Frame(parent)
         row.pack(anchor="w", fill="x", pady=4)
         self._record_button(row, key, on_detect, result)
-        self._axis_override(row, axis_choice)
+        self._axis_override(row, key, choice, result)
         ttk.Label(
             parent, textvariable=result, foreground="#2f6fbf", wraplength=660
         ).pack(anchor="w")
@@ -647,14 +749,14 @@ class ConfigApp:
         Clicking starts listening; the axis auto-binds as soon as one moves
         past the leeway threshold (handled in :meth:`_tick`), so there is no
         Stop click. Clicking again before that cancels. Only one section
-        listens at a time, since they share the session's observed buffer.
+        listens at a time, since they share the sessions' observed buffers.
         """
         btn = ttk.Button(parent, text="Start listening")
         self._record_buttons[key] = btn
         self._detect_callbacks[key] = on_detect
 
         def toggle() -> None:
-            if self.session is None:
+            if not self.sessions:
                 messagebox.showwarning(
                     "No device", "Go back and select a device first."
                 )
@@ -668,7 +770,7 @@ class ConfigApp:
                     other = self._record_buttons.get(self._recording_key)
                     if other is not None:
                         other.config(text="Start listening")
-                self.session.reset_observed()
+                self._reset_all_observed()
                 self._recording_key = key
                 btn.config(text="Listening... (click to cancel)")
                 result_var.set("Move the control a little to bind it.")
@@ -684,15 +786,34 @@ class ConfigApp:
         # Reflect the checkbox in state immediately so the live pedal bars flip.
         self.state["inverted_pedals"] = bool(self.invert_pedals_var.get())
 
-    def _axis_override(self, parent, choice_var) -> None:
+    def _axis_override(self, parent, key: str, choice_var, summary_var) -> None:
+        """Manual axis picker spanning every selected device.
+
+        Each entry is a device-qualified axis; selecting one binds *key* to
+        that (device, axis) directly, the manual fallback to auto-detect.
+        """
         ttk.Label(parent, text="  Axis:").pack(side="left")
-        codes = sorted(self.session.axis_ranges) if self.session is not None else []
-        labels = [_axis_label(code) for code in codes] or ["(none)"]
-        if not choice_var.get():
+        options: dict[str, tuple[Path, int]] = {}
+        for path, session in self.sessions.items():
+            for code in sorted(session.axis_ranges):
+                options[self._control_label(path, code)] = (path, code)
+        labels = list(options) or ["(none)"]
+        if choice_var.get() not in options:
             choice_var.set(labels[0])
-        ttk.OptionMenu(parent, choice_var, choice_var.get(), *labels).pack(
-            side="left", padx=6
-        )
+
+        def on_pick(label: str) -> None:
+            picked = options.get(label)
+            if picked is None:
+                return
+            path, code = picked
+            self.state[f"{key}_axis"] = code
+            self.state[f"{key}_device_path"] = str(path)
+            self.state[f"_{key}_axis_label"] = label
+            summary_var.set(f"{key.capitalize()} on {label}")
+
+        ttk.OptionMenu(
+            parent, choice_var, choice_var.get(), *labels, command=on_pick
+        ).pack(side="left", padx=6)
 
     def _build_buttons(self) -> None:
         self.title_var.set("Bind buttons (optional)")
@@ -732,14 +853,17 @@ class ConfigApp:
             )
 
     def _button_summary(self, key: str) -> str:
-        codes = self.state.get(f"{key}_buttons", ())
-        return f"Bound to button code {codes[0]}" if codes else "Not bound"
+        bindings = self.state.get(f"{key}_buttons", ())
+        if not bindings:
+            return "Not bound"
+        path_str, code = bindings[0]
+        return f"Bound to button {code} on {self._short_name(Path(path_str))}"
 
     def _start_button_listen(self, key: str) -> None:
-        if self.session is None:
+        if not self.sessions:
             messagebox.showwarning("No device", "Go back and select a device first.")
             return
-        self.session.reset_observed()
+        self._reset_all_observed()
         self._button_listening = key
         var = self._button_result_vars.get(key)
         if var is not None:
@@ -757,21 +881,35 @@ class ConfigApp:
         self.title_var.set("Force feedback (optional)")
         self.ffb_enabled_var = tk.BooleanVar(value=self.state.get("ffb_enabled", True))
         self.ffb_gain_var = tk.DoubleVar(value=self.state.get("ffb_gain", 0.6))
+        self.ffb_mode_var = tk.StringVar(value=self.state.get("ffb_mode", "auto"))
         ttk.Label(
             self.content,
             wraplength=680,
             justify="left",
             text=(
-                "Autocenter force feedback makes the wheel resist turning and return "
-                "to center, scaled by speed. Enable it and test the feel; leave it "
-                "off if your device has no autocenter motor."
+                "Force feedback makes the wheel resist turning and return to center, "
+                "scaled by speed. 'Auto' picks the right method for your wheel: a "
+                "driver-managed autocenter spring (Thrustmaster, Logitech) or a "
+                "self-rendered constant force (Fanatec, which has no autocenter). "
+                "Force 'constant_force' if a Logitech's autocenter feels too weak, or "
+                "leave FFB off for devices with no motor."
             ),
         ).pack(anchor="w", pady=(0, 10))
         ttk.Checkbutton(
             self.content,
-            text="Enable autocenter force feedback",
+            text="Enable force feedback",
             variable=self.ffb_enabled_var,
         ).pack(anchor="w")
+        mode_row = ttk.Frame(self.content)
+        mode_row.pack(anchor="w", pady=(8, 0), fill="x")
+        ttk.Label(mode_row, text="Mode").pack(side="left")
+        ttk.Combobox(
+            mode_row,
+            textvariable=self.ffb_mode_var,
+            values=("auto", "autocenter", "constant_force"),
+            state="readonly",
+            width=16,
+        ).pack(side="left", padx=8)
         gain_row = ttk.Frame(self.content)
         gain_row.pack(anchor="w", pady=8, fill="x")
         ttk.Label(gain_row, text="Gain").pack(side="left")
@@ -790,31 +928,74 @@ class ConfigApp:
             side="left", padx=8
         )
 
-    def _ffb_test(self) -> None:
-        if self.session is None:
-            return
+    def _ffb_device_path(self) -> Path | None:
+        """Device that produces FFB: the steering device, else the first open."""
+        path_str = self.state.get("steering_device_path")
+        if path_str is not None and Path(path_str) in self.sessions:
+            return Path(path_str)
+        primary = self._primary_session()
+        return primary.device_path if primary is not None else None
+
+    def _edit_ffb_device_path(self) -> Path | None:
+        """Steering device's path for the editor's FFB test (its open session)."""
+        if self._editing is None:
+            return None
+        _path, profile = self._editing
+        steering_index = profile.axis_map["steering"].device
+        session = self._edit_sessions_by_index.get(steering_index)
+        return session.device_path if session is not None else None
+
+    def _run_ffb_test(self, device_path: Path | None, gain: float, mode: str) -> None:
+        """Shared FFB test used by the wizard and the editor."""
         self._ffb_stop()
-        ffb = AutocenterFFB()
-        ffb.init(self.session.device_path, float(self.ffb_gain_var.get()))
+        if device_path is None:
+            messagebox.showinfo(
+                "Force feedback unavailable",
+                "Connect the wheel and select it so it can be tested.",
+            )
+            return
+        ffb = create_ffb_backend(mode, query_ff_features(device_path))
+        ffb.init(device_path, gain)
         if not ffb.available:
             messagebox.showinfo(
                 "Force feedback unavailable",
                 "Could not open the device for force feedback (it may not support "
-                "autocenter, or write permission is missing).",
+                "the selected effect, or write permission is missing).",
             )
             return
-        ffb.set_autocenter(float(self.ffb_gain_var.get()))
+        # Constant force does nothing at rest. Autocenter just stiffens; for
+        # constant force we wiggle the wheel back and forth (driven in _tick).
+        if isinstance(ffb, ConstantForceFFB):
+            self._ffb_wiggle_gain = gain
+            self._ffb_wiggle_phase = 0.0
+        else:
+            ffb.set_autocenter(gain)
         self._ffb = ffb
 
+    def _ffb_test(self) -> None:
+        self._run_ffb_test(
+            self._ffb_device_path(),
+            float(self.ffb_gain_var.get()),
+            self.ffb_mode_var.get(),
+        )
+
+    def _edit_ffb_test(self) -> None:
+        self._run_ffb_test(
+            self._edit_ffb_device_path(),
+            float(self._edit_ffb_gain.get()),
+            self._edit_ffb_mode.get(),
+        )
+
     def _ffb_stop(self) -> None:
+        self._ffb_wiggle_gain = 0.0
         if self._ffb is not None:
             self._ffb.cleanup()
             self._ffb = None
 
     def _build_details(self) -> None:
         self.title_var.set("Settings & detection")
-        device = self.state.get("device")
-        default_name = device.name if device else "My device"
+        steer_path = self.state.get("steering_device_path")
+        default_name = self._short_name(Path(steer_path)) if steer_path else "My device"
         controller = self.state.get("device_type") == "controller"
         self.display_name_var = tk.StringVar(
             value=self.state.get("display_name", default_name)
@@ -872,16 +1053,25 @@ class ConfigApp:
             wraplength=680,
             justify="left",
             text=(
-                "\nDetection patterns -- one per line. The device is auto-selected at "
-                "launch when its name contains any of these."
+                "\nDetection patterns -- one per line, per device. Each device is "
+                "auto-selected at launch when its name contains any of its patterns."
             ),
         ).pack(anchor="w")
-        self.patterns_text = tk.Text(self.content, height=3, width=62)
-        self.patterns_text.pack(anchor="w", pady=4)
-        existing = self.state.get("detection_patterns")
-        self.patterns_text.insert(
-            "1.0", "\n".join(existing) if existing else (device.name if device else "")
-        )
+        # One pattern box per device a binding actually uses, seeded from the
+        # device's evdev name. ``_device_pattern_texts`` maps device path ->
+        # widget so validation can read them back.
+        self._device_pattern_texts = {}
+        saved_patterns = self.state.get("device_patterns", {})
+        for path_str in self._ordered_device_paths():
+            short = self._short_name(Path(path_str))
+            ttk.Label(self.content, text=short, foreground="#444").pack(
+                anchor="w", pady=(6, 0)
+            )
+            box = tk.Text(self.content, height=2, width=62)
+            box.pack(anchor="w", pady=2)
+            existing = saved_patterns.get(path_str)
+            box.insert("1.0", "\n".join(existing) if existing else short)
+            self._device_pattern_texts[path_str] = box
 
         ttk.Checkbutton(
             self.content,
@@ -915,7 +1105,7 @@ class ConfigApp:
             self.state["device_type"] = self.device_type_var.get()
             return True, ""
         if step == "device":
-            if self.session is None:
+            if not self.sessions:
                 return False, "Select a device from the list first."
             return True, ""
         if step == "controls":
@@ -924,19 +1114,15 @@ class ConfigApp:
                 ("throttle", "throttle"),
                 ("brake", "brake"),
             ):
-                if f"{axis_key}_axis" not in self.state:
+                if (
+                    f"{axis_key}_axis" not in self.state
+                    or f"{axis_key}_device_path" not in self.state
+                ):
                     return (
                         False,
-                        f"Calibrate {human} first (Start listening, move it, Stop).",
+                        f"Calibrate {human} first (Start listening, then move it).",
                     )
-            self.state["steering_axis"] = _axis_from_label(
-                self._steering_axis_choice.get()
-            )
             self.state["invert_steering"] = bool(self.invert_steering_var.get())
-            self.state["throttle_axis"] = _axis_from_label(
-                self._throttle_axis_choice.get()
-            )
-            self.state["brake_axis"] = _axis_from_label(self._brake_axis_choice.get())
             self.state["inverted_pedals"] = bool(self.invert_pedals_var.get())
             return True, ""
         if step == "buttons":
@@ -948,26 +1134,51 @@ class ConfigApp:
             self._ffb_stop()
             self.state["ffb_enabled"] = bool(self.ffb_enabled_var.get())
             self.state["ffb_gain"] = float(self.ffb_gain_var.get())
+            self.state["ffb_mode"] = str(self.ffb_mode_var.get() or "auto")
             return True, ""
         if step == "details":
             name = self.profile_name_var.get().strip()
             if not name:
                 return False, "Profile name cannot be empty."
-            patterns = [
-                line.strip()
-                for line in self.patterns_text.get("1.0", "end").splitlines()
-                if line.strip()
-            ]
-            if not patterns:
-                return False, "Add at least one detection pattern."
+            device_patterns: dict[str, tuple[str, ...]] = {}
+            for path_str, box in self._device_pattern_texts.items():
+                patterns = tuple(
+                    line.strip()
+                    for line in box.get("1.0", "end").splitlines()
+                    if line.strip()
+                )
+                if not patterns:
+                    short = self._short_name(Path(path_str))
+                    return False, f"Add at least one detection pattern for {short}."
+                device_patterns[path_str] = patterns
             self.state["name"] = name
             self.state["display_name"] = self.display_name_var.get().strip() or name
-            self.state["detection_patterns"] = tuple(patterns)
+            self.state["device_patterns"] = device_patterns
             self.state["is_default"] = bool(self.is_default_var.get())
             self.state["steering_range"] = float(self.steering_range_var.get())
             self.state["steering_deadzone"] = float(self.steering_deadzone_var.get())
             return True, ""
         return True, ""
+
+    def _ordered_device_paths(self) -> list[str]:
+        """Device paths referenced by any binding, steering device first.
+
+        The order becomes the profile's device-index order, so device 0 is the
+        steering device (the FFB device convention the runtime relies on).
+        """
+        ordered: list[str] = []
+
+        def add(path_str) -> None:
+            if path_str and path_str not in ordered:
+                ordered.append(path_str)
+
+        add(self.state.get("steering_device_path"))
+        add(self.state.get("throttle_device_path"))
+        add(self.state.get("brake_device_path"))
+        for key in ("reverse", "reset", "exit"):
+            for path_str, _code in self.state.get(f"{key}_buttons", ()):
+                add(path_str)
+        return ordered
 
     def _compose_profile(self):
         if self.state.get("device_type") == "controller":
@@ -975,21 +1186,48 @@ class ConfigApp:
         else:
             ffb_enabled = bool(self.state.get("ffb_enabled", False))
             ffb_gain = float(self.state.get("ffb_gain", 0.0))
+
+        ordered_paths = self._ordered_device_paths()
+        index_of = {path: i for i, path in enumerate(ordered_paths)}
+        device_patterns = self.state.get("device_patterns", {})
+        devices = tuple(
+            DeviceSpec(
+                detection_patterns=tuple(device_patterns.get(path, ())),
+                display_name=self._short_name(Path(path)),
+            )
+            for path in ordered_paths
+        )
+
+        def axis_binding(key: str) -> Binding:
+            return Binding(
+                device=index_of[self.state[f"{key}_device_path"]],
+                code=int(self.state[f"{key}_axis"]),
+            )
+
+        def button_bindings(key: str) -> tuple[Binding, ...]:
+            return tuple(
+                Binding(device=index_of[path], code=int(code))
+                for path, code in self.state.get(f"{key}_buttons", ())
+            )
+
         return build_profile(
             name=self.state["name"],
             display_name=self.state["display_name"],
-            detection_patterns=self.state["detection_patterns"],
-            steering_axis=self.state["steering_axis"],
-            throttle_axis=self.state["throttle_axis"],
-            brake_axis=self.state["brake_axis"],
+            devices=devices,
+            axis_map={
+                "steering": axis_binding("steering"),
+                "throttle": axis_binding("throttle"),
+                "brake": axis_binding("brake"),
+            },
             invert_steering=self.state["invert_steering"],
             inverted_pedals=bool(self.state.get("inverted_pedals", True)),
             ffb_enabled=ffb_enabled,
             ffb_gain=ffb_gain,
+            ffb_mode=str(self.state.get("ffb_mode", "auto")),
             is_default=self.state["is_default"],
-            reverse_buttons=tuple(self.state.get("reverse_buttons", ())),
-            reset_buttons=tuple(self.state.get("reset_buttons", ())),
-            exit_buttons=tuple(self.state.get("exit_buttons", ())),
+            reverse_buttons=button_bindings("reverse"),
+            reset_buttons=button_bindings("reset"),
+            exit_buttons=button_bindings("exit"),
             steering_range=float(self.state.get("steering_range", 1.0)),
             steering_deadzone=float(self.state.get("steering_deadzone", 0.0)),
         )
@@ -1010,6 +1248,13 @@ class ConfigApp:
         except OSError as exc:
             messagebox.showerror("Could not save", str(exc))
             return
+        # Saving as default demotes any other default, so there's only one.
+        if profile.is_default:
+            for other_path, other in load_wheel_profile_files(
+                user_wheel_profiles_dir()
+            ):
+                if other_path != path and other.is_default:
+                    update_profile_file(other_path, replace(other, is_default=False))
         self._saved = True
         self.primary_btn.config(text="Close")
         self.back_btn.state(["disabled"])
@@ -1022,77 +1267,115 @@ class ConfigApp:
     # -- live loop + teardown -------------------------------------------
 
     def _tick(self) -> None:
-        if self.session is not None and self._button_listening is not None:
-            pressed = self.session.pressed_buttons()
-            if pressed:
-                code = min(pressed)
+        if self.sessions and self._button_listening is not None:
+            hit = pressed_button_across(self.sessions)
+            if hit is not None:
+                path, code = hit
                 key = self._button_listening
-                self.state[f"{key}_buttons"] = (code,)
+                self.state[f"{key}_buttons"] = ((str(path), code),)
                 self._button_listening = None
                 var = self._button_result_vars.get(key)
                 if var is not None:
-                    var.set(f"Bound to button code {code}")
-        if self.session is not None and self._recording_key is not None:
-            axis = select_axis_by_span(
-                self.session.observed_ranges(),
-                self.session.axis_ranges,
-                min_fraction=_DETECT_FRACTION,
-            )
-            if axis is not None:
+                    var.set(f"Bound to button {code} on {self._short_name(path)}")
+        if self.sessions and self._recording_key is not None:
+            hit = select_axis_across(self.sessions, min_fraction=_DETECT_FRACTION)
+            if hit is not None:
+                path, axis = hit
+                session = self.sessions[path]
                 key = self._recording_key
                 self._recording_key = None
                 button = self._record_buttons.get(key)
                 if button is not None:
                     button.config(text="Start listening")
-                observed = self.session.observed_ranges()
-                base = self.session.baseline().get(
-                    axis, int(self.session.axis_ranges[axis].center)
+                observed = session.observed_ranges()
+                base = session.baseline().get(
+                    axis, int(session.axis_ranges[axis].center)
                 )
                 peak = peak_from_observed(observed[axis], base)
                 callback = self._detect_callbacks.get(key)
                 if callback is not None:
-                    callback(axis, base, peak)
+                    callback(path, axis, base, peak)
+        self._drive_ffb_wiggle()
         self._draw_live()
-        self.root.after(60, self._tick)
+        self.root.after(_TICK_MS, self._tick)
+
+    def _drive_ffb_wiggle(self) -> None:
+        """Oscillate the constant-force test so the wheel rocks left/right."""
+        if self._ffb_wiggle_gain <= 0.0 or not isinstance(self._ffb, ConstantForceFFB):
+            return
+        self._ffb_wiggle_phase += 2.0 * math.pi * _FFB_WIGGLE_HZ * (_TICK_MS / 1000.0)
+        self._ffb.set_test_force(
+            self._ffb_wiggle_gain * math.sin(self._ffb_wiggle_phase)
+        )
 
     # -- live wheel / pedal / axis visualization ------------------------
 
-    def _find_profile_device(self, profile):
-        """Best connected device matching *profile* (exact name preferred)."""
-        required = {int(axis) for axis in profile.axis_map.values()}
+    def _find_device_for_spec(self, profile, index: int):
+        """Best connected device for ``profile.devices[index]`` (exact name first).
+
+        Requires the device to expose every axis the profile binds to this
+        device index, so a same-named sibling node without those axes loses.
+        """
+        spec = profile.devices[index]
+        required = {b.code for b in profile.axis_map.values() if b.device == index}
         best = None  # (strength, device)
         for device in scan_evdev_devices():
             if not required.issubset(set(list_device_axes(device.path))):
                 continue
-            strength = name_match_strength(device.name, profile.detection_patterns)
+            strength = name_match_strength(device.name, spec.detection_patterns)
             if strength > 0 and (best is None or strength > best[0]):
                 best = (strength, device)
         return best[1] if best is not None else None
 
-    def _live_config(self) -> dict:
-        """Axis map + steering feel source for the live preview.
+    def _live_feel(self) -> dict:
+        """Steering-feel + invert flags for the live preview.
 
-        In the editor it reads the edit widgets, so dragging the deadzone /
-        range sliders updates the preview immediately; otherwise it's the
-        new-profile wizard state.
+        In the editor it reads the edit widgets (so dragging sliders updates
+        the preview live); otherwise the new-profile wizard state.
         """
         if self._editing is not None and hasattr(self, "_edit_range"):
-            _path, profile = self._editing
             return {
-                "steering_axis": profile.axis_map.get("steering"),
-                "throttle_axis": profile.axis_map.get("throttle"),
-                "brake_axis": profile.axis_map.get("brake"),
                 "invert_steering": bool(self._edit_invert_steer.get()),
                 "inverted_pedals": bool(self._edit_invert_pedals.get()),
                 "steering_range": float(self._edit_range.get()),
                 "steering_deadzone": float(self._edit_deadzone.get()),
             }
-        return self.state
+        return {
+            "invert_steering": bool(self.state.get("invert_steering", False)),
+            "inverted_pedals": bool(self.state.get("inverted_pedals", True)),
+            "steering_range": float(self.state.get("steering_range", 1.0) or 1.0),
+            "steering_deadzone": float(self.state.get("steering_deadzone", 0.0) or 0.0),
+        }
+
+    def _live_binding(self, key: str):
+        """Return ``(CaptureSession, code)`` for *key*'s live preview, or None."""
+        if self._editing is not None and hasattr(self, "_edit_range"):
+            _path, profile = self._editing
+            binding = profile.axis_map.get(key)
+            if binding is None:
+                return None
+            session = self._edit_sessions_by_index.get(binding.device)
+            return (session, binding.code) if session is not None else None
+        path_str = self.state.get(f"{key}_device_path")
+        code = self.state.get(f"{key}_axis")
+        if path_str is None or code is None:
+            return None
+        session = self.sessions.get(Path(path_str))
+        return (session, int(code)) if session is not None else None
+
+    def _aggregate_axes(self) -> tuple[dict, dict]:
+        """Merge every session's axes/ranges for the activity strip."""
+        axes: dict = {}
+        ranges: dict = {}
+        for session in self.sessions.values():
+            ranges.update(session.axis_ranges)
+            axes.update(session.axes())
+        return axes, ranges
 
     def _draw_live(self) -> None:
         canvas = self.live_canvas
         canvas.delete("all")
-        if self.session is None:
+        if not self.sessions:
             self.activity_var.set("")
             return
         editing = self._editing is not None
@@ -1109,22 +1392,26 @@ class ConfigApp:
         elif step in _AXIS_LIVE_STEPS:
             if self._recording_key is not None:
                 self.activity_var.set("Listening -- move the control...")
-            elif self.session.is_active():
+            elif any(s.is_active() for s in self.sessions.values()):
                 self.activity_var.set("Activity detected")
             else:
                 self.activity_var.set("Operate a control to see it move")
         else:
             self.activity_var.set("")
 
-        axes = self.session.axes()
-        ranges = self.session.axis_ranges
-        steer, throttle, brake = self._sim_values(axes, ranges)
+        steer, throttle, brake = self._sim_values()
         self._draw_wheel(canvas, 78, 70, 56, steer)
         self._draw_pedal(canvas, 168, throttle, "Throttle", "#76b900")
         self._draw_pedal(canvas, 226, brake, "Brake", "#d05a5a")
+        axes, ranges = self._aggregate_axes()
         self._draw_axis_strip(canvas, 300, axes, ranges)
         if not editing and step == "buttons":
-            held = sorted(c for c, v in self.session.buttons().items() if v == 1)
+            held = sorted(
+                code
+                for session in self.sessions.values()
+                for code, value in session.buttons().items()
+                if value == 1
+            )
             canvas.create_text(
                 10,
                 _CANVAS_H - 8,
@@ -1135,34 +1422,42 @@ class ConfigApp:
                 + (", ".join(str(c) for c in held) if held else "(none)"),
             )
 
-    def _sim_values(self, axes: dict, ranges: dict) -> tuple[float, float, float]:
-        """Normalized (steer, throttle, brake) from the active config source.
+    def _sim_values(self) -> tuple[float, float, float]:
+        """Normalized (steer, throttle, brake) for the live preview.
 
-        Unmapped controls read as neutral; the steering curve (deadzone +
-        sensitivity) is applied so the preview matches what the runtime does.
+        Each control is read from its own device's session; unmapped controls
+        read as neutral. The steering curve (deadzone + sensitivity) is applied
+        so the preview matches what the runtime does.
         """
-        cfg = self._live_config()
+        feel = self._live_feel()
         steer = throttle = brake = 0.0
-        steer_axis = cfg.get("steering_axis")
-        if steer_axis is not None and steer_axis in ranges and steer_axis in axes:
-            rng = ranges[steer_axis]
-            value = (axes[steer_axis] - rng.center) / (rng.span / 2.0)
-            if cfg.get("invert_steering"):
-                value = -value
-            steer = apply_steering_curve(
-                value,
-                deadzone=float(cfg.get("steering_deadzone", 0.0) or 0.0),
-                scale=float(cfg.get("steering_range", 1.0) or 1.0),
-            )
+        steer_bind = self._live_binding("steering")
+        if steer_bind is not None:
+            session, code = steer_bind
+            ranges, axes = session.axis_ranges, session.axes()
+            if code in ranges and code in axes:
+                rng = ranges[code]
+                value = (axes[code] - rng.center) / (rng.span / 2.0)
+                if feel["invert_steering"]:
+                    value = -value
+                steer = apply_steering_curve(
+                    value,
+                    deadzone=feel["steering_deadzone"],
+                    scale=feel["steering_range"],
+                )
         for key in ("throttle", "brake"):
-            axis = cfg.get(f"{key}_axis")
-            if axis is None or axis not in ranges or axis not in axes:
+            bind = self._live_binding(key)
+            if bind is None:
                 continue
-            rng = ranges[axis]
-            if cfg.get("inverted_pedals", True):
-                value = (rng.maximum - axes[axis]) / rng.span
+            session, code = bind
+            ranges, axes = session.axis_ranges, session.axes()
+            if code not in ranges or code not in axes:
+                continue
+            rng = ranges[code]
+            if feel["inverted_pedals"]:
+                value = (rng.maximum - axes[code]) / rng.span
             else:
-                value = (axes[axis] - rng.minimum) / rng.span
+                value = (axes[code] - rng.minimum) / rng.span
             value = max(0.0, min(1.0, value))
             if key == "throttle":
                 throttle = value
@@ -1258,25 +1553,22 @@ class ConfigApp:
 
     def _on_close(self) -> None:
         self._ffb_stop()
-        if self.session is not None:
-            self.session.stop()
-            self.session = None
+        self._stop_sessions()
         self.root.destroy()
 
 
 def main() -> None:
+    configure_logging()
     if not sys.platform.startswith("linux") or not Path("/dev/input").exists():
-        print(
+        logger.error(
             "interactive-drive-configuration requires Linux with evdev input "
             "devices under /dev/input.",
-            file=sys.stderr,
         )
         raise SystemExit(1)
     if tk is None:
-        print(
+        logger.error(
             "Tkinter is not available. Install your platform's Tk package "
             "(e.g. 'sudo apt-get install python3-tk') and retry.",
-            file=sys.stderr,
         )
         raise SystemExit(1)
     root = tk.Tk()

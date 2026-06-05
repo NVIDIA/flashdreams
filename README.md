@@ -78,6 +78,11 @@ You can also install FlashDreams as a library from PyPI:
 pip install flashdreams
 ```
 
+### Try the interactive driving demo
+
+Drive a world model in real time with the OmniDreams `interactive-drive` demo. See the
+**[interactive demo guide](https://nvidia.github.io/flashdreams/main/models/omnidreams.html#launch-the-interactive-demo)**.
+
 ## Supported models
 
 FlashDreams ships first-party integrations under

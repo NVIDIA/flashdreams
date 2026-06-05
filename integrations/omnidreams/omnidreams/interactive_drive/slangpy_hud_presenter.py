@@ -52,6 +52,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
@@ -324,7 +325,7 @@ class SlangPyHudPresenter:
         except ImportError as exc:
             raise RuntimeError(
                 "SlangPy is required for the interactive-drive HUD;"
-                " install with `uv sync --package flashdreams-omnidreams`."
+                " install with `uv sync --package flashdreams-omnidreams --extra interactive-drive`."
             ) from exc
 
         self._spy = spy
@@ -360,14 +361,13 @@ class SlangPyHudPresenter:
             resizable=True,
         )
         self._device = self._create_device()
-        print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
+        logger.info(f"[presenter] device={self._device.info.adapter_name}")
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
         self._display_format = spy.Format.rgba8_unorm
-        print(
+        logger.info(
             f"[presenter] surface preferred={self._surface.info.preferred_format}"
             f" chosen={self._surface_format} display={self._display_format}",
-            flush=True,
         )
         # Trust the ACTUAL window size after creation rather than the
         # requested defaults: SDL3 may clamp the window down to fit the
@@ -550,10 +550,9 @@ class SlangPyHudPresenter:
                 return
         except Exception as exc:
             if not self._cuda_hud_error_logged:
-                print(
+                logger.warning(
                     "[presenter] hud_cuda_interop=failed; disabling and using "
                     f"host HUD upload ({exc})",
-                    flush=True,
                 )
                 self._cuda_hud_error_logged = True
             if self._cuda_hud_interop is not None:
@@ -682,7 +681,7 @@ class SlangPyHudPresenter:
             try:
                 self._wheel.stop()
             except Exception as exc:  # noqa: BLE001 -- defensive teardown
-                print(f"[presenter] wheel.stop() failed: {exc!r}", flush=True)
+                logger.warning(f"[presenter] wheel.stop() failed: {exc!r}")
             self._wheel = None
         with contextlib.suppress(Exception):
             self._window.close()
@@ -760,10 +759,9 @@ class SlangPyHudPresenter:
         try:
             return self._spy.Device(**device_kwargs)
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 "[presenter] CUDA interop device creation failed; retrying Vulkan without "
                 f"interop ({exc})",
-                flush=True,
             )
             self._cuda_interop_unavailable_reason = "device creation failed"
             return self._spy.Device(
@@ -801,17 +799,15 @@ class SlangPyHudPresenter:
         self, width: int, height: int
     ) -> _CudaRGBInterop | None:
         if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
-            print(
+            logger.info(
                 "[presenter] hud_cuda_interop=disabled by "
                 f"{DISABLE_CUDA_INTEROP_ENV}; using host HUD upload",
-                flush=True,
             )
             return None
         if not self._device.supports_cuda_interop:
             reason = self._cuda_interop_unavailable_reason or "unsupported"
-            print(
+            logger.info(
                 f"[presenter] hud_cuda_interop={reason}; using host HUD upload",
-                flush=True,
             )
             return None
         try:
@@ -822,12 +818,11 @@ class SlangPyHudPresenter:
                 height=height,
             )
         except Exception as exc:
-            print(
+            logger.warning(
                 f"[presenter] hud_cuda_interop=unavailable; using host HUD upload ({exc})",
-                flush=True,
             )
             return None
-        print("[presenter] hud_cuda_interop=enabled", flush=True)
+        logger.info("[presenter] hud_cuda_interop=enabled")
         return interop
 
     def _choose_surface_format(self) -> Any:
@@ -888,10 +883,9 @@ class SlangPyHudPresenter:
             canvas_buffer, canvas = _allocate_canvas(width, height)
             self._configure_surface(width, height)
         except Exception as exc:
-            print(
+            logger.warning(
                 "[presenter] window resize failed; keeping previous presenter "
                 f"texture size {previous_size} ({exc})",
-                flush=True,
             )
             return False
         self._configured_size = (width, height)
@@ -940,9 +934,8 @@ class SlangPyHudPresenter:
         try:
             surface_texture = self._surface.acquire_next_image()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return False
@@ -973,9 +966,8 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return False
@@ -1000,9 +992,8 @@ class SlangPyHudPresenter:
             # after the swapchain has been idle long enough that the
             # OS reclaimed it. The fix is to reconfigure the surface
             # at the current window size; the next tick will retry.
-            print(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return
@@ -1026,9 +1017,8 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
 
@@ -1206,17 +1196,15 @@ class SlangPyHudPresenter:
         self._cuda_hud_interop = None
         self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
         if self._cuda_hud_interop is not None:
-            print(
+            logger.info(
                 "[presenter] hud_cuda_interop=recreated after window resize",
-                flush=True,
             )
             self._cuda_hud_resize_logged = False
             return
         if not self._cuda_hud_resize_logged:
-            print(
+            logger.warning(
                 "[presenter] hud_cuda_interop=disabled after window resize; "
                 "could not recreate shared CUDA/Vulkan resources",
-                flush=True,
             )
             self._cuda_hud_resize_logged = True
 
@@ -2471,7 +2459,7 @@ class SlangPyHudPresenter:
     # -- Scene / variant restart -------------------------------------
 
     def _restart_backend(self, scene: Any) -> None:
-        print(f"[demo] switching scene -> {scene.label}", flush=True)
+        logger.info(f"[demo] switching scene -> {scene.label}")
         new_variant = scene.variants[0] if scene.variants else "default"
         self._signal_scene_change(scene.path, new_variant)
 
@@ -2479,7 +2467,7 @@ class SlangPyHudPresenter:
         if variant == self._selected_variant:
             self._variant_dropdown_open = False
             return
-        print(f"[demo] switching variant -> {variant}", flush=True)
+        logger.info(f"[demo] switching variant -> {variant}")
         self._variant_dropdown_open = False
         self._signal_scene_change(self._current_scene, variant)
 
@@ -2774,7 +2762,7 @@ def _record_hud_profile(path: str, **stages_ms: float) -> None:
             if total <= 0.0:
                 continue
             parts.append(f"avg_{field}={total / float(count):.2f}")
-        print(" ".join(parts), flush=True)
+        logger.info(" ".join(parts))
 
     _HUD_PROFILE_SUMS.clear()
     _HUD_PROFILE_COUNTS.clear()

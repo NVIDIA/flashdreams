@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.input.keyboard import (
@@ -281,18 +282,16 @@ class InteractiveDriveApp:
                     scene_path, variant, prompt_override
                 )
             except BaseException as exc:  # noqa: BLE001 - log & skip one scene
-                print(
+                logger.info(
                     f"[interactive-drive] scene preload failed for "
                     f"{Path(str(scene_path)).name} variant={variant!r}: {exc}",
-                    flush=True,
                 )
                 continue
             with self._scene_cache_lock:
                 self._scene_cache[key] = (scene, bounds, snapper)
-            print(
+            logger.info(
                 f"[interactive-drive] preloaded scene "
                 f"{Path(str(scene_path)).name} variant={variant!r}",
-                flush=True,
             )
 
     def _resolve_scene_assets(
@@ -553,6 +552,7 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
     it works on compute-only SKUs (e.g. GB300) where SlangPy can't
     create a Vulkan swapchain. Otherwise returns the default
     :class:`SlangPyPresenter` -- a local Vulkan window.
+
 
     For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
     (a separate entry point) is the preferred path; this MJPEG fallback

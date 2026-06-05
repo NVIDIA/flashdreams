@@ -33,6 +33,13 @@ from urllib.parse import urlsplit
 
 from loguru import logger
 
+from flashdreams.core.io.disk import (
+    CACHE_MIN_FREE_ENV,
+    cache_min_free_bytes,
+    ensure_free_disk,
+    raise_if_disk_space_error,
+)
+
 __all__ = ["download_to_cache"]
 
 
@@ -73,11 +80,20 @@ def download_to_cache(
         RuntimeError: if the download fails, times out, or the validator
             rejects the response. The original exception is chained.
     """
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = cache_dir.expanduser()
     filename = filename or Path(urlsplit(url).path).name or "downloaded_file.bin"
     local_path = cache_dir / filename
     if local_path.exists():
         return local_path
+
+    min_bytes = cache_min_free_bytes()
+    ensure_free_disk(
+        cache_dir,
+        required_bytes=min_bytes,
+        label="FlashDreams cache download",
+        env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+        settings={"url": url},
+    )
 
     logger.info(f"Downloading {url} -> {local_path}")
     # Stream into a sibling temp file, validate, then atomic-rename;
@@ -97,8 +113,28 @@ def download_to_cache(
             validator(tmp_path)
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
+        raise_if_disk_space_error(
+            exc,
+            path=local_path,
+            label="FlashDreams cache download",
+            required_bytes=min_bytes,
+            env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+            settings={"url": url},
+        )
         raise RuntimeError(
             f"Failed to download {url!r} into {local_path}: {exc}"
         ) from exc
-    os.replace(tmp_path, local_path)
+    try:
+        os.replace(tmp_path, local_path)
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise_if_disk_space_error(
+            exc,
+            path=local_path,
+            label="FlashDreams cache download",
+            required_bytes=min_bytes,
+            env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+            settings={"url": url},
+        )
+        raise
     return local_path

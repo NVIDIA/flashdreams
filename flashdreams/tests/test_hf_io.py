@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import errno
+
 import pytest
 
 from flashdreams.core.io import hf as hf_io
@@ -13,6 +15,7 @@ pytestmark = pytest.mark.ci_cpu
 def _clear_hf_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
     monkeypatch.delenv("LOCAL_FILES_ONLY", raising=False)
+    monkeypatch.setenv(hf_io.CACHE_MIN_FREE_ENV, "0")
 
 
 def _mock_distributed(
@@ -156,6 +159,25 @@ def test_rank0_download_failure_is_broadcast(
         hf_io.maybe_download_hf_repo_on_rank0("org/model", cache_dir=tmp_path)
 
     assert broadcasts == [[{"error": "OSError: disk full"}]]
+
+
+def test_rank0_disk_space_failure_is_broadcast_as_disk_error(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clear_hf_env(monkeypatch)
+    broadcasts = _mock_distributed(monkeypatch, initialized=True, rank=0)
+
+    def _snapshot_download(*args, **kwargs) -> str:
+        raise OSError(errno.ENOSPC, "No space left on device", str(tmp_path))
+
+    monkeypatch.setattr(hf_io, "snapshot_download", _snapshot_download)
+
+    with pytest.raises(hf_io.DiskSpaceError, match="Hugging Face cache"):
+        hf_io.maybe_download_hf_repo_on_rank0("org/model", cache_dir=tmp_path)
+
+    assert len(broadcasts) == 1
+    assert broadcasts[0][0]["disk_error"] == "1"
+    assert "No space left on device" in str(broadcasts[0][0]["error"])
 
 
 def test_rank0_failure_reaches_nonzero_rank(

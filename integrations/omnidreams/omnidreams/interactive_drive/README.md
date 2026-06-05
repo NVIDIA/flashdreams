@@ -266,15 +266,61 @@ The HUD also subscribes to the backend's `/bev_stream` and shows a top-down
 BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
 the extra rasterizer dispatch when you don't need it.
 
-**Steering wheel support.** Drop a profile YAML (axis map, FFB settings,
-device-name match patterns) into `configs/wheels/` and the HUD will pick it
-up at startup. With `--wheel-profile auto` (the default), the HUD scans
-`/dev/input/by-id` first, then `/dev/input/event*`, and matches the
-detected device name against each profile's `detection_patterns`. To name a
-specific profile use `--wheel-profile <name>` (matching the YAML filename);
-to bind a known device path directly use `--wheel-device /dev/input/eventX`;
+**Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
+settings) into `configs/wheels/` and the HUD will pick it up at startup. With
+`--wheel-profile auto` (the default), the HUD scans `/dev/input/by-id` first,
+then `/dev/input/event*`, and matches detected device names against each
+profile's devices. To name a specific profile use `--wheel-profile <name>`
+(matching the YAML filename); to bind a known device path directly use
+`--wheel-device /dev/input/eventX` (this names the wheel/steering device);
 to disable wheel input entirely use `--no-wheel`. No profiles ship with the
 repo — keyboard-only driving works fine without one.
+
+**Multi-device profiles.** A profile binds one or more devices, so steering,
+throttle, brake, and buttons can each live on a different device — a wheel
+base plus a separate-brand or separately-connected pedal set, for example.
+Each device is listed under `devices` with its own `detection_patterns`, and
+every axis/button is a `{device, code}` binding naming the device by index:
+
+```yaml
+devices:
+  - {display_name: Base, detection_patterns: ["Fanatec CSL DD"]}
+  - {display_name: Pedals, detection_patterns: ["Heusinkveld"]}
+axis_map:
+  steering: {device: 0, code: 0}   # wheel base
+  throttle: {device: 1, code: 0}   # separate pedals
+  brake:    {device: 1, code: 1}
+```
+
+At launch each device is matched independently by name; the steering device
+is required, while a device used only by other controls degrades gracefully
+(a warning, those controls inactive) if unplugged. Older single-device
+profiles (top-level `detection_patterns` + bare integer codes) still load.
+Device 0 (the steering device) is the one that produces force feedback.
+
+**Force feedback (multi-vendor).** A profile's `ffb.mode` selects how the
+centering force is rendered, and defaults to `auto`, which inspects the
+device's advertised Linux FF effects and picks the right backend:
+
+- `autocenter` — a driver-managed spring written via `FF_AUTOCENTER`.
+  Used by Thrustmaster and Logitech wheels.
+- `constant_force` — a self-rendered spring uploaded via the `FF_CONSTANT`
+  effect, where the app computes the force each tick. This is the universal
+  path and is required for Fanatec wheels, whose `hid-fanatecff` driver does
+  not expose `FF_AUTOCENTER`.
+
+With `mode: auto` (or the wizard's "Auto"), a Fanatec base automatically
+falls back to constant force while Thrustmaster/Logitech keep their managed
+autocenter. Set `mode: constant_force` explicitly if a Logitech's in-kernel
+autocenter feels too weak. Driver prerequisites: most modern Thrustmaster
+wheels (T300RS, T248, TX, T-GT II, TS-PC, TS-XW, …) need the out-of-tree
+[`hid-tmff2`](https://github.com/Kimplul/hid-tmff2) module plus a wheel-mode
+init (`hid-tminit`, or `tmdrv` for TX/TS-XW); Fanatec needs the
+[`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff) module with the
+base in PC mode (red LED); Logitech G29/G27/G923-PS use the in-kernel
+`hid-lg4ff` or [`new-lg4ff`](https://github.com/berarma/new-lg4ff), while the
+G920 and Xbox/PC G923 use the HID++ driver (kernel >= 6.3). FFB writes need
+access to `/dev/input/*` (add your user to the `input` group).
 
 **Generate an input profile (wheel or game controller).** Instead of
 hand-writing that YAML, run the calibration wizard:
@@ -285,11 +331,14 @@ uv run --package flashdreams-omnidreams interactive-drive-configuration
 
 It shows a live panel -- a steering-wheel and pedal visualization plus a
 per-axis activity strip -- so you can confirm the right device and watch each
-control move. It then listens while you move each control to capture the
-correct axes and directions (self-centering sticks and force-feedback wheels
-work because it peak-holds each axis' range rather than snapshotting after you
-let go), lets you bind reverse / reset / exit-scene buttons and test force
-feedback, then writes the profile to
+control move. Ctrl+click to select more than one device when your controls
+are split across devices (e.g. a wheel base plus a separate pedal set); the
+wizard listens to all selected devices at once and binds each control to
+whichever device it actually moved on. It then listens while you move each
+control to capture the correct axes and directions (self-centering sticks and
+force-feedback wheels work because it peak-holds each axis' range rather than
+snapshotting after you let go), lets you bind reverse / reset / exit-scene
+buttons and test force feedback, then writes the profile to
 `$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels/` (by default under
 `~/.cache/flashdreams/`). The next `interactive-drive` launch discovers it
 automatically through the same `--wheel-profile auto` detection. The wizard
@@ -300,8 +349,8 @@ committed. It needs a graphical session and read access to `/dev/input/*`
 
 The opening screen also lists your saved profiles so you can edit their
 settings (display name, steering range and deadzone, inversion, force
-feedback, detection patterns), choose which one is the default, or delete
-them. Steering range and deadzone are most useful for game controllers,
+feedback mode and gain, detection patterns), choose which one is the
+default, or delete them. Steering range and deadzone are most useful for game controllers,
 whose sticks are sensitive and tend to drift -- lower the range to make
 steering less twitchy and raise the deadzone to ignore a drifting stick at
 rest.
