@@ -464,7 +464,7 @@ class SlangPyHudPresenter:
         self._has_camera_frame = False
         # ``_engine_active`` is False during the initial scene-selection
         # wait (when the user hasn't picked a scene yet AND
-        # ``--autoload-scene`` was off) and during the brief gap between
+        # ``--auto-start`` was off) and during the brief gap between
         # scene changes. Drives the camera-area placeholder text together
         # with the model-warmup state below. Toggled by the demo wrapper
         # via :meth:`set_engine_active` around each scene's run.
@@ -2606,7 +2606,7 @@ class SlangPyHudPresenter:
     def wait_for_scene_selection(self) -> tuple[Any, str] | None:
         """Run a chrome-only event loop until the user picks a scene.
 
-        Used when ``--autoload-scene`` is False (the default) and on
+        Used when ``--auto-start`` is False (the default) and on
         the very first launch: we open the slangpy window with the
         HUD chrome but no engine, render a "Load Scene" placeholder
         in the camera area, and wait for the user to pick a scene from
@@ -2631,6 +2631,26 @@ class SlangPyHudPresenter:
                 self._present_canvas()
                 time.sleep(EVENT_POLL_INTERVAL_S)
             return None
+        finally:
+            self.set_engine_active(prior_engine_active)
+
+    def wait_while_preloading(self, in_progress: Callable[[], bool]) -> None:
+        """Pump the "Preloading scenes..." chrome until ``in_progress()`` clears.
+
+        Used by ``--auto-start`` + ``--preload-scenes`` so the auto-loaded
+        scene waits for the background preloader to finish (and is served from
+        its cache) instead of racing it with a second parse of the same USDZ.
+        Returns early if the window closes. Keeps the engine inactive so the
+        camera area shows the locked "Preloading scenes..." placeholder.
+        """
+        prior_engine_active = self._engine_active
+        self.set_engine_active(False)
+        try:
+            while in_progress() and not self.should_close:
+                self.process_events()
+                self._render_canvas(None)
+                self._present_canvas()
+                time.sleep(EVENT_POLL_INTERVAL_S)
         finally:
             self.set_engine_active(prior_engine_active)
 

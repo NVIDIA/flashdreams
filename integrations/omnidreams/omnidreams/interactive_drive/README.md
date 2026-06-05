@@ -478,7 +478,7 @@ input-to-present timing while the demo runs:
 
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
-  uv run --no-sync --package flashdreams-omnidreams interactive-drive --autoload-scene
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive --auto-start
 ```
 
 The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames

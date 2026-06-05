@@ -509,7 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
       :func:`omnidreams.interactive_drive.cli.build_parser`. These
       flags apply whether the user runs the supervised HUD wrapper or
       the bare backend with ``--no-hud`` / ``--stream-mjpeg``.
-    * Supervisor / HUD args (``--scene-dir``, ``--autoload-scene``,
+    * Supervisor / HUD args (``--scene-dir``, ``--auto-start``,
       ``--cuda-visible-devices``, ``--wheel-*``, ``--no-wheel``) that
       only matter when a HUD viewer is running. They're harmlessly
       ignored under ``--no-hud`` / ``--stream-mjpeg``.
@@ -561,10 +561,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--autoload-scene",
+        "--auto-start",
+        dest="auto_start",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Start loading --scene immediately. By default the HUD opens on Load Scene.",
+        help=(
+            "Start loading --scene immediately instead of opening the HUD on"
+            " Load Scene. Distinct from --preload-scenes (which only warms the"
+            " parse cache in the background)."
+        ),
+    )
+    parser.add_argument(
+        # Deprecated alias for --auto-start; kept so existing scripts/docs
+        # don't break. The old name was easily confused with --preload-scenes.
+        "--autoload-scene",
+        dest="auto_start",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--preload-scenes",
@@ -810,7 +824,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     # Construct the presenter UPFRONT, before any backend, so the demo
     # can open the HUD window in "Load Scene" mode and wait for the
-    # user to pick a scene from the dropdown when ``--autoload-scene``
+    # user to pick a scene from the dropdown when ``--auto-start``
     # is off. The placeholder ``KeyboardState`` is rebound to each
     # successive ``InteractiveDriveApp``'s real keyboard via
     # ``presenter.bind_keyboard`` in the factory below; no engine is
@@ -876,12 +890,17 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     presenter.acknowledge_scene_change(scene_path, variant)
     try:
         # ``need_selection`` drives the scene-selection wait: True on first
-        # launch (unless ``--autoload-scene``) and again every time the user
+        # launch (unless ``--auto-start``) and again every time the user
         # exits a scene back to the selector. While waiting the engine is
         # idle, so the video model stops generating -- the whole point of the
         # exit-scene affordance for long-running demos -- without closing the
         # window or dropping the warmed model.
-        need_selection = not args.autoload_scene
+        need_selection = not args.auto_start
+        # --auto-start + --preload-scenes: wait for the preloader to finish
+        # before the auto-load below so it hits the cache instead of racing
+        # the background thread with a second parse of the same USDZ.
+        if args.auto_start and app.preload_in_progress():
+            presenter.wait_while_preloading(app.preload_in_progress)
         while True:
             if need_selection:
                 request = presenter.wait_for_scene_selection()

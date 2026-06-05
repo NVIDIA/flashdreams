@@ -611,3 +611,47 @@ def test_acknowledge_exit_scene_falls_back_to_default_when_scene_unknown() -> No
     presenter.acknowledge_exit_scene()
 
     assert presenter._selected_variant == "default"
+
+
+def _hud_presenter_for_preload() -> SlangPyHudPresenter:
+    presenter = _hud_presenter_without_window()
+    presenter._engine_active = True
+    presenter._should_close_flag = False
+    presenter._window = SimpleNamespace(should_close=lambda: False)
+    presenter.process_events = lambda: None
+    presenter._present_canvas = lambda *a, **k: None
+    return presenter
+
+
+def test_wait_while_preloading_pumps_until_in_progress_clears() -> None:
+    presenter = _hud_presenter_for_preload()
+    renders = 0
+
+    def render(_status: object) -> None:
+        nonlocal renders
+        renders += 1
+
+    presenter._render_canvas = render
+
+    states = iter([True, True, False])
+    presenter.wait_while_preloading(lambda: next(states))
+
+    assert renders == 2
+    assert presenter._engine_active is True  # restored to its prior value
+
+
+def test_wait_while_preloading_stops_when_window_closes() -> None:
+    presenter = _hud_presenter_for_preload()
+    presenter._should_close_flag = True
+    renders = 0
+
+    def render(_status: object) -> None:
+        nonlocal renders
+        renders += 1
+
+    presenter._render_canvas = render
+
+    # Still "in progress", but a closed window must short-circuit the wait.
+    presenter.wait_while_preloading(lambda: True)
+
+    assert renders == 0
