@@ -185,7 +185,12 @@ class _LudusConditionRasterizerImpl:
         self._bev = bev
         self._device = torch.device("cuda:0")
         self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
-        if not self._use_cuda_frames:
+        if self._use_cuda_frames:
+            print(
+                "[rasterizer] cuda_backend=enabled; returning lazy CUDA raster frames",
+                flush=True,
+            )
+        else:
             print(
                 f"[rasterizer] cuda_backend=disabled by {DISABLE_CUDA_INTEROP_ENV}; "
                 "using host raster frames",

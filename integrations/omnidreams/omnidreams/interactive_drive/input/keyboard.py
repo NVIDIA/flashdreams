@@ -36,6 +36,13 @@ class KeyboardState:
         self._view_mode = "rgb"
         self._drive_command: DriverCommand | None = None
         self._reset_pending = False
+        # Rising-edge "exit the current scene and return to the scene
+        # selector" request, set by a wheel/controller's bound exit button
+        # (the HUD's ``x`` key calls the presenter directly). The presenter
+        # drains it on the main thread each ``process_events`` and converts
+        # it into its own exit-to-selection signal, mirroring how
+        # ``_reset_pending`` is drained by the runtime loop.
+        self._exit_scene_pending = False
         # Output telemetry slot. ``None`` means the simulation hasn't
         # produced a chunk yet (warmup window) -- callers render an empty
         # speed readout in that case.
@@ -56,6 +63,17 @@ class KeyboardState:
         with self._lock:
             self._reset_pending = True
 
+    def request_exit_scene(self) -> None:
+        """Request a return to the scene selector from a bound device button."""
+        with self._lock:
+            self._exit_scene_pending = True
+
+    def consume_exit_scene_request(self) -> bool:
+        with self._lock:
+            pending = self._exit_scene_pending
+            self._exit_scene_pending = False
+            return pending
+
     def set_drive_command(self, command: DriverCommand | None) -> None:
         with self._lock:
             self._drive_command = command
@@ -70,6 +88,16 @@ class KeyboardState:
         """
         with self._lock:
             self._vehicle_state = state
+
+    def clear_telemetry(self) -> None:
+        """Drop the published vehicle state (back to the pre-first-chunk state).
+
+        Called when a rollout is torn down (scene switch / exit to selector)
+        so read-side speed readouts fall back to their empty state instead of
+        lingering on the just-ended rollout's last reading.
+        """
+        with self._lock:
+            self._vehicle_state = None
 
     @property
     def vehicle_state(self) -> VehicleState | None:

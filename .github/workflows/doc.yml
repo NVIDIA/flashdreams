@@ -51,10 +51,15 @@ jobs:
       # 'closed'`. The `rossjrw/pr-preview-action` step below runs
       # unconditionally for PR events and picks deploy-vs-remove from the
       # event action.
+      #
+      # `actions/checkout` is the exception: it runs on `closed` too. The
+      # cleanup path delegates to `JamesIves/github-pages-deploy-action`, which
+      # operates on the runner workspace and aborts with "fatal: not in a git
+      # directory" if the workspace was never checked out. We can skip the
+      # submodule fetch on `closed` (the removal doesn't need them).
       - uses: actions/checkout@v4
-        if: github.event.action != 'closed'
         with:
-          submodules: recursive
+          submodules: ${{ github.event.action == 'closed' && 'false' || 'recursive' }}
 
       - uses: astral-sh/setup-uv@v4
         if: github.event.action != 'closed'

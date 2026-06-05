@@ -45,7 +45,19 @@ def integrate_vehicle(
         speed = 0.0
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
-        if command.throttle > 0.01:
+        # Brake wins over throttle: holding both pedals together must bleed
+        # speed toward a stop, not build it. This matches real-car behaviour
+        # and the HUD / wheel target-speed integrators in ``demo.py`` (which
+        # already gate acceleration on the brake being released), so the
+        # displayed speed and the ego stay consistent when gas + brake are
+        # pressed at once.
+        if command.brake > 0.01:
+            decel = 12.0 * command.brake * dt_s
+            if speed > 0:
+                speed = max(0.0, speed - decel)
+            elif speed < 0:
+                speed = min(0.0, speed + decel)
+        elif command.throttle > 0.01:
             max_speed = vehicle.max_speed_mps
             accel = 2.0 * command.throttle * dt_s
             if speed * intended_direction < 0:
@@ -65,12 +77,6 @@ def integrate_vehicle(
                     )
                     taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
                 speed += intended_direction * accel * taper
-        elif command.brake > 0.01:
-            decel = 12.0 * command.brake * dt_s
-            if speed > 0:
-                speed = max(0.0, speed - decel)
-            elif speed < 0:
-                speed = min(0.0, speed + decel)
         else:
             creep_target = (
                 4.47  # 10 mph, matching the HUD and AlpaSim manual-driver crawl.

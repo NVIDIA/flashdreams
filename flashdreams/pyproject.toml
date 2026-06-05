@@ -57,9 +57,8 @@ dependencies = [
     # The maintainers ship a Windows-compatible drop-in under the
     # ``triton-windows`` package; pulling it on win32 keeps every
     # ``use_compile=True`` config path (encoder, decoder, DiT) working
-    # the same way it does on Linux. This is the same fix carried before
-    # on dev/truesight_alpa, scoped to the workspace member that owns
-    # the ``use_compile`` knob.
+    # the same way it does on Linux. This is scoped to the workspace
+    # member that owns the ``use_compile`` knob.
     "triton-windows>=3.5.0; sys_platform == 'win32'",
 ]
 
@@ -119,13 +118,12 @@ version = {attr = "flashdreams._version.__version__"}
 include = ["flashdreams*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
 
-# PyPI's default ``torch`` is the CPU build on Windows. The truesight CUDA
-# extensions (built by ``uv run build-truesight``) need a CUDA-enabled
-# PyTorch so PyTorch's ``cpp_extension`` resolves ``CUDA_HOME`` from the
-# env (the gate is ``torch.version.cuda is not None``). On Linux the
+# PyPI's default ``torch`` is the CPU build on Windows. CUDA extensions need a
+# CUDA-enabled PyTorch so PyTorch's ``cpp_extension`` resolves ``CUDA_HOME``
+# from the env (the gate is ``torch.version.cuda is not None``). On Linux the
 # default wheel is already CUDA-enabled; on Windows we have to point at
-# NVIDIA's PyTorch index. Constrain by marker so the override only fires
-# on Windows -- Linux / NGC users keep the upstream wheel.
+# NVIDIA's PyTorch index. Constrain by marker so the override only fires on
+# Windows -- Linux / NGC users keep the upstream wheel.
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"

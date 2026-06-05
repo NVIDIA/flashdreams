@@ -503,6 +503,8 @@ def run_main_loop(
 
     while not presenter.should_close:
         presenter.process_events()
+        if presenter.should_close:
+            break
         if runtime_controls.consume_reset_request():
             return True
         sampled = input_backend.sample()

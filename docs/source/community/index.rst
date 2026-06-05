@@ -18,48 +18,62 @@ Community
 
 .. container:: fd-hero fd-hero-band
 
-   .. container:: fd-hero-eyebrow
-
-      Apache-2.0, developed in the open
-
    .. rubric:: Community and contribution
       :class: fd-hero-title
 
    .. container:: fd-hero-lede
 
-      FlashDreams is developed in the open at
+      FlashDreams is an open-source project that can be found on GitHub at
       `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`__.
-      This section collects the channels for filing bugs, asking
-      questions, sending pull requests, and tracking releases.
+      Follow the cards below to get started with communicating
+      with the team and community, getting help, and contributing to the project.
 
    .. container:: fd-cta-row
 
-      .. button-link:: https://github.com/NVIDIA/flashdreams
-         :color: primary
+      .. grid:: 1 2 2 2
+         :gutter: 3
+         :margin: 0 0 4 0
 
-         Browse the repo
+         .. grid-item-card:: Join the Discord!
+            :class-card: fd-feature
+            :link: discord
+            :link-type: doc
 
-      .. button-ref:: contribute
-         :ref-type: doc
-         :color: secondary
-         :outline:
+            Real-time chat and office hours with maintainers and other users
+            on the NVIDIA Omniverse server.
 
-         Contribute
+         .. grid-item-card:: Get help
+            :class-card: fd-feature
+            :link: support
+            :link-type: doc
 
-      .. button-ref:: support
-         :ref-type: doc
-         :color: secondary
-         :outline:
+            Pick the right channel, file an actionable bug report, and see
+            what response times to expect from the maintainers.
 
-         Get help
+         .. grid-item-card:: Contribute
+            :class-card: fd-feature
+            :link: contribute
+            :link-type: doc
+
+            The full contribution flow: DCO sign-off, CI tiers, review
+            expectations, code of conduct, and project governance.
+
+         .. grid-item-card:: FAQ
+            :class-card: fd-feature
+            :link: faq
+            :link-type: doc
+
+            Answers to the questions that come up repeatedly in the issue
+            tracker and on Discord.
+
 
 .. toctree::
    :hidden:
    :maxdepth: 1
 
    contribute
-   discord
    support
+   discord
    faq
 
 Where to find us

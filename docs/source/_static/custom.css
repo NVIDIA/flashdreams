@@ -15,21 +15,22 @@ SPDX-License-Identifier: Apache-2.0
    / `:class:` arguments to single dashes in the rendered HTML, so BEM-
    style names in RST don't match what reaches the browser.
 
+   `<p>`-wrapping convention: a `.. container::` / `.. rubric::` emits a
+   wrapping `<p>` around its text, so component rules that target text
+   (eyebrow, lede, CTA row, stat subcomponents) reset that `<p>`'s margin.
+
    Section map:
      1. Design tokens  (palette, type, spacing, radii, shadow)
      2. Theme overrides (apply tokens to the upstream theme variables)
      3. Layout helpers
-     4. Components
-        4.1  Hero
-        4.2  Feature card (extends sphinx-design card)
-        4.3  Video embed (responsive 16:9)
-        4.4  CTA button row
-        4.5  Stat block
-        4.6  Comparison table
-        4.7  Callout / note
-        4.8  Placeholder admonition
-     5. Project-wide header chrome hide
-     6. Misc upstream tweaks
+     4. Components (4.1 Hero, 4.2 Feature card, 4.3 CTA row,
+        4.4 Stat block, 4.5 Callout, 4.6 Placeholder admonition)
+     5. Header chrome hide
+     6. Front-of-site marketing layout
+     7. Homepage "Supported Models" rail
+     8. Misc upstream tweaks
+     9. Reference-docs model-page components
+    10. Unwired components — not yet used by any page (see TODO)
    ========================================================================== */
 
 
@@ -44,20 +45,15 @@ SPDX-License-Identifier: Apache-2.0
     --fd-accent-soft:   rgba(118, 185, 0, 0.12);
     --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
 
-    /* Type scale — collapsed to exactly four sizes. Eyebrows, captions,
-       stat labels, stat notes, small body, table cells, etc. all share
-       --fd-text-base (16px) and differentiate via weight / color /
-       letter-spacing / case rather than size. Stat values and section
-       heads share --fd-text-xl. The legacy alias names (--fd-text-xs,
-       --fd-text-sm, --fd-text-2xl) are kept and mapped onto the
-       canonical four so existing references resolve. */
+    /* Type scale — four sizes. Smaller labels (eyebrows, stat labels,
+       table cells, etc.) all share --fd-text-base and differentiate via
+       weight / color / letter-spacing / case rather than size. */
     --fd-text-base: 1rem;        /* 16px  body, captions, eyebrows, small body, table cells */
     --fd-text-lg:   1.25rem;     /* 20px  lede paragraphs, card titles */
     --fd-text-xl:   1.75rem;     /* 28px  section heads, stat values */
     --fd-text-3xl:  3.25rem;     /* 52px  hero head only */
 
-    /* Aliases — preserved so legacy callsites keep resolving. Do not
-       introduce new sizes here; map them onto the canonical four. */
+    /* Aliases onto the canonical four. Don't add new sizes here. */
     --fd-text-xs:   var(--fd-text-base);
     --fd-text-sm:   var(--fd-text-base);
     --fd-text-2xl:  var(--fd-text-xl);
@@ -81,8 +77,6 @@ SPDX-License-Identifier: Apache-2.0
                    0 1px 1px rgba(15, 23, 42, 0.03);
     --fd-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.06),
                    0 2px 4px rgba(15, 23, 42, 0.04);
-    --fd-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.10),
-                   0 4px 8px rgba(15, 23, 42, 0.05);
 
     /* Misc */
     --fd-border-width: 1px;
@@ -125,7 +119,6 @@ html[data-theme="dark"] {
     /* Heavier shadows are noise on a dark background; flatten them. */
     --fd-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.40);
     --fd-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
-    --fd-shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
 
@@ -133,8 +126,10 @@ html[data-theme="dark"] {
 
 /* sphinx-design and pydata-sphinx-theme both define their own accent
    palettes. Re-bind the most visible ones to --fd-accent so buttons,
-   links, and focus rings all use the same color. */
-html {
+   links (including clicked/visited ones), and focus rings all use the
+   same green. */
+html[data-theme="light"],
+html[data-theme="dark"] {
     --pst-color-primary:        var(--fd-accent);
     --pst-color-primary-bg:     var(--fd-accent-soft);
     --pst-color-link:           var(--fd-accent);
@@ -152,25 +147,6 @@ html {
    from the prior custom.css). */
 .bd-links__title {
     display: none;
-}
-
-/* Generic container: caps width, centers, gives gutters on small screens. */
-.fd-container {
-    max-width: var(--fd-max-content);
-    margin-inline: auto;
-    padding-inline: var(--fd-space-3);
-}
-
-/* Vertical rhythm helper — applies a generous gap between consecutive
-   blocks on landing-style pages. */
-.fd-section {
-    margin-block: var(--fd-space-6);
-}
-
-@media (max-width: 640px) {
-    .fd-section {
-        margin-block: var(--fd-space-5);
-    }
 }
 
 
@@ -193,8 +169,6 @@ html {
 /* Eyebrow text above the hero title — small, uppercase, accent-tinted. */
 .fd-hero-eyebrow,
 .fd-hero-eyebrow > p {
-    /* RST emits a wrapping <p> inside a .. container::, zero it so the
-       eyebrow sits flush above the title. */
     margin: 0 0 var(--fd-space-2) 0;
     font-size: var(--fd-text-xs);
     font-weight: 600;
@@ -204,12 +178,9 @@ html {
 }
 
 /* Hero title. Rendered from .. rubric:: with :class: fd-hero-title,
-   which docutils outputs as a <p class="fd-hero-title rubric">. We
-   override the rubric default margins.
-
-   Weight is intentionally medium (500): the size + tight tracking
-   already carry the emphasis. A heavier weight read as "ugly" per
-   project-lead feedback. */
+   which docutils outputs as a <p class="fd-hero-title rubric">; we
+   override the rubric default margins. Weight is medium (500) by
+   design — the size + tight tracking carry the emphasis. */
 p.fd-hero-title.rubric,
 .fd-hero-title {
     font-size: var(--fd-text-3xl);
@@ -222,7 +193,6 @@ p.fd-hero-title.rubric,
 
 .fd-hero-lede,
 .fd-hero-lede > p {
-    /* Same paragraph-wrapping reset as the eyebrow. */
     margin: 0 0 var(--fd-space-4) 0;
     font-size: var(--fd-text-lg);
     line-height: 1.5;
@@ -299,40 +269,7 @@ p.fd-hero-title.rubric,
 }
 
 
-/* 4.3 Video / animated-image embed (responsive 16:9) ---------------------
-
-   Dynamic-image embeds on this site default to **animated AVIF**.
-   AVIF is rendered through a stock `<img>` (or `<picture><source
-   type="image/avif">`) element, so the component must style image
-   children the same way it styles iframes and `<video>` elements.
-   MP4 / `<video>` is supported as a fallback only — see
-   site-design-system.md §2.3 for the recommended embed snippet. */
-
-.fd-video {
-    width: 100%;
-    max-width: 100%;
-    aspect-ratio: 16 / 9;
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-md);
-    overflow: hidden;
-    box-shadow: var(--fd-shadow-2);
-    background: var(--fd-bg-sunken);
-}
-
-.fd-video > iframe,
-.fd-video > video,
-.fd-video > img,
-.fd-video > picture,
-.fd-video > picture > img {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-    object-fit: cover;
-}
-
-
-/* 4.4 CTA button row ------------------------------------------------------- */
+/* 4.3 CTA button row ------------------------------------------------------- */
 
 .fd-cta-row {
     display: flex;
@@ -342,9 +279,8 @@ p.fd-hero-title.rubric,
     margin-block: var(--fd-space-3);
 }
 
-/* sphinx-design button-ref / button-link directives are wrapped in a <p>
-   by docutils. Reset that paragraph chrome so buttons sit flush in the
-   flex row rather than carrying body-paragraph margins. */
+/* `display: contents` so the wrapping <p> drops out and buttons sit
+   flush in the flex row. */
 .fd-cta-row > p {
     margin: 0;
     display: contents;
@@ -374,7 +310,7 @@ p.fd-hero-title.rubric,
 }
 
 
-/* 4.5 Stat block ----------------------------------------------------------- */
+/* 4.4 Stat block ----------------------------------------------------------- */
 
 /* A stat block is a small, scannable value + label, typically rendered
    inside a sphinx-design grid. */
@@ -387,9 +323,8 @@ p.fd-hero-title.rubric,
     height: 100%;
 }
 
-/* Each .fd-stat-* subcomponent is a .. container::, so docutils emits a
-   wrapping <div> with an inner <p>. Style the wrapper for layout and the
-   <p> for typography so the inner paragraph margin doesn't fight us. */
+/* Each .fd-stat-* subcomponent is a .. container:: (<div> + inner <p>):
+   style the wrapper for layout and the <p> for typography. */
 .fd-stat-value {
     margin-bottom: var(--fd-space-1);
 }
@@ -422,78 +357,28 @@ p.fd-hero-title.rubric,
     line-height: 1.4;
 }
 
-
-/* 4.6 Comparison table ----------------------------------------------------- */
-
-/* Page writers wrap a standard Sphinx list-table / csv-table in a div with
-   class fd-compare for benchmark-style readability. */
-.fd-compare table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    font-size: var(--fd-text-sm);
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-md);
-    overflow: hidden;
+/* Linked KPI stat tile — a sphinx-design `grid-item-card` with
+   `:class-card: fd-stat` and a `:link:` to the model's profiling
+   benchmark. The `.fd-stat` rule above already paints the card
+   (border, radius, surface, padding); here we neutralize the leftover
+   `.sd-card` chrome so the linked card matches a standalone `.fd-stat`,
+   and add an accent border on hover as the link affordance. */
+.sd-card.fd-stat {
+    text-decoration: none;
+    box-shadow: none;
 }
-
-.fd-compare thead th {
-    background: var(--fd-bg-muted);
-    color: var(--fd-text);
-    font-weight: 600;
-    text-align: left;
-    padding: var(--fd-space-2) var(--fd-space-3);
-    border-bottom: var(--fd-border-width) solid var(--fd-border);
-    font-size: var(--fd-text-xs);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+.sd-card.fd-stat > .sd-card-body {
+    padding: 0;
 }
-
-.fd-compare tbody td {
-    padding: var(--fd-space-2) var(--fd-space-3);
-    border-bottom: var(--fd-border-width) solid var(--fd-border);
-    color: var(--fd-text);
-    vertical-align: top;
-}
-
-.fd-compare tbody tr:last-child td {
-    border-bottom: 0;
-}
-
-.fd-compare tbody tr:nth-child(even) td {
-    background: var(--fd-bg-muted);
-}
-
-/* Numeric columns: right-align when the writer adds .fd-compare-numeric
-   to the table or the row. (RST class names ".. fd-compare--numeric" are
-   normalised to single dashes by docutils.) Leading header column stays
-   left-aligned for label readability. */
-.fd-compare-numeric td,
-.fd-compare td.fd-compare-num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-.fd-compare-numeric td:first-child {
-    text-align: left;
-}
-
-/* Highlight the "winner" row/cell. */
-.fd-compare-best {
-    color: var(--fd-accent);
-    font-weight: 700;
-}
-
-@media (max-width: 640px) {
-    .fd-compare {
-        overflow-x: auto;
-    }
-    .fd-compare table {
-        min-width: 32rem;
-    }
+.sd-card.fd-stat:hover {
+    border-color: var(--fd-accent);
+    box-shadow: none;
+    transform: none;
+    text-decoration: none;
 }
 
 
-/* 4.7 Callout / note ------------------------------------------------------- */
+/* 4.5 Callout / note ------------------------------------------------------- */
 
 /* Restyle standard admonitions used as callouts so they read as a designed
    element rather than a default Sphinx box. Page writers can also use a
@@ -533,7 +418,7 @@ p.fd-hero-title.rubric,
 }
 
 
-/* 4.8 Placeholder admonition ---------------------------------------------- */
+/* 4.6 Placeholder admonition ---------------------------------------------- */
 
 /* DELIBERATELY LOUD. Reviewers must be able to spot un-filled spots at a
    glance, on either light or dark background. Hatched border + warning
@@ -604,19 +489,17 @@ p.fd-hero-title.rubric,
 
 /* ----- 5. Project-wide header chrome hide -------------------------------- */
 
-/* Drop doc-y header chrome on every page.
+/* Drop the pydata version subtitle ("FlashDreams v0.1.0a2") rendered
+   under the logo via `<p class="title logo__title">` — it reads as a
+   docs build tag on a front-of-site hero.
 
-   pydata-sphinx-theme renders a version subtitle ("FlashDreams v0.1.0a2")
-   under the logo via `<p class="title logo__title">`, and a docs-search
-   button in the navbar. On a front-of-site page with a hero they read
-   as a docs build tag. Apply unconditionally — the site uses an
-   in-page search via sphinx-design / the navbar search button. */
+   The navbar search button is intentionally NOT hidden: it shows on
+   every page. On reference-docs pages (which carry an inline
+   `search-field` in the sidebar — see `html_sidebars`) the theme's
+   button focuses that field; on pages without one it opens the
+   `pst-search-dialog` modal, so every page stays searchable. */
 
-.navbar-brand .logo__title,
-.search-button,
-.search-button-field,
-.navbar-persistent--container,
-.navbar-persistent--mobile {
+.navbar-brand .logo__title {
     display: none !important;
 }
 
@@ -624,38 +507,22 @@ p.fd-hero-title.rubric,
 /* ----- 6. Front-of-site marketing layout --------------------------------- */
 
 /* Front-of-site pages (homepage, models gallery, community) bypass pydata's
-   docs scaffold entirely via the `docs_main` block override in
-   `_templates/layout.html`. The body content is rendered into
+   docs scaffold via the `docs_main` block override in
+   `_templates/layout.html`: body content renders into
    `<div class="fd-landing-main">` directly inside `<main>`, with no
-   `bd-content` / `bd-article-container` / `bd-article` wrapping.
+   `bd-content` / `bd-article-container` / `bd-article` wrapping. The same
+   template sets `body.fd-page-landing` so these rules scope cleanly to
+   landing pages without `:has()` tricks.
 
-   `body.fd-page-landing` is set by the same template so these rules
-   can be cleanly scoped to landing pages without `:has()` tricks.
-
-   The marketing layout makes three structural moves on top of the
-   stripped-down scaffold:
-
-   - Full-bleed by default. The body container's max-width is reset
-     and `.fd-landing-main` runs edge-to-edge. Content widths come
-     from per-section bands (see `.fd-band` and the auto-band rules
-     below), not from a single global wrapper.
-   - Hero is a full-bleed display band. No card border, no rounded
-     box; the eyebrow / title / lede / CTAs sit free against the page
-     with a soft accent wash behind them so it reads as a marketing
-     hero, not a callout-at-top-of-doc.
-   - Section rhythm is built from alternating muted-vs-default bands
-     keyed off a CSS counter on the outer page section. This works
-     regardless of what mix of admonitions / grids / paragraphs sits
-     between the H1 and the first H2, where `nth-of-type` was unstable.
-*/
+   Content runs full-bleed; widths come from per-section bands (below),
+   not a global wrapper. Section rhythm is alternating muted-vs-default
+   bands (see the `:nth-of-type` rule below). */
 
 /* Full-bleed wrapper for the body content. */
 body.fd-page-landing .fd-landing-main {
     width: 100%;
     padding: 0;
     margin: 0;
-    /* Counter for alternating-band styling on top-level sections. */
-    counter-reset: fd-band;
 }
 
 /* Pydata's body container caps page width; reclaim the full viewport
@@ -681,15 +548,14 @@ body.fd-page-landing .fd-landing-main > section {
 }
 
 /* Hide the docs-y H1 that Sphinx emits at the top of every page —
-   the marketing hero IS the page title; the H1 is structural only,
-   present so the toctree caption and browser tab resolve.
+   on hero pages the authored `fd-hero-title` IS the page title, so the
+   structural H1 (kept only so the toctree caption, browser tab, and
+   page <title> resolve) is hidden to avoid showing the title twice.
 
-   Hidden ONLY on hero-bearing pages (landing, models gallery,
-   community index). The prose-narrow community subpages
-   (contribute / discord / faq / support) keep their H1 visible
-   because they don't have a hero band of their own and the H1 IS
-   their marketing title. */
-body.fd-page-landing:not(.fd-prose-narrow) .fd-landing-main > section > h1 {
+   Only hero pages (`index`, `community/index`) get this. Pages with no
+   hero carry `fd-page-plain` and show their H1, styled as the title
+   below. */
+body.fd-page-landing:not(.fd-page-plain) .fd-landing-main > section > h1 {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -697,35 +563,31 @@ body.fd-page-landing:not(.fd-prose-narrow) .fd-landing-main > section > h1 {
     clip: rect(0, 0, 0, 0);
 }
 
-/* Style the H1 + intro prose on prose-narrow pages as a tasteful
-   hero-substitute: large display H1, no card chrome, with a thin
-   accent rule beneath. The Sphinx-emitted intro paragraphs (between
-   H1 and the first H2 section) sit in the outer `<section>` and
-   would otherwise be unstyled — give them prose-narrow treatment. */
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > h1 {
-    /* Prose-narrow pages have no hero band; the H1 is the page's
-       marketing title. Render at the same step as section heads
-       (--fd-text-xl, 28px) — the four-step ladder caps at the hero
-       size, and prose-narrow pages don't get a hero step. */
+/* No-hero pages: style the H1 + intro prose as the page title — large
+   display H1 with a thin accent rule beneath. The Sphinx-emitted intro
+   paragraphs (between the H1 and the first H2) sit in the outer
+   `<section>` and would otherwise be unstyled. Same wide column as the
+   bands below, so the page reads as one coherent marketing width. */
+body.fd-page-landing.fd-page-plain .fd-landing-main > section > h1 {
     font-size: var(--fd-text-xl);
     letter-spacing: -0.025em;
     line-height: 1.08;
     font-weight: 500;
     color: var(--fd-text);
-    max-width: 50rem;
+    max-width: var(--fd-max-content);
     margin: 0 auto var(--fd-space-4);
     padding-block: var(--fd-space-6) 0;
     padding-inline: var(--fd-space-4);
 }
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > p {
-    max-width: 50rem;
+body.fd-page-landing.fd-page-plain .fd-landing-main > section > p {
+    max-width: var(--fd-max-content);
     margin-inline: auto;
     padding-inline: var(--fd-space-4);
     font-size: var(--fd-text-lg);
     line-height: 1.6;
     color: var(--fd-text-muted);
 }
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > p:last-of-type {
+body.fd-page-landing.fd-page-plain .fd-landing-main > section > p:last-of-type {
     padding-bottom: var(--fd-space-5);
     margin-bottom: var(--fd-space-5);
     border-bottom: var(--fd-border-width) solid var(--fd-border);
@@ -749,29 +611,16 @@ body.fd-page-landing hr.docutils {
 }
 
 /* DEFAULT INNER WIDTH ----------------------------------------------------
-   Every top-level H2 section is centered in a constrained inner column
-   by default. The band background spans full-bleed; the content within
-   stays readable. Bands explicitly marked `.fd-band-wide` opt for a
-   wider inner column. */
+   Each top-level H2 section is a full-bleed band; its direct children are
+   auto-constrained to a centered, readable inner column (the `> *` rule
+   below). Flexbox column layout lets the optional `fd-eyebrow` — which RST
+   emits AFTER the H2, since docutils anchors the section by its heading —
+   be visually reordered above the H2 (see `order` rules). */
 body.fd-page-landing .fd-landing-main > section > section {
-    counter-increment: fd-band;
     padding-block: var(--fd-space-7);
     padding-inline: var(--fd-space-4);
     margin: 0;
     max-width: none;
-}
-
-/* Inner content column — wraps direct children of the band so the band
-   background can extend full-bleed. Implemented by giving each band an
-   `::before` no-op and using a flow root with auto-margin children.
-   Page-writers don't need to author this — every child of a top-level
-   section is auto-constrained via this rule.
-
-   Bands use flexbox column layout so that the optional `fd-eyebrow`
-   container — which RST emits AFTER the H2 because docutils anchors
-   the section by its heading — can be visually reordered to sit
-   above the H2 (the marketing-page convention). */
-body.fd-page-landing .fd-landing-main > section > section {
     display: flex;
     flex-direction: column;
 }
@@ -820,9 +669,9 @@ body.fd-page-landing .fd-landing-main > section > section h3 {
     margin-bottom: var(--fd-space-3);
 }
 
-/* Alternating band backgrounds. Counter-based so the order is stable
-   regardless of any non-section elements sitting between H2s in the
-   Sphinx-emitted markup. Even-numbered bands carry the muted neutral. */
+/* Alternating band backgrounds. `:nth-of-type` counts only sibling
+   `section`s, so non-section elements between H2s don't shift the
+   alternation. Even-numbered bands carry the muted neutral. */
 body.fd-page-landing .fd-landing-main > section > section:nth-of-type(even) {
     background: var(--fd-bg-muted);
 }
@@ -841,11 +690,9 @@ body.fd-page-landing .fd-landing-main > section > .fd-hero-band ~ section:first-
 
 
 /* HERO BAND --------------------------------------------------------------
-   The hero used to be a rounded card with a border, which read as
-   "callout at top of page". On front-of-site we instead render it as a
-   full-bleed band with no border, soft accent wash, large display
-   typography. Page-writers wrap the hero in a `.. container:: fd-hero
-   fd-hero-band` to opt into the band styling. */
+   On front-of-site the hero is a full-bleed band: no border, soft accent
+   wash, large display type (vs. the card-style `.fd-hero` used elsewhere).
+   Page-writers opt in via `.. container:: fd-hero fd-hero-band`. */
 
 body.fd-page-landing .fd-hero-band,
 body.fd-page-landing .fd-landing-main > section > .fd-hero-band {
@@ -873,7 +720,10 @@ body.fd-page-landing .fd-hero-band > * {
    the display size and tracking carry the emphasis. */
 body.fd-page-landing .fd-hero-band .fd-hero-title,
 body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
-    font-size: clamp(2.5rem, 5.5vw + 1rem, 4.5rem);
+    /* Matches the split-hero title clamp (below) so a bare hero-band
+       title — e.g. the Community landing — leads at the same size as
+       the homepage hero rather than a larger bare-rule size. */
+    font-size: clamp(2.0rem, 4.0vw + 0.5rem, 3.5rem);
     letter-spacing: -0.03em;
     line-height: 1.02;
     font-weight: 500;
@@ -949,19 +799,11 @@ body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
     max-width: var(--fd-max-content);
 }
 
-/* Eyebrow / H2 / lede pairing — the flexbox reorder above places the
-   eyebrow directly above the H2 visually, but they are NOT DOM-
-   adjacent (the h2 actually comes before the eyebrow in source).
-   Margin reset is handled directly on the h2 (margin-top: 0 in the
-   h2 rule above) so no adjacent-sibling rule is needed here. */
-
 
 /* LEDE PARAGRAPH ---------------------------------------------------------
-   A larger leading paragraph used directly under a section H2 — pairs
-   with `.fd-eyebrow` to give marketing-flow sections a defined
-   eyebrow / head / lede stack. Fixed at --fd-text-lg (20px) so every
-   section's lede renders at the same size; no clamp, no per-section
-   drift. */
+   A larger leading paragraph under a section H2, pairing with
+   `.fd-eyebrow` for an eyebrow / head / lede stack. Fixed at
+   --fd-text-lg (20px) so every section's lede matches. */
 .fd-lede,
 .fd-lede > p {
     font-size: var(--fd-text-lg);
@@ -971,21 +813,17 @@ body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
     margin: 0 auto var(--fd-space-5);
 }
 
-/* Body paragraphs inside any band-section content block render at the
-   canonical body size. This includes paragraphs inside `.fd-split-text`,
-   directly inside band sections, and anywhere else the marketing flow
-   surfaces prose. Forcing the size here defeats the per-section drift
-   that emerged when some sections had an `.fd-lede` and others started
-   straight in with a body paragraph at a different inherited size. */
+/* Normalize all band prose (including inside `.fd-split-text`) to the
+   canonical body size, so sections don't drift depending on whether they
+   open with an `.fd-lede` or a plain paragraph. Non-body elements
+   re-assert their size below with a matching-depth selector that
+   out-specifies this rule. */
 body.fd-page-landing .fd-landing-main > section > section p,
 body.fd-page-landing .fd-landing-main > section > section li {
     font-size: var(--fd-text-base);
 }
 
-/* Re-assert size for elements that are intentionally NOT body-size:
-   ledes, eyebrows, hero pieces, stat values/labels/notes, card titles,
-   admonition titles, code, and component-specific surfaces. These
-   selectors win because they're more specific OR come later. */
+/* Re-assert size for elements that are intentionally NOT body-size. */
 body.fd-page-landing .fd-landing-main > section > section .fd-lede,
 body.fd-page-landing .fd-landing-main > section > section .fd-lede > p {
     font-size: var(--fd-text-lg);
@@ -1002,7 +840,7 @@ body.fd-page-landing .fd-landing-main > section > section .fd-eyebrow > p {
    - `.fd-band-accent` — accent-tinted band (use sparingly; one per page)
    - `.fd-band-sunken` — deeper neutral band, for the footer-zone CTA
    - `.fd-band-default` — explicit override to force the default bg on a
-     section the counter-rule would otherwise paint muted
+     section the alternation would otherwise paint muted
 
    These take priority over the nth-of-type alternation. */
 body.fd-page-landing .fd-landing-main > section > section.fd-band-accent {
@@ -1062,14 +900,13 @@ body.fd-page-landing .sd-card.fd-feature .sd-card-title {
 
 
 /* STAT BLOCK POLISH (marketing context) ---------------------------------
-   Stat values sit at --fd-text-xl on the marketing layout — the same
-   step as section heads. Numeric tiles do not need their own size step;
-   their weight comes from the accent color + tabular numerals already
-   on `.fd-stat-value > p`. */
+   Stat values sit at --fd-text-xl, the same step as section heads. The
+   matching-depth selector out-specifies the band-prose normalization
+   rule above (which would otherwise force them to body size). */
 body.fd-page-landing .fd-stat {
     padding: var(--fd-space-4);
 }
-body.fd-page-landing .fd-stat-value > p {
+body.fd-page-landing .fd-landing-main > section > section .fd-stat-value > p {
     font-size: var(--fd-text-xl);
     line-height: 1.05;
 }
@@ -1094,17 +931,11 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 
 
 /* FOOTER ICON LINKS ------------------------------------------------------
-   GitHub + Discord channel icons rendered into the FOOTER via the
-   `icon-links` entry in `html_theme_options["footer_end"]`. The
-   component template (`pydata_sphinx_theme/components/icon-links.html`)
-   emits `<ul class="navbar-icon-links">` with FontAwesome `<i>` glyphs
-   inside `.nav-link.pst-navbar-icon` anchors — same markup regardless
-   of whether it's placed in the navbar or footer.
-
-   Scope these rules to `.bd-footer` so they don't fight the upstream
-   navbar styling (we have no navbar icon-links on this site, but the
-   selector keeps the rule isolated and lets a future maintainer
-   re-introduce a navbar instance without collision). */
+   GitHub + Discord icons rendered into the footer via the `icon-links`
+   entry in `html_theme_options["footer_end"]`. The component emits
+   `<ul class="navbar-icon-links">` with FontAwesome `<i>` glyphs inside
+   `.nav-link.pst-navbar-icon` anchors. Scoped to `.bd-footer` so the
+   rules don't reach the upstream navbar markup. */
 
 .bd-footer .navbar-icon-links {
     display: flex;
@@ -1184,56 +1015,18 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 }
 
 
-/* COMMUNITY-SUBPAGE PROSE TWEAKS ----------------------------------------
-   The community subpages (contribute, discord, faq, support) are
-   heavy prose. They use the landing layout (no sidebars) but with a
-   narrower reading column so paragraphs stay legible. Re-cap the
-   inner width and tighten the band padding to feel like a marketing-
-   prose article rather than a docs page. */
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section {
-    padding-block: var(--fd-space-6);
-}
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section > * {
-    max-width: 50rem;
-}
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section > h2 {
-    max-width: 50rem;
-}
-body.fd-page-landing.fd-prose-narrow .fd-landing-main > section > section h3 {
-    margin-top: var(--fd-space-4);
-}
-body.fd-page-landing.fd-prose-narrow .fd-landing-main p,
-body.fd-page-landing.fd-prose-narrow .fd-landing-main li {
-    line-height: 1.65;
-}
-
-
 /* ASYMMETRIC LAYOUT COMPONENTS --------------------------------------------
-   The marketing flow needs more rhythm than stacked full-bleed bands. The
-   components below turn a section's content into a two-column split:
-   prose on one side, a visual companion (image, video, code block, stat
-   tile cluster) on the other.
-
-   Composition pattern: a page-writer adds `.fd-split` to a section via
-   the `rst-class` trick, then drops a `.fd-split-text` container and a
-   `.fd-split-visual` container as siblings inside it. The split honors
-   the marketing-band scaffold above — the H2, eyebrow, and lede still
-   render in the band's column flow, then the split's two columns lay
-   out beneath.
-
-   Alternative: drop a `.. grid:: 1 2 2 2` sphinx-design grid inside the
-   section and use `.fd-split-text` / `.fd-split-visual` on the two
-   grid-items. The CSS below works for both shapes.
+   Two-column split: a `.fd-split-text` and a `.fd-split-visual` as
+   siblings inside a `.fd-split` (or as `.. grid::` items). The band's
+   H2 / eyebrow / lede still render above; the split's columns lay out
+   beneath.
 
    Variants:
    - `.fd-split-reverse` — flip visual to the left on viewports ≥ 768px
    - `.fd-split-asymmetric` — 5fr text / 7fr visual (showcase-leaning)
    - `.fd-split-asymmetric-reverse` — 7fr text / 5fr visual (prose-leaning)
 
-   Below 768px every split stacks to a single column with the text
-   first; reverse and asymmetric variants share that mobile stack so
-   small-viewport content order is always: prose-then-visual.
-*/
+   Below 768px every variant stacks to a single column, text first. */
 
 body.fd-page-landing .fd-split {
     display: grid;
@@ -1498,7 +1291,104 @@ body.fd-page-landing .fd-split-text .highlight {
 }
 
 
-/* ----- 6. Misc upstream tweaks ------------------------------------------- */
+/* ----- 7. Homepage "Supported Models" rail ------------------------------ */
+
+/* Right-hand secondary sidebar shown ONLY on the homepage (wired in by
+   `_templates/layout.html` for `master_doc`, populated by
+   `js/supported_models_nav.js`). The marketing layout runs full-bleed with
+   centered bands, so there's no content column to dock against — the rail
+   floats `position: fixed` in the right gutter and only appears once the
+   viewport is wide enough to clear the centered --fd-max-content column
+   (below that it's display:none and the on-page grid is the only nav).
+
+   Hidden until JS finishes: `[hidden]` + the default `display: none` keep
+   it out until `.is-ready` is added inside the wide-screen media query. */
+.fd-models-nav {
+    display: none;
+}
+
+/* Anchor offset so in-page jumps clear the sticky navbar. Applied by JS to
+   each model card's grid column (`.sd-col`). */
+.fd-model-anchor {
+    scroll-margin-top: calc(var(--pst-header-height, 4rem) + 1.5rem);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+/* Breakpoint in `em` (relative to the browser's default font size, so it
+   scales with a reader's accessibility font setting). Media queries can't
+   read `var()`, so this can't literally reference --fd-max-content; the
+   value is derived from it: the rail docks at 50% + 36rem (half the 72rem
+   content column) + 1.5rem and is 11rem wide, so its right edge sits at
+   50% + 48.5rem. It clears the viewport edge once ~50vw >= ~49rem, i.e.
+   ~98rem; 100em (1600px @ 16px) adds a little breathing room. If you change
+   --fd-max-content, nudge this to match (rough rule: content-rem + 28). */
+@media (min-width: 100em) {
+    .fd-models-nav.is-ready {
+        display: block;
+        position: fixed;
+        z-index: 5;
+        top: calc(var(--pst-header-height, 4rem) + 2.5rem);
+        /* Dock just to the right of the centered content column. */
+        left: calc(50% + (var(--fd-max-content) / 2) + 1.5rem);
+        width: 11rem;
+        max-height: calc(100vh - var(--pst-header-height, 4rem) - 5rem);
+        overflow-y: auto;
+    }
+}
+
+.fd-models-nav__title {
+    font-size: var(--fd-text-sm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fd-text-muted);
+    margin-bottom: var(--fd-space-3);
+    padding-left: var(--fd-space-3);
+}
+
+/* The list carries the rail "spine"; active links paint an accent segment
+   over it via their own left border (negative margin overlays the spine). */
+.fd-models-nav__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 2px solid var(--fd-border);
+}
+
+.fd-models-nav__item {
+    margin: 0;
+}
+
+.fd-models-nav__link {
+    display: block;
+    padding: var(--fd-space-1) 0 var(--fd-space-1) var(--fd-space-3);
+    margin-left: -2px;
+    font-size: var(--fd-text-sm);
+    line-height: 1.4;
+    color: var(--fd-text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: color var(--fd-transition), border-color var(--fd-transition);
+}
+
+.fd-models-nav__link:hover,
+.fd-models-nav__link:focus-visible {
+    color: var(--fd-text);
+}
+
+.fd-models-nav__link.is-active {
+    color: var(--fd-accent);
+    border-left-color: var(--fd-accent);
+    font-weight: 600;
+}
+
+
+/* ----- 8. Misc upstream tweaks ------------------------------------------- */
 
 /* Drop the "FlashDreams" caption row above the sidebar nav — it just
    echoes the toctree caption from the root index.rst and adds noise on
@@ -1526,7 +1416,7 @@ body.fd-page-landing .fd-split-text .highlight {
 }
 
 
-/* ----- 7. Reference-docs model-page components --------------------------- */
+/* ----- 9. Reference-docs model-page components --------------------------- */
 
 /* Used by the per-model RST pages under `models/*.rst` (raw HTML blocks
    that render the "Blog / Model page / Code / arXiv" link row and the
@@ -1563,35 +1453,7 @@ body.fd-page-landing .fd-split-text .highlight {
 
 .ai-figure-body {
     max-width: 760px;
-    color: var(--color-foreground-secondary);
-}
-
-.fd-stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin: 16px 0 22px;
-}
-
-.fd-stat-card {
-    border: 1px solid #dce5ea;
-    border-radius: 10px;
-    padding: 14px;
-    background: var(--color-background-primary);
-}
-
-.fd-stat-value {
-    font-size: 1.55rem;
-    line-height: 1.2;
-    font-weight: 800;
-    color: #2563eb;
-}
-
-.fd-stat-label {
-    margin-top: 4px;
-    font-size: 0.82rem;
-    line-height: 1.35;
-    color: var(--color-foreground-secondary);
+    color: var(--fd-text-muted);
 }
 
 .fd-highlight-grid {
@@ -1601,31 +1463,17 @@ body.fd-page-landing .fd-split-text .highlight {
     margin: 14px 0 20px;
 }
 
-.fd-kpi-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.fd-highlight-link {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-}
-
-.fd-highlight-link:hover {
-    text-decoration: none;
-}
-
 .fd-highlight-card {
-    border: 1px solid #dce5ea;
+    border: 1px solid var(--fd-border);
     border-radius: 10px;
     padding: 15px;
-    background: var(--color-background-primary);
+    background: var(--fd-surface);
     transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .fd-highlight-card:hover {
-    border-color: #9db2f5;
-    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.14);
+    border-color: var(--fd-border-strong);
+    box-shadow: var(--fd-shadow-2);
     transform: translateY(-1px);
 }
 
@@ -1634,67 +1482,10 @@ body.fd-page-landing .fd-split-text .highlight {
     margin-bottom: 6px;
 }
 
-.fd-kpi-value {
-    display: inline-block;
-    color: #166534;
-    background: #dcfce7;
-    padding: 1px 8px;
-    border-radius: 6px;
-}
-
-.fd-kpi-grid .fd-highlight-body {
-    white-space: nowrap;
-}
-
 .fd-highlight-body {
-    color: var(--color-foreground-secondary);
+    color: var(--fd-text-muted);
     font-size: 0.92rem;
     line-height: 1.45;
-}
-
-.fd-collapsible {
-    margin: 10px 0;
-    border: 1px solid #dce5ea;
-    border-radius: 10px;
-    background: var(--color-background-primary);
-    overflow: hidden;
-}
-
-.fd-collapsible summary {
-    cursor: pointer;
-    padding: 10px 12px;
-    font-weight: 700;
-    list-style-position: inside;
-}
-
-.fd-collapsible p {
-    margin: 0;
-    padding: 0 12px 12px;
-    color: var(--color-foreground-secondary);
-    line-height: 1.45;
-}
-
-.fd-pill-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 10px 0 20px;
-}
-
-.fd-pill {
-    border: 1px solid #dce5ea;
-    border-radius: 999px;
-    padding: 5px 10px;
-    font-size: 0.86rem;
-    color: var(--color-foreground-secondary);
-    background: var(--color-background-primary);
-}
-
-.fd-subtitle {
-    margin: 18px 0 8px;
-    font-size: 1.2rem;
-    line-height: 1.35;
-    font-weight: 700;
 }
 
 .benchmark-figure {
@@ -1859,14 +1650,7 @@ body.fd-page-landing .fd-split-text .highlight {
     opacity: 1;
 }
 
-@media (max-width: 1100px) {
-    .fd-kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
 @media (max-width: 800px) {
-    .fd-stat-grid,
     .fd-highlight-grid {
         grid-template-columns: 1fr;
     }
@@ -1918,4 +1702,128 @@ img.zoomable,
 .img-zoom-overlay.visible .img-zoom-clone {
     transform: scale(1);
     opacity: 1;
+}
+
+
+/* ----- 10. Unwired components -------------------------------------------- */
+
+/* TODO: No page currently uses any of the components below. They are
+   token-clean and ready to use, but unconsumed — before shipping, either
+   adopt them on a page (then move the rule back into its section above)
+   or delete it. Quarantined here so the live component sections only
+   contain rules that something actually renders.
+
+   - .fd-container / .fd-section : generic layout helpers
+   - .fd-video                   : responsive 16:9 embed (AVIF default;
+                                   styles <img>/<picture>/<video>/<iframe>
+                                   children identically)
+   - .fd-compare*                : benchmark comparison-table styling
+
+   NOTE: .fd-eyebrow and .fd-lede (in §6) are likewise not yet used by any
+   page, but are left in place because the marketing-band layout actively
+   wires them (order/re-assert/cta-banner rules depend on them). */
+
+.fd-container {
+    max-width: var(--fd-max-content);
+    margin-inline: auto;
+    padding-inline: var(--fd-space-3);
+}
+
+.fd-section {
+    margin-block: var(--fd-space-6);
+}
+
+@media (max-width: 640px) {
+    .fd-section {
+        margin-block: var(--fd-space-5);
+    }
+}
+
+/* Responsive 16:9 embed. AVIF is the default dynamic-image format, so
+   <img>/<picture> children are styled the same as <video>/<iframe>. */
+.fd-video {
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    overflow: hidden;
+    box-shadow: var(--fd-shadow-2);
+    background: var(--fd-bg-sunken);
+}
+
+.fd-video > iframe,
+.fd-video > video,
+.fd-video > img,
+.fd-video > picture,
+.fd-video > picture > img {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    object-fit: cover;
+}
+
+/* Benchmark comparison table — wrap a list-table / csv-table in a
+   `.. container:: fd-compare`. Numeric columns right-align via
+   `.fd-compare-numeric` (on table or row); `.fd-compare-best` highlights
+   a winning cell. */
+.fd-compare table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--fd-text-sm);
+    border: var(--fd-border-width) solid var(--fd-border);
+    border-radius: var(--fd-radius-md);
+    overflow: hidden;
+}
+
+.fd-compare thead th {
+    background: var(--fd-bg-muted);
+    color: var(--fd-text);
+    font-weight: 600;
+    text-align: left;
+    padding: var(--fd-space-2) var(--fd-space-3);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+    font-size: var(--fd-text-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.fd-compare tbody td {
+    padding: var(--fd-space-2) var(--fd-space-3);
+    border-bottom: var(--fd-border-width) solid var(--fd-border);
+    color: var(--fd-text);
+    vertical-align: top;
+}
+
+.fd-compare tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.fd-compare tbody tr:nth-child(even) td {
+    background: var(--fd-bg-muted);
+}
+
+.fd-compare-numeric td,
+.fd-compare td.fd-compare-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.fd-compare-numeric td:first-child {
+    text-align: left;
+}
+
+.fd-compare-best {
+    color: var(--fd-accent);
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .fd-compare {
+        overflow-x: auto;
+    }
+    .fd-compare table {
+        min-width: 32rem;
+    }
 }
