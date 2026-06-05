@@ -13,25 +13,16 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+:orphan:
+
 Interactive serving
 ===================================
 
 FlashDreams serving keeps a world-model session alive while inputs and outputs
 stream through the application loop.
 
-.. raw:: html
-
-   <div class="ai-figure-placeholder">
-     <div class="ai-figure-title">Figure placeholder: persistent serving session</div>
-     <div class="ai-figure-body">
-       Replace this block with a diagram showing client input, serving session,
-       pipeline cache, model step, streaming decoder, and output returning to
-       the client.
-     </div>
-   </div>
-
-Serving model
--------------
+Serving models
+--------------
 
 .. raw:: html
 
