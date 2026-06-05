@@ -27,6 +27,7 @@ import torch
 import tyro
 
 from flashdreams.core.distributed import init as init_distributed
+from flashdreams.core.io.disk import preflight_runtime_write_paths
 from flashdreams.infra.config import InstantiateConfig, derive_config
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
@@ -120,6 +121,7 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
             self.global_rank = 0
             device = config.device
         self.is_rank_zero = self.global_rank == 0
+        preflight_runtime_write_paths(output_dir=config.output_dir)
 
         # Keep per-rank RNG streams distinct under torchrun without mutating
         # the caller's literal config.

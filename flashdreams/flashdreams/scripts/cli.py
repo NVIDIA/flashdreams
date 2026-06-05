@@ -39,11 +39,14 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import sys
+from collections.abc import Callable
 from typing import Annotated
 
 import tyro
 
 from flashdreams.configs.runner_configs import _annotated_base_runner_union
+from flashdreams.core.io.disk import disk_space_error_from_exception
 from flashdreams.infra.runner import RunnerConfig
 
 
@@ -60,6 +63,22 @@ def main(config: RunnerConfig, no_instantiate: bool = False) -> None:
         return
     runner = config.setup()
     runner.run()
+
+
+def _is_rank_zero() -> bool:
+    return int(os.environ.get("LOCAL_RANK", "0")) == 0
+
+
+def _run_with_disk_error_handling(fn: Callable[[], None]) -> None:
+    try:
+        fn()
+    except Exception as exc:
+        disk_error = disk_space_error_from_exception(exc)
+        if disk_error is not None:
+            if _is_rank_zero():
+                print(str(disk_error), file=sys.stderr)
+            raise SystemExit(1) from None
+        raise
 
 
 def entrypoint() -> None:
@@ -93,18 +112,17 @@ def entrypoint() -> None:
     # they print exactly once even though every rank parses argv. Every
     # rank still exits via ``sys.exit`` inside ``tyro.cli``; only the
     # printed output is gated.
-    is_rank_zero = int(os.environ.get("LOCAL_RANK", "0")) == 0
     args = tyro.cli(
         args_cls,
         prog="flashdreams-run",
         description=__doc__,
-        console_outputs=is_rank_zero,
+        console_outputs=_is_rank_zero(),
     )
     # ``args_cls`` is built dynamically so the static checker only
     # sees ``object``; ``getattr`` keeps the type narrowing local.
     runner_cfg: RunnerConfig = getattr(args, "runner")
     no_instantiate: bool = getattr(args, "no_instantiate")
-    main(runner_cfg, no_instantiate)
+    _run_with_disk_error_handling(lambda: main(runner_cfg, no_instantiate))
 
 
 if __name__ == "__main__":
