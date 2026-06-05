@@ -432,6 +432,13 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">network</span><span class="p">:</span> <span class="n">WanDiTNetworkConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">WanDiTNetwork1pt3BConfig</span><span class="p">)</span>
     <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
     <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">checkpoint_min_free_gb</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional first-run disk preflight for checkpoint downloads.</span>
+
+<span class="sd">    ``None`` uses the generic cache reserve. Larger model integrations can set</span>
+<span class="sd">    this to their documented storage requirement; users can still override it</span>
+<span class="sd">    with ``FLASHDREAMS_MIN_CACHE_FREE_GB``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">state_dict_transform</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Pre-load state-dict remap (e.g. Self-Forcing&#39;s</span>
@@ -561,7 +568,10 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">set_context_parallel_group</span><span class="p">(</span><span class="n">cp_group</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_cp_group</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">checkpoint_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">state_dict</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">checkpoint_path</span><span class="p">)</span>
+            <span class="n">state_dict</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">checkpoint_path</span><span class="p">,</span>
+                <span class="n">checkpoint_min_free_gb</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">checkpoint_min_free_gb</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">state_dict_transform</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">state_dict</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">state_dict_transform</span><span class="p">(</span><span class="n">state_dict</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">)</span>
