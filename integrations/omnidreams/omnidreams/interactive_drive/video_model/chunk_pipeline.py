@@ -205,6 +205,10 @@ class ChunkPipeline:
             # rollout the user has already moved on from.
             if submit_generation != self.current_generation:
                 return True
+            # Latch before enqueuing so a consumer can't dequeue and present
+            # the first frame while first_chunk_produced() still reads False.
+            if frame_chunk.frames:
+                self._first_chunk_produced.set()
             for frame_index, frame in enumerate(frame_chunk.frames):
                 frame_times = chunk_times.frames[frame_index]
                 frame_times.image_ready_time = time.perf_counter()
@@ -216,8 +220,6 @@ class ChunkPipeline:
                         generation=submit_generation,
                     )
                 )
-            if frame_chunk.frames:
-                self._first_chunk_produced.set()
             return True
 
         self._command_queue.put(render_command)

@@ -56,7 +56,7 @@ def hf_prewarm_urls() -> tuple[str, ...]:
     """
     try:
         from omnidreams.config import AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS
-    except Exception as exc:  # pragma: no cover - config must be importable
+    except ImportError as exc:  # pragma: no cover - config must be importable
         raise RuntimeError(
             "Unable to import omnidreams.config to resolve world-model "
             "checkpoint URLs; run `uv sync --package flashdreams-omnidreams` "
