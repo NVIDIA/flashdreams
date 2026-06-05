@@ -15,6 +15,7 @@
 
 """Ludus rendering context - ``LudusCudaTimestampedContext``."""
 
+import time
 from typing import List, Optional, Tuple
 
 import torch
@@ -25,6 +26,24 @@ from .primitives import (
     TimestampedScene,
     _pack_cameras,
 )
+
+
+def _record_ms_summary(
+    profile: dict[str, float], prefix: str, values: list[float]
+) -> None:
+    if not values:
+        return
+    profile[f"{prefix}_count"] = float(len(values))
+    profile[f"{prefix}_sum"] = float(sum(values))
+    profile[f"{prefix}_avg"] = float(sum(values) / len(values))
+    profile[f"{prefix}_min"] = float(min(values))
+    profile[f"{prefix}_max"] = float(max(values))
+
+
+def _create_event_profiler():
+    from flashdreams.infra.profiler import EventProfiler
+
+    return EventProfiler()
 
 
 def _compute_element_aabbs(
@@ -77,6 +96,9 @@ class LudusCudaTimestampedContext:
         self._cameras: List[FThetaCamera] = []
         self._camera_intrinsics: Optional[torch.Tensor] = None
         self.needs_vflip = False  # CUDA renders top-down (standard image convention)
+        self.enable_render_profiling = False
+        self.enable_render_profile_cuda_events = False
+        self.last_render_profile: dict[str, float] = {}
 
         # Per-scene flat buffers
         self._scenes: List[dict] = []
@@ -424,21 +446,47 @@ class LudusCudaTimestampedContext:
         """
         assert self._camera_intrinsics is not None, "call upload_cameras first"
 
+        total_t0 = time.perf_counter()
         n = scene_ids.shape[0]
         all_images = []
+        profile_enabled = bool(getattr(self, "enable_render_profiling", False))
+        cuda_event_enabled = (
+            profile_enabled
+            and bool(getattr(self, "enable_render_profile_cuda_events", False))
+            and scene_ids.is_cuda
+            and torch.cuda.is_available()
+        )
+        profile: dict[str, float] = {}
+        scalar_item_ms: list[float] = []
+        query_prep_ms: list[float] = []
+        plugin_host_ms: list[float] = []
+        event_profiler = _create_event_profiler() if cuda_event_enabled else None
+
+        if profile_enabled:
+            profile["ctx_render_batch_size"] = float(n)
 
         plugin = _get_plugin()
 
+        loop_t0 = time.perf_counter()
         for i in range(n):
+            scalar_item_t0 = time.perf_counter()
             sid = int(scene_ids[i].item())
             cid = int(camera_ids[i].item())
             ts_val = int(timestamps_us[i].item())
             cam_type = int(camera_type_ids[i].item())
+            if profile_enabled:
+                scalar_item_ms.append((time.perf_counter() - scalar_item_t0) * 1e3)
 
+            query_prep_t0 = time.perf_counter()
             sd = self._scenes[sid]
             cam_intrinsics = self._camera_intrinsics[cid : cid + 1].contiguous()
             pose = camera_poses[i : i + 1].contiguous()
+            if profile_enabled:
+                query_prep_ms.append((time.perf_counter() - query_prep_t0) * 1e3)
 
+            if event_profiler is not None:
+                event_profiler.record(f"before_plugin_{i}")
+            plugin_t0 = time.perf_counter()
             img = plugin.ludus_render_fwd_cuda_timestamped(
                 self.cpp_wrapper,
                 sd["timestamps"],
@@ -459,6 +507,46 @@ class LudusCudaTimestampedContext:
                 resolution,
                 self._tessellation_threshold,
             )
+            if event_profiler is not None:
+                event_profiler.record(f"plugin_{i}")
+            if profile_enabled:
+                plugin_host_ms.append((time.perf_counter() - plugin_t0) * 1e3)
             all_images.append(img)
 
-        return torch.cat(all_images, dim=0)
+        if profile_enabled:
+            profile["ctx_render_loop_host_ms"] = (time.perf_counter() - loop_t0) * 1e3
+            _record_ms_summary(
+                profile, "ctx_render_scalar_item_host_ms", scalar_item_ms
+            )
+            _record_ms_summary(profile, "ctx_render_query_prep_host_ms", query_prep_ms)
+            _record_ms_summary(profile, "ctx_render_plugin_host_ms", plugin_host_ms)
+
+        if event_profiler is not None:
+            event_profiler.record("before_cat")
+        cat_t0 = time.perf_counter()
+        output = torch.cat(all_images, dim=0)
+        if event_profiler is not None:
+            event_profiler.record("cat")
+        if profile_enabled:
+            profile["ctx_render_cat_host_ms"] = (time.perf_counter() - cat_t0) * 1e3
+
+        if event_profiler is not None:
+            sync_t0 = time.perf_counter()
+            cuda_elapsed_ms = event_profiler.sync_and_summarize()
+            profile["ctx_render_cuda_event_sync_host_ms"] = (
+                time.perf_counter() - sync_t0
+            ) * 1e3
+            _record_ms_summary(
+                profile,
+                "ctx_render_plugin_cuda_ms",
+                [cuda_elapsed_ms[f"plugin_{i}"] for i in range(n)],
+            )
+            profile["ctx_render_cat_cuda_ms"] = cuda_elapsed_ms["cat"]
+
+        if profile_enabled:
+            profile["ctx_render_total_host_ms"] = (time.perf_counter() - total_t0) * 1e3
+            self.last_render_profile = profile
+        else:
+            self.last_render_profile = {}
+
+        return output

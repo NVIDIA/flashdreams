@@ -80,6 +80,33 @@ WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
 WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
 
 
+def _numeric_profile_values(
+    stats: dict[str, float] | None,
+    *,
+    prefix: str = "",
+) -> dict[str, float]:
+    if not stats:
+        return {}
+
+    numeric_stats: dict[str, float] = {}
+    for key, value in stats.items():
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(numeric_value):
+            continue
+        numeric_stats[f"{prefix}{key}"] = numeric_value
+    return numeric_stats
+
+
+def _rounded_profile_values(stats: dict[str, float] | None) -> dict[str, float]:
+    return {
+        key: round(value, 1)
+        for key, value in _numeric_profile_values(stats).items()
+    }
+
+
 def _choose_existing_asset(
     directory: Path,
     *,
@@ -864,6 +891,8 @@ class OmnidreamsInferenceRuntime:
                 f"Chunk={self.autoregressive_index} received empty segments."
             )
 
+        total_t0 = time.perf_counter()
+        pose_t0 = total_t0
         ego_poses = self.pose_integrator.integrate_chunk(
             segments=segments, frame_times=frame_times
         )
@@ -876,6 +905,8 @@ class OmnidreamsInferenceRuntime:
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
+        pose_ms = (time.perf_counter() - pose_t0) * 1e3
+        wrapper_t0 = time.perf_counter()
         if self._state is None:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
@@ -897,24 +928,48 @@ class OmnidreamsInferenceRuntime:
             )
             self._state = output.state
 
+        wrapper_ms = (time.perf_counter() - wrapper_t0) * 1e3
+        finalize_ms = 0.0
+        pipeline_stats: dict[str, float] | None = None
         if self._state.pipeline_cache is not None:
-            self._wrapper.finalize_block_generation(
+            finalize_t0 = time.perf_counter()
+            pipeline_stats = self._wrapper.finalize_block_generation(
                 self._state.pipeline_cache,
                 output.finalization_state,
             )
+            finalize_ms = (time.perf_counter() - finalize_t0) * 1e3
 
+        select_output_t0 = time.perf_counter()
         if serve_hdmaps:
             video_chunk = output.condition_frames
         elif output.rgb_frames is None:
             raise OmnidreamsRuntimeError("Omnidreams WebRTC received no RGB frames.")
         else:
             video_chunk = output.rgb_frames
+        num_output_frames = int(video_chunk.shape[2])
+        select_output_ms = (time.perf_counter() - select_output_t0) * 1e3
+
+        detach_cpu_t0 = time.perf_counter()
+        video_chunk_cpu = video_chunk.detach().cpu()
+        detach_cpu_ms = (time.perf_counter() - detach_cpu_t0) * 1e3
+        total_ms = (time.perf_counter() - total_t0) * 1e3
+
+        stats = {
+            "pose_ms": pose_ms,
+            "wrapper_ms": wrapper_ms,
+            "finalize_ms": finalize_ms,
+            "select_output_ms": select_output_ms,
+            "detach_cpu_ms": detach_cpu_ms,
+            "total_ms": total_ms,
+        }
+        stats.update(_numeric_profile_values(getattr(output, "stats", None)))
+        stats.update(_numeric_profile_values(pipeline_stats, prefix="pipeline_"))
 
         result = OmnidreamsStepResult(
             chunk_index=self.autoregressive_index,
-            num_frames=int(video_chunk.shape[2]),
-            video_chunk=video_chunk.detach().cpu(),
-            stats=None,
+            num_frames=num_output_frames,
+            video_chunk=video_chunk_cpu,
+            stats=stats,
         )
         self.autoregressive_index += 1
         return result
@@ -1374,10 +1429,11 @@ class OmnidreamsWebRTCSessionManager:
                     if consumed_action_arrivals
                     else None
                 )
+                profile = _rounded_profile_values(result.stats)
                 logger.info(
                     "Chunk done chunk={} num_frames={} segments={} "
                     "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
-                    "queue_depth={} lag_ms={:.1f}",
+                    "queue_depth={} lag_ms={:.1f} profile={}",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
@@ -1387,6 +1443,7 @@ class OmnidreamsWebRTCSessionManager:
                     play_ms,
                     video_track.qsize(),
                     lag_ms,
+                    profile,
                 )
 
                 channel = managed_session.control_channel
@@ -1411,6 +1468,8 @@ class OmnidreamsWebRTCSessionManager:
                         "queue_depth": video_track.qsize(),
                         "lag_ms": round(lag_ms, 1),
                     }
+                    if profile:
+                        payload["profile"] = profile
                     if control_latency_ms is not None:
                         payload["latency_ms"] = round(control_latency_ms, 1)
                         payload["control_latency_ms"] = round(control_latency_ms, 1)

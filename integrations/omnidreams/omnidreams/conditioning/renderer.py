@@ -21,6 +21,7 @@ library to render HD map scenes for conditioning video generation.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Literal
@@ -48,7 +49,27 @@ from omnidreams.conditioning.world_scenario.ftheta import FThetaCamera
 from omnidreams.conditioning.world_scenario.pinhole import PinholeCamera
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return int(value.strip())
+
+
 class LudusRenderer:
+    @staticmethod
+    def _to_int(value: torch.Tensor | int | float) -> int:
+        if isinstance(value, torch.Tensor):
+            return int(value.detach().cpu().item())
+        return int(value)
+
     @staticmethod
     def to_ludus_camera(
         camera: PinholeCamera | FThetaCamera,
@@ -121,8 +142,15 @@ class LudusRenderer:
         )
 
         self.ctx = LudusCudaTimestampedContext(device=self.device)
+        self.ctx.enable_render_profiling = _env_flag(
+            "OMNIDREAMS_LUDUS_RENDER_PROFILE"
+        )
+        self.ctx.enable_render_profile_cuda_events = _env_flag(
+            "OMNIDREAMS_LUDUS_RENDER_PROFILE_CUDA_EVENTS"
+        )
         self.ctx.set_depth_scaling(True)
-        self.ctx.set_msaa_samples(4)
+        self.msaa_samples = _env_int("OMNIDREAMS_LUDUS_MSAA_SAMPLES", 4)
+        self.ctx.set_msaa_samples(self.msaa_samples)
         self.ctx.set_max_tessellation_levels(cube=0)
 
         # Create and upload cameras
@@ -143,6 +171,7 @@ class LudusRenderer:
         scene = self.scene_data.metadata["ludus_scene"]
         self._base_timestamped_scene = scene.timestamped_scene
         self.scene_id = self.ctx.upload_scene(scene.timestamped_scene)
+        self.last_render_stats: dict[str, float] = {}
 
     def _scene_id_for_dynamic_actor_pool(
         self, dynamic_actor_pool: CubePool | None
@@ -183,8 +212,19 @@ class LudusRenderer:
         n_frames = len(frame_timestamps_us)
         assert n_frames > 0, "Number of frames must be greater than 0"
 
+        total_t0 = time.perf_counter()
+        stats: dict[str, float] = {
+            "renderer_num_frames": float(n_frames),
+            "renderer_num_cameras": float(n_cameras),
+            "renderer_msaa_samples": float(self.msaa_samples),
+        }
+
         # Create batch tensors
+        scene_id_t0 = time.perf_counter()
         scene_id = self._scene_id_for_dynamic_actor_pool(dynamic_actor_pool)
+        stats["renderer_scene_id_ms"] = (time.perf_counter() - scene_id_t0) * 1e3
+
+        batch_setup_t0 = time.perf_counter()
         scene_id_batch = torch.full(
             (n_frames * n_cameras,),
             scene_id,
@@ -200,12 +240,16 @@ class LudusRenderer:
         timestamps_batch = torch.tensor(
             frame_timestamps_us, dtype=torch.int64, device=self.device
         ).repeat(n_cameras)
+        stats["renderer_batch_setup_ms"] = (
+            time.perf_counter() - batch_setup_t0
+        ) * 1e3
 
         H, W = None, None
 
         camera_id_batch = []
         camera_poses_batch = []
 
+        camera_pose_t0 = time.perf_counter()
         for camera_name in camera_names:
             # Get camera ID, model and check resolution
             c = self.all_camera_map[camera_name]
@@ -229,7 +273,11 @@ class LudusRenderer:
                 "Camera poses must have the same length as frame timestamps"
             )
             camera_poses_batch.append(self.to_ludus_camera_pose(poses))
+        stats["renderer_camera_pose_ms"] = (
+            time.perf_counter() - camera_pose_t0
+        ) * 1e3
 
+        batch_finalize_t0 = time.perf_counter()
         camera_id_batch = (
             torch.tensor(camera_id_batch, dtype=torch.int32, device=self.device)
             .unsqueeze(1)
@@ -237,9 +285,15 @@ class LudusRenderer:
             .flatten()
         )
         camera_poses_batch = torch.stack(camera_poses_batch, dim=0).reshape(-1, 4, 4)
+        stats["renderer_batch_finalize_ms"] = (
+            time.perf_counter() - batch_finalize_t0
+        ) * 1e3
 
         assert H is not None and W is not None, "No cameras provided"
+        stats["renderer_height"] = float(self._to_int(H))
+        stats["renderer_width"] = float(self._to_int(W))
 
+        ctx_render_t0 = time.perf_counter()
         images = self.ctx.render(
             scene_id_batch,
             camera_id_batch,
@@ -248,13 +302,22 @@ class LudusRenderer:
             camera_poses_batch,
             resolution=(H, W),  # ty:ignore[invalid-argument-type]
         )
+        stats["renderer_ctx_render_ms"] = (time.perf_counter() - ctx_render_t0) * 1e3
+        stats.update(getattr(self.ctx, "last_render_profile", {}))
 
+        output_layout_t0 = time.perf_counter()
         rgb = images[:, :, :, :3]
         if self.ctx.needs_vflip:
             rgb = rgb.flip(1)
         # rgb is [N, H, W, 3] where N = n_cameras * n_frames.
         # Rearrange to [n_cameras, n_frames, 3, H, W].
-        return rgb.permute(0, 3, 1, 2).contiguous().view(n_cameras, n_frames, 3, H, W)  # ty:ignore[invalid-argument-type]
+        output = rgb.permute(0, 3, 1, 2).contiguous().view(n_cameras, n_frames, 3, H, W)  # ty:ignore[invalid-argument-type]
+        stats["renderer_output_layout_ms"] = (
+            time.perf_counter() - output_layout_t0
+        ) * 1e3
+        stats["renderer_total_ms"] = (time.perf_counter() - total_t0) * 1e3
+        self.last_render_stats = stats
+        return output
 
     def cleanup(self) -> None:
         """Cleanup the renderer."""
