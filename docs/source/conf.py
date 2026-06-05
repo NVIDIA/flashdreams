@@ -84,11 +84,11 @@ html_theme_options = {
     # Marketing-layout pages have no sidebar and therefore no secondary sidebar items.
     "secondary_sidebar_items": {
         "index": [],
-        "benchmarks": [],
         "quickstart/*": [],
         "community/*": ["page-toc"],
         "community/index": [],
         "models/*": ["page-toc"],
+        "models/index": [],
         "documentation": ["page-toc"],
         "developer_guides/*": ["page-toc"],
         "api/*": ["page-toc"],
