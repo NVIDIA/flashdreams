@@ -164,7 +164,7 @@ timings; it synchronizes GPU work and is not a throughput setting.
 
 The validated published reference for interactive-drive latency is the
 single-view GB300 table from :doc:`/models/omnidreams`, measured at
-``704 x 1280`` resolution:
+``1280 x 704`` resolution:
 
 .. list-table::
    :header-rows: 1
