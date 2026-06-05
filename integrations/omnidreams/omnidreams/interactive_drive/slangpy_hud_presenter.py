@@ -550,7 +550,7 @@ class SlangPyHudPresenter:
                 return
         except Exception as exc:
             if not self._cuda_hud_error_logged:
-                logger.info(
+                logger.warning(
                     "[presenter] hud_cuda_interop=failed; disabling and using "
                     f"host HUD upload ({exc})",
                 )
@@ -681,7 +681,7 @@ class SlangPyHudPresenter:
             try:
                 self._wheel.stop()
             except Exception as exc:  # noqa: BLE001 -- defensive teardown
-                logger.info(f"[presenter] wheel.stop() failed: {exc!r}")
+                logger.warning(f"[presenter] wheel.stop() failed: {exc!r}")
             self._wheel = None
         with contextlib.suppress(Exception):
             self._window.close()
@@ -759,7 +759,7 @@ class SlangPyHudPresenter:
         try:
             return self._spy.Device(**device_kwargs)
         except RuntimeError as exc:
-            logger.info(
+            logger.warning(
                 "[presenter] CUDA interop device creation failed; retrying Vulkan without "
                 f"interop ({exc})",
             )
@@ -818,7 +818,7 @@ class SlangPyHudPresenter:
                 height=height,
             )
         except Exception as exc:
-            logger.info(
+            logger.warning(
                 f"[presenter] hud_cuda_interop=unavailable; using host HUD upload ({exc})",
             )
             return None
@@ -883,7 +883,7 @@ class SlangPyHudPresenter:
             canvas_buffer, canvas = _allocate_canvas(width, height)
             self._configure_surface(width, height)
         except Exception as exc:
-            logger.info(
+            logger.warning(
                 "[presenter] window resize failed; keeping previous presenter "
                 f"texture size {previous_size} ({exc})",
             )
@@ -934,7 +934,7 @@ class SlangPyHudPresenter:
         try:
             surface_texture = self._surface.acquire_next_image()
         except RuntimeError as exc:
-            logger.info(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
             )
             self._reconfigure_surface()
@@ -966,7 +966,7 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            logger.info(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
             )
             self._reconfigure_surface()
@@ -992,7 +992,7 @@ class SlangPyHudPresenter:
             # after the swapchain has been idle long enough that the
             # OS reclaimed it. The fix is to reconfigure the surface
             # at the current window size; the next tick will retry.
-            logger.info(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
             )
             self._reconfigure_surface()
@@ -1017,7 +1017,7 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            logger.info(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
             )
             self._reconfigure_surface()
@@ -1202,7 +1202,7 @@ class SlangPyHudPresenter:
             self._cuda_hud_resize_logged = False
             return
         if not self._cuda_hud_resize_logged:
-            logger.info(
+            logger.warning(
                 "[presenter] hud_cuda_interop=disabled after window resize; "
                 "could not recreate shared CUDA/Vulkan resources",
             )

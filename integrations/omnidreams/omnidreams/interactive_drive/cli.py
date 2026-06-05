@@ -388,7 +388,6 @@ def main() -> None:
     place so callers that want to import :func:`run` can still
     exercise the parser via ``main()`` directly.
     """
-    configure_logging()
     run(build_parser().parse_args())
 
 

@@ -158,7 +158,7 @@ def _build_pipeline_config(
             f"{config_name} uses flashdreams default denoising steps [1000, 450]; "
             f"got {manifest.denoising_steps}."
         )
-    logger.debug(
+    logger.info(
         _pipeline_config_log_line(
             config,
             config_name=config_name,

@@ -1560,13 +1560,13 @@ class ConfigApp:
 def main() -> None:
     configure_logging()
     if not sys.platform.startswith("linux") or not Path("/dev/input").exists():
-        logger.info(
+        logger.error(
             "interactive-drive-configuration requires Linux with evdev input "
             "devices under /dev/input.",
         )
         raise SystemExit(1)
     if tk is None:
-        logger.info(
+        logger.error(
             "Tkinter is not available. Install your platform's Tk package "
             "(e.g. 'sudo apt-get install python3-tk') and retry.",
         )

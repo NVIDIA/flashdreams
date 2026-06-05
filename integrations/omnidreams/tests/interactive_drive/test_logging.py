@@ -16,12 +16,13 @@ def test_configure_logging_uses_compact_default(
     monkeypatch.setenv("LOGURU_LEVEL", "INFO")
 
     configure_logging()
-    logger.info("[world-model] compact prefix")
+    try:
+        logger.info("[world-model] compact prefix")
 
-    err = capfd.readouterr().err
-    assert "[world-model] compact prefix" in err
-    assert "INFO" in err
-    assert "omnidreams.interactive_drive" not in err
-
-    logger.remove()
-    logger.add(sys.stderr)
+        err = capfd.readouterr().err
+        assert "[world-model] compact prefix" in err
+        assert "INFO" in err
+        assert "omnidreams.interactive_drive" not in err
+    finally:
+        logger.remove()
+        logger.add(sys.stderr)
