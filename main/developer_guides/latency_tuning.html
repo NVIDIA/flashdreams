@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
         <link rel="prefetch" href="../_static/horizontal-dark.svg" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Developer guides - FlashDreams v0.1.0</title>
+        <title>Interactive-drive latency tuning - FlashDreams v0.1.0</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -282,12 +282,12 @@ SPDX-License-Identifier: Apache-2.0
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/developer_guides/index.rst?plain=true" title="View this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/developer_guides/latency_tuning.rst?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
 </div><div class="edit-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/developer_guides/index.rst" rel="edit" title="Edit this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/developer_guides/latency_tuning.rst" rel="edit" title="Edit this page">
     <svg><use href="#svg-pencil"></use></svg>
     <span class="visually-hidden">Edit this page</span>
   </a>
@@ -304,19 +304,196 @@ SPDX-License-Identifier: Apache-2.0
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="developer-guides">
-<h1>Developer guides<a class="headerlink" href="#developer-guides" title="Link to this heading">¶</a></h1>
-<p>Use these guides after the quick start to understand the runtime, choose a
-developer workflow, configure runs, build serving applications, or add a new
-model integration.</p>
-<section id="guides">
-<h2>Guides<a class="headerlink" href="#guides" title="Link to this heading">¶</a></h2>
+          <section id="interactive-drive-latency-tuning">
+<h1>Interactive-drive latency tuning<a class="headerlink" href="#interactive-drive-latency-tuning" title="Link to this heading">¶</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> latency has two different components:</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a></p></li>
-<li><p><a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a></p></li>
-<li><p><a class="reference internal" href="latency_tuning.html"><span class="doc">Interactive-drive latency tuning</span></a></p></li>
-<li><p><a class="reference internal" href="new_integration.html"><span class="doc">Add a new method</span></a></p></li>
+<li><p><strong>Model / chunk latency</strong> is the time spent preparing HDMap conditioning,
+running the OmniDreams DiT, decoding the generated chunk, and updating model
+state. This is usually the dominant input-to-visual delay.</p></li>
+<li><p><strong>Video-transport latency</strong> is the time spent delivering already-generated
+frames to a local window or browser. Switching from MJPEG to WebRTC can reduce
+this delivery cost, but it does not make the model generate a chunk faster.</p></li>
 </ul>
+<p>Tune the model path first when the profiler shows per-chunk work dominating.
+Tune transport when generated frames are ready quickly but arrive late or unevenly
+in the viewer.</p>
+<section id="model-and-backend-choice">
+<h2>Model and backend choice<a class="headerlink" href="#model-and-backend-choice" title="Link to this heading">¶</a></h2>
+<p>Use the OmniDreams world-model backend for latency work. The raster backend is
+useful for scene, control, and presenter debugging, but it does not exercise the
+model path and should not be used as a model-latency reference.</p>
+<p>The packaged interactive-drive manifests are the supported starting points:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">example_world_model.yaml</span></code> is the default single-view configuration at
+<code class="docutils literal notranslate"><span class="pre">1280</span> <span class="pre">x</span> <span class="pre">704</span></code> (width x height), 30 FPS, 8 generated frames per steady-state
+block, LightVAE enabled, and native DiT acceleration disabled.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_world_model_perf.yaml</span></code> is the perf-tuned manifest. It lowers the
+default resolution to <code class="docutils literal notranslate"><span class="pre">1168</span> <span class="pre">x</span> <span class="pre">640</span></code>, keeps 30 FPS and 8-frame steady-state
+blocks, enables the performance recipe, and requires the native DiT path.</p></li>
+</ul>
+<p>Run the perf manifest only on hosts that can build and load the native extension:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>example_world_model_perf.yaml
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code> is intentional. If the native extension is
+not available, startup fails instead of silently falling back to the slower
+PyTorch path.</p>
+</section>
+<section id="resolution">
+<h2>Resolution<a class="headerlink" href="#resolution" title="Link to this heading">¶</a></h2>
+<p>Resolution is one of the highest-impact latency knobs because it changes the
+amount of HDMap, DiT, and VAE work per chunk. Set it in the world-model manifest:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">resolution_wh</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1168</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">640</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Both values are <code class="docutils literal notranslate"><span class="pre">[width,</span> <span class="pre">height]</span></code> and must be positive multiples of 16. The
+bundled manifests list tested aspect-compatible examples:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">[1280,</span> <span class="pre">704]</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[1168,</span> <span class="pre">640]</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[1024,</span> <span class="pre">560]</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[896,</span> <span class="pre">496]</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[640,</span> <span class="pre">352]</span></code></p></li>
+</ul>
+<p>Lowering resolution reduces per-chunk compute and transport payload size, with
+the expected image-quality tradeoff. The raster presenter automatically adopts
+the manifest resolution for the world-model backend.</p>
+</section>
+<section id="chunk-size-constraints">
+<h2>Chunk size constraints<a class="headerlink" href="#chunk-size-constraints" title="Link to this heading">¶</a></h2>
+<p>Do not treat chunk size as an arbitrary latency knob. The interactive-drive
+adapter validates the FlashDreams pipeline at startup:</p>
+<ul class="simple">
+<li><p>The initial conditioning chunk is fixed at 5 frames.</p></li>
+<li><p>The public LightVAE single-view recipe used by the bundled manifests supports
+8-frame steady-state chunks.</p></li>
+<li><p>Full-VAE single-view recipes support 8- or 12-frame chunks only when the
+matching checkpoint is available.</p></li>
+<li><p>The pixel-shuffle single-view branch requires 16-frame chunks and
+<code class="docutils literal notranslate"><span class="pre">local_attn_size:</span> <span class="pre">8</span></code>. It is not the published interactive-drive tuning path.</p></li>
+</ul>
+<p>At 30 FPS, an 8-frame steady-state chunk covers about 267 ms of generated video.
+Reducing video-transport latency cannot remove this model-side chunk granularity.</p>
+</section>
+<section id="fp8-and-native-acceleration">
+<h2>FP8 and native acceleration<a class="headerlink" href="#fp8-and-native-acceleration" title="Link to this heading">¶</a></h2>
+<p>The perf manifest uses the OmniDreams single-view native CUDA extension for the
+DiT path:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">native_dit_acceleration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">required</span>
+<span class="nt">native_dit_backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fp8_kvcache_cudnn</span>
+<span class="nt">native_dit_attention_backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cudnn</span>
+</pre></div>
+</div>
+<p>Supported manifest values are <code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">disabled</span> <span class="pre">|</span> <span class="pre">auto</span> <span class="pre">|</span>
+<span class="pre">required</span></code> and <code class="docutils literal notranslate"><span class="pre">native_dit_backend:</span> <span class="pre">fp8_kvcache_cudnn</span> <span class="pre">|</span> <span class="pre">bf16</span></code>. The attention
+backend accepts <code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>, <code class="docutils literal notranslate"><span class="pre">sparge</span></code>, <code class="docutils literal notranslate"><span class="pre">sage3</span></code>, and <code class="docutils literal notranslate"><span class="pre">sage3_fp8</span></code>;
+the bundled perf manifest pins <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>.</p>
+<p>The native extension requires a source checkout, <code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain
+(<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching the PyTorch build, synced third-party sources from
+<code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span> <span class="pre">--perf</span></code>, and a Blackwell-class GPU (SM 12.0) or newer.
+The extension builds for <code class="docutils literal notranslate"><span class="pre">12.0a</span></code> by default. Use this path on Blackwell and
+GB300 systems.</p>
+<p>H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
+disabled unless you are deliberately maintaining a compatible native build. That
+path is supported, but it is not the same perf path as the published GB300
+numbers.</p>
+<p>The manifest also exposes an optional native LightVAE FP8 encoder:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">native_vae_encoder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fp8</span>
+</pre></div>
+</div>
+<p>It is disabled in the bundled perf manifest. Enabling it requires
+<code class="docutils literal notranslate"><span class="pre">OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH</span></code> or <code class="docutils literal notranslate"><span class="pre">native_vae_fp8_state_path</span></code> pointing
+to a calibrated LightVAE FP8 state.</p>
+</section>
+<section id="transport-choice">
+<h2>Transport choice<a class="headerlink" href="#transport-choice" title="Link to this heading">¶</a></h2>
+<p>Pick transport based on where the viewer runs:</p>
+<ul class="simple">
+<li><p>Local Vulkan window: lowest-overhead local presentation when the host has a
+graphics-capable GPU and display stack.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span> <span class="pre">[HOST:]PORT</span></code>: simple browser delivery from the same process.
+Use it on compute-only hosts such as GB300 systems without a graphics queue,
+or when a laptop browser views a remote model host.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code>: richer browser frontend with WebRTC’s lower
+video-delivery latency and streaming gRPC service support. Prefer this for
+product-style remote viewing or multi-client integration.</p></li>
+</ul>
+<p>MJPEG and WebRTC affect video delivery after a frame exists. If the model is
+still spending most of the time inside each chunk, use the perf manifest,
+resolution, and native-acceleration knobs first.</p>
+</section>
+<section id="profiling-and-validated-reference">
+<h2>Profiling and validated reference<a class="headerlink" href="#profiling-and-validated-reference" title="Link to this heading">¶</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--profile-world-model</span></code> to enable FlashDreams CUDA-event profiling for the
+world-model runtime. Use <code class="docutils literal notranslate"><span class="pre">--sync-gpu-timing</span></code> only when you need raster compute
+timings; it synchronizes GPU work and is not a throughput setting.</p>
+<p>The validated published reference for interactive-drive latency is the
+single-view GB300 table from <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>, measured at
+<code class="docutils literal notranslate"><span class="pre">1280</span> <span class="pre">x</span> <span class="pre">704</span></code> resolution:</p>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Stage</p></th>
+<th class="head"><p>1x GPU</p></th>
+<th class="head"><p>2x GPU</p></th>
+<th class="head"><p>4x GPU</p></th>
+<th class="head"><p>8x GPU</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>HDMap Encoder</p></td>
+<td><p>28 ms</p></td>
+<td><p>26 ms</p></td>
+<td><p>26 ms</p></td>
+<td><p>26 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>Diffusion DiT</p></td>
+<td><p>84 ms</p></td>
+<td><p>71 ms</p></td>
+<td><p>49 ms</p></td>
+<td><p>47 ms</p></td>
+</tr>
+<tr class="row-even"><td><p>VAE Decoder</p></td>
+<td><p>6 ms</p></td>
+<td><p>5 ms</p></td>
+<td><p>5 ms</p></td>
+<td><p>5 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>KV-cache Update</p></td>
+<td><p>42 ms</p></td>
+<td><p>34 ms</p></td>
+<td><p>23 ms</p></td>
+<td><p>22 ms</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Total</strong></p></td>
+<td><p><strong>118 ms</strong></p></td>
+<td><p><strong>102 ms</strong></p></td>
+<td><p><strong>80 ms</strong></p></td>
+<td><p><strong>78 ms</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Effective FPS</strong></p></td>
+<td><p><strong>68</strong></p></td>
+<td><p><strong>78</strong></p></td>
+<td><p><strong>100</strong></p></td>
+<td><p><strong>103</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>KV-cache update is off the hot path and excluded from the total. This guide
+consolidates the supported latency controls and existing published measurement;
+it does not add new end-to-end hardware benchmarking for Hopper, H100,
+Blackwell, or GB300 systems.</p>
 </section>
 </section>
 
@@ -356,8 +533,13 @@ model integration.</p>
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Developer guides</a><ul>
-<li><a class="reference internal" href="#guides">Guides</a></li>
+<li><a class="reference internal" href="#">Interactive-drive latency tuning</a><ul>
+<li><a class="reference internal" href="#model-and-backend-choice">Model and backend choice</a></li>
+<li><a class="reference internal" href="#resolution">Resolution</a></li>
+<li><a class="reference internal" href="#chunk-size-constraints">Chunk size constraints</a></li>
+<li><a class="reference internal" href="#fp8-and-native-acceleration">FP8 and native acceleration</a></li>
+<li><a class="reference internal" href="#transport-choice">Transport choice</a></li>
+<li><a class="reference internal" href="#profiling-and-validated-reference">Profiling and validated reference</a></li>
 </ul>
 </li>
 </ul>
