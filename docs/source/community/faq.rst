@@ -43,8 +43,9 @@ configurations.
 Which model recipes ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Eight first-party integrations ship under ``integrations/`` in the
-repo. The :doc:`/models/index` page has the full list; in summary:
+First-party model integrations ship under ``integrations/`` in the
+repo. The :doc:`/models/index` page has the full list; the documented
+recipes are:
 
 - :doc:`/models/self_forcing` — Streaming Wan 2.1 T2V (1.3B).
 - :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).
@@ -98,7 +99,7 @@ How do I plug in a new model recipe?
 The :doc:`/developer_guides/new_integration` guide walks the full
 flow — what to subclass on the runner side, how the entry-point
 registration works, and what the per-integration directory layout
-looks like. The eight in-tree integrations under ``integrations/``
+looks like. The in-tree integrations under ``integrations/``
 are the canonical references; pick the one closest in shape to your
 new recipe and use it as a template.
 

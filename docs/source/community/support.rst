@@ -16,8 +16,8 @@
 Getting help
 ============
 
-FlashDreams is an open-source project with a small maintainer team.
-Picking the right channel up-front gets you a useful answer fastest.
+FlashDreams is an open-source project. Picking the right channel
+up-front gets you a useful answer fastest.
 
 Choose a channel
 ----------------
@@ -36,11 +36,13 @@ Choose a channel
 
    .. grid-item-card:: I have a question about how to do X
       :class-card: fd-feature
-      :link: https://discord.com/invite/nvidiaomniverse
+      :link: discord
+      :link-type: doc
 
-      `Discord <https://discord.com/invite/nvidiaomniverse>`__ is the
-      venue for open-ended "how do I…" questions. The issue tracker
-      with the ``question`` label is fine too.
+      :doc:`Discord <discord>` is the venue for open-ended "how do I…"
+      questions, sharing results, and office hours with maintainers and
+      other users. The issue tracker with the ``question`` label is
+      fine too.
 
    .. grid-item-card:: I have a feature idea
       :class-card: fd-feature
@@ -52,27 +54,16 @@ Choose a channel
 
    .. grid-item-card:: I found a security issue
       :class-card: fd-feature
-      :link: https://www.nvidia.com/en-us/security/
+      :link: https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md
 
-      Do **not** file as a public issue. Follow NVIDIA's coordinated
-      disclosure process.
-
-
-.. admonition:: Chat with the team on Discord
-   :class: fd-callout
-
-   Real-time conversation happens on the NVIDIA Omniverse Discord
-   server — `join here <https://discord.com/invite/nvidiaomniverse>`__.
-   Maintainers and other FlashDreams users hang out in the project
-   channels for quick "how do I…" questions and design discussion.
+      Do **not** file as a public issue. Follow the coordinated
+      disclosure process in ``SECURITY.md``.
 
 
 Before you file an issue
 ------------------------
 
-A 30-second check saves everyone time:
-
-- **Search existing issues** — open and closed — for your error
+- **Search existing issues** (open and closed) for your error
   message or symptom. Most "is this a bug?" questions already have an
   answer.
 - **Check the** :doc:`faq` **page.** If your question is there,
@@ -85,14 +76,6 @@ A 30-second check saves everyone time:
 
 What makes a good bug report
 ----------------------------
-
-.. admonition:: Aim for a copy-pastable reproducer.
-   :class: fd-callout
-
-   The best bug reports are the ones a maintainer can run, see fail,
-   and start debugging in under five minutes.
-
-Please include:
 
 - **What you ran.** The exact command, recipe name, or Python snippet.
 - **What you expected.** One sentence.
@@ -109,16 +92,12 @@ Response times
 --------------
 
 The maintainers aim for a first review on every PR within
-**two business days** (see ``CONTRIBUTING.md`` for the canonical
-statement). Issues have no formal SLA — the project is small and
-volunteer-staffed, so polite pings on quiet threads are welcome.
+**two business days** (see the :doc:`contribute` guide for the
+canonical statement). Issues have no formal service-level agreement.
 
-Commercial / NVIDIA-internal support
-------------------------------------
+Commercial support
+-------------------
 
 FlashDreams is offered as-is under the Apache-2.0 license. There is
 no commercial support agreement attached to the open-source project.
-NVIDIA-internal users with production deployment needs should contact
-their usual NVIDIA solutions architect rather than the public issue
-tracker.
 

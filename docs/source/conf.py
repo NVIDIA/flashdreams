@@ -85,8 +85,9 @@ html_theme_options = {
     "secondary_sidebar_items": {
         "index": [],
         "benchmarks": [],
-        "community/*": [],
         "quickstart/*": [],
+        "community/*": ["page-toc"],
+        "community/index": [],
         "models/*": ["page-toc"],
         "documentation": ["page-toc"],
         "developer_guides/*": ["page-toc"],
@@ -123,25 +124,15 @@ html_theme_options = {
     "show_nav_level": 1,
 }
 
-# Wire the left-sidebar nav-tree component explicitly. Without this,
-# pydata renders the primary sidebar container (with the "Collapse
-# Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, community, quickstart, models gallery + per-model
-# pages) get no left sidebar — section wayfinding lives in the
-# section-index page's hero + tile grid instead. The reference-docs
-# side (`api/*`, the Documentation tab umbrella, the developer
-# guides) keeps the section nav tree.
+# Wire the left-sidebar nav-tree only for certain pages.
 html_sidebars = {
     "index": [],
-    "community/index": [],
-    "community/contribute": [],
-    "community/discord": [],
-    "community/faq": [],
-    "community/support": [],
     "quickstart/*": [],
-    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
+    "community/*": ["sidebar-nav-bs"],
+    "community/index": [],
     "models/*": ["sidebar-nav-bs"],
     "documentation": ["search-field", "sidebar-nav-bs"],
+    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
     "api/*": ["search-field", "sidebar-nav-bs"],
 }
 

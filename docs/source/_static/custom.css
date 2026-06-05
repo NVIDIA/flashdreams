@@ -720,7 +720,10 @@ body.fd-page-landing .fd-hero-band > * {
    the display size and tracking carry the emphasis. */
 body.fd-page-landing .fd-hero-band .fd-hero-title,
 body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
-    font-size: clamp(2.5rem, 5.5vw + 1rem, 4.5rem);
+    /* Matches the split-hero title clamp (below) so a bare hero-band
+       title — e.g. the Community landing — leads at the same size as
+       the homepage hero rather than a larger bare-rule size. */
+    font-size: clamp(2.0rem, 4.0vw + 0.5rem, 3.5rem);
     letter-spacing: -0.03em;
     line-height: 1.02;
     font-weight: 500;
