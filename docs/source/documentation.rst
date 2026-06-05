@@ -16,11 +16,11 @@
 Documentation
 =============
 
-The documentation is organized into two surfaces. The **developer
-guides** are conceptual walkthroughs of how the inference pipeline,
-configuration layer, and integration surface fit together. The
-**CLI and API reference** is the autodoc-driven enumeration of every
-public class, function, and command-line flag.
+The FlashDreams documentation is organized into two sections. 
+The **developer guides** section contains guides that teach you how to understand, extend, and build on FlashDreams,
+combining conceptual explanation with worked code examples.
+The **CLI and API reference** section contains the complete technical reference for every public
+class, function, and command-line flag.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -29,15 +29,15 @@ public class, function, and command-line flag.
       :link: /developer_guides/index
       :link-type: doc
 
-      Conceptual walkthroughs of the inference pipeline, the shared
-      configuration system, the integration surface for adding a
-      method, common usage patterns, and interactive serving.
+      Guides that teach you how to understand, extend, and build on
+      FlashDreams, combining conceptual explanation with worked code
+      examples.
 
    .. grid-item-card:: CLI and API reference
       :link: /api/index
       :link-type: doc
 
-      Autodoc surface for the ``flashdreams-run`` CLI, the core
+      Complete reference for the ``flashdreams-run`` CLI, the core
       runtime, the infrastructure layer, the pipelines and runners,
       and the serving components.
 

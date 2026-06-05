@@ -34,12 +34,6 @@ version = release if release[:1].isalpha() else f"v{release}"
 # caught early (locally and in CI).
 warningiserror = True
 
-# Suppress MyST cross-reference warnings for `.. include::`d markdown that
-# uses GitHub-relative file links (e.g. CONTRIBUTING.md links to `LICENSE`,
-# `reuse.toml`). Those resolve fine when GitHub renders the file standalone
-# but have no analog in the Sphinx build.
-suppress_warnings = ["myst.xref_missing"]
-
 # Auto-generate anchors for markdown headings up to H3 so cross-references
 # like `[Project governance](#project-governance)` resolve when MD is
 # included via `.. include:: ... :parser: myst_parser.sphinx_`.
@@ -76,46 +70,33 @@ html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
 
-# Light/dark logo split. pydata-sphinx-theme reads the `logo` option from
-# `html_theme_options` (image_light / image_dark) rather than the
-# top-level `html_logo`. Files are picked up from `html_static_path`.
 html_theme_options = {
+    # Light/dark logo split.
     "logo": {
         "image_light": "_static/horizontal-light.svg",
         "image_dark": "_static/horizontal-dark.svg",
     },
-    # Per-page-pattern map (same shape as `html_sidebars`). Marketing-
-    # layout pages (homepage, community, quickstart, models gallery +
-    # per-model pages) render without a right sidebar; the reference-
-    # docs side (`api/*`, the Documentation tab umbrella, the developer
-    # guides) keeps the in-page TOC. Patterns must be non-overlapping —
-    # pydata warns on any page that matches more than one — so each
-    # community page is enumerated explicitly rather than using
-    # `community/*`. The Benchmarks navbar tab targets `models/index`
-    # on this branch — the standalone `benchmarks.rst` page lives on
-    # `dev/aidanf/flashdreams_site/benchmarks` and is folded back in
-    # via that PR.
+    # Google Analytics (GA4) measurement ID.
+    "analytics": {
+        "google_analytics_id": "G-Q44TKZ8777",
+    },
+    # Map of pages to secondary sidebar items.
+    # Marketing-layout pages have no sidebar and therefore no secondary sidebar items.
     "secondary_sidebar_items": {
         "index": [],
-        "community/index": [],
-        "community/contribute": [],
-        "community/discord": [],
-        "community/faq": [],
-        "community/support": [],
         "quickstart/*": [],
-        "developer_guides/*": ["page-toc"],
-        "models/*": [],
+        "community/*": ["page-toc"],
+        "community/index": [],
+        "models/*": ["page-toc"],
+        "models/index": [],
         "documentation": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
         "api/*": ["page-toc"],
     },
+    # Pygments styles for light/dark mode.
     "pygments_light_style": "tango",
     "pygments_dark_style": "monokai",
-    # Channel icons (GitHub + Discord) — rendered as FontAwesome brand
-    # SVGs via pydata-sphinx-theme's `icon-links` component, wired into
-    # the FOOTER (see `footer_end` below). The navbar `github_url`
-    # shortcut is deliberately NOT set here; we want a single canonical
-    # surface for community links, not duplicated icons in the navbar
-    # AND the footer.
+    # Channel icons for GitHub + Discord
     "icon_links": [
         {
             "name": "GitHub",
@@ -130,56 +111,28 @@ html_theme_options = {
             "type": "fontawesome",
         },
     ],
-    # Footer arrangement: copyright on the left, channel icons on the
-    # right. `icon-links` resolves to `components/icon-links.html`
-    # which iterates `theme_icon_links` (the list above).
     "footer_start": ["copyright"],
     "footer_end": ["icon-links"],
     "navigation_depth": 4,
-    # `False` so each section's sub-pages stay visible in the left
-    # sidebar when you're on a page within that section. `True`
-    # collapses all sub-trees regardless of current page, which on
-    # this site leaves the sidebar showing only the same seven
-    # top-level entries the navbar already carries.
     "collapse_navigation": False,
-    # -- Top navbar arrangement -----------------------------------------
-    # Logo | centered nav | theme switcher | persistent search button.
-    # Channel icons (GitHub / Discord) live in the FOOTER, not the
-    # navbar — see `icon_links` and `footer_end` above.
+    # Top navbar arrangement
     "navbar_start": ["navbar-logo"],
     "navbar_center": ["navbar-nav"],
     "navbar_end": ["theme-switcher"],
     "navbar_persistent": ["search-button"],
-    # Keep the navbar at depth 1 — only the master_doc's top-level
-    # toctree entries appear there. Sub-pages live in each section's
-    # own toctree, which drives the left sidebar instead.
+    # Keep the navbar at depth 1 to only show top-level landings/sections
     "show_nav_level": 1,
-    # Four top-level entries in the master toctree (Get Started,
-    # Documentation, Benchmarks, Community); 4 <= 6 so all four
-    # promote into the primary navbar instead of bucketing into
-    # "More".
-    "header_links_before_dropdown": 6,
 }
 
-# Wire the left-sidebar nav-tree component explicitly. Without this,
-# pydata renders the primary sidebar container (with the "Collapse
-# Sidebar" toggle) but no nav contents. Marketing-layout pages
-# (homepage, community, quickstart, models gallery + per-model
-# pages) get no left sidebar — section wayfinding lives in the
-# section-index page's hero + tile grid instead. The reference-docs
-# side (`api/*`, the Documentation tab umbrella, the developer
-# guides) keeps the section nav tree.
+# Wire the left-sidebar nav-tree only for certain pages.
 html_sidebars = {
     "index": [],
-    "community/index": [],
-    "community/contribute": [],
-    "community/discord": [],
-    "community/faq": [],
-    "community/support": [],
     "quickstart/*": [],
-    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
-    "models/*": [],
+    "community/*": ["sidebar-nav-bs"],
+    "community/index": [],
+    "models/*": ["sidebar-nav-bs"],
     "documentation": ["search-field", "sidebar-nav-bs"],
+    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
     "api/*": ["search-field", "sidebar-nav-bs"],
 }
 
@@ -192,7 +145,7 @@ html_context = {
 }
 
 html_css_files = ["custom.css"]
-html_js_files = ["js/image_zoom.js"]
+html_js_files = ["js/image_zoom.js", "js/supported_models_nav.js"]
 
 # -- Copybutton --------------------------------------------------------------
 
@@ -222,10 +175,6 @@ autodoc_mock_imports = [
     "botocore",
     "mediapy",
     "cv2",
-    # `flashdreams.core.attention.rope_kernel` does `import triton` at
-    # module load. CPU-only torch wheels don't ship triton, so the
-    # docs-ci env can't import it — mock to keep autodoc building
-    # without pulling the 176MB wheel onto the runner.
     "triton",
 ]
 

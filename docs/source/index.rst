@@ -160,7 +160,7 @@ post-graph-capture — over a separate existing implementation of the
 same model. Both runs use the same weights on the same GPU, so the
 gain comes from FlashDreams' runtime alone; each tile names its
 baseline below. Full methodology lives on the
-:doc:`benchmarks page </models/index>`.
+:doc:`Models page </models/index>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -237,7 +237,7 @@ Try FlashDreams!
 ----------------
 
 FlashDreams brings best-in-class per-step latency to interactive
-autoregressive video and world models: eight integrated models across
+autoregressive video and world models: multiple integrated models across
 streaming and bidirectional recipes, multi-GPU execution, and one CLI
 to drive them all.
 
@@ -335,5 +335,5 @@ invocation, the checkpoint source, and the per-recipe knobs.
 
    Get Started <quickstart/index>
    Documentation <documentation>
-   Benchmarks <models/index>
+   models/index
    community/index

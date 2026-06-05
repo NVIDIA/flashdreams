@@ -53,21 +53,22 @@ pipeline is embedded in surrounding code.
       The entry-point surface a new recipe ships against: what to
       subclass, what to register, and where the parity tests live.
 
+   .. Temporarily commented out for internal development:
    .. grid-item-card:: Usage patterns
-      :link: usage_patterns
-      :link-type: doc
-
-      Common ways to drive FlashDreams from Python: the CLI, the
-      in-process runner API, and the pipeline-level surface for
-      embedding.
-
+   ..    :link: usage_patterns
+   ..    :link-type: doc
+   ..
+   ..    Common ways to drive FlashDreams from Python: the CLI, the
+   ..    in-process runner API, and the pipeline-level surface for
+   ..    embedding.
+   ..
    .. grid-item-card:: Interactive serving
-      :link: interactive_serving
-      :link-type: doc
-
-      Keeping a streaming session alive: warmup, steady-state
-      generation, and how the WebRTC and gRPC servers under
-      ``integrations/`` wire the pipeline up.
+   ..    :link: interactive_serving
+   ..    :link-type: doc
+   ..
+   ..    Keeping a streaming session alive: warmup, steady-state
+   ..    generation, and how the WebRTC and gRPC servers under
+   ..    ``integrations/`` wire the pipeline up.
 
 Where these guides fit
 ----------------------
@@ -85,5 +86,6 @@ two-command path from install to a generated clip.
    inference_pipeline_overview
    config_system
    new_integration
-   usage_patterns
-   interactive_serving
+.. Temporarily commented out for internal development:
+..   usage_patterns
+..   interactive_serving

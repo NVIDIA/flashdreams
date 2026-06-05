@@ -18,152 +18,60 @@ Community
 
 .. container:: fd-hero fd-hero-band
 
-   .. container:: fd-hero-eyebrow
-
-      Apache-2.0, developed in the open
-
    .. rubric:: Community and contribution
       :class: fd-hero-title
 
    .. container:: fd-hero-lede
 
-      FlashDreams is developed in the open at
+      FlashDreams is an open-source project that can be found on GitHub at
       `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`__.
-      This section collects the channels for filing bugs, asking
-      questions, sending pull requests, and tracking releases.
+      Follow the cards below to get started with communicating
+      with the team and community, getting help, and contributing to the project.
 
    .. container:: fd-cta-row
 
-      .. button-link:: https://github.com/NVIDIA/flashdreams
-         :color: primary
+      .. grid:: 1 2 2 2
+         :gutter: 3
+         :margin: 0 0 4 0
 
-         Browse the repo
+         .. grid-item-card:: Join the Discord!
+            :class-card: fd-feature
+            :link: discord
+            :link-type: doc
 
-      .. button-ref:: contribute
-         :ref-type: doc
-         :color: secondary
-         :outline:
+            Real-time chat and office hours with maintainers and other users
+            on the NVIDIA Omniverse server.
 
-         Contribute
+         .. grid-item-card:: Get help
+            :class-card: fd-feature
+            :link: support
+            :link-type: doc
 
-      .. button-ref:: support
-         :ref-type: doc
-         :color: secondary
-         :outline:
+            Pick the right channel, file an actionable bug report, and see
+            what response times to expect from the maintainers.
 
-         Get help
+         .. grid-item-card:: Contribute
+            :class-card: fd-feature
+            :link: contribute
+            :link-type: doc
+
+            The full contribution flow: DCO sign-off, CI tiers, review
+            expectations, code of conduct, and project governance.
+
+         .. grid-item-card:: FAQ
+            :class-card: fd-feature
+            :link: faq
+            :link-type: doc
+
+            Answers to the questions that come up repeatedly in the issue
+            tracker and on Discord.
+
 
 .. toctree::
    :hidden:
    :maxdepth: 1
 
    contribute
-   discord
    support
+   discord
    faq
-
-Where to find us
-----------------
-
-Maintainers monitor the GitHub issue tracker first. Discord is the
-venue for real-time conversation with maintainers and other users.
-
-.. container:: fd-media-rail fd-media-rail-2
-
-   .. container:: fd-media-tile
-
-      .. container:: fd-media-tile-body
-
-         .. container:: fd-media-tile-title
-
-            GitHub Issues
-
-         File bug reports and feature requests. This is the fastest way
-         to reach the maintainers with something concrete and
-         reproducible.
-
-         `Open an issue
-         <https://github.com/NVIDIA/flashdreams/issues>`__
-
-   .. container:: fd-media-tile
-
-      .. container:: fd-media-tile-body
-
-         .. container:: fd-media-tile-title
-
-            Discord
-
-         Real-time chat with maintainers and other users. The
-         FlashDreams community lives on the NVIDIA Omniverse server.
-
-         :doc:`Read more <discord>` · `Join the Discord
-         <https://discord.com/invite/nvidiaomniverse>`__
-
-Contributing
-------------
-
-.. container:: fd-split fd-split-asymmetric-reverse
-
-   .. container:: fd-split-text
-
-      The contribution flow is documented in full on the
-      :doc:`contribute` page. The five steps on the side are the
-      short version.
-
-      The authoritative version — DCO details, review expectations,
-      CI tier markers, the SPDX header template — lives in
-      :doc:`contribute` and the canonical `CONTRIBUTING.md
-      <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`__
-      in the repo root.
-
-   .. container:: fd-split-visual
-
-      .. container:: fd-info-card
-
-         .. container:: fd-info-card-title
-
-            Five-step flow
-
-         1. **Fork** ``NVIDIA/flashdreams`` and create a feature
-            branch off ``main``.
-         2. **Set up** your local environment — see the
-            :doc:`/quickstart/index`.
-         3. **Run** the linters and CPU-tier tests before you push;
-            the :doc:`contribute` page has the exact commands.
-         4. **Sign off** every commit with ``git commit --signoff``
-            (DCO is a hard gate).
-         5. **Open a PR** against ``main`` and fill in the template.
-
-Frequently asked
-----------------
-
-Answers to questions that come up repeatedly in the issue tracker
-live on the :doc:`faq` page. If a question keeps recurring in support
-channels, propose an FAQ entry via a pull request — see
-:doc:`contribute`.
-
-.. rst-class:: fd-band-accent fd-cta-banner
-
-Where to next
--------------
-
-.. container:: fd-cta-row
-
-   .. button-ref:: contribute
-      :ref-type: doc
-      :color: primary
-
-      Read the contribution guide
-
-   .. button-ref:: support
-      :ref-type: doc
-      :color: secondary
-      :outline:
-
-      Get help
-
-   .. button-link:: https://github.com/NVIDIA/flashdreams
-      :color: secondary
-      :outline:
-
-      Browse the repo
