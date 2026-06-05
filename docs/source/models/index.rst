@@ -13,12 +13,12 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Benchmarks
-==========
+Models
+======
 
 .. container:: fd-hero fd-hero-band
 
-   .. rubric:: Benchmarks
+   .. rubric:: Models
       :class: fd-hero-title
 
    .. container:: fd-hero-lede
