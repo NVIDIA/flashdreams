@@ -33,6 +33,48 @@ class CliManifestResolutionTest(unittest.TestCase):
 
         self.assertEqual(resolved, manifest.resolve())
 
+    def test_relative_recording_dir_resolves_from_flashdreams_root(self) -> None:
+        resolved = cli._resolve_recording_output_dir(Path("captures"), enabled=True)
+
+        self.assertEqual(resolved, (cli._FLASHDREAMS_ROOT / "captures").resolve())
+
+    def test_absolute_recording_dir_is_preserved(self) -> None:
+        absolute = Path(tempfile.gettempdir()) / "interactive-drive-captures"
+
+        resolved = cli._resolve_recording_output_dir(absolute, enabled=True)
+
+        self.assertEqual(resolved, absolute)
+
+    def test_default_recording_dir_is_flashdreams_root_recordings(self) -> None:
+        resolved = cli._resolve_recording_output_dir(None, enabled=True)
+
+        self.assertEqual(
+            resolved,
+            (cli._FLASHDREAMS_ROOT / "recordings").resolve(),
+        )
+
+    def test_disabled_recording_has_no_output_dir(self) -> None:
+        resolved = cli._resolve_recording_output_dir(Path("captures"), enabled=False)
+
+        self.assertIsNone(resolved)
+
+    def test_flashdreams_root_fallback_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            start = Path(tmpdir) / "installed" / "omnidreams"
+            start.mkdir(parents=True)
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(tmpdir)
+                with self.assertWarnsRegex(
+                    RuntimeWarning,
+                    "Could not locate the flashdreams repository root",
+                ):
+                    resolved = cli._find_flashdreams_root(start)
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertEqual(resolved, Path(tmpdir).resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

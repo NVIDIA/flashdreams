@@ -27,6 +27,7 @@ from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+from omnidreams.interactive_drive.recording import recording_hotkey_matches
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image
 
@@ -823,6 +824,11 @@ class MJPEGStreamingPresenter:
             # holding the key doesn't trigger a cascade of resets.
             if key in ("r", "R"):
                 self._keyboard.request_reset()
+                return
+            if self._keyboard.recording_enabled and recording_hotkey_matches(
+                self._keyboard.recording_hotkey, key
+            ):
+                self._keyboard.request_recording_toggle()
 
     def _state_snapshot(self) -> dict[str, float | None]:
         """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.

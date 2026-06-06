@@ -62,3 +62,19 @@ def test_consume_exit_scene_request_returns_true_once_per_request() -> None:
     keyboard.request_exit_scene()
     assert keyboard.consume_exit_scene_request() is True
     assert keyboard.consume_exit_scene_request() is False
+
+
+def test_recording_toggle_request_ignored_when_recording_disabled() -> None:
+    keyboard = KeyboardState()
+    keyboard.request_recording_toggle()
+    assert keyboard.consume_recording_toggle_request() is False
+
+
+def test_recording_toggle_request_returns_true_once_when_enabled() -> None:
+    keyboard = KeyboardState(recording_enabled=True, recording_hotkey="F9")
+    assert keyboard.recording_enabled is True
+    assert keyboard.recording_hotkey == "f9"
+    keyboard.request_recording_toggle()
+    keyboard.request_recording_toggle()
+    assert keyboard.consume_recording_toggle_request() is True
+    assert keyboard.consume_recording_toggle_request() is False

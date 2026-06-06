@@ -28,6 +28,7 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
+from omnidreams.interactive_drive.recording import slangpy_key_name_candidates
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
 
@@ -2083,6 +2084,8 @@ class SlangPyHudPresenter:
             self._keyboard.request_reset()
         elif self._key_matches(key, "x"):
             self.exit_scene()
+        elif self._recording_hotkey_matches(key):
+            self._keyboard.request_recording_toggle()
 
     def _expire_pending_drive_releases(self) -> None:
         """Commit any debounced release whose grace window has passed.
@@ -2133,6 +2136,15 @@ class SlangPyHudPresenter:
     def _key_matches(self, event_key: Any, name: str) -> bool:
         code = self._key_codes.get(name)
         return code is not None and event_key == code
+
+    def _recording_hotkey_matches(self, event_key: Any) -> bool:
+        if not self._keyboard.recording_enabled:
+            return False
+        key_enum = self._spy.KeyCode
+        for name in slangpy_key_name_candidates(self._keyboard.recording_hotkey):
+            if event_key == _lookup_key(key_enum, name):
+                return True
+        return False
 
     def _on_mouse_event(self, event: Any) -> None:
         spy = self._spy

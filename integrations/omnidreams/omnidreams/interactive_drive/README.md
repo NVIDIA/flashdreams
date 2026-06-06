@@ -467,6 +467,23 @@ Controls (apply in all three modes):
 - `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
 
+World-model manifests can enable rollout recording with:
+
+```yaml
+recording_enabled: true
+recording_dir: recordings
+recording_hotkey: F9
+recording_auto_start: false
+```
+
+Press the configured hotkey once to start and again to stop. Set
+`recording_auto_start: true` to start recording as soon as each rollout begins.
+Relative `recording_dir` values are written under the flashdreams repository
+root; absolute paths are used as-is. Each saved recording writes
+`first_frame.png`, `prompt.txt`, `metadata.json`, `hdmap.mp4`, and
+`inferred.mp4` under a timestamped subdirectory. `first_frame.png` is copied
+from the first recorded inferred frame so it matches the inferred video.
+
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.
