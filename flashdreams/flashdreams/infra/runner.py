@@ -33,6 +33,12 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineConfig,
 )
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoTensorLayout,
+    VideoValueRange,
+    postprocess_video_tensor,
+)
 
 
 def _is_torchrun_env() -> bool:
@@ -58,6 +64,12 @@ class RunnerConfig(InstantiateConfig):
 
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
+
+    postprocess: VideoPostprocessChainConfig = field(
+        default_factory=VideoPostprocessChainConfig
+    )
+    """Optional video post-processing chain applied before runner outputs are
+    persisted. Empty means the generated frames are written unchanged."""
 
     output_dir: Path = Path("outputs")
     """Directory the runner writes outputs into. Created on demand."""
@@ -145,6 +157,23 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
 
         pipeline = self.config.pipeline.setup()
         self.pipeline = pipeline.to(device=device).eval()
+
+    def postprocess_video_tensor(
+        self,
+        tensor: torch.Tensor,
+        *,
+        layout: VideoTensorLayout,
+        value_range: VideoValueRange = "minus_one_one",
+        fps: float | None = None,
+    ) -> torch.Tensor:
+        """Apply the configured post-processing chain to a generated video."""
+        return postprocess_video_tensor(
+            tensor,
+            layout=layout,
+            value_range=value_range,
+            postprocess=self.config.postprocess,
+            fps=fps,
+        )
 
     @abstractmethod
     def run(self) -> None:

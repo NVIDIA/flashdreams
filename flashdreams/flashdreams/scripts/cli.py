@@ -27,6 +27,7 @@ Usage::
     flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
     flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
     flashdreams-run --no-instantiate template-offline # resolve config only
+    flashdreams-run --postprocess.mode flashvsr-v1.1-sparse-2.0 wan21-t2v-1.3b-480p
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
@@ -41,21 +42,60 @@ import dataclasses
 import os
 import sys
 from collections.abc import Callable
-from typing import Annotated
+from dataclasses import dataclass
+from typing import Annotated, Literal
 
 import tyro
 
 from flashdreams.configs.runner_configs import _annotated_base_runner_union
 from flashdreams.core.io.disk import disk_space_error_from_exception
+from flashdreams.infra.config import derive_config
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.infra.runner import RunnerConfig
 
 
-def main(config: RunnerConfig, no_instantiate: bool = False) -> None:
+@dataclass(kw_only=True)
+class CLIVideoPostprocessConfig:
+    """Top-level ``flashdreams-run`` video post-processing selector."""
+
+    mode: Literal[
+        "none",
+        "flashvsr-v1.1-sparse-2.0",
+        "flashvsr-v1.1-sparse-1.5",
+        "flashvsr-v1.1-full-attn",
+    ] = "none"
+    """Post-processing preset appended to the runner's configured chain."""
+
+    scale: Literal[2, 4] = 2
+    """Spatial upsample factor for VSR post-processing."""
+
+    chunk_size: Literal[8, 16] = 16
+    """Steady-state VSR chunk size."""
+
+    device: str = "cuda"
+    """Device used by the post-processing model."""
+
+    tail_policy: Literal["replicate_pad", "drop"] = "replicate_pad"
+    """How VSR handles the final partial chunk."""
+
+    compile_network: bool = False
+    """Enable ``torch.compile`` in the VSR post-processor."""
+
+    use_cuda_graph: bool = False
+    """Enable CUDA graph replay in the VSR post-processor."""
+
+
+def main(
+    config: RunnerConfig,
+    no_instantiate: bool = False,
+    postprocess: CLIVideoPostprocessConfig | None = None,
+) -> None:
     """Print the resolved config and (by default) run the runner.
 
     Under ``torchrun`` only local-rank 0 prints; every rank holds the
     same resolved config.
     """
+    config = _apply_cli_postprocess(config, postprocess or CLIVideoPostprocessConfig())
     if int(os.environ.get("LOCAL_RANK", "0")) == 0:
         print(f"Resolved config for {config.runner_name!r}:")
         print(config)
@@ -63,6 +103,47 @@ def main(config: RunnerConfig, no_instantiate: bool = False) -> None:
         return
     runner = config.setup()
     runner.run()
+
+
+def _apply_cli_postprocess(
+    config: RunnerConfig,
+    postprocess: CLIVideoPostprocessConfig,
+) -> RunnerConfig:
+    """Append a top-level CLI post-processor selection to ``config``."""
+    if postprocess.mode == "none":
+        return config
+
+    try:
+        from flashvsr.postprocess import FlashVSRPostProcessorConfig  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "FlashVSR post-processing requires the flashvsr integration. "
+            "Install flashdreams-flashvsr or run inside the workspace."
+        ) from exc
+
+    sparse_ratio = 2.0
+    attention_mode: Literal["sparse", "full"] = "sparse"
+    if postprocess.mode == "flashvsr-v1.1-sparse-1.5":
+        sparse_ratio = 1.5
+    elif postprocess.mode == "flashvsr-v1.1-full-attn":
+        attention_mode = "full"
+
+    processor = FlashVSRPostProcessorConfig(
+        scale=postprocess.scale,
+        chunk_size=postprocess.chunk_size,
+        sparse_ratio=sparse_ratio,
+        attention_mode=attention_mode,
+        device=postprocess.device,
+        tail_policy=postprocess.tail_policy,
+        compile_network=postprocess.compile_network,
+        use_cuda_graph=postprocess.use_cuda_graph,
+    )
+    return derive_config(
+        config,
+        postprocess=VideoPostprocessChainConfig(
+            processors=(*config.postprocess.processors, processor)
+        ),
+    )
 
 
 def _is_rank_zero() -> bool:
@@ -104,6 +185,11 @@ def entrypoint() -> None:
                 bool,
                 dataclasses.field(default=False),
             ),
+            (
+                "postprocess",
+                CLIVideoPostprocessConfig,
+                dataclasses.field(default_factory=CLIVideoPostprocessConfig),
+            ),
         ],
     )
     args_cls.__doc__ = __doc__
@@ -122,7 +208,8 @@ def entrypoint() -> None:
     # sees ``object``; ``getattr`` keeps the type narrowing local.
     runner_cfg: RunnerConfig = getattr(args, "runner")
     no_instantiate: bool = getattr(args, "no_instantiate")
-    _run_with_disk_error_handling(lambda: main(runner_cfg, no_instantiate))
+    postprocess: CLIVideoPostprocessConfig = getattr(args, "postprocess")
+    _run_with_disk_error_handling(lambda: main(runner_cfg, no_instantiate, postprocess))
 
 
 if __name__ == "__main__":
