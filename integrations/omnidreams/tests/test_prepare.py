@@ -29,9 +29,9 @@ def test_hf_prewarm_urls_includes_world_model_checkpoint() -> None:
     # at runtime instead of being staged here.
     urls = hf_prewarm_urls()
 
-    assert any(
-        "omni-dreams-models" in url and url.endswith(".pt") for url in urls
-    ), f"expected an omni-dreams-models checkpoint in {urls!r}"
+    assert any("omni-dreams-models" in url and url.endswith(".pt") for url in urls), (
+        f"expected an omni-dreams-models checkpoint in {urls!r}"
+    )
 
 
 def test_hf_prewarm_urls_only_returns_hf_file_urls() -> None:

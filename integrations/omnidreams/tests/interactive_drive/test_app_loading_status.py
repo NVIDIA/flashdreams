@@ -16,7 +16,9 @@ def _event(set_: bool) -> threading.Event:
     return event
 
 
-def _app(*, optimizes: bool, model_ready: bool, first_chunk: bool) -> InteractiveDriveApp:
+def _app(
+    *, optimizes: bool, model_ready: bool, first_chunk: bool
+) -> InteractiveDriveApp:
     """Window-less app wired with just the state the loading status reads."""
     app = InteractiveDriveApp.__new__(InteractiveDriveApp)
     app._pipeline = SimpleNamespace(  # type: ignore[attr-defined]
