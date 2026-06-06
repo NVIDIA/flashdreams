@@ -197,6 +197,12 @@ class CausalForcingT2VRunner(
         generated = torch.cat(chunks, dim=0)
         if not self.is_rank_zero:
             return
+        generated = self.postprocess_video_tensor(
+            generated,
+            layout="tchw",
+            value_range="minus_one_one",
+            fps=config.fps,
+        ).cpu()
 
         # Write the video.
         config.output_dir.mkdir(parents=True, exist_ok=True)

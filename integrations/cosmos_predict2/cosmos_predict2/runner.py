@@ -157,7 +157,12 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
         if not self.is_rank_zero:
             return
-        generated = generated.cpu()
+        generated = self.postprocess_video_tensor(
+            generated,
+            layout="tchw",
+            value_range="minus_one_one",
+            fps=config.fps,
+        ).cpu()
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = config.output_dir / f"{config.runner_name}.mp4"

@@ -395,6 +395,12 @@ class LingbotWorldRunner(
         video = torch.cat(chunks, dim=0)  # [T, C, H, W]
         if not self.is_rank_zero:
             return
+        video = self.postprocess_video_tensor(
+            video,
+            layout="tchw",
+            value_range="minus_one_one",
+            fps=cfg.fps,
+        ).cpu()
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         canvas = rearrange(video, "t c h w -> t h w c")
