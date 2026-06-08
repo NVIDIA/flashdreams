@@ -158,6 +158,10 @@ class InteractiveDriveApp:
         """``True`` once the scene-independent model warmup has completed."""
         return self._pipeline.model_ready.is_set()
 
+    def first_chunk_produced(self) -> bool:
+        """``True`` once the model has produced its first generated chunk."""
+        return self._pipeline.first_chunk_produced.is_set()
+
     def load_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
     ) -> bool:
@@ -507,12 +511,15 @@ class InteractiveDriveApp:
     def _loading_status_message(self) -> str:
         """Phase text shown over the loading frame until the first chunk.
 
-        World-model warmup takes priority; once the model is resident a
-        scene (re)load only uploads geometry and renders the first chunk,
-        so the lighter "Loading scene..." message is shown instead.
+        ``"Loading world model..."`` during warmup, then ``"Optimizing world
+        model..."`` while the first generated chunk pays its one-time
+        compile / CUDA-graph / autotune cost (only for backends that flag it),
+        then the cheaper ``"Loading scene..."`` for every load after that.
         """
         if not self.model_ready():
             return "Loading world model..."
+        if self._backend.optimizes_on_first_chunk and not self.first_chunk_produced():
+            return "Optimizing world model..."
         return "Loading scene..."
 
     def _resetting_status_message(self) -> str:
