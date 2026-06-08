@@ -240,6 +240,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         camera_models: dict[str, FThetaCamera] = {}
 
         for camera_name in camera_names:
+            # Get or create camera model
             if scene_data.camera_models.get(camera_name) is None:
                 # Create a default 120 FOV camera model.
                 # from_numpy format: [cx, cy, width, height, *poly(6), is_bw_poly, linear_c, linear_d, linear_e]
@@ -261,6 +262,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
             )
             camera_model = camera_model_raw
 
+            # Resize camera model if needed
             if camera_model.height != res_H or camera_model.width != res_W:
                 scale_h = res_H / camera_model.height
                 scale_w = res_W / camera_model.width
@@ -298,6 +300,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         Returns:
             ``[B, V, T, 3, H, W]`` uint8 tensor on ``self.input_device`` (B=1).
         """
+        # Render all frames and cameras in a single pass
         all_view_frames = renderer.render_all_frames_and_cameras(
             camera_names,
             camera_poses_per_view,

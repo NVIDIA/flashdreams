@@ -553,7 +553,9 @@ class Block(nn.Module):
             self_attn_group: Group for ranks processing the same view (T-axis gathering).
             cross_view_attn_group: Group for ranks at the same T slice (V-axis gathering).
         """
+        # Self-attention uses self_attn_group (for T gathering)
         self.self_attn.set_context_parallel_group(cp_group=self_attn_group)
+        # Cross-view attention uses cross_view_attn_group (for V gathering)
         if self.enable_cross_view_attn:
             self.cross_view_attn.set_context_parallel_group(
                 cp_group=cross_view_attn_group

@@ -161,6 +161,9 @@ class ReplayClient:
         self.request_hdmap = request_hdmap
         self.text_prompt = text_prompt
         self.defer_frame_processing = defer_frame_processing
+        # Set per-session in _replay_start_session; default guards a malformed
+        # log whose first entry isn't a start_session.
+        self.return_hdmap_frames_flag = False
         self.channel = grpc.insecure_channel(
             server_address,
             options=[

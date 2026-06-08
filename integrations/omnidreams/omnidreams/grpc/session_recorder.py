@@ -56,7 +56,14 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a start_session RPC call to the binary log."""
+        """Record a start_session RPC call to the binary log.
+
+        Args:
+            request: The SessionRequest message.
+            response: The SessionId response message.
+            timestamp_ns: Wall clock time when request was received (nanoseconds).
+            duration_ns: Time taken to process the request (nanoseconds).
+        """
         entry = video_model_pb2.LogEntry(
             seq=self._seq,
             timestamp_ns=timestamp_ns,
@@ -76,7 +83,14 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a render_video_chunk RPC call to the binary log."""
+        """Record a render_video_chunk RPC call to the binary log.
+
+        Args:
+            request: The VideoChunkRequest message.
+            response: The VideoChunkReturn response message.
+            timestamp_ns: Wall clock time when request was received (nanoseconds).
+            duration_ns: Time taken to process the request (nanoseconds).
+        """
         entry = video_model_pb2.LogEntry(
             seq=self._seq,
             timestamp_ns=timestamp_ns,
@@ -96,7 +110,14 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a close_session RPC call to the binary log."""
+        """Record a close_session RPC call to the binary log.
+
+        Args:
+            request: The SessionCloseRequest message.
+            response: The Empty response message.
+            timestamp_ns: Wall clock time when request was received (nanoseconds).
+            duration_ns: Time taken to process the request (nanoseconds).
+        """
         entry = video_model_pb2.LogEntry(
             seq=self._seq,
             timestamp_ns=timestamp_ns,

@@ -150,10 +150,12 @@ class ClipGTLoader(SceneDataLoader):
 
         logger.debug(f"Loading ClipGT data from: {clipgt_path} (clip_id: {clip_id})")
 
+        # Initialize scene data
         scene_data = SceneData(
             scene_id=clip_id, frame_rate=input_pose_fps, duration_seconds=0.0
         )
 
+        # Define file paths
         files = {
             "calibration": clipgt_path / f"{clip_id}.calibration_estimate.parquet",
             "egomotion": clipgt_path / f"{clip_id}.egomotion_estimate.parquet",
@@ -289,6 +291,7 @@ class ClipGTLoader(SceneDataLoader):
             target_timestamps_micros = timestamps[0] + (target_timestamps_seconds * 1e6)
             sync_mode = f"{target_fps} Hz"
 
+        # Interpolate positions
         interp_positions = []
         for i in range(3):  # x, y, z
             f = interp1d(
@@ -307,6 +310,7 @@ class ClipGTLoader(SceneDataLoader):
 
         # Create EgoPose objects with proper microsecond timestamps (OpenCV RDF)
         for i in range(num_frames):
+            # Convert position
             pos_flu = interp_positions[i].astype(np.float32)
             pos_rdf = convert_points_flu_to_rdf(pos_flu.reshape(1, 3))[0]
 
