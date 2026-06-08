@@ -13,10 +13,21 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 Models
 ===================================
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   self_forcing
+   causal_forcing
+   causal_wan22
+   cosmos_predict2
+   flashvsr
+   lingbot_world
+   omnidreams
+   wan21
 
 FlashDreams supports multiple world/video model families behind one unified CLI
 and programmatic pipeline interface.

@@ -32,3 +32,14 @@ Guides
 .. Temporarily commented out for internal development:
 .. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
 .. - :doc:`Interactive serving </developer_guides/interactive_serving>`
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   inference_pipeline_overview
+   config_system
+   new_integration
+.. Temporarily commented out for internal development:
+..   usage_patterns
+..   interactive_serving

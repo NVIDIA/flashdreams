@@ -65,18 +65,75 @@ exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
 
 html_theme_options = {
-    "source_repository": "https://github.com/NVIDIA/flashdreams/",
-    "source_branch": "main",
-    "source_directory": "docs/source/",
-    "sidebar_hide_name": True,
-    "light_logo": "horizontal-light.svg",
-    "dark_logo": "horizontal-dark.svg",
+    # Light/dark logo split.
+    "logo": {
+        "image_light": "_static/horizontal-light.svg",
+        "image_dark": "_static/horizontal-dark.svg",
+    },
+    # Google Analytics (GA4) measurement ID.
+    "analytics": {
+        "google_analytics_id": "G-Q44TKZ8777",
+    },
+    # Map of pages to secondary sidebar items.
+    # Marketing-layout pages have no sidebar and therefore no secondary sidebar items.
+    "secondary_sidebar_items": {
+        "index": [],
+        "quickstart/*": [],
+        "community/*": ["page-toc"],
+        "community/index": [],
+        "models/*": ["page-toc"],
+        "models/index": [],
+        "documentation": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
+        "api/*": ["page-toc"],
+    },
+    # Pygments styles for light/dark mode.
+    "pygments_light_style": "tango",
+    "pygments_dark_style": "monokai",
+    # Channel icons for GitHub + Discord
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/NVIDIA/flashdreams",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        },
+        {
+            "name": "Discord",
+            "url": "https://discord.com/invite/nvidiaomniverse",
+            "icon": "fa-brands fa-discord",
+            "type": "fontawesome",
+        },
+    ],
+    "footer_start": ["copyright"],
+    "footer_end": ["icon-links"],
+    "navigation_depth": 4,
+    "collapse_navigation": False,
+    # Top navbar arrangement
+    "navbar_start": ["navbar-logo"],
+    "navbar_center": ["navbar-nav"],
+    "navbar_end": ["theme-switcher"],
+    "navbar_persistent": ["search-button"],
+    # Keep the navbar at depth 1 to only show top-level landings/sections
+    "show_nav_level": 1,
+}
+
+# Wire the left-sidebar nav-tree only for certain pages.
+html_sidebars = {
+    "index": [],
+    "quickstart/*": [],
+    "community/*": ["sidebar-nav-bs"],
+    "community/index": [],
+    "models/*": ["sidebar-nav-bs"],
+    "documentation": ["search-field", "sidebar-nav-bs"],
+    "developer_guides/*": ["search-field", "sidebar-nav-bs"],
+    "api/*": ["search-field", "sidebar-nav-bs"],
 }
 
 html_context = {
@@ -88,7 +145,7 @@ html_context = {
 }
 
 html_css_files = ["custom.css"]
-html_js_files = ["js/image_zoom.js"]
+html_js_files = ["js/image_zoom.js", "js/supported_models_nav.js"]
 
 # -- Copybutton --------------------------------------------------------------
 
@@ -118,6 +175,7 @@ autodoc_mock_imports = [
     "botocore",
     "mediapy",
     "cv2",
+    "triton",
 ]
 
 # -- Napoleon ----------------------------------------------------------------

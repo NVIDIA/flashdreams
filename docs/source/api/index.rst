@@ -13,8 +13,6 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
 API reference
 ===================================
 
@@ -25,3 +23,13 @@ Reference pages for FlashDreams Python APIs.
 - :doc:`Infra </api/infra>`
 - :doc:`Pipelines and runners </api/integrations>`
 - :doc:`Serving </api/serving>`
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   cli
+   core
+   infra
+   integrations
+   serving

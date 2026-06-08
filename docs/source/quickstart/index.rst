@@ -13,15 +13,20 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
-
-Quickstart
-===================================
+Get Started
+===========
 
 Start here for the shortest path to a first successful run.
 
 - :doc:`Install FlashDreams </quickstart/installation>`
 - :doc:`Launch your first model </quickstart/first_world_model>`
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   installation
+   first_world_model
 
 Project and support
 -------------------
