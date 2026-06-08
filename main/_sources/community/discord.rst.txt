@@ -26,6 +26,6 @@ If you are new, start with the
 Channels
 --------
 
-- `#flashdreams <https://discord.gg/yTdHDqFP>`_
-- `#omni-dreams <https://discord.gg/bsjzh4uZ>`_
-- `#world-model-chit-chat <https://discord.gg/APbw7EPk>`_
+- `#flashdreams <https://discord.gg/cMt2mHm4aN>`_
+- `#omnidreams <https://discord.gg/cruUPk9tuS>`_
+- `#world-models-chit-chat <https://discord.gg/AkcK7NVGQD>`_
