@@ -152,10 +152,14 @@ front end, flashdreams + flashdreams-omnidreams pipeline).
 `omnidreams-prepare` stages the requested scene USDZ from the
 resolved scenes dataset
 (`nvidia/omni-dreams-scenes` by default, or another authorized org when
-`OMNI_DREAMS_HF_ORG` / `--hf-org` points there) and pre-warms the
+`OMNI_DREAMS_HF_ORG` / `--hf-org` points there), pre-warms the
 Cosmos-Reason1 text encoder used at runtime (~14 GB of Hugging Face cache),
-so the first setup can take a while depending on your network. Flashdreams
-owns video checkpoint selection and cache layout for the selected recipe.
+and pre-downloads the world-model DiT checkpoint from
+`nvidia/omni-dreams-models` (a separate gated repo) so the first launch
+isn't blocked on the multi-GB fetch — and so a missing-access error surfaces
+here with an actionable hint rather than mid-demo. The first setup can take a
+while depending on your network. Flashdreams owns video checkpoint selection
+and cache layout for the selected recipe.
 
 > **Tip:** You can skip the `omnidreams-prepare` step for the
 > *default* scene — `interactive-drive` will auto-stage it from
@@ -181,7 +185,9 @@ Common `omnidreams-prepare` flags:
   own USDZ via `interactive-drive --scene`).
 
 If `omnidreams-prepare` fails with `401`, `403`, or a gated-repo
-error, verify `HF_TOKEN` and confirm access to `nvidia/omni-dreams-scenes`.
+error, verify `HF_TOKEN` and confirm you have requested (and been granted)
+access to **both** `nvidia/omni-dreams-scenes` and
+`nvidia/omni-dreams-models` — access to one is not access to the other.
 
 Once done, you should see the scene's variant archive(s) under the shared
 scenes cache, one per weather:
@@ -472,7 +478,7 @@ input-to-present timing while the demo runs:
 
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
-  uv run --no-sync --package flashdreams-omnidreams interactive-drive --autoload-scene
+  uv run --no-sync --package flashdreams-omnidreams interactive-drive --auto-start
 ```
 
 The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames

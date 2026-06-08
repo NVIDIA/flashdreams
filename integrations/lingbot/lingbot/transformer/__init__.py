@@ -35,6 +35,9 @@ from .impl.network import (
     LingbotWorldDiTNetworkConfig,
 )
 
+LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB = 200.0
+"""First-run storage budget documented for LingBot-World model caches."""
+
 
 @dataclass(kw_only=True)
 class LingbotWorldTransformerCache(Wan21TransformerCache):
@@ -72,6 +75,7 @@ class LingbotWorldTransformerConfig(Wan21TransformerConfig):
     network: LingbotWorldDiTNetworkConfig = field(
         default_factory=LingbotWorldDiTNetwork14BConfig
     )
+    checkpoint_min_free_gb: float | None = LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
 
 
 class LingbotWorldTransformer(Wan21Transformer):

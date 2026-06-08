@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -65,6 +66,34 @@ def _select_config_name(manifest: WorldModelManifest) -> str:
     if manifest.num_frames_per_block == 12:
         return "omnidreams-sv-2steps-chunk3-loc6-vae-vae"
     raise ValueError("Full-VAE flashdreams recipes support 8- or 12-frame chunks.")
+
+
+def _pipeline_config_log_line(
+    config: Any,
+    *,
+    config_name: str,
+    base_config_name: str,
+) -> str:
+    """Summarize resolved pipeline knobs without dumping the full config tree."""
+    transformer = config.diffusion_model.transformer
+    scheduler = config.diffusion_model.scheduler
+    encoder = config.encoder
+    image_encoder = config.image_encoder
+    return (
+        "[flashdreams-session] resolved pipeline config "
+        f"selected_recipe={config_name} "
+        f"base_recipe={base_config_name} "
+        f"pipeline_name={config.name} "
+        f"native_dit={transformer.native_dit_acceleration} "
+        f"dit_backend={transformer.native_dit_backend} "
+        f"dit_attn={transformer.native_dit_attention_backend} "
+        f"compile_network={transformer.compile_network} "
+        f"use_cuda_graph={transformer.use_cuda_graph} "
+        f"denoising_steps={list(scheduler.denoising_timesteps)} "
+        f"encoder_native_vae={encoder.native_vae_acceleration} "
+        f"image_encoder_native_vae={image_encoder.native_vae_acceleration} "
+        f"native_vae_backend={encoder.native_vae_backend}"
+    )
 
 
 def _build_pipeline_config(
@@ -129,12 +158,12 @@ def _build_pipeline_config(
             f"{config_name} uses flashdreams default denoising steps [1000, 450]; "
             f"got {manifest.denoising_steps}."
         )
-    print(
-        "[flashdreams-session] resolved pipeline config\n"
-        f"selected_recipe={config_name}\n"
-        f"base_recipe={base_config_name}\n"
-        f"{config}",
-        flush=True,
+    logger.info(
+        _pipeline_config_log_line(
+            config,
+            config_name=config_name,
+            base_config_name=base_config_name,
+        ),
     )
     return config
 
@@ -264,12 +293,11 @@ def _precompute_embeddings_from_config(
         torch.cuda.synchronize(device)
         torch.cuda.empty_cache()
     elapsed_ms = (time.perf_counter() - start) * 1000.0
-    print(
+    logger.info(
         "[flashdreams-session] offloaded one-shot encoders "
         f"precompute_ms={elapsed_ms:.1f} "
         f"text_shape={tuple(embeddings['text_embeddings'].shape)} "
         f"image_shape={tuple(embeddings['image_embeddings'].shape)}",
-        flush=True,
     )
     return embeddings
 
@@ -347,9 +375,8 @@ class FlashdreamsWorldModelSession:
             self._pipeline = _setup_pipeline_from_config(config, self.manifest)
         self._validate_chunk_sizes()
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        print(
+        logger.info(
             f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
-            flush=True,
         )
 
     def prepare_for_scene(
@@ -442,7 +469,7 @@ class FlashdreamsWorldModelSession:
         self._pending_finalization_index = 0
         self._next_block_index = 1
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        print(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}", flush=True)
+        logger.info(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}")
         return model_frames
 
     def continue_generation(self, condition_frames: list[object]) -> list[object]:
@@ -472,9 +499,8 @@ class FlashdreamsWorldModelSession:
         self._next_block_index += 1
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         if block_index <= 3 or elapsed_ms > 500.0:
-            print(
+            logger.info(
                 f"[flashdreams-session] continue block_index={block_index} total_ms={elapsed_ms:.1f}",
-                flush=True,
             )
         return model_frames
 
@@ -484,10 +510,9 @@ class FlashdreamsWorldModelSession:
         self._next_block_index = 0
         if clear_precomputed_embeddings:
             self._precomputed_embeddings = None
-            print(
+            logger.info(
                 "[flashdreams-session] reset scene conditioning; "
                 "will rerun text/image encoders for the next scene",
-                flush=True,
             )
 
     def close(self) -> None:
@@ -550,7 +575,7 @@ class FlashdreamsWorldModelSession:
         )
         if callable(release_oneshot_encoders):
             release_oneshot_encoders()
-            print("[flashdreams-session] release_oneshot_encoders done", flush=True)
+            logger.info("[flashdreams-session] release_oneshot_encoders done")
         return self._precomputed_embeddings
 
     def _initial_rgb_tensor(self, initial_rgb: object) -> torch.Tensor:
