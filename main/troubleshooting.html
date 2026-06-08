@@ -8,12 +8,12 @@ SPDX-License-Identifier: Apache-2.0
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Installation" href="quickstart/installation.html">
+<link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Self-Forcing" href="models/self_forcing.html"><link rel="prev" title="Launch your first model" href="quickstart/first_world_model.html">
         <link rel="prefetch" href="_static/horizontal-light.svg" as="image">
         <link rel="prefetch" href="_static/horizontal-dark.svg" as="image">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>FlashDreams v0.1.0</title>
+        <title>Troubleshooting - FlashDreams v0.1.0</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
@@ -180,7 +180,7 @@ SPDX-License-Identifier: Apache-2.0
       </label>
     </div>
     <div class="header-center">
-      <a href="#"><div class="brand">FlashDreams v0.1.0</div></a>
+      <a href="index.html"><div class="brand">FlashDreams v0.1.0</div></a>
     </div>
     <div class="header-right">
       <div class="theme-toggle-container theme-toggle-header">
@@ -204,7 +204,7 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-<a class="sidebar-brand" href="#">
+<a class="sidebar-brand" href="index.html">
   <div class="sidebar-logo-container">
     <img class="sidebar-logo only-light" src="_static/horizontal-light.svg" alt="FlashDreams logo"/>
     <img class="sidebar-logo only-dark" src="_static/horizontal-dark.svg" alt="FlashDreams logo"/>
@@ -229,10 +229,10 @@ SPDX-License-Identifier: Apache-2.0
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <p class="caption" role="heading"><span class="caption-text">Quickstart</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart/installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart/first_world_model.html">Launch your first model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Troubleshooting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Models</span></p>
 <ul>
@@ -283,12 +283,12 @@ SPDX-License-Identifier: Apache-2.0
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/index.rst?plain=true" title="View this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/blob/main/docs/source/troubleshooting.rst?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
 </div><div class="edit-this-page">
-  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/index.rst" rel="edit" title="Edit this page">
+  <a class="muted-link" href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/troubleshooting.rst" rel="edit" title="Edit this page">
     <svg><use href="#svg-pencil"></use></svg>
     <span class="visually-hidden">Edit this page</span>
   </a>
@@ -305,199 +305,167 @@ SPDX-License-Identifier: Apache-2.0
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="flashdreams">
-<h1>FlashDreams<a class="headerlink" href="#flashdreams" title="Link to this heading">¶</a></h1>
-<style>
-  #furo-main-content > section > h1 { display: none; }
-</style>
-<div class="homepage-logo-wrap">
-  <img class="only-light" src="_static/horizontal-light.svg" alt="FlashDreams">
-  <img class="only-dark" src="_static/horizontal-dark.svg" alt="FlashDreams">
-</div><section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
-<p>FlashDreams is a <em>high-performance inference and serving library for
-interactive autoregressive video and world models</em>. It is a general platform
-for real-time world-model applications across gaming, autonomous vehicles,
-robotics, simulated or virtual environments, and more, and is the
-runtime backbone of the <a class="reference external" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">NVIDIA OmniDreams closed-loop demo at
-GTC 2026</a>.</p>
-<div class="fd-promo-video-wrap">
-  <video
-    class="fd-promo-video-player"
-    controls
-    playsinline
-    preload="metadata"
-    aria-label="FlashDreams quick intro video">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
-  </video>
-  <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
-    <span class="fd-promo-play-icon" aria-hidden="true"></span>
-  </button>
+          <section id="troubleshooting">
+<h1>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">¶</a></h1>
+<p>Use this page for common first-run failures before opening an issue. Each
+entry lists the visible symptom, the most likely cause, and the next concrete
+step to try.</p>
+<section id="cuda-or-pytorch-build-mismatch">
+<h2>CUDA or PyTorch build mismatch<a class="headerlink" href="#cuda-or-pytorch-build-mismatch" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A CUDA extension fails to build or load.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span> <span class="pre">--manifest</span> <span class="pre">example_world_model_perf.yaml</span></code> exits instead
+of falling back to the default PyTorch path.</p></li>
+<li><p>Errors mention <code class="docutils literal notranslate"><span class="pre">nvcc</span></code>, a CUDA version, a GPU architecture, or missing CUDA
+libraries.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The OmniDreams perf manifest uses native DiT and LightVAE acceleration with
+<code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code>. That path requires a source checkout,
+<code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain with <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> matching the installed PyTorch build,
+and a Blackwell-class GPU (SM 12.0) or newer.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Start with the non-perf OmniDreams launch in <a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>. If you
+need the perf manifest, prepare the pinned third-party sources first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
+</pre></div>
 </div>
-<script>
-  (() => {
-    const script = document.currentScript;
-    const container = script ? script.previousElementSibling : null;
-    if (!container) {
-      return;
-    }
-    const video = container.querySelector(".fd-promo-video-player");
-    const playButton = container.querySelector(".fd-promo-play");
-    if (!video || !playButton) {
-      return;
-    }
-    const showOverlay = () => container.classList.remove("is-playing");
-    const hideOverlay = () => container.classList.add("is-playing");
-    playButton.addEventListener("click", () => {
-      video.controls = true;
-      const playPromise = video.play();
-      if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(showOverlay);
-      }
-    });
-    video.addEventListener("play", hideOverlay);
-    video.addEventListener("pause", showOverlay);
-    video.addEventListener("ended", showOverlay);
-  })();
-</script><p class="fd-subtitle">Interactive world models</p><p>A world model learns to generate and evolve an environment over time. In
-practice, this often means video, but the same concept can include actions,
-state, audio, sensor input, and control signals.</p>
-<p>World-model serving is the runtime pattern for putting that model inside a live
-application. Instead of producing one static video, the system keeps a session
-alive while input, model state, GPU inference, and output evolve together. This
-is useful for interactive simulation, robotics, autonomy, healthcare workflows,
-creative tools, virtual worlds, and game-like experiences.</p>
-<img alt="Offline one-shot video inference compared with online autoregressive world-model serving." class="zoomable" src="_images/compare-offline-online-video-model-v2.jpg" />
-<p>In an online world-model application, the key requirement is not only generating
-high-quality videos. The runtime must keep an interactive session responsive
-while the model continues to advance the world.</p>
-<div class="fd-highlight-grid">
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">Low latency</div>
-    <div class="fd-highlight-body">Keep the interaction responsive when controls, sensors, or user input change.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">High throughput</div>
-    <div class="fd-highlight-body">Keep the GPU busy across autoregressive steps and multi-GPU execution.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">Steady streaming generation</div>
-    <div class="fd-highlight-body">Stream frames or chunks at a steady pace while the session continues.</div>
-  </div>
-  <div class="fd-highlight-card">
-    <div class="fd-highlight-title">World-state evolution</div>
-    <div class="fd-highlight-body">Carry rolling state forward so the generated world evolves across steps.</div>
-  </div>
-</div><details class="fd-collapsible">
-  <summary>Comparison with offline video generation</summary>
-  <p>
-    Compared with offline video generation, the target is different.
-    One-shot systems prepare a conditioning input, run the model, then return a finished video.
-    Libraries such as
-    <a href="https://github.com/hao-ai-lab/FastVideo">FastVideo</a> and
-    <a href="https://github.com/ModelTC/lightx2v">LightX2V</a>
-    are strong references for high-throughput offline inference, but their
-    core pattern is not a persistent interactive loop with low-latency control
-    and streaming output.
-  </p>
-</details><details class="fd-collapsible">
-  <summary>Connection to LLM serving</summary>
-  <p>
-    There is also a useful connection to LLM serving engines such as
-    <a href="https://github.com/vllm-project/vllm">vLLM</a> and
-    <a href="https://github.com/sgl-project/sglang">SGLang</a>: both LLMs and many world
-    models are autoregressive. The difference is the interaction pattern.
-    LLM chat usually runs <code>prefill -&gt; decode -&gt; prefill -&gt; decode</code>
-    across user turns. Interactive video/world-model serving is closer to
-    <code>initialize -&gt; decode -&gt; decode -&gt; decode -&gt; ...</code>:
-    initialize the session once, then advance the world continuously at a fixed pace.
-  </p>
-</details><p class="fd-subtitle">Best-in-class inference speed</p><p>FlashDreams is engineered with efficiency in mind. With a bottom-up system
-design tailored to autoregressive world-model inference patterns, it delivers best-in-class
-speed across many popular open-source models and GPU architectures:</p>
-<div class="fd-highlight-grid fd-kpi-grid">
-  <a class="fd-highlight-link" href="models/self_forcing.html#profiling-benchmark">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title fd-kpi-value">2.12x</div>
-      <div class="fd-highlight-body">Self-Forcing speedup</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="models/lingbot_world.html#profiling-benchmark">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title fd-kpi-value">3.10x</div>
-      <div class="fd-highlight-body">LingBot-World speedup</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="models/wan21.html#profiling-benchmark">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title fd-kpi-value">1.40x</div>
-      <div class="fd-highlight-body">Wan2.1 speedup</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="models/index.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title fd-kpi-value">8</div>
-      <div class="fd-highlight-body">Integrated models</div>
-    </div>
-  </a>
-</div><p>Although FlashDreams is designed for autoregressive inference, the same
-optimization stack applies naturally to bidirectional inference (e.g.,
-<a class="reference internal" href="models/wan21.html"><span class="doc">Wan2.1</span></a>) by treating it as a single-rollout
-autoregressive pass.</p>
-<p class="fd-subtitle">Production-oriented interactive serving backend</p><p>FlashDreams also includes a production-oriented serving backend for persistent and
-low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
-streaming input/output. Explore the interactive demos powered by FlashDreams:</p>
-<div class="fd-highlight-grid">
-  <a class="fd-highlight-link" href="models/lingbot_world.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">LingBot-World</div>
-      <div class="fd-highlight-body">Camera-control world-model exploration.</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="models/omnidreams.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">OmniDreams</div>
-      <div class="fd-highlight-body">Closed-loop autonomous-vehicle simulator.</div>
-    </div>
-  </a>
-</div></section>
-<section id="start-here">
-<h2>Start here<a class="headerlink" href="#start-here" title="Link to this heading">¶</a></h2>
-<div class="fd-highlight-grid">
-  <a class="fd-highlight-link" href="quickstart/index.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">Quickstart</div>
-      <div class="fd-highlight-body">Install FlashDreams, launch your first world-model server, and start exploring quickly.</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="models/index.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">Model cards</div>
-      <div class="fd-highlight-body">See supported models, how to launch each one, and their performance analysis.</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="api/index.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">API</div>
-      <div class="fd-highlight-body">Find CLI and Python API references, with links to lower-level modules.</div>
-    </div>
-  </a>
-  <a class="fd-highlight-link" href="developer_guides/index.html">
-    <div class="fd-highlight-card">
-      <div class="fd-highlight-title">Developer guides</div>
-      <div class="fd-highlight-body">Learn the system design, how to integrate new models, and how to use it in your own projects.</div>
-    </div>
-  </a>
-</div><div class="toctree-wrapper compound">
+<p>Then verify that the machine has the required GPU and a CUDA toolchain that
+matches the PyTorch build before launching:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__, torch.version.cuda)&quot;</span>
+nvcc<span class="w"> </span>--version
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
+</section>
+<section id="disk-or-cache-exhaustion">
+<h2>Disk or cache exhaustion<a class="headerlink" href="#disk-or-cache-exhaustion" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A first run fails while downloading or loading checkpoints.</p></li>
+<li><p>The process reports no space left on device, stops mid-load, or leaves a
+partial Hugging Face cache.</p></li>
+<li><p>Output video or stats files are missing after an interrupted run.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Model checkpoints and example assets are cached on first use. LingBot-World
+downloads a checkpoint of about 70 GB under <code class="docutils literal notranslate"><span class="pre">$HF_HOME</span></code> and its docs recommend
+keeping about 200 GB free for the model plus Hugging Face cache. Example data
+and generated outputs also consume local disk under paths such as
+<code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/&lt;NN&gt;/</span></code> and <code class="docutils literal notranslate"><span class="pre">outputs/</span></code>.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Check free space on both the repository filesystem and the Hugging Face cache
+filesystem. If the default cache location is too small, point <code class="docutils literal notranslate"><span class="pre">HF_HOME</span></code> at a
+larger volume before running the model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/path/to/large/cache
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
+<p>Then rerun the same command so the downloader can reuse or repair the cache.</p>
+</section>
+<section id="model-download-or-authentication-failure">
+<h2>Model download or authentication failure<a class="headerlink" href="#model-download-or-authentication-failure" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A download returns 401, 403, not found, or gated-repository errors.</p></li>
+<li><p>OmniDreams scene or checkpoint downloads fail before the demo starts.</p></li>
+<li><p>LingBot-World fails while fetching the model checkpoint from Hugging Face.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Most model runs need Hugging Face authentication. OmniDreams requires an
+<code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to the <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-scenes</span></code> dataset and
+the <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> model repository. Other model pages also
+document first-run downloads from Hugging Face.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Export a valid token in the same shell that launches FlashDreams:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
+<p>If the token is already set, confirm that the account behind it can open the
+model or dataset page referenced by the failing command, then rerun the
+FlashDreams command.</p>
+</section>
+<section id="gpu-out-of-memory">
+<h2>GPU out of memory<a class="headerlink" href="#gpu-out-of-memory" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>The run exits with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">out</span> <span class="pre">of</span> <span class="pre">memory</span></code> or the Python process is killed
+during model load or generation.</p></li>
+<li><p>LingBot-World runs out of memory on a single GPU when using large
+<code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p></li>
+<li><p>Multi-GPU commands fail after one or more ranks report memory pressure.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The selected model, resolution, rollout length, or GPU count does not fit the
+available VRAM. The model pages list minimum VRAM expectations: Self-Forcing is
+about 24 GB, OmniDreams is about 48 GB, and LingBot-World is about 120 GB.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Use a smaller documented run first: reduce <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code>, lower
+<code class="docutils literal notranslate"><span class="pre">--pixel-height</span></code> and <code class="docutils literal notranslate"><span class="pre">--pixel-width</span></code> where the model page exposes those
+flags, or use the documented multi-GPU <code class="docutils literal notranslate"><span class="pre">torchrun</span> <span class="pre">--nproc_per_node=&lt;N&gt;</span></code>
+launch. For LingBot-World, also try the documented efficient streaming preset
+<code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-taehv-window15-sink3</span></code>.</p>
+</section>
+<section id="webrtc-connection-or-video-does-not-appear">
+<h2>WebRTC connection or video does not appear<a class="headerlink" href="#webrtc-connection-or-video-does-not-appear" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/request_session</span></code> is not reachable from the browser.</p></li>
+<li><p>The page loads but video never appears.</p></li>
+<li><p>The server seems idle before printing the connection URL.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The WebRTC servers open their HTTP port only after model load and warmup. On a
+remote or cloud GPU instance, the server port may not be reachable directly at
+the host IP. If <code class="docutils literal notranslate"><span class="pre">/request_session</span></code> loads but video does not appear, the
+browser may be hiding local IPs in WebRTC ICE candidates with mDNS hostnames.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Wait until the server prints <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
+For remote machines, forward the documented port and open the local URL:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
+</pre></div>
 </div>
-<div class="toctree-wrapper compound">
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>. If the page loads but the
+video still does not appear, follow the browser-specific WebRTC setting in
+<a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> or <a class="reference internal" href="models/lingbot_world.html"><span class="doc">LingBot-World</span></a>.</p>
+</section>
+<section id="triton-autotuning-or-warmup-looks-stuck">
+<h2>Triton autotuning or warmup looks stuck<a class="headerlink" href="#triton-autotuning-or-warmup-looks-stuck" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>The first launch takes several minutes.</p></li>
+<li><p>Logs mention Triton autotuning or CUDA-graph warmup.</p></li>
+<li><p>Later runs are much faster than the first run.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Cold runs include one-time setup. The quickstart and model pages document that
+first launches can include downloads, Triton autotuning, CUDA-graph warmup, and
+for OmniDreams native acceleration, first-use extension compilation.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Let the first launch finish if it is still making progress. Subsequent launches
+reuse caches. For quick validation, use the small documented demo values such
+as <code class="docutils literal notranslate"><span class="pre">--total-blocks</span> <span class="pre">7</span></code> for Self-Forcing or inspect a runner without loading the
+model by using <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> as described below.</p>
+</section>
+<section id="no-instantiate-prints-a-config-but-does-not-run">
+<h2><code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> prints a config but does not run<a class="headerlink" href="#no-instantiate-prints-a-config-but-does-not-run" title="Link to this heading">¶</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> prints <code class="docutils literal notranslate"><span class="pre">Resolved</span> <span class="pre">config</span> <span class="pre">for</span> <span class="pre">...</span></code> and exits without
+downloading checkpoints, warming up, or writing an output video.</p></li>
+<li><p>No files appear under <code class="docutils literal notranslate"><span class="pre">outputs/</span></code>.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> is a diagnostic flag. It resolves and prints the runner
+configuration, then returns before creating the runner or calling
+<code class="docutils literal notranslate"><span class="pre">runner.run()</span></code>.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> only when you want to confirm that a runner slug and
+CLI overrides parse correctly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--no-instantiate<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv
+</pre></div>
 </div>
+<p>Remove the flag for a real generation run, or use <code class="docutils literal notranslate"><span class="pre">--help</span></code> on the runner
+slug to inspect all supported options.</p>
 </section>
 </section>
 
@@ -506,16 +474,26 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="quickstart/installation.html">
+          <a class="next-page" href="models/self_forcing.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Installation</div>
+                <div class="title">Self-Forcing</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          
+          <a class="prev-page" href="quickstart/first_world_model.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Launch your first model</div>
+                
+              </div>
+            </a>
         </div>
         <div class="bottom-of-page">
           <div class="left-details">
@@ -545,11 +523,14 @@ streaming input/output. Explore the interactive demos powered by FlashDreams:</p
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">FlashDreams</a><ul>
-<li><a class="reference internal" href="#overview">Overview</a></li>
-<li><a class="reference internal" href="#start-here">Start here</a><ul>
-</ul>
-</li>
+<li><a class="reference internal" href="#">Troubleshooting</a><ul>
+<li><a class="reference internal" href="#cuda-or-pytorch-build-mismatch">CUDA or PyTorch build mismatch</a></li>
+<li><a class="reference internal" href="#disk-or-cache-exhaustion">Disk or cache exhaustion</a></li>
+<li><a class="reference internal" href="#model-download-or-authentication-failure">Model download or authentication failure</a></li>
+<li><a class="reference internal" href="#gpu-out-of-memory">GPU out of memory</a></li>
+<li><a class="reference internal" href="#webrtc-connection-or-video-does-not-appear">WebRTC connection or video does not appear</a></li>
+<li><a class="reference internal" href="#triton-autotuning-or-warmup-looks-stuck">Triton autotuning or warmup looks stuck</a></li>
+<li><a class="reference internal" href="#no-instantiate-prints-a-config-but-does-not-run"><code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> prints a config but does not run</a></li>
 </ul>
 </li>
 </ul>
