@@ -75,7 +75,14 @@ class OutputPair:
 
 
 def decode_image_proto(image: video_model_pb2.Image) -> np.ndarray:
-    """Decode an Image proto to an [H, W, 3] uint8 RGB array."""
+    """Decode an Image proto to a numpy array.
+
+    Args:
+        image: The Image proto to decode.
+
+    Returns:
+        Numpy array [H, W, 3] uint8 RGB.
+    """
     img = Image.open(io.BytesIO(image.data)).convert("RGB")
     return np.array(img, dtype=np.uint8)
 

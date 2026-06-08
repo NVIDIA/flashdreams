@@ -26,7 +26,15 @@ def build_lane_line_type(
     color: LaneLineColor | None = None,
     style: LaneLineStyle | None = None,
 ) -> LaneLineType:
-    """Build a LaneLineType, defaulting missing color/style to UNKNOWN."""
+    """Build a LaneLineType from color and style.
+
+    Args:
+        color: Lane line color, or ``None`` to default to UNKNOWN.
+        style: Lane line style, or ``None`` to default to UNKNOWN.
+
+    Returns:
+        A LaneLineType; missing color or style defaults to UNKNOWN.
+    """
     if color and style:
         return LaneLineType(color=color, style=style)
 

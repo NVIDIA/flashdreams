@@ -730,13 +730,28 @@ def build_synthetic_scene_usdz(
 ) -> Path:
     """Build a procedural USDZ that the scene loader can ingest unchanged.
 
-    Geometry is fixed and deterministic; ``initial_rgb`` / ``prompt`` /
-    ``length_frames`` override it for the runtime "synthetic-scene" mode.
-    ``initial_rgb`` (defaults to a debug gradient) is resized to the raster
-    resolution at load, so its shape need not match. ``length_frames`` sets how
-    much drivable road is spec'd: default 180 (~6 s) for tests, runtime callers
-    pass ~18 000 (~10 min); the intersection / crosswalk / island stay near the
-    start regardless.
+    The geometry (trajectory, lane lines, road boundary, intersection,
+    crosswalk, poles, signs, lights, obstacles) is fixed and deterministic.
+    Three optional overrides exist for the runtime "synthetic-scene" mode
+    where we want a real-looking demo without shipping any HD-map data:
+
+    Args:
+        path: Destination USDZ file.
+        initial_rgb: ``(H, W, 3)`` ``uint8`` RGB image to embed as
+            ``first_image.png``. Defaults to a debug colour gradient that's
+            fine for tests but visually unhelpful for an actual demo. The
+            scene loader resizes this to ``RasterConfig.resolution_wh`` at
+            load time, so the shape doesn't need to match exactly.
+        prompt: Default text prompt embedded as ``prompt.txt``. Defaults to a
+            generic forward-driving description.
+        length_frames: How many trajectory frames the synthetic road carries.
+            Lane lines, road boundaries, and obstacle tracks are all spec'd
+            along this trajectory, so larger values produce more drivable
+            road. Default 180 (~6 s, 60 m at the default 10 m/s) keeps the
+            test fixture small; runtime callers typically pass 18 000
+            (~10 minutes, ~6 km) so a demo never runs out of road. The
+            single intersection / crosswalk / road-island stay anchored at
+            their original near-start coordinates regardless of length.
     """
     if length_frames < 2:
         raise ValueError(

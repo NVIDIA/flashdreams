@@ -39,7 +39,14 @@ class GPT2FeedForward(nn.Module):
         self.layer2 = nn.Linear(d_ff, d_model, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
-        """Shape-preserving FFN over the last dim ``(..., D)``."""
+        """Apply feed-forward transformation.
+
+        Args:
+            x: Input tensor of shape (..., D).
+
+        Returns:
+            Output tensor of shape (..., D).
+        """
         return self.layer2(self.activation(self.layer1(x)))
 
 
@@ -63,7 +70,14 @@ class Timesteps(nn.Module):
         self.register_buffer("emb", emb, persistent=False)
 
     def forward(self, timesteps: Tensor) -> Tensor:
-        """Embed timesteps ``(...)`` into sinusoidal frequencies ``(..., num_channels)``."""
+        """Embed timesteps into sinusoidal frequencies.
+
+        Args:
+            timesteps: Input tensor of shape (...).
+
+        Returns:
+            Embedded tensor of shape (..., num_channels).
+        """
         emb = timesteps.unsqueeze(-1) * self.emb
         emb = torch.cat([torch.cos(emb), torch.sin(emb)], dim=-1)
         return emb
@@ -134,7 +148,14 @@ class PatchEmbed(nn.Module):
         return self._compute_in_features()
 
     def forward(self, x: Tensor) -> Tensor:
-        """Project flattened patches ``(..., D=in_channels*kt*kh*kw)`` to ``(..., out_channels)``."""
+        """Project flattened patches to embedding space.
+
+        Args:
+            x: Input tensor of shape (..., D) where D = in_channels * kt * kh * kw.
+
+        Returns:
+            Embedded patches of shape (..., out_channels).
+        """
         expected_in_features = self._compute_in_features()
         assert x.shape[-1] == expected_in_features, (
             f"Expected input features to be {expected_in_features}, but got {x.shape[-1]}."

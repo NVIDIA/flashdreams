@@ -39,7 +39,14 @@ _BEV_CAMERA_NAME = "interactive_drive_bev"
 
 
 def _extract_clipgt_from_usdz(usdz_path: Path, dest_dir: Path) -> Path:
-    """Extract the USDZ's ``clipgt/`` parquet files into a ``load_clipgt_scene``-compatible dir."""
+    """Extract clipgt parquet files from USDZ archive.
+
+    Our USDZ bundles contain clipgt/ subdirectory with parquet files.
+    This extracts them to a directory compatible with load_clipgt_scene.
+
+    Returns:
+        Path to the clipgt directory with extracted parquets.
+    """
     clipgt_dir = dest_dir / "clipgt"
     clipgt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -151,7 +158,15 @@ class _LudusConditionRasterizerImpl:
     """
 
     def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
-        """Initialize the rasterizer; ``bev`` (when enabled) adds a synthetic top-down camera."""
+        """Initialize the rasterizer.
+
+        Args:
+            raster: Raster configuration specifying resolution and rendering params.
+            bev: Optional BEV configuration. When ``enabled``, the rasterizer
+                appends a synthetic top-down camera to the scene's camera list
+                on :meth:`load_scene` and ``render_chunk`` populates
+                :attr:`PresentedFrame.bev_host_uint8`.
+        """
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for LudusConditionRasterizer.")
 
@@ -200,7 +215,11 @@ class _LudusConditionRasterizerImpl:
         return torch.linalg.inv(camera_poses)
 
     def load_scene(self, scene: SceneBundle) -> None:
-        """Load a scene from the USDZ bundle."""
+        """Load a scene from the USDZ bundle.
+
+        Args:
+            scene: Scene bundle containing path to USDZ and camera selection.
+        """
         self.ctx.clear_scenes()
 
         if self._temp_dir is not None:
@@ -258,10 +277,18 @@ class _LudusConditionRasterizerImpl:
         rig_poses_world: npt.NDArray[np.float32],
         timestamps_us: npt.NDArray[np.int64],
     ) -> RasterChunk:
-        """Render a chunk from the selected camera (+ BEV when enabled).
+        """Render a chunk of frames from the scene's selected camera.
 
-        ``rig_poses_world`` is [num_frames, 4, 4]; ``timestamps_us`` is
-        [num_frames]. BEV frames attach to :attr:`PresentedFrame.bev_host_uint8`.
+        When BEV is enabled (see :class:`BevConfig`) the rasterizer also
+        renders a top-down map for each frame and attaches it to
+        :attr:`PresentedFrame.bev_host_uint8`.
+
+        Args:
+            rig_poses_world: Rig-to-world poses [num_frames, 4, 4].
+            timestamps_us: Frame timestamps in microseconds [num_frames].
+
+        Returns:
+            RasterChunk containing rendered frames.
         """
         if (
             self._scene_data is None

@@ -669,9 +669,15 @@ class WorldModelEngine:
         )
 
     def _encode_images(self, images: torch.Tensor) -> list[video_model_pb2.Image]:
-        """Encode a batch of [B, 3, H, W] uint8 GPU images to Image protos.
+        """Encode a batch of images to Image protos.
 
         Uses nvjpeg for JPEG output and CPU encoding for PNG.
+
+        Args:
+            images: Tensor of shape [B, 3, H, W] uint8 (on GPU).
+
+        Returns:
+            One ``video_model_pb2.Image`` per image in the batch.
         """
         assert self.device.type == "cuda", "Images must be on GPU"
         if self.output_format == "jpeg":
@@ -696,7 +702,14 @@ class WorldModelEngine:
     def _encode_single_image_cpu(
         self, image_np: np.ndarray
     ) -> tuple[bytes, video_model_pb2.ImageFormat]:
-        """CPU-encode an [H, W, 3] uint8 image to (bytes, ImageFormat)."""
+        """CPU-encode a single image.
+
+        Args:
+            image_np: Numpy array [H, W, 3] uint8.
+
+        Returns:
+            Tuple of (encoded bytes, ImageFormat enum value).
+        """
         logger.critical("Using CPU-based image encoding (this is slow)")
         if self.output_format == "jpeg":
             return (
