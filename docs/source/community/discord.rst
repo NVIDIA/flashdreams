@@ -27,9 +27,9 @@ then drop into the project channels below.
 Channels
 --------
 
-- `#flashdreams <https://discord.gg/yTdHDqFP>`__
-- `#omni-dreams <https://discord.gg/bsjzh4uZ>`__
-- `#world-model-chit-chat <https://discord.gg/APbw7EPk>`__
+- `#flashdreams <https://discord.gg/cMt2mHm4aN>`_
+- `#omnidreams <https://discord.gg/cruUPk9tuS>`_
+- `#world-models-chit-chat <https://discord.gg/AkcK7NVGQD>`_
 
 Discord is best for real-time, open-ended conversation. For bug
 reports and feature requests, the

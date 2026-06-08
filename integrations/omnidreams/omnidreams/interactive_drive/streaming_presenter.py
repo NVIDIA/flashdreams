@@ -33,7 +33,6 @@ import io
 import json
 import shutil
 import subprocess
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -43,6 +42,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
@@ -130,11 +130,9 @@ class _KeyboardDriveSink:
 
 def _print_port_conflict_help(host: str, port: int, exc: OSError) -> None:
     """Print a helpful message when the HTTP server can't bind to the port."""
-    print(
+    logger.error(
         f"\n[presenter] MJPEG server failed to start: port {port} is already in use.\n"
         f"            ({exc})\n",
-        file=sys.stderr,
-        flush=True,
     )
     # Try to show which process is using the port (Linux: ss, macOS/BSD: lsof).
     shown = False
@@ -145,12 +143,10 @@ def _print_port_conflict_help(host: str, port: int, exc: OSError) -> None:
             text=True,
         )
         if result.stdout.strip():
-            print(
+            logger.warning(
                 f"[presenter] The following process is blocking port {port}:\n",
-                file=sys.stderr,
-                flush=True,
             )
-            print(result.stdout, file=sys.stderr, flush=True)
+            logger.warning(result.stdout)
             shown = True
     if not shown and shutil.which("lsof"):
         result = subprocess.run(
@@ -159,25 +155,19 @@ def _print_port_conflict_help(host: str, port: int, exc: OSError) -> None:
             text=True,
         )
         if result.stdout.strip():
-            print(
+            logger.warning(
                 f"[presenter] The following process is blocking port {port}:\n",
-                file=sys.stderr,
-                flush=True,
             )
-            print(result.stdout, file=sys.stderr, flush=True)
+            logger.warning(result.stdout)
             shown = True
     if not shown:
-        print(
+        logger.warning(
             f"[presenter] Could not determine which process is using port {port}.\n",
-            file=sys.stderr,
-            flush=True,
         )
-    print(
+    logger.warning(
         f"[presenter] To fix this, either:\n"
         f"  1. Stop the process above, or\n"
         f"  2. Choose a different port: --stream-mjpeg :{port + 1}\n",
-        file=sys.stderr,
-        flush=True,
     )
 
 
@@ -668,10 +658,9 @@ class MJPEGStreamingPresenter:
         # unpacking so pyright is happy on both variants.
         actual_host = self._server.server_address[0]
         actual_port = self._server.server_address[1]
-        print(
+        logger.info(
             f"[presenter] MJPEG stream listening on http://{actual_host}:{actual_port}/ "
             f"(open that URL in a browser on the same network)",
-            flush=True,
         )
 
     @property

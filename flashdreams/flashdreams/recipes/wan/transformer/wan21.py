@@ -134,6 +134,13 @@ class Wan21TransformerConfig(TransformerConfig):
     network: WanDiTNetworkConfig = field(default_factory=WanDiTNetwork1pt3BConfig)
     dtype: torch.dtype = torch.bfloat16
     checkpoint_path: str | None = None
+    checkpoint_min_free_gb: float | None = None
+    """Optional first-run disk preflight for checkpoint downloads.
+
+    ``None`` uses the generic cache reserve. Larger model integrations can set
+    this to their documented storage requirement; users can still override it
+    with ``FLASHDREAMS_MIN_CACHE_FREE_GB``.
+    """
 
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
     """Pre-load state-dict remap (e.g. Self-Forcing's
@@ -260,7 +267,10 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self.network.set_context_parallel_group(cp_group=self._cp_group)
 
         if config.checkpoint_path is not None:
-            state_dict = load_checkpoint(config.checkpoint_path)
+            state_dict = load_checkpoint(
+                config.checkpoint_path,
+                checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+            )
             if config.state_dict_transform is not None:
                 state_dict = config.state_dict_transform(state_dict)
             self.network.load_state_dict(state_dict)

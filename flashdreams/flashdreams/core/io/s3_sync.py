@@ -25,6 +25,12 @@ from urllib.parse import urlparse
 import torch.distributed as dist
 import tqdm
 
+from flashdreams.core.io.disk import (
+    CACHE_MIN_FREE_ENV,
+    cache_min_free_bytes,
+    ensure_free_disk,
+    raise_if_disk_space_error,
+)
 from flashdreams.core.io.s3_filesystem import S3FileSystem
 
 
@@ -109,7 +115,14 @@ def sync_s3_dir_to_local(
     obj_prefix = parsed_url.path.lstrip("/").removesuffix("/")
 
     cache_dir = os.path.expanduser(cache_dir)
-    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    min_bytes = cache_min_free_bytes()
+    ensure_free_disk(
+        cache_dir,
+        required_bytes=min_bytes,
+        label="S3 local cache",
+        env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+        settings={"s3_dir": s3_dir, "cache_dir": cache_dir},
+    )
 
     should_download = world_rank == 0
     s3_fs = (
@@ -147,7 +160,18 @@ def sync_s3_dir_to_local(
         if not os.path.exists(dest_path):
             s3_obj = f"{s3_dir.removesuffix('/')}/{obj_suffix}"
             tqdm.tqdm.write(f"Downloading: {_shorten_path(s3_obj)}")
-            s3_fs.download_to_local(s3_uri=s3_obj, local_path=dest_path)
+            try:
+                s3_fs.download_to_local(s3_uri=s3_obj, local_path=dest_path)
+            except Exception as exc:
+                raise_if_disk_space_error(
+                    exc,
+                    path=dest_path,
+                    label="S3 local cache",
+                    required_bytes=min_bytes,
+                    env_vars=("FLASHDREAMS_CACHE_DIR", CACHE_MIN_FREE_ENV),
+                    settings={"s3_dir": s3_dir, "cache_dir": cache_dir},
+                )
+                raise
 
         try:
             _validate_local_file(local_path=dest_path, key=key)

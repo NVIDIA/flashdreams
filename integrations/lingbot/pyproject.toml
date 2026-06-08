@@ -53,5 +53,13 @@ dev = [
 include = ["lingbot*"]
 exclude = ["tests"]
 
+[tool.setuptools.package-data]
+"lingbot.webrtc.web" = [
+    "*.html",
+    "*.css",
+    "*.js",
+    "assets/*.svg",
+]
+
 [tool.uv]
 managed = true
