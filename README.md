@@ -129,7 +129,7 @@ documentation edits are all welcome.
 Use [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues) to report defects or request improvements.
 
 Join us on the [NVIDIA Omniverse Discord](https://discord.com/invite/nvidiaomniverse)
-to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/yTdHDqFP)
+to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/cMt2mHm4aN)
 
 ## Security
 

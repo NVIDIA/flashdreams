@@ -27,6 +27,7 @@ Guides
 
 - :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
 - :doc:`Config system </developer_guides/config_system>`
+- :doc:`Interactive-drive latency tuning </developer_guides/latency_tuning>`
 - :doc:`Add a new method </developer_guides/new_integration>`
 
 .. Temporarily commented out for internal development:

@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
+from loguru import logger
 from ludus_renderer import (
     FThetaCamera,
     load_clipgt_scene,
@@ -186,15 +187,13 @@ class _LudusConditionRasterizerImpl:
         self._device = torch.device("cuda:0")
         self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
         if self._use_cuda_frames:
-            print(
+            logger.info(
                 "[rasterizer] cuda_backend=enabled; returning lazy CUDA raster frames",
-                flush=True,
             )
         else:
-            print(
+            logger.info(
                 f"[rasterizer] cuda_backend=disabled by {DISABLE_CUDA_INTEROP_ENV}; "
                 "using host raster frames",
-                flush=True,
             )
 
         self.ctx = LudusCudaTimestampedContext(device=self._device)
@@ -580,6 +579,7 @@ def _bev_sensor_to_rig(
       Sensor X (depth)    -> Rig -Z (points down)
       Sensor Y (left)     -> Rig +Y (unchanged)
       Sensor Z (up image) -> Rig +X (forward)
+
 
     For ``tilt_deg > 0`` we apply an additional pitch around the rig's
     lateral (Y) axis so the optical axis leans forward by that angle.

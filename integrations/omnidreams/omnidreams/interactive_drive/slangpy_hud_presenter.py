@@ -52,6 +52,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
@@ -324,7 +325,7 @@ class SlangPyHudPresenter:
         except ImportError as exc:
             raise RuntimeError(
                 "SlangPy is required for the interactive-drive HUD;"
-                " install with `uv sync --package flashdreams-omnidreams`."
+                " install with `uv sync --package flashdreams-omnidreams --extra interactive-drive`."
             ) from exc
 
         self._spy = spy
@@ -360,14 +361,13 @@ class SlangPyHudPresenter:
             resizable=True,
         )
         self._device = self._create_device()
-        print(f"[presenter] device={self._device.info.adapter_name}", flush=True)
+        logger.info(f"[presenter] device={self._device.info.adapter_name}")
         self._surface = self._device.create_surface(self._window)
         self._surface_format = self._choose_surface_format()
         self._display_format = spy.Format.rgba8_unorm
-        print(
+        logger.info(
             f"[presenter] surface preferred={self._surface.info.preferred_format}"
             f" chosen={self._surface_format} display={self._display_format}",
-            flush=True,
         )
         # Trust the ACTUAL window size after creation rather than the
         # requested defaults: SDL3 may clamp the window down to fit the
@@ -464,7 +464,7 @@ class SlangPyHudPresenter:
         self._has_camera_frame = False
         # ``_engine_active`` is False during the initial scene-selection
         # wait (when the user hasn't picked a scene yet AND
-        # ``--autoload-scene`` was off) and during the brief gap between
+        # ``--auto-start`` was off) and during the brief gap between
         # scene changes. Drives the camera-area placeholder text together
         # with the model-warmup state below. Toggled by the demo wrapper
         # via :meth:`set_engine_active` around each scene's run.
@@ -550,10 +550,9 @@ class SlangPyHudPresenter:
                 return
         except Exception as exc:
             if not self._cuda_hud_error_logged:
-                print(
+                logger.warning(
                     "[presenter] hud_cuda_interop=failed; disabling and using "
                     f"host HUD upload ({exc})",
-                    flush=True,
                 )
                 self._cuda_hud_error_logged = True
             if self._cuda_hud_interop is not None:
@@ -682,7 +681,7 @@ class SlangPyHudPresenter:
             try:
                 self._wheel.stop()
             except Exception as exc:  # noqa: BLE001 -- defensive teardown
-                print(f"[presenter] wheel.stop() failed: {exc!r}", flush=True)
+                logger.warning(f"[presenter] wheel.stop() failed: {exc!r}")
             self._wheel = None
         with contextlib.suppress(Exception):
             self._window.close()
@@ -760,10 +759,9 @@ class SlangPyHudPresenter:
         try:
             return self._spy.Device(**device_kwargs)
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 "[presenter] CUDA interop device creation failed; retrying Vulkan without "
                 f"interop ({exc})",
-                flush=True,
             )
             self._cuda_interop_unavailable_reason = "device creation failed"
             return self._spy.Device(
@@ -801,17 +799,15 @@ class SlangPyHudPresenter:
         self, width: int, height: int
     ) -> _CudaRGBInterop | None:
         if _env_truthy(DISABLE_CUDA_INTEROP_ENV):
-            print(
+            logger.info(
                 "[presenter] hud_cuda_interop=disabled by "
                 f"{DISABLE_CUDA_INTEROP_ENV}; using host HUD upload",
-                flush=True,
             )
             return None
         if not self._device.supports_cuda_interop:
             reason = self._cuda_interop_unavailable_reason or "unsupported"
-            print(
+            logger.info(
                 f"[presenter] hud_cuda_interop={reason}; using host HUD upload",
-                flush=True,
             )
             return None
         try:
@@ -822,12 +818,11 @@ class SlangPyHudPresenter:
                 height=height,
             )
         except Exception as exc:
-            print(
+            logger.warning(
                 f"[presenter] hud_cuda_interop=unavailable; using host HUD upload ({exc})",
-                flush=True,
             )
             return None
-        print("[presenter] hud_cuda_interop=enabled", flush=True)
+        logger.info("[presenter] hud_cuda_interop=enabled")
         return interop
 
     def _choose_surface_format(self) -> Any:
@@ -888,10 +883,9 @@ class SlangPyHudPresenter:
             canvas_buffer, canvas = _allocate_canvas(width, height)
             self._configure_surface(width, height)
         except Exception as exc:
-            print(
+            logger.warning(
                 "[presenter] window resize failed; keeping previous presenter "
                 f"texture size {previous_size} ({exc})",
-                flush=True,
             )
             return False
         self._configured_size = (width, height)
@@ -940,9 +934,8 @@ class SlangPyHudPresenter:
         try:
             surface_texture = self._surface.acquire_next_image()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return False
@@ -973,9 +966,8 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return False
@@ -1000,9 +992,8 @@ class SlangPyHudPresenter:
             # after the swapchain has been idle long enough that the
             # OS reclaimed it. The fix is to reconfigure the surface
             # at the current window size; the next tick will retry.
-            print(
+            logger.warning(
                 f"[presenter] swapchain acquire failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
             return
@@ -1026,9 +1017,8 @@ class SlangPyHudPresenter:
             del surface_texture
             self._surface.present()
         except RuntimeError as exc:
-            print(
+            logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
-                flush=True,
             )
             self._reconfigure_surface()
 
@@ -1206,17 +1196,15 @@ class SlangPyHudPresenter:
         self._cuda_hud_interop = None
         self._cuda_hud_interop = self._create_cuda_hud_interop(width, height)
         if self._cuda_hud_interop is not None:
-            print(
+            logger.info(
                 "[presenter] hud_cuda_interop=recreated after window resize",
-                flush=True,
             )
             self._cuda_hud_resize_logged = False
             return
         if not self._cuda_hud_resize_logged:
-            print(
+            logger.warning(
                 "[presenter] hud_cuda_interop=disabled after window resize; "
                 "could not recreate shared CUDA/Vulkan resources",
-                flush=True,
             )
             self._cuda_hud_resize_logged = True
 
@@ -2471,7 +2459,7 @@ class SlangPyHudPresenter:
     # -- Scene / variant restart -------------------------------------
 
     def _restart_backend(self, scene: Any) -> None:
-        print(f"[demo] switching scene -> {scene.label}", flush=True)
+        logger.info(f"[demo] switching scene -> {scene.label}")
         new_variant = scene.variants[0] if scene.variants else "default"
         self._signal_scene_change(scene.path, new_variant)
 
@@ -2479,7 +2467,7 @@ class SlangPyHudPresenter:
         if variant == self._selected_variant:
             self._variant_dropdown_open = False
             return
-        print(f"[demo] switching variant -> {variant}", flush=True)
+        logger.info(f"[demo] switching variant -> {variant}")
         self._variant_dropdown_open = False
         self._signal_scene_change(self._current_scene, variant)
 
@@ -2543,14 +2531,27 @@ class SlangPyHudPresenter:
 
         Called by the demo's outer loop just before it re-enters
         :meth:`wait_for_scene_selection`. Resets the close flag (so the
-        selection loop runs) and drops all per-rollout view state so the
-        selector shows the clean "Ready - pick a scene" / "WAITING FOR
-        BEV..." state rather than ghosting the just-exited rollout's last
-        camera frame, BEV minimap, and speed.
+        selection loop runs), resets the selected variant, and drops all
+        per-rollout view state so the selector shows the clean "Ready - pick a
+        scene" / "WAITING FOR BEV..." state rather than ghosting the
+        just-exited rollout's last camera frame, BEV minimap, and speed.
         """
         self._pending_exit_scene = False
         self._should_close_flag = False
+        self._reset_selected_variant_to_default()
         self._reset_scene_view_state()
+
+    def _reset_selected_variant_to_default(self) -> None:
+        """Point ``_selected_variant`` at the current scene's first variant.
+
+        Otherwise the "Variant:" header keeps showing the exited rollout's
+        weather variant, which a fresh scene pick (always ``scene.variants[0]``)
+        won't load. Falls back to ``"default"`` if the scene can't be resolved.
+        """
+        option = self._current_scene_option()
+        self._selected_variant = (
+            option.variants[0] if option is not None and option.variants else "default"
+        )
 
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
@@ -2605,7 +2606,7 @@ class SlangPyHudPresenter:
     def wait_for_scene_selection(self) -> tuple[Any, str] | None:
         """Run a chrome-only event loop until the user picks a scene.
 
-        Used when ``--autoload-scene`` is False (the default) and on
+        Used when ``--auto-start`` is False (the default) and on
         the very first launch: we open the slangpy window with the
         HUD chrome but no engine, render a "Load Scene" placeholder
         in the camera area, and wait for the user to pick a scene from
@@ -2630,6 +2631,26 @@ class SlangPyHudPresenter:
                 self._present_canvas()
                 time.sleep(EVENT_POLL_INTERVAL_S)
             return None
+        finally:
+            self.set_engine_active(prior_engine_active)
+
+    def wait_while_preloading(self, in_progress: Callable[[], bool]) -> None:
+        """Pump the "Preloading scenes..." chrome until ``in_progress()`` clears.
+
+        Used by ``--auto-start`` + ``--preload-scenes`` so the auto-loaded
+        scene waits for the background preloader to finish (and is served from
+        its cache) instead of racing it with a second parse of the same USDZ.
+        Returns early if the window closes. Keeps the engine inactive so the
+        camera area shows the locked "Preloading scenes..." placeholder.
+        """
+        prior_engine_active = self._engine_active
+        self.set_engine_active(False)
+        try:
+            while in_progress() and not self.should_close:
+                self.process_events()
+                self._render_canvas(None)
+                self._present_canvas()
+                time.sleep(EVENT_POLL_INTERVAL_S)
         finally:
             self.set_engine_active(prior_engine_active)
 
@@ -2774,7 +2795,7 @@ def _record_hud_profile(path: str, **stages_ms: float) -> None:
             if total <= 0.0:
                 continue
             parts.append(f"avg_{field}={total / float(count):.2f}")
-        print(" ".join(parts), flush=True)
+        logger.info(" ".join(parts))
 
     _HUD_PROFILE_SUMS.clear()
     _HUD_PROFILE_COUNTS.clear()

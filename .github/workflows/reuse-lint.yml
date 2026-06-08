@@ -122,6 +122,7 @@ jobs:
               echo "  - $f"
             done
             echo
+            # REUSE-IgnoreStart
             echo "Add a header like (Python/shell comment style):"
             echo "  # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
             echo "  # SPDX-License-Identifier: Apache-2.0"
@@ -130,6 +131,7 @@ jobs:
             for f in "${missing_files[@]}"; do
               echo "::error file=$f,line=1,title=Missing SPDX header::Add 'SPDX-License-Identifier: Apache-2.0' (and matching SPDX-FileCopyrightText) to the first 20 lines of this file."
             done
+            # REUSE-IgnoreEnd
             echo "::error title=Missing SPDX headers::${#missing_files[@]} source file(s) missing inline SPDX header"
             exit 1
           fi

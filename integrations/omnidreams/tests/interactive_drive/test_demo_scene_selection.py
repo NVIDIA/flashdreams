@@ -5,7 +5,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from omnidreams.interactive_drive.demo import SceneOption, _resolve_scene_variant
+from omnidreams.interactive_drive.demo import (
+    SceneOption,
+    _resolve_scene_variant,
+    build_parser,
+)
+
+
+def test_auto_start_flag_and_deprecated_alias() -> None:
+    parser = build_parser()
+
+    assert parser.parse_args([]).auto_start is False
+    assert parser.parse_args(["--auto-start"]).auto_start is True
+    # --autoload-scene is kept as a backward-compatible alias for --auto-start.
+    assert parser.parse_args(["--autoload-scene"]).auto_start is True
+    assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
 
 
 def test_resolve_scene_variant_prefers_weather_archive_path_for_default(
