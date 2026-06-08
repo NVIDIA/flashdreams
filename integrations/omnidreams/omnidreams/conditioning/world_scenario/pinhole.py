@@ -200,15 +200,16 @@ class PinholeCamera(CameraBase):
         return torch.inverse(self.get_intrinsics_matrix())
 
     def _get_rays_impl(self) -> torch.Tensor:
-        """
-        Returns:
-            rays: (H, W, 3), normalized camera rays in opencv convention
+        """Compute normalized per-pixel camera rays.
 
           z (front)
          /
         o ------> x (right)
         |
         v y (down)
+
+        Returns:
+            rays: (H, W, 3), normalized camera rays in opencv convention
         """
         u = torch.arange(self.w, dtype=torch.int32, device=self.device)
         v = torch.arange(self.h, dtype=torch.int32, device=self.device)
