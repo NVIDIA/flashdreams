@@ -366,7 +366,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             )
             for i in range(num_views)
         ]
-        hdmap_videos_t = torch.stack(hdmap_videos, dim=0).unsqueeze(0)  # [B=1, V, T, C, H, W]
+        # [B=1, V, T, C, H, W]
+        hdmap_videos_t = torch.stack(hdmap_videos, dim=0).unsqueeze(0)
         hdmap_num_frames = hdmap_videos_t.shape[2]
         if self.is_rank_zero:
             logger.info(

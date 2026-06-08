@@ -2282,7 +2282,7 @@ class SlangPyHudPresenter:
         return self._pending_exit_scene
 
     def acknowledge_exit_scene(self) -> None:
-        """        Clear the exit request and reset per-rollout view state for the selector.
+        """Clear the exit request and reset per-rollout view state for the selector.
 
         Called before the outer loop re-enters :meth:`wait_for_scene_selection`;
         resets the close flag, the selected variant, and the last rollout's

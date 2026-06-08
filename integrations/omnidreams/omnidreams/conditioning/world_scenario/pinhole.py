@@ -209,7 +209,7 @@ class PinholeCamera(CameraBase):
         v y (down)
 
         Returns:
-            rays: (H, W, 3), normalized camera rays in opencv convention
+            rays: (H, W, 3), normalized camera rays camera coordinate
         """
         u = torch.arange(self.w, dtype=torch.int32, device=self.device)
         v = torch.arange(self.h, dtype=torch.int32, device=self.device)
