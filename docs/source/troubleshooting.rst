@@ -13,6 +13,8 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+:orphan:
+
 Troubleshooting
 ===================================
 
@@ -190,7 +192,7 @@ as ``--total-blocks 7`` for Self-Forcing or inspect a runner without loading the
 model by using ``--no-instantiate`` as described below.
 
 ``--no-instantiate`` prints a config but does not run
-----------------------------------------------------
+-----------------------------------------------------
 
 **Symptoms:**
 
