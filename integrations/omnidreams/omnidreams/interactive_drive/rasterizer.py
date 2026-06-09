@@ -185,8 +185,11 @@ class _LudusConditionRasterizerImpl:
                 "using host raster frames",
             )
 
-        ctx_cls = (LudusTimestampedContext if raster.ludus_backend == "vulkan"
-                   else LudusCudaTimestampedContext)
+        ctx_cls = (
+            LudusTimestampedContext
+            if raster.ludus_backend == "vulkan"
+            else LudusCudaTimestampedContext
+        )
         logger.info(f"[rasterizer] ludus_backend={raster.ludus_backend}")
         self.ctx = ctx_cls(device=self._device)
         self.ctx.set_depth_scaling(True)

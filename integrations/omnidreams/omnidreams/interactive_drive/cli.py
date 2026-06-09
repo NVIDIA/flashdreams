@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("cuda", "vulkan"),
         default="cuda",
         help="HD-map renderer backend: 'cuda' (default, software rasterizer) or "
-             "'vulkan' (VK_EXT_mesh_shader). Independent of --compute-device.",
+        "'vulkan' (VK_EXT_mesh_shader). Independent of --compute-device.",
     )
     parser.add_argument(
         "--sync-gpu-timing",
