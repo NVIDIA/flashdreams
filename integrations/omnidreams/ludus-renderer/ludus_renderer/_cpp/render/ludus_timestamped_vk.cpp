@@ -499,11 +499,8 @@ static void ensureBuffers(LudusTimestampedVkState& s, bool& changed)
     resize(s.queryBuffer,            s.queryCapacity,         sizeof(RenderQuery));
 }
 
-// Rebuild the render pass and the three mesh pipelines for a new sample count.
-// The render pass attachment layout (single-sample 2-attachment vs MSAA
-// 3-attachment resolve) and the pipelines' rasterizationSamples are baked in at
-// creation time, so a framebuffer built for a different sample count than the
-// render pass is a Vulkan spec violation. Caller must hold the device idle.
+// Rebuild the render pass + pipelines for a new sample count (their attachment
+// layout and rasterizationSamples are fixed at creation). Caller must be idle.
 static void rebuildRenderPassAndPipelines(LudusTimestampedVkState& s, VkSampleCountFlagBits samples)
 {
     if (s.pipelinePolyline) { vkDestroyPipeline(s.vkctx.device, s.pipelinePolyline, nullptr); s.pipelinePolyline = VK_NULL_HANDLE; }
@@ -531,9 +528,8 @@ static void ensureFramebuffer(LudusTimestampedVkState& s, int width, int height,
 
     vkDeviceWaitIdle(s.vkctx.device);
 
-    // If the MSAA sample count changed (e.g. via set_msaa_samples), the render
-    // pass and pipelines must be rebuilt to match the framebuffer we are about
-    // to create; otherwise the attachment counts disagree.
+    // Rebuild the render pass/pipelines if the sample count changed so they
+    // match the framebuffer created below.
     int desiredSamplesInt = (s.msaaSamples > 1) ? s.msaaSamples : 1;
     if (s.renderPassSamples != desiredSamplesInt) {
         rebuildRenderPassAndPipelines(s, (VkSampleCountFlagBits)desiredSamplesInt);
@@ -715,10 +711,8 @@ int ludusUploadSceneVk(
 void ludusRemoveSceneVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int sceneId, cudaStream_t stream)
 {
     (void)nvdr_ctx;
-    // Tombstone: zero the first int of the scene descriptor so shaders skip it.
-    // The source is a host stack value, so this must be a HostToDevice copy
-    // (not DeviceToDevice, which would reinterpret &zero as a device pointer).
-    // Synchronize before returning so the stack value outlives the in-flight DMA.
+    // Tombstone the scene descriptor's first int so shaders skip it. HostToDevice
+    // (source is host memory) and synchronous so `zero` outlives the copy.
     const int zero = 0;
     cudaError_t e = cudaMemcpyAsync(
         (void*)(s.sceneBuffer.cuDevPtr + sceneId * sizeof(TimestampedScene)),
@@ -778,8 +772,7 @@ void ludusRenderBatchVk(
     // staging copy and writes it back through vkCmdUpdateBuffer (which
     // goes through Vulkan's own coherent transfer path). Opt out via
     // LUDUS_VK_DIRECT_IMPORT=1 if the driver doesn't need this hack.
-    // Re-read every call (not static) so the env var can be toggled at any
-    // point in the process lifetime rather than latching at the first render.
+    // Not static: re-read each call so the env var isn't latched at first render.
     const bool kHostRoundtrip = (getenv("LUDUS_VK_DIRECT_IMPORT") == nullptr);
     if (kHostRoundtrip) {
         auto copyToVk = [&](VkExternalBuffer& buf) {

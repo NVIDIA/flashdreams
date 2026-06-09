@@ -95,6 +95,17 @@ class LudusTimestampedContext:
         # iterate / debug.
         self._scene_ids: List[int] = []
 
+        # Running SSBO base offsets per scene (mirror the C++ *Used counters),
+        # so scene N reads its own data, not scene 0's. Reset by clear_scenes.
+        self._global_ts_off = 0
+        self._global_i32_off = 0
+        self._global_vert_off = 0
+        self._global_tri_off = 0
+        self._global_float_off = 0
+        self._global_pl_pool_off = 0
+        self._global_pg_pool_off = 0
+        self._global_cb_pool_off = 0
+
         # GL/Vulkan render their layered framebuffer top-down by default;
         # Vulkan's viewport y-flip in the renderer matches the CUDA backend's
         # output convention so callers don't need to vflip.
@@ -377,19 +388,21 @@ class LudusTimestampedContext:
         cube_pool_bytes     = _pools_to_bytes(cube_pool_rows,     stride_u32=16)
 
         # Scene descriptor (128 bytes).
+        # This scene's base offset in each shared SSBO (0 for the first scene).
+        # Shaders index as scene.<buf>_offset + pool.<buf>_offset.
         scene_desc_row = self._pack_scene_desc(
             num_pl_pools=len(polyline_pool_rows),
-            pl_pools_offset=0,  # set by C++ after appending
+            pl_pools_offset=self._global_pl_pool_off,
             num_pg_pools=len(polygon_pool_rows),
-            pg_pools_offset=0,
+            pg_pools_offset=self._global_pg_pool_off,
             num_cb_pools=len(cube_pool_rows),
-            cb_pools_offset=0,
-            ts_buf_offset=0,
-            int32_buf_offset=0,
-            vert_buf_offset=0,
-            tri_buf_offset=0,
+            cb_pools_offset=self._global_cb_pool_off,
+            ts_buf_offset=self._global_ts_off,
+            int32_buf_offset=self._global_i32_off,
+            vert_buf_offset=self._global_vert_off,
+            tri_buf_offset=self._global_tri_off,
             pose_buf_offset=0,
-            float_buf_offset=0,
+            float_buf_offset=self._global_float_off,
         )
         scene_desc = scene_desc_row.to(device).contiguous().view(torch.uint8)
 
@@ -414,6 +427,17 @@ class LudusTimestampedContext:
             empty_poses,
             all_floats,
         ))
+
+        # Advance the cursors past this scene for the next upload_scene.
+        self._global_ts_off += ts_off
+        self._global_i32_off += i32_off
+        self._global_vert_off += vert_off
+        self._global_tri_off += tri_off
+        self._global_float_off += float_off
+        self._global_pl_pool_off += len(polyline_pool_rows)
+        self._global_pg_pool_off += len(polygon_pool_rows)
+        self._global_cb_pool_off += len(cube_pool_rows)
+
         self._scene_ids.append(scene_id)
         return scene_id
 
@@ -426,6 +450,14 @@ class LudusTimestampedContext:
     def clear_scenes(self) -> None:
         self.cpp_wrapper.clear_scenes()
         self._scene_ids.clear()
+        self._global_ts_off = 0
+        self._global_i32_off = 0
+        self._global_vert_off = 0
+        self._global_tri_off = 0
+        self._global_float_off = 0
+        self._global_pl_pool_off = 0
+        self._global_pg_pool_off = 0
+        self._global_cb_pool_off = 0
 
     # ------------------------------------------------------------------
     # Render-tuning settings (mirror LudusCudaTimestampedContext)
@@ -567,9 +599,8 @@ class LudusTimestampedContext:
         :meth:`LudusCudaTimestampedContext.render_batch`."""
         device = camera_poses.device if camera_poses.is_cuda else self._device
 
-        # Build each query column on the host and move it to the device in a
-        # single copy. Assigning element-by-element into GPU tensors forces a
-        # host<->device sync per query, which dominates for large batches.
+        # Build each column on the host and copy once; per-element GPU writes
+        # would force a host/device sync per query.
         def _ts(q):
             ts = q[2]
             return int(ts.item() if isinstance(ts, torch.Tensor) else ts)

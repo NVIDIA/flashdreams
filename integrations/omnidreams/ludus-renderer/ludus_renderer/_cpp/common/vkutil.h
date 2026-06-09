@@ -28,9 +28,8 @@
 // ludus_timestamped_vk.cpp). Defined here so they aren't copy-pasted per file.
 // ---------------------------------------------------------------------------
 
-// Wrap a Vulkan call and raise (via torch) if it doesn't return VK_SUCCESS.
-// TORCH_CHECK comes from framework.h, which every including .cpp pulls in
-// before this header (macro bodies are only expanded at the call site).
+// Raise via torch's TORCH_CHECK (from framework.h, included by each .cpp before
+// this header) when a Vulkan call doesn't return VK_SUCCESS.
 #define VK_CHECK(call) do {                                                     \
     VkResult _r = (call);                                                       \
     TORCH_CHECK(_r == VK_SUCCESS, #call " failed with VkResult ", (int)_r);     \
