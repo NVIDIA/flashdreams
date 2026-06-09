@@ -4,6 +4,7 @@
 import os
 import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import numpy as np
 import omnidreams.interactive_drive.runtime.loop as loop_module
@@ -259,7 +260,18 @@ def test_input_to_present_profile_prints_window_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    del capsys
+    messages: list[str] = []
     monkeypatch.setenv("INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S", "0.25")
+    monkeypatch.setattr(
+        loop_module,
+        "logger",
+        SimpleNamespace(
+            info=lambda message, *args, **kwargs: messages.append(
+                str(message).format(*args, **kwargs)
+            )
+        ),
+    )
     loop_module.reset_input_to_present_profile_window()
 
     loop_module._record_input_to_present_for_profile(
@@ -275,7 +287,7 @@ def test_input_to_present_profile_prints_window_summary(
         frame_interval_s=0.1,
     )
 
-    output = capsys.readouterr().out
+    output = "\n".join(messages)
     assert "[profile] e2e" in output
     assert "wall_present_fps=" in output
     assert "avg_adj_control_to_present_ms=" in output

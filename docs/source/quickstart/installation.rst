@@ -67,4 +67,5 @@ Most model runs need Hugging Face authentication:
 
 For more environment and container details, see the project
 `README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_ and
-the model pages under :doc:`/models/index`.
+the model pages under :doc:`/models/index`. For common first-run failures, see
+:doc:`/troubleshooting`.

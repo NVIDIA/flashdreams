@@ -21,6 +21,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import yaml
+from loguru import logger
 from omnidreams.interactive_drive.input.wheel_profiles import (
     AutocenterFFB,
     Binding,
@@ -50,6 +51,7 @@ from omnidreams.interactive_drive.input_config.capture import (
     pressed_button_across,
     select_axis_across,
 )
+from omnidreams.interactive_drive.log import configure_logging
 
 try:  # Tkinter is stdlib but needs the system Tk package installed.
     import tkinter as tk
@@ -1556,18 +1558,17 @@ class ConfigApp:
 
 
 def main() -> None:
+    configure_logging()
     if not sys.platform.startswith("linux") or not Path("/dev/input").exists():
-        print(
+        logger.error(
             "interactive-drive-configuration requires Linux with evdev input "
             "devices under /dev/input.",
-            file=sys.stderr,
         )
         raise SystemExit(1)
     if tk is None:
-        print(
+        logger.error(
             "Tkinter is not available. Install your platform's Tk package "
             "(e.g. 'sudo apt-get install python3-tk') and retry.",
-            file=sys.stderr,
         )
         raise SystemExit(1)
     root = tk.Tk()

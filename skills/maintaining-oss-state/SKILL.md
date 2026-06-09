@@ -487,9 +487,8 @@ sections).
    an inline `SPDX-License-Identifier` in its first 20 lines — with
    the documented exclusions (`cudaraster/**`, generated protobuf
    stubs).
-5. No file contains a legacy NVIDIA proprietary banner
-   (`"NVIDIA CORPORATION is strictly prohibited"`,
-   `"proprietary rights in and to this software"`).
+5. No file contains the legacy NVIDIA proprietary-banner sentinel
+   phrases checked by `.github/workflows/reuse-lint.yml`.
 
 Triggers: every PR, every push to `main`, and every merge-queue group
 (see `b84fe7d` for the `merge_group` trigger landing).

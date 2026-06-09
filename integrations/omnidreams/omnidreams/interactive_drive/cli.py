@@ -7,6 +7,7 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 
+from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
 from omnidreams.interactive_drive.app import InteractiveDriveApp
@@ -19,6 +20,7 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 from omnidreams.scenes import local_scene_archive_path
@@ -408,9 +410,8 @@ def prepare_config_and_backend(
     # through to runtime fetches.
     resolved_org = apply_cli_to_env(args.hf_org)
     if resolved_org != DEFAULT_HF_ORG:
-        print(
+        logger.info(
             f"[interactive-drive] using HF org '{resolved_org}' for omni-dreams repos",
-            flush=True,
         )
 
     scene_path = args.scene
@@ -422,9 +423,8 @@ def prepare_config_and_backend(
             initial_rgb_path=args.synthetic_initial_rgb,
             prompt=args.synthetic_prompt,
         )
-        print(
+        logger.info(
             f"[interactive-drive] synthetic scene materialised at {scene_path}",
-            flush=True,
         )
     elif args.synthetic_initial_rgb is not None or args.synthetic_prompt is not None:
         raise SystemExit(
@@ -506,6 +506,7 @@ def run(args: argparse.Namespace) -> None:
     :class:`InteractiveDriveApp` and call ``load_scene`` / ``run_scene``
     per scene so the warmed model survives across scene clicks.
     """
+    configure_logging()
     config, backend = prepare_config_and_backend(args)
     app = InteractiveDriveApp(config=config, backend=backend)
     app.run()

@@ -98,7 +98,7 @@ def _run_raster_ui_smoke(scene_path: Path) -> None:
                 # ``python -m omnidreams.interactive_drive`` now goes through the
                 # demo wrapper which opens a pygame HUD by default and
                 # only spawns the backend when the user clicks ``Load
-                # Scene`` (or passes ``--autoload-scene``). The smoke
+                # Scene`` (or passes ``--auto-start``). The smoke
                 # test exercises the bare backend, so opt out of the
                 # HUD; the raster backend then prints the warmup
                 # sentinel directly to this process's stdout.

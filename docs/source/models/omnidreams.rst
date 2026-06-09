@@ -172,6 +172,28 @@ Run the demo and stream to your browser:
 Then open ``http://<server-ip>:8080/`` in any browser on the same
 network and pick a scene from the picker in the bottom-right.
 
+.. note::
+
+   **The first launch is slow.** The first time you start the demo, the world
+   model spends several minutes in a one-time optimization pass -- checkpoint
+   loading, ``torch.compile`` / CUDA-graph capture, and Triton autotuning --
+   before the view becomes interactive. The on-screen indicator shows
+   ``Loading world model...`` during warmup and then ``Optimizing world
+   model...`` while the first generated chunk is autotuned; this phase is
+   longest on the perf manifest. Subsequent launches are much faster because
+   the compiled kernels and CUDA graphs are cached and reused.
+
+.. note::
+
+   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB.
+   The text and first-frame encoders are run once per scene and freed before the
+   diffusion pipeline is built, and the resulting embeddings are cached and
+   reused across world-model resets.
+
+   Trade-off: the world model is rebuilt on each scene load instead of staying
+   resident, so the first load and scene/variant switches are slower. Prefer it
+   when VRAM-constrained; otherwise leave it off for faster switching.
+
 For execution using a consumer NVIDIA GPU that exposes a graphics stack,
 omit the ``--stream-mjpeg`` flag to open the demo in a local Vulkan window
 instead:

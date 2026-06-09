@@ -4,6 +4,7 @@
 import math
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
@@ -182,9 +183,8 @@ def state_from_initial_pose(
 
 def build_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
     if scene.ground_mesh_vertices is None or scene.ground_mesh_faces is None:
-        print(
+        logger.info(
             "[ego_vehicle_kinematics] no ground mesh in scene; z/pitch/roll will not be snapped.",
-            flush=True,
         )
         return None
     return GroundSnapper(scene.ground_mesh_vertices, scene.ground_mesh_faces)
@@ -203,18 +203,16 @@ def build_map_bounds(scene: SceneBundle) -> MapBounds | None:
     """
     bounds = MapBounds.from_scene(scene)
     if bounds is None:
-        print(
+        logger.info(
             "[ego_vehicle_kinematics] scene has no spatial geometry; "
             "OOB respawn will not fire.",
-            flush=True,
         )
         return None
-    print(
+    logger.info(
         f"[ego_vehicle_kinematics] map bounds: "
         f"x=[{bounds.x_min:.1f}, {bounds.x_max:.1f}] ({bounds.width_m:.1f} m), "
         f"y=[{bounds.y_min:.1f}, {bounds.y_max:.1f}] ({bounds.height_m:.1f} m). "
         "Adds 50 m margin + 100 m warning zone for OOB.",
-        flush=True,
     )
     return bounds
 

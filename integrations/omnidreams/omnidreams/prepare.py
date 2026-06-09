@@ -16,10 +16,12 @@ Stages the resources both demo paths share:
   :class:`CosmosReason1TextEncoderConfig` so the prewarm files satisfy
   the runtime ``from_pretrained(revision=...)`` call (otherwise the
   ~14 GB warm-up downloads HEAD and the runtime re-fetches at launch).
+* The world-model DiT checkpoint(s) the runtime loads from
+  ``nvidia/omni-dreams-models`` (see :func:`hf_prewarm_urls`).
 
 Re-running is safe: any asset already present on disk is skipped.
-Scene staging goes through Hugging Face; set ``HF_TOKEN`` with access
-to ``nvidia/omni-dreams-scenes`` before running this helper.
+Staging goes through Hugging Face; set ``HF_TOKEN`` with access to both
+``nvidia/omni-dreams-scenes`` and ``nvidia/omni-dreams-models`` first.
 """
 
 from __future__ import annotations
@@ -44,8 +46,32 @@ from omnidreams.scenes import (
 
 
 def hf_prewarm_urls() -> tuple[str, ...]:
-    """Hugging Face files the flashdreams-backed runtime lazily downloads."""
-    return ()
+    """World-model DiT checkpoint URLs the runtime would otherwise fetch lazily.
+
+    Pulled live off :data:`omnidreams.config.AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS`
+    so they track whatever the runtime loads. Pre-warming them here keeps the
+    first launch off the multi-GB download path and surfaces gated-repo access
+    errors at setup time. ``MISSING`` sentinels (internal-only checkpoints) and
+    non-Hugging-Face values are skipped.
+    """
+    try:
+        from omnidreams.config import AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS
+    except ImportError as exc:  # pragma: no cover - config must be importable
+        raise RuntimeError(
+            "Unable to import omnidreams.config to resolve world-model "
+            "checkpoint URLs; run `uv sync --package flashdreams-omnidreams` "
+            "from the flashdreams workspace root first."
+        ) from exc
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for value in AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS.values():
+        if not value.startswith("https://huggingface.co/"):
+            continue
+        if value not in seen:
+            seen.add(value)
+            urls.append(value)
+    return tuple(urls)
 
 
 def _cosmos_reason1_prewarm_targets() -> tuple[tuple[str, str], ...]:

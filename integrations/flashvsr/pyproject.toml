@@ -62,6 +62,9 @@ flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
 include = ["flashvsr*"]
 exclude = ["tests"]
 
+[tool.setuptools.package-data]
+"flashvsr" = ["csrc/*.cu"]
+
 # Pytest's ``configfile`` resolution picks the nearest ``pyproject.toml`` to
 # the test files, so when running ``pytest integrations/flashvsr/tests``
 # this file shadows the root ``flashdreams`` config -- mirror its addopts
