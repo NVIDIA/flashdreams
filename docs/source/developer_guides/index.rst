@@ -16,18 +16,6 @@
 Developer Guides
 ================
 
-These guides cover how the system is structured underneath the CLI:
-the inference pipeline a recipe runs through, the configuration layer
-every recipe shares, the integration surface for adding a new method,
-common patterns for driving the pipeline from Python, and the shape
-of an interactive serving session. They are conceptual; the
-:doc:`/api/index` is the per-symbol reference.
-
-The pipeline overview is the anchor for the rest. The config system
-is the layer every recipe shares; new integrations sit on top of
-both. Usage patterns and interactive serving describe how the
-pipeline is embedded in surrounding code.
-
 .. grid:: 1 1 2 2
    :gutter: 3
 
@@ -46,6 +34,14 @@ pipeline is embedded in surrounding code.
       How every overridable field is surfaced as a CLI flag, how
       recipe defaults compose, and how to layer overrides on top.
 
+   .. grid-item-card:: Interactive-drive latency tuning
+      :link: latency_tuning
+      :link-type: doc
+
+      The supported knobs for ``interactive-drive`` latency: model and
+      backend choice, resolution, chunk-size constraints, FP8 and native
+      acceleration, transport, and the validated GB300 reference.
+
    .. grid-item-card:: Add a new method
       :link: new_integration
       :link-type: doc
@@ -56,11 +52,10 @@ pipeline is embedded in surrounding code.
 Where these guides fit
 ----------------------
 
-Working forward from a recipe, start with the pipeline overview,
-then read the recipe's per-model page under :doc:`/models/index`,
-then drop into the matching module under :doc:`/api/index` for the
-implementation details. The :doc:`/quickstart/index` covers the
-two-command path from install to a generated clip.
+These guides are conceptual. For a specific recipe, see its per-model
+page under :doc:`/models/index`; for the per-symbol reference, see
+:doc:`/api/index`; and for the two-command path from install to a
+generated clip, see :doc:`/quickstart/index`.
 
 .. toctree::
    :hidden:
@@ -68,6 +63,7 @@ two-command path from install to a generated clip.
 
    inference_pipeline_overview
    config_system
+   latency_tuning
    new_integration
 
 ..

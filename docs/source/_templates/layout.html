@@ -25,8 +25,9 @@ SPDX-License-Identifier: Apache-2.0
    marketing.
 #}
 {% set _fd_is_reference = pagename == 'documentation'
-                          or pagename.startswith('api/')
                           or pagename.startswith('developer_guides/')
+                          or pagename.startswith('api/')
+                          or pagename == 'troubleshooting'
                           or pagename.startswith('models/')
                           or (pagename.startswith('community/') and pagename != 'community/index')
                           or pagename.startswith('_modules/')

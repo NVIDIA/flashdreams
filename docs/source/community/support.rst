@@ -68,6 +68,10 @@ Before you file an issue
   answer.
 - **Check the** :doc:`faq` **page.** If your question is there,
   great; if a related question is there, link to it in your issue.
+- **Check the** :doc:`/troubleshooting` **page.** It lists common
+  first-run failures (e.g. CUDA build mismatches, disk and cache limits,
+  Hugging Face auth, GPU memory) with a likely
+  cause and next step for each.
 - **Confirm your version.** A bug fixed in ``main`` looks identical to
   a fresh bug if you're on an older tagged release. Reproduce against
   the latest ``main`` or note your version in the report.

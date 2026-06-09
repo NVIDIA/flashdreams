@@ -16,12 +16,6 @@
 Documentation
 =============
 
-The FlashDreams documentation is organized into two sections. 
-The **developer guides** section contains guides that teach you how to understand, extend, and build on FlashDreams,
-combining conceptual explanation with worked code examples.
-The **CLI and API reference** section contains the complete technical reference for every public
-class, function, and command-line flag.
-
 .. grid:: 1 1 2 2
    :gutter: 3
 
@@ -41,9 +35,18 @@ class, function, and command-line flag.
       runtime, the infrastructure layer, the pipelines and runners,
       and the serving components.
 
+   .. grid-item-card:: Troubleshooting
+      :link: /troubleshooting
+      :link-type: doc
+
+      Common first-run failures (e.g. CUDA build mismatches, disk and
+      cache limits, Hugging Face authentication, GPU memory)
+      each with the likely cause and the next step to try.
+
 .. toctree::
    :hidden:
    :maxdepth: 1
 
-   Developer guides </developer_guides/index>
+   /developer_guides/index
    CLI and API reference </api/index>
+   /troubleshooting

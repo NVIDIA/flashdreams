@@ -90,6 +90,7 @@ html_theme_options = {
         "models/*": ["page-toc"],
         "models/index": [],
         "documentation": ["page-toc"],
+        "troubleshooting": ["page-toc"],
         "developer_guides/*": ["page-toc"],
         "api/*": ["page-toc"],
     },
@@ -132,6 +133,7 @@ html_sidebars = {
     "community/index": [],
     "models/*": ["sidebar-nav-bs"],
     "documentation": ["search-field", "sidebar-nav-bs"],
+    "troubleshooting": ["search-field", "sidebar-nav-bs"],
     "developer_guides/*": ["search-field", "sidebar-nav-bs"],
     "api/*": ["search-field", "sidebar-nav-bs"],
 }
