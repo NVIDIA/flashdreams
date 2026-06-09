@@ -130,3 +130,4 @@ Where to next
 - :doc:`/api/index` — Python API and CLI reference.
 - :doc:`/models/index` — steady-state per-step latency numbers
   with reproducer commands.
+- :doc:`/troubleshooting` — common first-run failures and fixes.

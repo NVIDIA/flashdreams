@@ -403,6 +403,7 @@ def test_native_acceleration_auto_reports_missing_extension() -> None:
     assert selection.error is error
     assert "vae_decoder" in selection.reason
     assert "compile failed" in selection.reason
+    assert "sync_thirdparty.py sync" in selection.reason
 
 
 @pytest.mark.ci_cpu

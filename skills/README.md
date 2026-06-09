@@ -1,24 +1,27 @@
-# Agentic skills
+# Agent Skills
 
-Project-authored [Agent Skills](https://docs.cursor.com/agent/skills). These are **opt-in**: neither agent (claude, cursor, ... ) loads skills from `agentic/skills/` automatically, so they won't collide with anything a developer already has under, e.g., `~/.cursor/skills/` or `~/.claude/skills/`.
+Project-authored [Agent Skills](https://agentskills.io/specification) live in
+the canonical root `skills/` directory. They are **opt-in**: FlashDreams
+does not assume that every agent client automatically loads repository
+skills, so developers can still control which local skills their tools use.
 
 Opt in by symlinking this directory into whichever tool you use. From the repo root:
 
 ```bash
 # Cursor
-mkdir -p .cursor && ln -s ../agentic/skills .cursor/skills
+mkdir -p .cursor && ln -s ../skills .cursor/skills
 
 # Claude Code
-mkdir -p .claude && ln -s ../agentic/skills .claude/skills
+mkdir -p .claude && ln -s ../skills .claude/skills
 
 # Other / general agents
-mkdir -p .agents && ln -s ../agentic/skills .agents/skills
+mkdir -p .agents && ln -s ../skills .agents/skills
 ```
 
 `.cursor/` / `.claude/` / `.agents/` are already gitignored (add entries if they aren't), so the symlinks stay local. If you want to be selective, symlink individual skill directories instead of the whole folder:
 
 ```bash
-ln -s ../../agentic/skills/<skill-name> <.cursor|.claude|.agents>/skills/<skill-name>
+ln -s ../../skills/<skill-name> <.cursor|.claude|.agents>/skills/<skill-name>
 ```
 
 ## Layout
@@ -26,7 +29,7 @@ ln -s ../../agentic/skills/<skill-name> <.cursor|.claude|.agents>/skills/<skill-
 Each skill is a directory containing a `SKILL.md` with YAML frontmatter:
 
 ```
-agentic/skills/
+skills/
 ├── README.md
 └── <skill-name>/
     ├── SKILL.md          # required: name, description, body

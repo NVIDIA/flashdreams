@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from loguru import logger
 
 # --- evdev wire format / ioctl constants -------------------------------
 # Linux input_event struct: two longs (timeval), two u16, one s32.
@@ -517,14 +518,13 @@ class _FFBBackend:
             self._fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
             return True
         except PermissionError:
-            print(
+            logger.info(
                 "[wheel] FFB permission denied; add user to input group or adjust udev",
-                flush=True,
             )
             self._fd = None
             return False
         except OSError as exc:
-            print(f"[wheel] FFB unavailable on {device_path}: {exc}", flush=True)
+            logger.info(f"[wheel] FFB unavailable on {device_path}: {exc}")
             self._fd = None
             return False
 

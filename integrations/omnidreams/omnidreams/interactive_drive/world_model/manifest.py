@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import yaml
+from loguru import logger
 from omnidreams.hf_org import (
     DEFAULT_HF_ORG,
     hf_access_hint,
@@ -189,10 +190,9 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
     if resolved_org != DEFAULT_HF_ORG:
         rewritten = rewrite_omni_dreams_urls(raw_yaml, org=resolved_org)
         if rewritten != raw_yaml:
-            print(
+            logger.info(
                 f"[manifest] rewrote {DEFAULT_HF_ORG}/omni-dreams-* URLs to "
                 f"{resolved_org}/omni-dreams-* per OMNI_DREAMS_HF_ORG",
-                flush=True,
             )
         raw_yaml = rewritten
     data = yaml.safe_load(raw_yaml) or {}

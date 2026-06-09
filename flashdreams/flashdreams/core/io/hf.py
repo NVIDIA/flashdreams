@@ -33,6 +33,13 @@ from huggingface_hub import snapshot_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
 from flashdreams.core.distributed import get_global_rank, is_distributed_initialized
+from flashdreams.core.io.disk import (
+    CACHE_MIN_FREE_ENV,
+    DiskSpaceError,
+    cache_min_free_bytes,
+    disk_space_error_from_exception,
+    ensure_free_disk,
+)
 
 
 def _str2bool(v: str | bool) -> bool:
@@ -82,16 +89,41 @@ def _download_snapshot(
     ignore_patterns: str | Sequence[str] | None,
 ) -> None:
     lock_file = _lock_path(repo_id, revision, cache_dir)
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(lock_file)):
-        snapshot_download(
-            repo_id,
-            revision=revision,
-            cache_dir=str(cache_dir) if cache_dir is not None else None,
-            local_files_only=False,
-            allow_patterns=_normalize_patterns(allow_patterns),
-            ignore_patterns=_normalize_patterns(ignore_patterns),
+    cache_root = _hub_cache_dir(cache_dir)
+    min_bytes = cache_min_free_bytes()
+    settings: dict[str, object] = {"repo": repo_id}
+    if cache_dir is not None:
+        settings["cache_dir"] = Path(cache_dir).expanduser()
+    ensure_free_disk(
+        cache_root,
+        required_bytes=min_bytes,
+        label="Hugging Face cache",
+        env_vars=("HF_HOME", "HF_HUB_CACHE", CACHE_MIN_FREE_ENV),
+        settings=settings,
+    )
+    try:
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(lock_file)):
+            snapshot_download(
+                repo_id,
+                revision=revision,
+                cache_dir=str(cache_dir) if cache_dir is not None else None,
+                local_files_only=False,
+                allow_patterns=_normalize_patterns(allow_patterns),
+                ignore_patterns=_normalize_patterns(ignore_patterns),
+            )
+    except Exception as exc:
+        disk_error = disk_space_error_from_exception(
+            exc,
+            path=cache_root,
+            label="Hugging Face cache",
+            required_bytes=min_bytes,
+            env_vars=("HF_HOME", "HF_HUB_CACHE", CACHE_MIN_FREE_ENV),
+            settings=settings,
         )
+        if disk_error is not None:
+            raise disk_error from exc
+        raise
 
 
 def maybe_download_hf_repo_on_rank0(
@@ -128,6 +160,8 @@ def maybe_download_hf_repo_on_rank0(
                 ignore_patterns=ignore_patterns,
             )
             payload = [{"error": None}]
+        except DiskSpaceError as exc:
+            payload = [{"error": str(exc), "disk_error": "1"}]
         except Exception as exc:
             payload = [{"error": f"{type(exc).__name__}: {exc}"}]
     else:
@@ -138,6 +172,8 @@ def maybe_download_hf_repo_on_rank0(
 
     error = payload[0]["error"]
     if error is not None:
+        if payload[0].get("disk_error"):
+            raise DiskSpaceError(error)
         raise RuntimeError(
             f"Rank 0 failed to download Hugging Face repo {repo_id_or_path!r}: {error}"
         )

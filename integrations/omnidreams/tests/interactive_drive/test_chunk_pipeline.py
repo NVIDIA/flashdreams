@@ -222,6 +222,40 @@ def test_chunk_pipeline_scene_change_clears_already_queued_frames() -> None:
     assert pipeline.frame_queue.qsize() == 0
 
 
+def test_chunk_pipeline_sets_first_chunk_produced_after_first_chunk() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=1)
+    pipeline = ChunkPipeline(backend)
+    assert pipeline.model_ready.wait(timeout=1.0)
+    # Warmup done, but no generated chunk yet -> still in the optimize phase.
+    assert not pipeline.first_chunk_produced.is_set()
+
+    pipeline.request_scene(minimal_scene())
+    pipeline.request_pose_chunk(
+        ChunkRequest(trajectory=make_trajectory(1), chunk_times=_chunk_times(1))
+    )
+    pipeline.frame_queue.get(timeout=1.0)
+    assert pipeline.first_chunk_produced.wait(timeout=1.0)
+    pipeline.shutdown()
+
+
+def test_chunk_pipeline_first_chunk_produced_unset_for_superseded_render() -> None:
+    backend = _GatedBackend()
+    pipeline = ChunkPipeline(backend)
+    pipeline.request_scene(minimal_scene())
+    pipeline.request_pose_chunk(
+        ChunkRequest(trajectory=make_trajectory(1), chunk_times=_chunk_times(1))
+    )
+    # Reset supersedes the in-flight render, so its frames are dropped and the
+    # optimize-phase latch must not flip on a chunk the user never saw.
+    assert backend.render_started.wait(timeout=1.0)
+    pipeline.reset()
+    backend.release.set()
+    pipeline.shutdown()
+
+    assert pipeline.frame_queue.qsize() == 0
+    assert not pipeline.first_chunk_produced.is_set()
+
+
 def test_chunk_pipeline_skips_stale_scene_load_queued_behind_warmup() -> None:
     backend = _GatedWarmupBackend()
     pipeline = ChunkPipeline(backend)
