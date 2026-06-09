@@ -87,9 +87,10 @@ html_theme_options = {
         "get_started": ["page-toc"],
         "community/*": ["page-toc"],
         "community/index": [],
-        "developer_guides/*": ["page-toc"],
-        "models/*": [],
+        "models/*": ["page-toc"],
+        "models/index": [],
         "documentation": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
         "api/*": ["page-toc"],
     },
     # Pygments styles for light/dark mode.
