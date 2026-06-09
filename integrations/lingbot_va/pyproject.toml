@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-lingbot-va"
+version = "0.1.0"
+description = "LingBot-VA Robotwin I2AV inference integration scaffold for flashdreams."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "diffusers>=0.34",
+    "transformers>=5.0",
+    "einops",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "tomli>=2.0",
+]
+
+[project.entry-points."flashdreams.runner_configs"]
+"lingbot-va-robotwin-i2av" = "lingbot_va.config:RUNNER_LINGBOT_VA_ROBOTWIN_I2AV"
+
+[tool.setuptools.packages.find]
+include = ["lingbot_va*"]
+exclude = ["tests"]
+
+[tool.uv]
+managed = true

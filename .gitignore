@@ -126,6 +126,7 @@ outputs/
 artifacts/
 data_local/
 credentials/*.secret
+*.bak
 
 CLAUDE.md
 .cursor/
