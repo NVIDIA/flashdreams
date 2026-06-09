@@ -37,8 +37,8 @@ SPDX-License-Identifier: Apache-2.0
 /* ----- 1. Design tokens --------------------------------------------------- */
 
 :root {
-    /* Accent — single source of truth for branded color. Tuned to the
-       green that the FlashDreams logo uses (#76B900). Re-brand
+    /* Accent, single source of truth for branded color. Tuned to the
+       green that the FlashDreams logo uses, but 20% darker. Re-brand
        by editing these four values. */
     --fd-accent:        #5e9400;
     --fd-accent-hover:  #4b7600;
