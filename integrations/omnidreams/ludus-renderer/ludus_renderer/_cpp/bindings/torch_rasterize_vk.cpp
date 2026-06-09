@@ -68,7 +68,9 @@ public:
     int uploadScene(
         torch::Tensor scene_desc, torch::Tensor polyline_pools,
         torch::Tensor polygon_pools, torch::Tensor obstacle_pools,
-        int max_obstacles_in_pool, torch::Tensor timestamps,
+        int max_obstacles_in_pool,
+        int max_varrays_per_ts_polyline, int max_varrays_per_ts_polygon,
+        torch::Tensor timestamps,
         torch::Tensor int32_data, torch::Tensor vertices,
         torch::Tensor triangles, torch::Tensor poses,
         torch::Tensor float_data)
@@ -85,6 +87,7 @@ public:
             reinterpret_cast<const ObstaclePool*>(obstacle_pools.data_ptr<uint8_t>()),
             obstacle_pools.numel() > 0 ? (int)obstacle_pools.size(0) : 0,
             max_obstacles_in_pool,
+            max_varrays_per_ts_polyline, max_varrays_per_ts_polygon,
             timestamps.data_ptr<int64_t>(), (int)timestamps.numel(),
             int32_data.data_ptr<int32_t>(), (int)int32_data.numel(),
             reinterpret_cast<const Vertex*>(vertices.data_ptr<float>()), (int)vertices.size(0),

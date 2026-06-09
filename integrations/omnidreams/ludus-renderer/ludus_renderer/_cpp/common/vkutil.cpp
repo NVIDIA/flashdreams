@@ -239,7 +239,7 @@ VkContext createVkContext(int cudaDeviceIdx)
     fenceCI.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VK_CHECK(vkCreateFence(ctx.device, &fenceCI, nullptr, &ctx.fence));
 
-    fprintf(stderr, "[Vulkan] Context ready (mesh_shader=EXT, barycentric=%s)\n",
+    VK_DBG("[Vulkan] Context ready (mesh_shader=EXT, barycentric=%s)\n",
         ctx.hasFragmentShaderBarycentric ? "KHR" : "off");
 
     return ctx;

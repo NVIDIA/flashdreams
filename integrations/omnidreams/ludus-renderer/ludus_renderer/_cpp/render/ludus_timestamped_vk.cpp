@@ -635,6 +635,7 @@ int ludusUploadSceneVk(
     const TimestampedPolygonPool* polygonPools, int numPolygonPools,
     const ObstaclePool* obstaclePools, int numObstaclePools,
     int maxObstaclesInPool,
+    int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const int64_t* timestamps, int numTimestamps,
     const int32_t* int32Data, int numInt32,
     const Vertex* vertices, int numVertices,
@@ -658,6 +659,8 @@ int ludusUploadSceneVk(
     s.maxPolylinePoolsPerScene  = std::max(s.maxPolylinePoolsPerScene,  numPolylinePools);
     s.maxPolygonPoolsPerScene   = std::max(s.maxPolygonPoolsPerScene,   numPolygonPools);
     s.maxCubePoolsPerScene      = std::max(s.maxCubePoolsPerScene,      numObstaclePools);
+    s.maxVarraysPerTsPolyline   = std::max(s.maxVarraysPerTsPolyline,   maxVarraysPerTsPolyline);
+    s.maxVarraysPerTsPolygon    = std::max(s.maxVarraysPerTsPolygon,    maxVarraysPerTsPolygon);
 
     int sceneCapNeeded = sceneId + 1;
     if (sceneCapNeeded > s.maxScenes) {
@@ -924,7 +927,6 @@ void ludusRenderBatchVk(
     pc.u_cull_radius_scale         = s.cullRadiusScale;
     pc.u_fog_enabled               = s.depthScaling;
 
-    const uint32_t MAX_VARRAYS_PER_POOL = 1000;
     const VkShaderStageFlags pcStages = VK_SHADER_STAGE_TASK_BIT_EXT
                                       | VK_SHADER_STAGE_MESH_BIT_EXT
                                       | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -939,20 +941,20 @@ void ludusRenderBatchVk(
     if (draw_polyline && s.polylinePoolUsed > 0 && drawMeshTasks && s.pipelinePolyline) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelinePolyline);
         pc.u_num_polyline_pools = std::max(1u, (uint32_t)s.maxPolylinePoolsPerScene);
-        pc.u_max_varrays_per_pool = MAX_VARRAYS_PER_POOL;
+        pc.u_max_varrays_per_pool = std::max(1u, (uint32_t)s.maxVarraysPerTsPolyline);
         pc.u_cube_pool_index = 0;
         vkCmdPushConstants(cmd, s.pipelineLayout, pcStages, 0, sizeof(pc), &pc);
-        uint32_t totalWG = numQueries * pc.u_num_polyline_pools * MAX_VARRAYS_PER_POOL;
+        uint32_t totalWG = numQueries * pc.u_num_polyline_pools * pc.u_max_varrays_per_pool;
         drawMeshTasks(cmd, totalWG, 1, 1);
     }
 
     if (draw_polygon && s.polygonPoolUsed > 0 && drawMeshTasks && s.pipelinePolygon) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelinePolygon);
         pc.u_num_polygon_pools = std::max(1u, (uint32_t)s.maxPolygonPoolsPerScene);
-        pc.u_max_varrays_per_pool = MAX_VARRAYS_PER_POOL;
+        pc.u_max_varrays_per_pool = std::max(1u, (uint32_t)s.maxVarraysPerTsPolygon);
         pc.u_cube_pool_index = 0;
         vkCmdPushConstants(cmd, s.pipelineLayout, pcStages, 0, sizeof(pc), &pc);
-        uint32_t totalWG = numQueries * pc.u_num_polygon_pools * MAX_VARRAYS_PER_POOL;
+        uint32_t totalWG = numQueries * pc.u_num_polygon_pools * pc.u_max_varrays_per_pool;
         drawMeshTasks(cmd, totalWG, 1, 1);
     }
 
@@ -1201,6 +1203,7 @@ void ludusClearScenesVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     s.polylinePoolUsed = s.polygonPoolUsed = s.obstaclePoolUsed = 0;
     s.maxObstaclesPerPool = s.maxCubePoolsPerScene = 0;
     s.maxPolylinePoolsPerScene = s.maxPolygonPoolsPerScene = 0;
+    s.maxVarraysPerTsPolyline = s.maxVarraysPerTsPolygon = 0;
     s.sceneBuffersDirty = 1;
 }
 

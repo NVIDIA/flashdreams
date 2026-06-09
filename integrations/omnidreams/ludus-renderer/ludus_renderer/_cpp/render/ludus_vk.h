@@ -62,6 +62,10 @@ struct LudusTimestampedVkState
     int                     maxCubePoolsPerScene;
     int                     maxPolylinePoolsPerScene;
     int                     maxPolygonPoolsPerScene;
+    // Max varrays in any pool at a single timestamp, per family. Drives the
+    // per-pool mesh-task dispatch stride so large pools aren't silently capped.
+    int                     maxVarraysPerTsPolyline;
+    int                     maxVarraysPerTsPolygon;
 
     // ---------- Cameras ----------
     int                     cameraCapacity;
@@ -234,6 +238,7 @@ int ludusUploadSceneVk(
     const TimestampedPolygonPool* polygonPools, int numPolygonPools,
     const ObstaclePool* obstaclePools, int numObstaclePools,
     int maxObstaclesInPool,
+    int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const int64_t* timestamps, int numTimestamps,
     const int32_t* int32Data, int numInt32,
     const Vertex* vertices, int numVertices,

@@ -48,6 +48,20 @@ from .primitives import (
 )
 
 
+def _max_varrays_per_ts(timestamped_varrays_prefix_sum: torch.Tensor) -> int:
+    """Max number of varrays present at any single timestamp in a pool.
+
+    The prefix sum is cumulative across timestamps, so consecutive differences
+    give the per-timestamp varray counts; the max drives the mesh-task dispatch
+    stride (mirrors the CUDA backend's ``max_varrays_per_ts_*``).
+    """
+    ps = timestamped_varrays_prefix_sum
+    if ps.numel() == 0:
+        return 0
+    diffs = torch.diff(ps, prepend=torch.zeros(1, dtype=ps.dtype, device=ps.device))
+    return int(diffs.max().item())
+
+
 class LudusTimestampedContext:
     """Vulkan context for timestamped scene rendering.
 
@@ -253,11 +267,21 @@ class LudusTimestampedContext:
         float_off = 1
         float_list.append(torch.zeros(1, dtype=torch.float32, device=device))
 
+        # Max varrays present at any single timestamp, per family. Drives the
+        # per-pool mesh-task dispatch stride (u_max_varrays_per_pool) so pools
+        # larger than this are not silently truncated.
+        max_varrays_per_ts_polyline = 0
+        max_varrays_per_ts_polygon = 0
+
         # ---------- polyline pools ----------
         for pool in scene.polyline_pools:
             n_ts = int(pool.timestamps_us.shape[0])
             n_var = int(pool.varrays_prefix_sum.shape[0])
             n_v = int(pool.vertices.shape[0])
+            max_varrays_per_ts_polyline = max(
+                max_varrays_per_ts_polyline,
+                _max_varrays_per_ts(pool.timestamped_varrays_prefix_sum),
+            )
 
             aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum, device)
 
@@ -294,6 +318,10 @@ class LudusTimestampedContext:
             n_var = int(pool.varrays_prefix_sum.shape[0])
             n_v = int(pool.vertices.shape[0])
             n_t = int(pool.triangles.shape[0])
+            max_varrays_per_ts_polygon = max(
+                max_varrays_per_ts_polygon,
+                _max_varrays_per_ts(pool.timestamped_varrays_prefix_sum),
+            )
 
             aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum, device)
 
@@ -420,6 +448,8 @@ class LudusTimestampedContext:
             polygon_pool_bytes,
             cube_pool_bytes,
             max_obstacles,
+            max_varrays_per_ts_polyline,
+            max_varrays_per_ts_polygon,
             all_timestamps,
             all_int32,
             all_vertices,
