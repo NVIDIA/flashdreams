@@ -609,6 +609,7 @@ void ludusUploadCamerasVk(
 
     cudaMemcpyAsync((void*)s.cameraIntrinsicsBuffer.cuDevPtr, intrinsics,
         numCameras * sizeof(FThetaCamera), cudaMemcpyDeviceToDevice, stream);
+    s.sceneBuffersDirty = 1;
 
     updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
 }
@@ -623,6 +624,7 @@ void ludusUploadColorPaletteVk(
     cudaMemcpyAsync((void*)s.colorPaletteBuffer.cuDevPtr, colors, size,
         cudaMemcpyDeviceToDevice, stream);
     s.colorPaletteSize = numColors;
+    s.sceneBuffersDirty = 1;
     updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
 }
 
@@ -704,6 +706,7 @@ int ludusUploadSceneVk(
     TORCH_CHECK(e_scene == cudaSuccess,
         "upload_scene: cudaMemcpyAsync (scene desc) failed: ", (int)e_scene);
 
+    s.sceneBuffersDirty = 1;
     updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
     return sceneId;
 }
@@ -719,6 +722,7 @@ void ludusRemoveSceneVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int sceneId, 
         &zero, sizeof(int), cudaMemcpyHostToDevice, stream);
     TORCH_CHECK(e == cudaSuccess, "remove_scene: cudaMemcpyAsync (tombstone) failed: ", (int)e);
     cudaStreamSynchronize(stream);
+    s.sceneBuffersDirty = 1;
 }
 
 //=============================================================================
@@ -786,20 +790,26 @@ void ludusRenderBatchVk(
                 vkCmdUpdateBuffer(cmd, buf.buffer, off, chunk, host.data() + off);
             }
         };
-        copyToVk(s.timestampsBuffer);
-        copyToVk(s.int32Buffer);
-        copyToVk(s.vertexBuffer);
-        copyToVk(s.triangleBuffer);
-        copyToVk(s.poseBuffer);
-        copyToVk(s.floatBuffer);
-        copyToVk(s.sceneBuffer);
-        copyToVk(s.polylinePoolBuffer);
-        copyToVk(s.polygonPoolBuffer);
-        copyToVk(s.obstaclePoolBuffer);
-        copyToVk(s.colorPaletteBuffer);
-        copyToVk(s.cameraIntrinsicsBuffer);
+        // Per-query buffers are rewritten by CUDA every render -> always push.
         copyToVk(s.cameraPoseBuffer);
         copyToVk(s.queryBuffer);
+        // Scene/camera/palette buffers only change on upload/remove/clear, so
+        // push them once after such an op instead of every frame.
+        if (s.sceneBuffersDirty) {
+            copyToVk(s.timestampsBuffer);
+            copyToVk(s.int32Buffer);
+            copyToVk(s.vertexBuffer);
+            copyToVk(s.triangleBuffer);
+            copyToVk(s.poseBuffer);
+            copyToVk(s.floatBuffer);
+            copyToVk(s.sceneBuffer);
+            copyToVk(s.polylinePoolBuffer);
+            copyToVk(s.polygonPoolBuffer);
+            copyToVk(s.obstaclePoolBuffer);
+            copyToVk(s.colorPaletteBuffer);
+            copyToVk(s.cameraIntrinsicsBuffer);
+            s.sceneBuffersDirty = 0;
+        }
 
         VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -880,6 +890,10 @@ void ludusRenderBatchVk(
     rpBegin.renderArea = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
     rpBegin.clearValueCount = (s.msaaSamples > 1) ? 3 : 2;
     rpBegin.pClearValues = clearValues;
+    // Refresh descriptors before the render pass: updateDescriptorSet may
+    // reset/realloc the descriptor pool, which is illegal inside a render pass.
+    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
+
     vkCmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     // Y-flip viewport: shaders use OpenGL-style NDC (+Y up); Vulkan framebuffer
@@ -888,8 +902,6 @@ void ludusRenderBatchVk(
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     VkRect2D scissor = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         s.pipelineLayout, 0, 1, &s.descriptorSet, 0, nullptr);
@@ -1189,6 +1201,7 @@ void ludusClearScenesVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
     s.polylinePoolUsed = s.polygonPoolUsed = s.obstaclePoolUsed = 0;
     s.maxObstaclesPerPool = s.maxCubePoolsPerScene = 0;
     s.maxPolylinePoolsPerScene = s.maxPolygonPoolsPerScene = 0;
+    s.sceneBuffersDirty = 1;
 }
 
 void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)

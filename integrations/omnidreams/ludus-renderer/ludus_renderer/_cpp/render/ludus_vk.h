@@ -108,6 +108,10 @@ struct LudusTimestampedVkState
 
     int                     colorPaletteSize;
 
+    // Set by control-plane ops (upload/remove/clear); the per-frame host
+    // roundtrip re-pushes the scene SSBOs only when set.
+    int                     sceneBuffersDirty;
+
     // ---------- Descriptor set ----------
     VkDescriptorSetLayout   descriptorSetLayout;
     VkDescriptorPool        descriptorPool;
