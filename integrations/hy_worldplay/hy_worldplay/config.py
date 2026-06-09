@@ -34,6 +34,10 @@ from hy_worldplay._action import (
     HyWorldPlayWanCtrlEncoderConfig,
     HyWorldPlayWanDiTNetworkConfig,
 )
+from hy_worldplay._checkpoint import (
+    HY_WORLDPLAY_DISTILLED_CKPT_PATH,
+    hy_worldplay_distilled_state_dict_transform,
+)
 from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
 __all__ = [
@@ -98,8 +102,10 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
             use_prope_blocks=True,
         ),
         dtype=base_t.dtype,
-        checkpoint_path=base_t.checkpoint_path,
-        state_dict_transform=base_t.state_dict_transform,
+        # Inference loads HY-WorldPlay's distilled WAN-5B weights by default;
+        # ``--ckpt-path`` overrides with a local ``model.pt``.
+        checkpoint_path=HY_WORLDPLAY_DISTILLED_CKPT_PATH,
+        state_dict_transform=hy_worldplay_distilled_state_dict_transform,
         batch_shape=base_t.batch_shape,
         # HY-WorldPlay autoregressive WAN-5B uses 4-latent chunks
         # (upstream's ``pred_latent_size=4``); not the base recipe's 21.

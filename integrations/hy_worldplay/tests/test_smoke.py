@@ -186,19 +186,21 @@ def test_static_pipeline_is_distinct_from_base() -> None:
     )
 
 
-def test_runner_uses_base_checkpoint_without_ckpt_path() -> None:
-    """No ``ckpt_path`` keeps the base 5B diffusers safetensors + remap on the static pipeline."""
-    from wan22.config import (
-        WAN22_TI2V_5B_DIT_DIFFUSERS_PATH,
-        wan22_ti2v_5b_dit_state_dict_transform,
+def test_runner_uses_distilled_checkpoint_without_ckpt_path() -> None:
+    """No ``ckpt_path`` loads the distilled HY-WorldPlay checkpoint + HY remap by default."""
+    from hy_worldplay._checkpoint import (
+        HY_WORLDPLAY_DISTILLED_CKPT_PATH,
+        hy_worldplay_distilled_state_dict_transform,
     )
 
     from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
     transformer = PIPELINE_HY_WORLDPLAY_WAN_I2V_5B.diffusion_model.transformer
     assert isinstance(transformer, Wan21TransformerConfig)
-    assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
-    assert transformer.state_dict_transform is wan22_ti2v_5b_dit_state_dict_transform
+    assert transformer.checkpoint_path == HY_WORLDPLAY_DISTILLED_CKPT_PATH
+    assert (
+        transformer.state_dict_transform is hy_worldplay_distilled_state_dict_transform
+    )
     assert RUNNER_HY_WORLDPLAY_WAN_I2V_5B.ckpt_path is None
 
 
@@ -229,9 +231,9 @@ def test_runner_config_accepts_ckpt_path() -> None:
     # ``HyWorldPlayWanI2VRunner.__init__``).
     transformer = cfg.pipeline.diffusion_model.transformer
     assert isinstance(transformer, Wan21TransformerConfig)
-    from wan22.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+    from hy_worldplay._checkpoint import HY_WORLDPLAY_DISTILLED_CKPT_PATH
 
-    assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+    assert transformer.checkpoint_path == HY_WORLDPLAY_DISTILLED_CKPT_PATH
 
 
 def test_entry_point_registered() -> None:

@@ -25,8 +25,20 @@ from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 
 __all__ = [
+    "HY_WORLDPLAY_DISTILLED_CKPT_PATH",
     "hy_worldplay_distilled_state_dict_transform",
 ]
+
+HY_WORLDPLAY_DISTILLED_CKPT_PATH = (
+    "https://huggingface.co/tencent/HY-WorldPlay/resolve/main/"
+    "wan_distilled_model/model.pt"
+)
+"""Default distilled HY-WorldPlay WAN-5B checkpoint (HF ``tencent/HY-WorldPlay``).
+
+Loaded via :func:`hy_worldplay_distilled_state_dict_transform`. The repo is
+gated, so set ``HF_TOKEN`` to download. Override with ``--ckpt-path`` to point
+at a local ``model.pt``.
+"""
 
 
 # Three HY-specific rewrite rules layered on top of the base
