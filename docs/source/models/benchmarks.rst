@@ -312,7 +312,7 @@ frame is not reported, and quality metrics (FVD, CLIP-T) are out of
 scope here — they are tracked by each recipe's training pipeline. The
 benchmark only verifies that the inference path holds tolerance-bounded
 parity with the upstream reference, which is enforced per recipe (see
-*A note on parity* below).
+*Methodology* below).
 
 Methodology
 -----------
@@ -347,17 +347,14 @@ The upstream baseline in *Versus upstream* runs the same checkpoint
 under the upstream library's own runner; per-integration instructions
 live under ``integrations/<name>/tests/parity_check/``.
 
-.. admonition:: A note on parity
-   :class: fd-callout
-
-   Six integrations ship a parity check against their upstream
-   reference under ``integrations/<name>/tests/parity_check/run.sh``:
-   ``self_forcing``, ``lingbot``, ``wan21``, ``cosmos_predict2``,
-   ``flashvsr``, and ``hy_worldplay`` (intended for manual execution
-   in the upstream environment, not in CI). The numbers on this page
-   assume parity holds where it is enforced; see
-   :doc:`/community/index` for how to escalate a regression rather
-   than averaging away a discrepancy.
+Six integrations ship a parity check against their upstream reference
+under ``integrations/<name>/tests/parity_check/run.sh``:
+``self_forcing``, ``lingbot``, ``wan21``, ``cosmos_predict2``,
+``flashvsr``, and ``hy_worldplay``. These are intended for manual
+execution in the upstream environment, not in CI. The numbers on this
+page assume parity holds where it is enforced; see
+:doc:`/community/index` for how to escalate a regression rather than
+averaging away a discrepancy.
 
 Related
 -------
