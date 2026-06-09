@@ -1532,11 +1532,8 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
 
 # Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -> flashdreams ``WanVAE``
-# key remap. The production configs below use upstream's
-# ``Wan2.2_VAE.pth`` whose layout matches our model directly (no remap
-# needed); this dict + :func:`wan22_ti2v_5b_vae_state_dict_transform`
-# are kept in tree as an opt-in fallback for callers who'd rather
-# point at the diffusers safetensors shard.
+# key remap, applied by :func:`wan22_ti2v_5b_vae_state_dict_transform`
+# (the production VAE load path).
 _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # Top-level quant convs.
     r"^quant_conv\.(.*)$": r"conv1.\1",
@@ -1551,12 +1548,8 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     r"^encoder\.conv_out\.(.*)$": r"encoder.head.2.\1",
     r"^decoder\.norm_out\.(.*)$": r"decoder.head.0.\1",
     r"^decoder\.conv_out\.(.*)$": r"decoder.head.2.\1",
-    # Mid block: diffusers stores ``resnets.{0,1}`` + ``attentions.0``
-    # while our Sequential is (Residual, Attention, Residual) ->
-    # indices (0, 1, 2). ``WanMidBlock.forward`` runs resnets[0], then
-    # (attentions[0], resnets[1]), so the ordering matches our
-    # (middle.0, middle.2) layout. Per-field remap mirrors the
-    # down/up-block resnets below.
+    # Mid block: diffusers ``resnets.{0,1}`` + ``attentions.0`` map to our
+    # ``middle`` Sequential (Residual, Attention, Residual) at indices 0/1/2.
     r"^encoder\.mid_block\.resnets\.0\.norm1\.(.*)$": r"encoder.middle.0.residual.0.\1",
     r"^encoder\.mid_block\.resnets\.0\.conv1\.(.*)$": r"encoder.middle.0.residual.2.\1",
     r"^encoder\.mid_block\.resnets\.0\.norm2\.(.*)$": r"encoder.middle.0.residual.3.\1",
@@ -1579,17 +1572,9 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     r"^decoder\.mid_block\.resnets\.1\.conv2\.(.*)$": r"decoder.middle.2.residual.6.\1",
     r"^decoder\.mid_block\.resnets\.1\.conv_shortcut\.(.*)$": r"decoder.middle.2.shortcut.\1",
     r"^decoder\.mid_block\.attentions\.0\.(.*)$": r"decoder.middle.1.\1",
-    # Per-residual-block field remap: diffusers ``conv1 / conv2 /
-    # norm1 / norm2 / conv_shortcut`` -> our Sequential entries.
-    # The Sequential layout in ResidualBlock.__init__ is:
-    #   0: RMS_norm (norm1)
-    #   1: SiLU
-    #   2: CausalConv3d (conv1)
-    #   3: RMS_norm (norm2)
-    #   4: SiLU
-    #   5: Dropout
-    #   6: CausalConv3d (conv2)
-    # Plus ``shortcut`` (renamed from diffusers ``conv_shortcut``).
+    # Per-residual-block field remap. ResidualBlock's Sequential is:
+    #   0 norm1, 2 conv1, 3 norm2, 6 conv2 (1/4 SiLU, 5 Dropout).
+    # diffusers ``conv_shortcut`` -> our ``shortcut``.
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$": (
         r"encoder.downsamples.\1.resnets.\2.residual.0.\3"
     ),
@@ -1643,17 +1628,9 @@ def wan22_ti2v_5b_vae_state_dict_transform(
     """Remap a diffusers ``AutoencoderKLWan`` state-dict to ``WanVAE`` keys.
 
     Applied automatically when :class:`Wan22TI2V5BVAEEncoderConfig` /
-    :class:`Wan22TI2V5BVAEDecoderConfig` load the upstream
-    ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/vae/diffusion_pytorch_model.safetensors``
-    checkpoint. The mapping is purely structural -- no tensors are
-    copied or reshaped.
-
-    Note:
-        Patterns are applied in iteration order via
-        :func:`flashdreams.core.checkpoint.remap.remap_checkpoint_keys`.
-        Any key without a matching pattern passes through unchanged,
-        which surfaces as a ``load_state_dict`` ``unexpected_keys``
-        warning so missing remap entries are easy to spot.
+    :class:`Wan22TI2V5BVAEDecoderConfig` load the diffusers VAE checkpoint.
+    Renames keys only -- no tensors are copied or reshaped. Unmatched keys
+    pass through and surface as ``unexpected_keys`` on load.
     """
     from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 

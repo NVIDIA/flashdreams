@@ -45,18 +45,15 @@ DEFAULT_PROMPT = (
     "First-person view walking around ancient Athens, with Greek "
     "architecture and marble structures"
 )
-"""Upstream ``wan/generate.py`` ``--input`` default. Kept byte-for-byte
-identical -- including no trailing period -- so UMT5 tokenization
-matches the reference output (trailing ``.`` adds an extra token and
-shifts conditioning by ~5/255)."""
+"""Default text prompt. No trailing period -- a trailing ``.`` adds a
+UMT5 token and shifts conditioning."""
 
 DEFAULT_POSE = "w-15"
-"""Default camera trajectory: 15 forward steps (+ the identity input
-frame) = 16 latents, matching the default ``num_chunk=4`` rollout. With
-``--example-data`` this is swapped for upstream's sample pose JSON."""
+"""Default camera trajectory: 15 forward steps + the identity input
+frame = 16 latents, matching the default ``num_chunk=4`` rollout. With
+``--example-data`` this is swapped for the sample pose JSON."""
 
 
-# Repo root = ``<this file>.parents[3]`` (``flashdreams/integrations/hy_worldplay/hy_worldplay/runner.py``).
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 EXAMPLE_DATA_BASE_URL = (
@@ -71,9 +68,9 @@ _EXAMPLE_IMAGE_FILENAME = "test.png"
 """Upstream's default ``--image_path`` fixture (704x1280)."""
 
 _EXAMPLE_POSE_FILENAME = "test_forward_32_latents.json"
-"""Upstream's sample camera trajectory (``assets/pose/``); 33 entries
-(32 forward-motion latents + the identity input frame). Long enough to
-drive any ``num_chunk <= 8`` rollout via the parser's prefix slice."""
+"""Sample camera trajectory; 33 entries (32 forward-motion latents +
+the identity input frame), enough for any ``num_chunk <= 8`` rollout
+via the parser's prefix slice."""
 
 
 def preprocess_first_frame(
@@ -83,9 +80,7 @@ def preprocess_first_frame(
 ) -> Tensor:
     """Load and resize the first-frame image to ``WanI2VCtrlEncoder``'s input shape.
 
-    Aspect-ratio policy is fit + centre-crop, matching upstream's
-    ``hyvideo/utils/image.py`` so native and vendor see the same
-    conditioning frame for matching pixel sizes.
+    Aspect-ratio policy is scale-to-fill + centre-crop.
 
     Returns:
         ``[1, 1, 3, H, W]`` float32 tensor in ``[-1, 1]``. The leading
@@ -99,8 +94,8 @@ def preprocess_first_frame(
     src_w, src_h = img.size
     target_h, target_w = pixel_height, pixel_width
 
-    # Scale-to-fill (the longer side hits the target; the shorter side
-    # overflows and is centre-cropped). Mirrors upstream's resize policy.
+    # Scale-to-fill: the longer side hits the target, the shorter side
+    # overflows and is centre-cropped.
     scale = max(target_h / src_h, target_w / src_w)
     new_h = int(round(src_h * scale))
     new_w = int(round(src_w * scale))
@@ -118,8 +113,8 @@ def preprocess_first_frame(
 def _pil_to_numpy(img: object) -> object:
     """Convert a PIL image to a numpy array, importing numpy lazily.
 
-    The lazy import keeps numpy off the module surface so CPU smoke
-    sub-venvs without pillow / numpy can still import the module.
+    The lazy import keeps numpy off the module surface so environments
+    without pillow / numpy can still import the module.
     """
     import numpy as np
 
@@ -146,18 +141,14 @@ def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
 
     Note:
         Frames must be float in ``[0, 1]``: ``export_to_video``
-        internally multiplies ndarray frames by 255 before
-        ``.astype(np.uint8)``, so passing uint8 ``[0, 255]`` overflows
-        and produces visibly shifted RGB means (~40 units per channel
-        for typical pixel values).
+        multiplies ndarray frames by 255 before ``.astype(np.uint8)``,
+        so uint8 ``[0, 255]`` input overflows.
     """
     import numpy as np
     from diffusers.utils import export_to_video
 
     if video.dim() > 4:
-        # Squeeze leading batch axes one at a time (asserting size 1)
-        # so the error message is precise if a future batch > 1 config
-        # sneaks through.
+        # Squeeze leading batch axes one at a time, asserting size 1.
         while video.dim() > 4:
             assert video.shape[0] == 1, (
                 f"_write_mp4 expects batch_size=1; got leading shape {video.shape[0]}."
@@ -182,36 +173,31 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     non-empty line is used."""
 
     image_path: Path | None = None
-    """First-frame RGB image. Required (HY-WorldPlay WAN-5B is I2V-only)
-    unless :attr:`example_data` is ``True``, in which case the runner
-    lazy-downloads upstream's ``assets/img/test.png`` fixture from the
-    HY-WorldPlay GitHub repo at run time and uses that as the default."""
+    """First-frame RGB image. Required (WAN-5B is I2V-only) unless
+    :attr:`example_data` is ``True``, which lazy-downloads the sample
+    fixture and uses it as the default."""
 
     example_data: bool = False
-    """When ``True``, lazy-download upstream's bundled sample
-    first-frame image into ``data_local/hy_worldplay/`` (rank-0 only,
-    gitignored) and fill :attr:`image_path` from it when unset. Use
-    for the README demo; pass ``--image-path`` explicitly for
-    production runs."""
+    """When ``True``, lazy-download the bundled sample first-frame image
+    into ``data_local/hy_worldplay/`` (rank-0 only, gitignored) and fill
+    :attr:`image_path` from it when unset."""
 
     pose: str = DEFAULT_POSE
     """Camera trajectory as a pose-string (e.g. ``"w-15"``,
-    ``"w-3, right-1, d-4"``) or the path to a JSON file produced by
-    upstream's ``hyvideo/generate_custom_trajectory.py``. The parser
-    prepends an identity pose for the input frame, so ``w-N`` produces
-    ``N + 1`` latents; the rollout consumes ``num_chunk * 4`` and a
-    longer source is prefix-sliced. With ``--example-data`` left at the
-    default, the runner swaps in upstream's sample pose JSON."""
+    ``"w-3, right-1, d-4"``) or a path to a trajectory JSON file. The
+    parser prepends an identity pose for the input frame, so ``w-N``
+    produces ``N + 1`` latents; the rollout consumes ``num_chunk * 4``
+    and a longer source is prefix-sliced. With ``--example-data`` left
+    at the default, the sample pose JSON is used."""
 
     num_chunk: int = 4
     """Autoregressive chunks to roll out; each chunk emits 4 latents
     (~16 decoded frames)."""
 
     num_frames: int = 961
-    """Latent budget reserved for the longest vendor-aligned rollout.
-    Only consumed by the ``HY_VENDOR_NOISE_MODE=1`` diagnostic, which
-    pre-draws noise at the same shape vendor's ``prepare_latents`` would
-    use; non-diagnostic runs ignore this field."""
+    """Frame budget for the noise tensor. Only consumed by the
+    ``HY_VENDOR_NOISE_MODE=1`` diagnostic; non-diagnostic runs ignore
+    this field."""
 
     pixel_height: int = 704
     """Output video pixel height."""
@@ -232,25 +218,23 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     :attr:`RunnerConfig.offset_seed_by_global_rank` is set."""
 
     ckpt_path: Path | None = None
-    """Optional path to HY-WorldPlay's distilled
-    ``wan_distilled_model/model.pt``. When set, the runner reroutes the
-    transformer's ``checkpoint_path`` + ``state_dict_transform`` to load
-    the distilled weights at construction time. When ``None``, the
-    pipeline loads the base Wan 2.2 TI2V-5B safetensors and HY's
-    conditioners stay zero-init (strict identity, parity-safe)."""
+    """Optional path to the distilled ``wan_distilled_model/model.pt``.
+    When set, the runner reroutes the transformer's ``checkpoint_path``
+    + ``state_dict_transform`` to load the distilled weights at
+    construction time. When ``None``, the pipeline loads the base Wan
+    2.2 TI2V-5B safetensors and HY's conditioners stay zero-init (strict
+    identity)."""
 
     memory_frames: int = 16
     """Total memory-frame budget per AR step (temporal context +
-    FOV-selected). Matches upstream's
-    ``select_mem_frames_wan(..., memory_frames=16)``."""
+    FOV-selected)."""
 
     temporal_context_size: int = 12
     """Recent-frames portion of the memory budget, kept unconditionally
     each AR step."""
 
     memory_pred_latent_size: int = 4
-    """Query-clip size for the FOV-overlap scorer (matches upstream's
-    ``pred_latent_size=4``)."""
+    """Query-clip size for the FOV-overlap scorer."""
 
     memory_fov_h_deg: float = 60.0
     """Horizontal FOV (degrees) for the selection-time overlap."""
@@ -263,8 +247,7 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     the FOV-overlap scorer."""
 
     memory_points_radius: float = 8.0
-    """Radius of the Monte-Carlo sphere; matches upstream's
-    ``generate_points_in_sphere(50_000, 8.0)``."""
+    """Radius of the Monte-Carlo sphere."""
 
 
 class HyWorldPlayWanI2VRunner(
@@ -272,22 +255,16 @@ class HyWorldPlayWanI2VRunner(
 ):
     """Drive :data:`PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` end-to-end for the I2V case.
 
-    Inherits the standard :class:`Runner` machinery (torchrun bootstrap,
-    distributed init, per-rank seed offset, ``pipeline.setup()`` +
-    ``.to(device).eval()``) and supplies a single :meth:`run` method
-    that resolves the prompt and first frame, calls
-    ``pipeline.initialize_cache``, drives the AR loop with ``generate``
-    + ``finalize``, and writes an mp4 on rank 0.
+    Inherits the standard :class:`Runner` machinery and supplies a
+    single :meth:`run` method that resolves the prompt and first frame,
+    calls ``pipeline.initialize_cache``, drives the AR loop with
+    ``generate`` + ``finalize``, and writes an mp4 on rank 0.
 
-    The fully-swapped HY encoder / transformer / DiT network (with PRoPE
-    blocks) is wired statically in :mod:`hy_worldplay.config`; this
-    runner binds the per-rollout payloads (action labels, viewmats +
-    intrinsics, memory-selection knobs) on the encoder before the AR
-    loop starts. When :attr:`HyWorldPlayWanI2VRunnerConfig.ckpt_path` is
-    supplied, ``__init__`` routes the transformer's checkpoint slot at
-    HY's distilled ``.pt`` and the matching state-dict transform before
-    the base ``Runner.__init__`` builds the pipeline; ``None`` keeps the
-    base diffusers checkpoint (HY conditioners stay zero-init identity).
+    The HY encoder / transformer / DiT network is wired statically in
+    :mod:`hy_worldplay.config`; this runner binds the per-rollout
+    payloads (action labels, viewmats + intrinsics, memory-selection
+    knobs) on the encoder before the AR loop starts. See ``__init__``
+    for the :attr:`HyWorldPlayWanI2VRunnerConfig.ckpt_path` handling.
     """
 
     config: HyWorldPlayWanI2VRunnerConfig
@@ -295,11 +272,10 @@ class HyWorldPlayWanI2VRunner(
     def __init__(self, config: HyWorldPlayWanI2VRunnerConfig) -> None:
         """Route the distilled checkpoint into the pipeline, then defer to :class:`Runner`.
 
-        When ``config.ckpt_path`` is set, derives a copy of the runner
-        config with the transformer's ``checkpoint_path`` +
-        ``state_dict_transform`` rewritten to load HY's distilled
-        ``.pt`` (instead of the base Wan 2.2 TI2V-5B safetensors)
-        before the base ``__init__`` builds the pipeline.
+        When ``config.ckpt_path`` is set, derives a config copy with the
+        transformer's ``checkpoint_path`` + ``state_dict_transform``
+        rewritten to load the distilled ``.pt`` before the base
+        ``__init__`` builds the pipeline.
         """
         if config.ckpt_path is not None:
             from flashdreams.infra.config import derive_config
@@ -330,16 +306,11 @@ class HyWorldPlayWanI2VRunner(
 
         cfg = self.config
         # ``HY_DEBUG_DISABLE_CUDA_GRAPH=1`` disables the per-network
-        # CUDAGraphWrapper so env-var-gated tensor dumps in
-        # :mod:`_debug_dump` (file I/O + host-synchronous ``.item()``
-        # calls) don't crash CUDA stream capture with
-        # ``cudaErrorStreamCaptureInvalidated``.
+        # CUDAGraphWrapper so diagnostic tensor dumps (file I/O +
+        # host-sync ``.item()`` calls) don't invalidate stream capture.
         if os.environ.get("HY_DEBUG_DISABLE_CUDA_GRAPH", "") == "1":
             # CUDA-graph state lives on the inner ``Wan21Transformer``,
-            # not on the :class:`DiffusionModel` wrapper (scheduler +
-            # transformer) exposed via ``self.pipeline.diffusion_model``;
-            # reach through one level so the disable actually takes
-            # effect.
+            # not the ``DiffusionModel`` wrapper; reach through one level.
             diffusion_model = getattr(self.pipeline, "diffusion_model", None)
             wan_transformer = getattr(diffusion_model, "transformer", None)
             if wan_transformer is not None and hasattr(wan_transformer, "network"):
@@ -370,12 +341,8 @@ class HyWorldPlayWanI2VRunner(
 
         first_param = next(self.pipeline.parameters())
         device = first_param.device
-        # The VAE encoder runs in the pipeline's parameter dtype (bf16 /
-        # fp16 in production, fp32 in the CPU smoke); the float32 tensor
-        # produced by ``preprocess_first_frame`` would fail the
-        # ``F.conv3d`` dtype check in the residual VAE's first
-        # ``CausalConv3d``. Cast here so the cast-once cost stays in
-        # the runner rather than the per-AR-step encode path.
+        # Cast to the pipeline's parameter dtype so the VAE encoder's
+        # first ``CausalConv3d`` doesn't trip the ``F.conv3d`` dtype check.
         image = preprocess_first_frame(
             cfg.image_path, cfg.pixel_height, cfg.pixel_width
         ).to(device=device, dtype=first_param.dtype)
@@ -388,13 +355,10 @@ class HyWorldPlayWanI2VRunner(
             width=None,
         )
 
-        # The pipeline is statically HY-swapped (see
-        # :mod:`hy_worldplay.config`), so the per-rollout payloads are
-        # always bound: action labels for the AdaLN add, viewmats +
-        # intrinsics for the PRoPE branch, and the memory-selection
-        # knobs for the FOV-overlap scorer. With zero-init weights (no
-        # ``ckpt_path``) each conditioner is a strict identity, so this
-        # is still parity-safe against the base Wan 2.2 TI2V-5B output.
+        # Bind the per-rollout payloads on the (statically HY-swapped)
+        # encoder: action labels for the AdaLN add, viewmats +
+        # intrinsics for PRoPE, memory-selection knobs for the
+        # FOV-overlap scorer.
         self._bind_action_labels()
         self._bind_camera_data()
         self._bind_memory_config(device=device)
@@ -404,12 +368,8 @@ class HyWorldPlayWanI2VRunner(
         )
 
         chunks: list[Tensor] = []
-        # Per-chunk encode/diffuse/decode/finalize timing comes from the
-        # pipeline's own profiler (``enable_sync_and_profile=True`` on
-        # the recipe config). Each :meth:`StreamInferencePipeline.finalize`
-        # call returns the per-stage ms dict for that AR step; collect
-        # them into ``stats_history`` and dump as JSON, mirroring the
-        # ``integrations/omnidreams`` pattern.
+        # Each ``finalize`` returns the per-stage ms dict for that AR
+        # step; collect into ``stats_history`` and dump as JSON.
         stats_history: list[dict[str, float]] = []
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
@@ -418,10 +378,9 @@ class HyWorldPlayWanI2VRunner(
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
                 chunks.append(chunk)
-                # ``finalize`` records the chunk's CUDA events + advances
-                # the KV cache. Called on every chunk (incl. the last)
-                # for consistent stats; the trailing KV advance is a
-                # cheap one-block forward.
+                # ``finalize`` records the chunk's CUDA events and
+                # advances the KV cache; called on every chunk
+                # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
                 if stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
@@ -447,11 +406,10 @@ class HyWorldPlayWanI2VRunner(
             )
 
     def _fetch_example_image(self) -> Path:
-        """Lazy-download upstream's bundled ``assets/img/test.png`` on rank 0.
+        """Lazy-download the bundled sample first-frame image on rank 0.
 
-        Mirrors :func:`lingbot.runner._ensure_example_data_downloaded`'s
-        rank-0-download + barrier-all-ranks pattern; the cached file is
-        reused across rollouts.
+        Rank-0 downloads, all ranks barrier; the cached file is reused
+        across rollouts.
         """
         cache_dir = EXAMPLE_DATA_DIR_LOCAL
         if self.is_rank_zero:
@@ -465,7 +423,7 @@ class HyWorldPlayWanI2VRunner(
         return cache_dir / _EXAMPLE_IMAGE_FILENAME
 
     def _fetch_example_pose(self) -> Path:
-        """Lazy-download upstream's sample ``assets/pose/`` trajectory on rank 0.
+        """Lazy-download the sample camera trajectory on rank 0.
 
         Symmetric to :meth:`_fetch_example_image`. The parser prefix-
         slices this 33-entry file to the rollout's ``num_chunk * 4``
@@ -504,13 +462,9 @@ class HyWorldPlayWanI2VRunner(
         encoder, n_latents = self._resolve_encoder_and_n_latents()
         assert isinstance(encoder, HyWorldPlayWanCtrlEncoder)
         viewmats, Ks, _ = parse_pose_data(self.config.pose, n_latents)
-        # Cast to the pipeline dtype so PRoPE math + cudnn attention
-        # don't kick the network into fp64. ``parse_pose_data`` emits
-        # ``[n_latents, 4, 4]`` / ``[n_latents, 3, 3]`` without a batch
-        # axis; :func:`hy_worldplay._prope.prope_qkv`
-        # requires ``[batch=1, cameras, 4, 4]``, so an ``unsqueeze(0)``
-        # here lifts both the per-step slice and the per-rollout buffer
-        # to the rank PRoPE expects.
+        # Cast to the pipeline dtype (keep PRoPE math + cudnn attention
+        # off fp64) and ``unsqueeze(0)`` the batch axis that
+        # :func:`hy_worldplay._prope.prope_qkv` expects.
         target_dtype = next(self.pipeline.parameters()).dtype
         encoder.set_camera_data(
             viewmats.to(dtype=target_dtype).unsqueeze(0),
@@ -520,12 +474,10 @@ class HyWorldPlayWanI2VRunner(
     def _bind_memory_config(self, *, device: torch.device) -> None:
         """Arm reconstituted-context memory selection on the encoder.
 
-        Builds the Monte-Carlo point cloud once (size + radius mirror
-        upstream's ``generate_points_in_sphere`` call) and hands it
-        plus the rest of the selection knobs to
-        :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config`; the
-        encoder then computes per-AR-step ``memory_frame_indices`` on
-        demand.
+        Builds the Monte-Carlo point cloud once and hands it plus the
+        selection knobs to
+        :meth:`HyWorldPlayWanCtrlEncoder.set_memory_config`; the encoder
+        then computes per-AR-step ``memory_frame_indices`` on demand.
         """
         from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
         from hy_worldplay._memory import generate_points_in_sphere
@@ -558,17 +510,13 @@ class HyWorldPlayWanI2VRunner(
         """Build a context manager that overrides the diffusion noise per chunk.
 
         When ``HY_VENDOR_NOISE_MODE=1`` the runner pre-draws the full
-        multi-chunk noise tensor with the same shape and seed as
-        vendor's ``prepare_latents`` (a single
-        ``randn([1, 48, T, H_lat, W_lat])`` over all chunks) and
-        patchifies a per-AR-step slice. Inside the chunk loop the
-        returned context manager monkey-patches ``torch.randn`` to
-        return the pre-computed slice whenever the request matches the
-        diffusion model's ``latent_shape``; all other randn calls fall
-        through to the original implementation.
+        multi-chunk noise tensor in one ``randn`` call and patchifies a
+        per-AR-step slice. The returned context manager monkey-patches
+        ``torch.randn`` to return the pre-computed slice whenever the
+        request matches the diffusion model's ``latent_shape``; all
+        other randn calls fall through to the original.
 
-        Returns ``nullcontext()`` when the env var is unset, leaving
-        the pipeline to draw noise from its private ``torch.Generator``.
+        Returns ``nullcontext()`` when the env var is unset.
         """
         import math
         import os
@@ -593,14 +541,11 @@ class HyWorldPlayWanI2VRunner(
         # 16x spatial compression for the WAN-5B residual VAE.
         h_lat = cfg.pixel_height // 16
         w_lat = cfg.pixel_width // 16
-        # Vendor's prepare_latents draws the full ``num_latent_frames``
-        # of noise in one randn call, independent of how many chunks
-        # the rollout actually consumes. Replicate the full tensor here
-        # so the RNG stream lines up bit-for-bit; a smaller
-        # ``randn(num_chunk * len_t, ...)`` would put each subsequent
-        # channel slice at a different flat-memory offset and break
-        # parity. ``num_latent_frames = (num_frames - 1) // 4 + 1``
-        # reflects the WAN-5B residual VAE's 4x temporal compression.
+        # Draw the full frame budget in one randn call (not just the
+        # consumed chunks) so the RNG stream stays bit-aligned; a
+        # smaller draw shifts each channel slice's flat offset.
+        # ``(num_frames - 1) // 4 + 1`` is the VAE's 4x temporal
+        # compression.
         vendor_full_t = (cfg.num_frames - 1) // 4 + 1
         unpatched_shape = (
             1,
@@ -624,10 +569,8 @@ class HyWorldPlayWanI2VRunner(
         if cfg.offset_seed_by_global_rank and self.global_rank != 0:
             seed = seed + self.global_rank
 
-        # Draw the full noise tensor in fp32 to mirror vendor's
-        # ``randn_tensor(..., dtype=torch.float32)`` then cast to the
-        # diffusion model's dtype. ``torch.manual_seed`` matches
-        # vendor's global-RNG seed at the top of ``predict``.
+        # Draw in fp32 then cast to the diffusion model's dtype;
+        # ``torch.manual_seed`` seeds the global RNG.
         torch.manual_seed(seed)
         big_noise_fp32 = torch.randn(
             unpatched_shape,
@@ -635,12 +578,9 @@ class HyWorldPlayWanI2VRunner(
             device=device,
         )
 
-        # Patchify per chunk to match the format
-        # ``DiffusionModel.generate`` would otherwise draw directly via
-        # ``randn(latent_shape)``. Vendor's patch embedding applies the
-        # same ``... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)``
-        # rearrange, so replicating it on the unpatched slice keeps
-        # per-position bit values aligned between native and vendor.
+        # Patchify per chunk into the layout ``DiffusionModel.generate``
+        # would otherwise draw via ``randn(latent_shape)``, applying the
+        # patch embedding's rearrange so per-position bit values align.
         chunk_noise_queue: list[Tensor] = []
         for ar_idx in range(cfg.num_chunk):
             chunk_slice = big_noise_fp32[
@@ -656,9 +596,8 @@ class HyWorldPlayWanI2VRunner(
                 kh=kh,
                 kw=kw,
             )
-            # Drop the batch axis when the transformer's batch_shape is
-            # empty; native's ``latent_shape = (L, D)`` in that case and
-            # the reshape below would otherwise complain.
+            # Drop the batch axis when ``batch_shape`` is empty;
+            # ``latent_shape = (L, D)`` in that case.
             if not transformer_cfg.batch_shape:
                 patched = patched.squeeze(0)
             chunk_noise_queue.append(patched.to(dtype=dtype))
@@ -700,10 +639,8 @@ class HyWorldPlayWanI2VRunner(
     def _resolve_encoder_and_n_latents(self) -> tuple[object, int]:
         """Return ``(encoder, n_latents)`` after asserting the static HY swap took.
 
-        The HY encoder / transformer are wired into
-        :data:`PIPELINE_HY_WORLDPLAY_WAN_I2V_5B` at module import, so a
-        failure here means a caller built their own pipeline config
-        without the HY swap.
+        A failure here means a caller built a pipeline config without
+        the HY swap from :mod:`hy_worldplay.config`.
         """
         from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
         from hy_worldplay._action import HyWorldPlayWanCtrlEncoder
