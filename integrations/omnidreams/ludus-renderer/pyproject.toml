@@ -86,7 +86,6 @@ packages = [
     "_cpp/loader/*.cpp",
     "_cpp/loader/*.cu",
     "shaders/*.glsl",
-    "shaders/*.spv",
     "shaders/*.sh",
     "shaders/*.py",
 ]

@@ -30,21 +30,8 @@
 #include <fstream>
 #include <vector>
 
-#define VK_CHECK(call) do {                                                     \
-    VkResult _r = (call);                                                       \
-    TORCH_CHECK(_r == VK_SUCCESS, #call " failed with VkResult ", (int)_r);     \
-} while(0)
-
-static bool ludus_vk_debug() {
-    static int cached = -1;
-    if (cached == -1) {
-        const char* e = getenv("LUDUS_VK_DEBUG");
-        cached = (e && *e && *e != '0') ? 1 : 0;
-    }
-    return cached != 0;
-}
-
-#define VK_DBG(...) do { if (ludus_vk_debug()) { fprintf(stderr, __VA_ARGS__); fflush(stderr); } } while(0)
+// VK_CHECK / VK_DBG / ludus_vk_debug() are shared from vkutil.h (included via
+// ludus_vk.h).
 
 //=============================================================================
 // SPIR-V Shader Module Creation
@@ -434,6 +421,7 @@ void ludusTimestampedInitVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int cudaD
         s.shaderModules[3], s.shaderModules[4], s.shaderModules[5], samples);
     s.pipelineObstacle = createMeshPipeline(s.vkctx.device, s.pipelineLayout, s.renderPass,
         s.shaderModules[6], s.shaderModules[7], s.shaderModules[8], samples);
+    s.renderPassSamples = 1;  // render pass + pipelines built single-sample above
 
     // Dummy buffers so every descriptor binding has a valid buffer before
     // the first upload_scene call. Most aren't CUDA-importable because they
@@ -461,8 +449,6 @@ void ludusTimestampedInitVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int cudaD
     makeDummy(s.cameraPoseBuffer);
     makeDummy(s.queryBuffer);
     updateDescriptorSet(s.vkctx.device, s.descriptorSet, s);
-
-    s.cudaVkSync = createCudaSync(s.vkctx);
 
     cudaStreamCreate(&s.copyStream);
     for (int i = 0; i < 2; i++) {
@@ -513,12 +499,45 @@ static void ensureBuffers(LudusTimestampedVkState& s, bool& changed)
     resize(s.queryBuffer,            s.queryCapacity,         sizeof(RenderQuery));
 }
 
+// Rebuild the render pass and the three mesh pipelines for a new sample count.
+// The render pass attachment layout (single-sample 2-attachment vs MSAA
+// 3-attachment resolve) and the pipelines' rasterizationSamples are baked in at
+// creation time, so a framebuffer built for a different sample count than the
+// render pass is a Vulkan spec violation. Caller must hold the device idle.
+static void rebuildRenderPassAndPipelines(LudusTimestampedVkState& s, VkSampleCountFlagBits samples)
+{
+    if (s.pipelinePolyline) { vkDestroyPipeline(s.vkctx.device, s.pipelinePolyline, nullptr); s.pipelinePolyline = VK_NULL_HANDLE; }
+    if (s.pipelinePolygon)  { vkDestroyPipeline(s.vkctx.device, s.pipelinePolygon,  nullptr); s.pipelinePolygon  = VK_NULL_HANDLE; }
+    if (s.pipelineObstacle) { vkDestroyPipeline(s.vkctx.device, s.pipelineObstacle, nullptr); s.pipelineObstacle = VK_NULL_HANDLE; }
+    if (s.renderPass)       { vkDestroyRenderPass(s.vkctx.device, s.renderPass, nullptr); s.renderPass = VK_NULL_HANDLE; }
+
+    s.renderPass = createTimestampedRenderPass(
+        s.vkctx.device, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_D24_UNORM_S8_UINT, samples);
+
+    s.pipelinePolyline = createMeshPipeline(s.vkctx.device, s.pipelineLayout, s.renderPass,
+        s.shaderModules[0], s.shaderModules[1], s.shaderModules[2], samples);
+    s.pipelinePolygon  = createMeshPipeline(s.vkctx.device, s.pipelineLayout, s.renderPass,
+        s.shaderModules[3], s.shaderModules[4], s.shaderModules[5], samples);
+    s.pipelineObstacle = createMeshPipeline(s.vkctx.device, s.pipelineLayout, s.renderPass,
+        s.shaderModules[6], s.shaderModules[7], s.shaderModules[8], samples);
+
+    s.renderPassSamples = (samples == VK_SAMPLE_COUNT_1_BIT) ? 1 : (int)samples;
+}
+
 static void ensureFramebuffer(LudusTimestampedVkState& s, int width, int height, int layers)
 {
     if (s.width == width && s.height == height && s.maxLayers >= layers)
         return;
 
     vkDeviceWaitIdle(s.vkctx.device);
+
+    // If the MSAA sample count changed (e.g. via set_msaa_samples), the render
+    // pass and pipelines must be rebuilt to match the framebuffer we are about
+    // to create; otherwise the attachment counts disagree.
+    int desiredSamplesInt = (s.msaaSamples > 1) ? s.msaaSamples : 1;
+    if (s.renderPassSamples != desiredSamplesInt) {
+        rebuildRenderPassAndPipelines(s, (VkSampleCountFlagBits)desiredSamplesInt);
+    }
 
     if (s.framebuffer) { vkDestroyFramebuffer(s.vkctx.device, s.framebuffer, nullptr); s.framebuffer = VK_NULL_HANDLE; }
     destroyExternalImage(s.vkctx, s.colorImage);
@@ -696,10 +715,16 @@ int ludusUploadSceneVk(
 void ludusRemoveSceneVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s, int sceneId, cudaStream_t stream)
 {
     (void)nvdr_ctx;
-    // Tombstone: zero the first uint of the scene descriptor so shaders skip it.
-    int zero = 0;
-    cudaMemcpyAsync((void*)(s.sceneBuffer.cuDevPtr + sceneId * sizeof(TimestampedScene)),
-        &zero, sizeof(int), cudaMemcpyDeviceToDevice, stream);
+    // Tombstone: zero the first int of the scene descriptor so shaders skip it.
+    // The source is a host stack value, so this must be a HostToDevice copy
+    // (not DeviceToDevice, which would reinterpret &zero as a device pointer).
+    // Synchronize before returning so the stack value outlives the in-flight DMA.
+    const int zero = 0;
+    cudaError_t e = cudaMemcpyAsync(
+        (void*)(s.sceneBuffer.cuDevPtr + sceneId * sizeof(TimestampedScene)),
+        &zero, sizeof(int), cudaMemcpyHostToDevice, stream);
+    TORCH_CHECK(e == cudaSuccess, "remove_scene: cudaMemcpyAsync (tombstone) failed: ", (int)e);
+    cudaStreamSynchronize(stream);
 }
 
 //=============================================================================
@@ -753,7 +778,9 @@ void ludusRenderBatchVk(
     // staging copy and writes it back through vkCmdUpdateBuffer (which
     // goes through Vulkan's own coherent transfer path). Opt out via
     // LUDUS_VK_DIRECT_IMPORT=1 if the driver doesn't need this hack.
-    static const bool kHostRoundtrip = (getenv("LUDUS_VK_DIRECT_IMPORT") == nullptr);
+    // Re-read every call (not static) so the env var can be toggled at any
+    // point in the process lifetime rather than latching at the first render.
+    const bool kHostRoundtrip = (getenv("LUDUS_VK_DIRECT_IMPORT") == nullptr);
     if (kHostRoundtrip) {
         auto copyToVk = [&](VkExternalBuffer& buf) {
             if (buf.buffer == VK_NULL_HANDLE || buf.size == 0 || buf.cuDevPtr == 0) return;
@@ -1190,8 +1217,6 @@ void ludusTimestampedReleaseVk(NVDR_CTX_ARGS, LudusTimestampedVkState& s)
         nvjpegEncoderStateDestroy(s.nvjpegEncoderState);
         nvjpegDestroy(s.nvjpegHandle);
     }
-
-    destroyCudaSync(s.vkctx, s.cudaVkSync);
 
     for (int i = 0; i < 9; i++)
         if (s.shaderModules[i]) vkDestroyShaderModule(s.vkctx.device, s.shaderModules[i], nullptr);

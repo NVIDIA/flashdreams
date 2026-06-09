@@ -20,6 +20,34 @@
 #include <cuda_runtime.h>
 #include <vector>
 #include <string>
+#include <cstdio>
+#include <cstdlib>
+
+// ---------------------------------------------------------------------------
+// Shared helpers for the Vulkan backend translation units (vkutil.cpp and
+// ludus_timestamped_vk.cpp). Defined here so they aren't copy-pasted per file.
+// ---------------------------------------------------------------------------
+
+// Wrap a Vulkan call and raise (via torch) if it doesn't return VK_SUCCESS.
+// TORCH_CHECK comes from framework.h, which every including .cpp pulls in
+// before this header (macro bodies are only expanded at the call site).
+#define VK_CHECK(call) do {                                                     \
+    VkResult _r = (call);                                                       \
+    TORCH_CHECK(_r == VK_SUCCESS, #call " failed with VkResult ", (int)_r);     \
+} while(0)
+
+// Verbose "[Vulkan] ..." diagnostics, gated on LUDUS_VK_DEBUG=1 so device and
+// per-frame traces stay out of production output.
+inline bool ludus_vk_debug() {
+    static int cached = -1;
+    if (cached == -1) {
+        const char* e = getenv("LUDUS_VK_DEBUG");
+        cached = (e && *e && *e != '0') ? 1 : 0;
+    }
+    return cached != 0;
+}
+
+#define VK_DBG(...) do { if (ludus_vk_debug()) { fprintf(stderr, __VA_ARGS__); fflush(stderr); } } while(0)
 
 // ---------------------------------------------------------------------------
 // VkContext: instance + physical device + logical device + queue + command
@@ -38,17 +66,14 @@ struct VkContext
     VkFence                     fence;
     VkPhysicalDeviceMemoryProperties memProperties;
     int                         cudaDeviceIdx;
-    bool                        validationEnabled;
 
     // Device capabilities (checked at init)
     bool                        hasMeshShader;             // VK_EXT_mesh_shader
     bool                        hasFragmentShaderBarycentric;
-    bool                        hasShaderInt64;
     bool                        hasExternalMemory;
 
-    // Cached EXT entry points (resolved at device creation)
+    // Cached EXT entry point (resolved at device creation)
     PFN_vkCmdDrawMeshTasksEXT           pfnCmdDrawMeshTasksEXT;
-    PFN_vkCmdDrawMeshTasksIndirectEXT   pfnCmdDrawMeshTasksIndirectEXT;
 };
 
 // Vulkan buffer with optional CUDA-importable external memory backing.
@@ -134,16 +159,3 @@ void transitionImageLayout(
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
 );
 
-// CUDA-Vulkan synchronization (binary external semaphore, opaque-fd).
-// Currently unused in the simple fence-based path but plumbed for future use.
-struct VkCudaSync
-{
-    VkSemaphore                 vkSemaphore;
-    CUexternalSemaphore         cuSemaphore;
-    uint64_t                    timelineValue;
-};
-
-VkCudaSync createCudaSync(VkContext& ctx);
-void destroyCudaSync(VkContext& ctx, VkCudaSync& sync);
-void signalVulkanWaitCuda(VkContext& ctx, VkCudaSync& sync, cudaStream_t stream);
-void signalCudaWaitVulkan(VkContext& ctx, VkCudaSync& sync, cudaStream_t stream);

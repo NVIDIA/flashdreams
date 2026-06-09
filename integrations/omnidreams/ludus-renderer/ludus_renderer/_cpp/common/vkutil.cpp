@@ -19,10 +19,8 @@
 #include <algorithm>
 #include <unistd.h>
 
-#define VK_CHECK(call) do {                                                     \
-    VkResult _r = (call);                                                       \
-    TORCH_CHECK(_r == VK_SUCCESS, #call " failed with VkResult ", (int)_r);     \
-} while(0)
+// VK_CHECK / VK_DBG / ludus_vk_debug() live in vkutil.h (shared with the
+// renderer translation unit).
 
 // ---------------------------------------------------------------------------
 // Debug messenger (optional, only attached when validation layer is loaded).
@@ -90,7 +88,6 @@ VkContext createVkContext(int cudaDeviceIdx)
         if (strcmp(l.layerName, "VK_LAYER_KHRONOS_validation") == 0) {
             layers.push_back("VK_LAYER_KHRONOS_validation");
             instExts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            ctx.validationEnabled = true;
             break;
         }
     }
@@ -127,7 +124,7 @@ VkContext createVkContext(int cudaDeviceIdx)
 
     VkPhysicalDeviceProperties devProps;
     vkGetPhysicalDeviceProperties(ctx.physicalDevice, &devProps);
-    fprintf(stderr, "[Vulkan] Device: %s (apiVersion %u.%u.%u)\n",
+    VK_DBG("[Vulkan] Device: %s (apiVersion %u.%u.%u)\n",
         devProps.deviceName,
         VK_API_VERSION_MAJOR(devProps.apiVersion),
         VK_API_VERSION_MINOR(devProps.apiVersion),
@@ -148,7 +145,6 @@ VkContext createVkContext(int cudaDeviceIdx)
 
     ctx.hasMeshShader = hasExt(VK_EXT_MESH_SHADER_EXTENSION_NAME);
     ctx.hasFragmentShaderBarycentric = hasExt(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
-    ctx.hasShaderInt64 = true;
     ctx.hasExternalMemory = hasExt(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
 
     TORCH_CHECK(ctx.hasMeshShader,
@@ -225,8 +221,6 @@ VkContext createVkContext(int cudaDeviceIdx)
 
     ctx.pfnCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)
         vkGetDeviceProcAddr(ctx.device, "vkCmdDrawMeshTasksEXT");
-    ctx.pfnCmdDrawMeshTasksIndirectEXT = (PFN_vkCmdDrawMeshTasksIndirectEXT)
-        vkGetDeviceProcAddr(ctx.device, "vkCmdDrawMeshTasksIndirectEXT");
     TORCH_CHECK(ctx.pfnCmdDrawMeshTasksEXT != nullptr,
         "vkCmdDrawMeshTasksEXT not available even though VK_EXT_mesh_shader is reported");
 
@@ -572,36 +566,5 @@ void transitionImageLayout(
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-// ---------------------------------------------------------------------------
-// CUDA-Vulkan synchronization (legacy: fence-only, no semaphores).
-// Sync is performed by cudaStreamSynchronize -> vkQueueSubmit -> vkWaitForFences.
-// This avoids requiring the driver to support timeline/binary external
-// semaphores (some Tegra/embedded Vulkan ICDs handle these poorly).
-// ---------------------------------------------------------------------------
-
-VkCudaSync createCudaSync(VkContext& /*ctx*/)
-{
-    return VkCudaSync{};
-}
-
-void destroyCudaSync(VkContext& ctx, VkCudaSync& sync)
-{
-    if (sync.cuSemaphore) { cuDestroyExternalSemaphore(sync.cuSemaphore); sync.cuSemaphore = 0; }
-    if (sync.vkSemaphore) { vkDestroySemaphore(ctx.device, sync.vkSemaphore, nullptr); sync.vkSemaphore = VK_NULL_HANDLE; }
-}
-
-void signalVulkanWaitCuda(VkContext& /*ctx*/, VkCudaSync& sync, cudaStream_t stream)
-{
-    if (!sync.vkSemaphore) return;
-    CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = {};
-    signalParams.params.fence.value = 0;
-    cuSignalExternalSemaphoresAsync(&sync.cuSemaphore, &signalParams, 1, stream);
-}
-
-void signalCudaWaitVulkan(VkContext& /*ctx*/, VkCudaSync& sync, cudaStream_t stream)
-{
-    if (!sync.vkSemaphore) return;
-    CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS waitParams = {};
-    waitParams.params.fence.value = 0;
-    cuWaitExternalSemaphoresAsync(&sync.cuSemaphore, &waitParams, 1, stream);
-}
+// CUDA<->Vulkan handoff is fence-only (cudaStreamSynchronize -> vkQueueSubmit
+// -> vkWaitForFences); no external-semaphore path is used.

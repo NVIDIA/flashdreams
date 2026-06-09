@@ -87,7 +87,6 @@ class LudusTimestampedContext:
 
         # Some defaults that the wrapper sets but Python should track.
         self._tessellation_threshold = 1.0
-        self._max_extrapolation_us = 500_000
 
         self._cameras: List[FThetaCamera] = []
         self._camera_intrinsics: Optional[torch.Tensor] = None
@@ -566,18 +565,20 @@ class LudusTimestampedContext:
     ) -> torch.Tensor:
         """Render a batch of queries (tuple-based API). Mirrors
         :meth:`LudusCudaTimestampedContext.render_batch`."""
-        n = len(queries)
         device = camera_poses.device if camera_poses.is_cuda else self._device
-        scene_ids = torch.empty(n, dtype=torch.int32, device=device)
-        camera_ids = torch.empty(n, dtype=torch.int32, device=device)
-        timestamps_us = torch.empty(n, dtype=torch.int64, device=device)
-        camera_type_ids = torch.empty(n, dtype=torch.int32, device=device)
-        for i, q in enumerate(queries):
-            scene_ids[i] = int(q[0])
-            camera_ids[i] = int(q[1])
+
+        # Build each query column on the host and move it to the device in a
+        # single copy. Assigning element-by-element into GPU tensors forces a
+        # host<->device sync per query, which dominates for large batches.
+        def _ts(q):
             ts = q[2]
-            timestamps_us[i] = int(ts.item() if isinstance(ts, torch.Tensor) else ts)
-            camera_type_ids[i] = int(q[3]) if len(q) > 3 else 0
+            return int(ts.item() if isinstance(ts, torch.Tensor) else ts)
+
+        scene_ids = torch.tensor([int(q[0]) for q in queries], dtype=torch.int32, device=device)
+        camera_ids = torch.tensor([int(q[1]) for q in queries], dtype=torch.int32, device=device)
+        timestamps_us = torch.tensor([_ts(q) for q in queries], dtype=torch.int64, device=device)
+        camera_type_ids = torch.tensor(
+            [int(q[3]) if len(q) > 3 else 0 for q in queries], dtype=torch.int32, device=device)
         return self.render(
             scene_ids, camera_ids, timestamps_us, camera_type_ids,
             camera_poses, resolution,

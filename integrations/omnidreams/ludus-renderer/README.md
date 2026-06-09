@@ -86,12 +86,12 @@ fully usable.
 ### Shader build (Vulkan only)
 
 The Vulkan backend ships with pre-compiled SPIR-V embedded in
-`_cpp/render/shaders_spv.h`. To regenerate after editing the GLSL
-sources:
+`_cpp/render/shaders_spv.h`. The GLSL sources in `ludus_renderer/shaders/`
+are hand-maintained `GL_EXT_mesh_shader` style; regenerate after editing them
+with:
 
 ```bash
-python3 ludus_renderer/shaders/nv_to_ext.py    # NV -> EXT translation
-bash    ludus_renderer/shaders/compile.sh      # GLSL -> SPIR-V + embed
+bash ludus_renderer/shaders/compile.sh    # GLSL -> SPIR-V -> embed in shaders_spv.h
 ```
 
 ### v1 caveats for the Vulkan backend

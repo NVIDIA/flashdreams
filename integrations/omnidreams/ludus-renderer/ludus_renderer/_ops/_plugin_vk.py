@@ -115,7 +115,7 @@ def _get_vk_plugin():
         ldflags.insert(0, f"-Wl,-rpath,{d}")
 
     # Reset CUDA arch list to let PyTorch detect the installed GPU.
-    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "")
+    os.environ["TORCH_CUDA_ARCH_LIST"] = ""
 
     plugin_name = "ludus_renderer_vk_plugin"
 

@@ -139,6 +139,7 @@ public:
 
     void removeScene(int sceneId)
     {
+        const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, cudaDeviceIdx));
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
         ludusRemoveSceneVk(NVDR_CTX_PARAMS, *pState, sceneId, stream);
     }
@@ -167,7 +168,9 @@ public:
 
     void setMsaaSamples(int s) {
         pState->msaaSamples = s;
-        // Force a framebuffer rebuild on next render.
+        // Zero the cached dimensions so the next render re-enters
+        // ensureFramebuffer, which rebuilds the framebuffer and (when the
+        // sample count changed) the render pass and pipelines to match.
         pState->width = 0;
         pState->height = 0;
     }
@@ -228,6 +231,9 @@ std::tuple<int, bool> ludus_timestamped_render_to_staging_vk(
     const at::cuda::OptionalCUDAGuard device_guard(device_of(queries));
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     LudusTimestampedVkState& s = *stateWrapper.pState;
+
+    NVDR_CHECK_DEVICE(queries, camera_poses);
+    NVDR_CHECK_CONTIGUOUS(queries, camera_poses);
 
     int numQueries = queries.size(0);
     int height = std::get<0>(resolution);

@@ -69,7 +69,6 @@ struct LudusTimestampedVkState
 
     // ---------- Query batch ----------
     int                     queryCapacity;
-    int                     posePerQueryCapacity;
 
     // ---------- Vulkan context ----------
     VkContext               vkctx;
@@ -86,6 +85,10 @@ struct LudusTimestampedVkState
     // ---------- Render pass and framebuffer ----------
     VkRenderPass            renderPass;
     VkFramebuffer           framebuffer;
+    // Sample count the renderPass + pipelines were last built with (1 = no
+    // MSAA). The render pass attachment layout and the pipelines bake in the
+    // sample count, so both must be rebuilt when msaaSamples changes.
+    int                     renderPassSamples;
 
     // ---------- Data buffers (SSBOs, CUDA-importable) ----------
     VkExternalBuffer        timestampsBuffer;       // binding 0:  int64[]
@@ -121,12 +124,8 @@ struct LudusTimestampedVkState
     // ---------- Shader modules: 3 pipelines x 3 stages (task, mesh, frag) ----------
     VkShaderModule          shaderModules[9];
 
-    // ---------- CUDA-Vulkan sync ----------
-    VkCudaSync              cudaVkSync;
-
     // ---------- Capability flags ----------
     int                     hasMeshShader;
-    int                     enableZModify;
     float                   tessellationThreshold;
 
     // ---------- Configurable parameters ----------

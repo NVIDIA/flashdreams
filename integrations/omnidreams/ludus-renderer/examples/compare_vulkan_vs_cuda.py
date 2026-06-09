@@ -15,9 +15,13 @@
 """Render the same HDMap frame with both the CUDA and Vulkan backends and
 save the outputs side-by-side for visual comparison.
 
-Defaults to ``example_data/test_hdmap`` (the bundled clipgt sample) but
-will also fall back to a small synthetic scene with ``--synthetic`` so
-this script runs even when no scene data is present.
+``--scene`` accepts either a clipgt scene directory or a clipgt ``.usdz``
+archive (e.g. ``~/.cache/flashdreams/omnidreams-scenes/clipgt-<uuid>.usdz``),
+whose ``clipgt/*.parquet`` payload is extracted on demand. When ``--scene`` is
+left at the default and the bundled sample is absent, a cached USDZ scene under
+``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes`` is used automatically; only if none
+is found does it fall back to a small synthetic scene (also forced via
+``--synthetic``).
 
 Outputs (in ``--out-dir``, default ``./_vk_compare``):
   cuda.png         CUDA backend render
@@ -29,6 +33,8 @@ Usage:
     uv run python examples/compare_vulkan_vs_cuda.py
     uv run python examples/compare_vulkan_vs_cuda.py --frame 30 \
         --width 1280 --height 720
+    uv run python examples/compare_vulkan_vs_cuda.py \
+        --scene ~/.cache/flashdreams/omnidreams-scenes/clipgt-<uuid>.usdz
     uv run python examples/compare_vulkan_vs_cuda.py --synthetic
 """
 
@@ -38,6 +44,7 @@ import argparse
 import math
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 # Ensure we import the local ``ludus_renderer`` (this project) even when an
@@ -52,6 +59,75 @@ from PIL import Image
 
 DEFAULT_SCENE_PATH = str(_PROJECT_ROOT / "example_data" / "test_hdmap")
 DEFAULT_CAMERA = "camera:front:wide:120fov"
+
+# Shared cache used by the omnidreams demos. Scene archives live at
+# ``<root>/clipgt-<uuid>[-<variant>].usdz`` and bundle the HDMap vector data as
+# ``clipgt/<element>.parquet`` (alongside large mesh/checkpoint payloads that
+# rasterization does not need).
+DEFAULT_SCENE_CACHE = (
+    Path(os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")))
+    / "omnidreams-scenes"
+)
+
+
+# ---------------------------------------------------------------------------
+# Scene resolution: clipgt directory or USDZ archive
+# ---------------------------------------------------------------------------
+
+def extract_clipgt_from_usdz(usdz_path: Path) -> Path:
+    """Extract the ``clipgt/*.parquet`` HDMap payload from a USDZ archive.
+
+    A clipgt USDZ is a plain zip; ``load_clipgt_scene`` only needs the parquet
+    files (not the bundled meshes/checkpoint). They are extracted (flattened)
+    into a sibling ``<stem>.clipgt`` directory and reused on later runs.
+    """
+    usdz_path = Path(usdz_path)
+    dest = usdz_path.parent / f"{usdz_path.stem}.clipgt"
+    with zipfile.ZipFile(usdz_path) as zf:
+        members = [
+            m for m in zf.namelist()
+            if m.startswith("clipgt/") and m.endswith(".parquet")
+        ]
+        if not members:
+            raise SystemExit(
+                f"{usdz_path} contains no clipgt/*.parquet payload; "
+                "is this a clipgt scene archive?"
+            )
+        already = len(list(dest.glob("*.parquet"))) if dest.is_dir() else 0
+        if already < len(members):
+            dest.mkdir(parents=True, exist_ok=True)
+            print(f"Extracting {len(members)} clipgt parquet files from "
+                  f"{usdz_path.name} -> {dest}")
+            for m in members:
+                (dest / Path(m).name).write_bytes(zf.read(m))
+    return dest
+
+
+def discover_cached_usdz() -> Path | None:
+    """Return a cached clipgt USDZ to render by default, preferring the base
+    (non-weather) variant, or ``None`` when the scenes cache is empty."""
+    if not DEFAULT_SCENE_CACHE.is_dir():
+        return None
+    candidates = sorted(DEFAULT_SCENE_CACHE.glob("clipgt-*.usdz"))
+    if not candidates:
+        return None
+    # The base archive (``clipgt-<uuid>.usdz``) has no ``-rain``/``-snow``
+    # suffix, so it is the shortest filename.
+    return min(candidates, key=lambda p: len(p.name))
+
+
+def resolve_clipgt_dir(scene_arg: str) -> Path | None:
+    """Resolve ``--scene`` to a clipgt parquet directory.
+
+    Accepts a clipgt directory or a ``.usdz`` archive (extracted on demand);
+    returns ``None`` when no usable scene data is present.
+    """
+    scene_path = Path(scene_arg)
+    if scene_path.suffix == ".usdz" and scene_path.is_file():
+        return extract_clipgt_from_usdz(scene_path)
+    if scene_path.is_dir():
+        return scene_path
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +222,7 @@ def render_hdmap(ctx_cls, scene_path: str, frame: int, width: int, height: int,
                  camera_name: str, msaa: int) -> np.ndarray:
     from ludus_renderer.render_utils import (
         create_camera,
+        get_available_cameras,
         load_scene_adapted as load_scene,
         render_frame,
     )
@@ -154,6 +231,15 @@ def render_hdmap(ctx_cls, scene_path: str, frame: int, width: int, height: int,
     device = torch.device("cuda")
     scene = load_scene(scene_path, device, include_ego_obstacle=False,
                        include_ego_trajectory=False, use_gpu_decoder=True)
+
+    # Fall back to an available camera if the requested one isn't in the scene
+    # (camera names vary between captures), so the example still renders.
+    available = get_available_cameras(scene)
+    if camera_name not in available and available:
+        print(f"    camera {camera_name!r} not in scene; using {available[0]!r} "
+              f"(available: {available})")
+        camera_name = available[0]
+
     timestamps = resample_timestamps(scene.ego_tracks.timestamps, 100000, 20000000)
     if frame >= len(timestamps):
         raise SystemExit(
@@ -206,7 +292,9 @@ def composite(cuda_img: np.ndarray, vk_img: np.ndarray):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene", default=DEFAULT_SCENE_PATH,
-                        help="Path to a clipgt scene directory")
+                        help="clipgt scene directory or a clipgt .usdz archive "
+                             "(default: bundled sample, else a cached USDZ under "
+                             "$FLASHDREAMS_CACHE_DIR/omnidreams-scenes)")
     parser.add_argument("--frame", type=int, default=12,
                         help="Frame index to render (default: 12)")
     parser.add_argument("--camera", default=DEFAULT_CAMERA,
@@ -232,9 +320,22 @@ def main() -> int:
         print(f"Vulkan backend unavailable: {exc}", file=sys.stderr)
         return 1
 
-    use_synthetic = args.synthetic or not Path(args.scene).is_dir()
-    if not args.synthetic and not Path(args.scene).is_dir():
-        print(f"scene path {args.scene!r} not found; falling back to synthetic")
+    # Resolve a real scene: explicit clipgt dir / USDZ, else auto-discover a
+    # cached USDZ, else fall back to the synthetic scene.
+    scene_dir = None
+    if not args.synthetic:
+        scene_dir = resolve_clipgt_dir(args.scene)
+        if scene_dir is None and args.scene == DEFAULT_SCENE_PATH:
+            usdz = discover_cached_usdz()
+            if usdz is not None:
+                print(f"default scene {args.scene!r} not found; using cached "
+                      f"USDZ scene {usdz.name}")
+                scene_dir = extract_clipgt_from_usdz(usdz)
+
+    use_synthetic = args.synthetic or scene_dir is None
+    if not args.synthetic and scene_dir is None:
+        print(f"no clipgt scene found for {args.scene!r} (and none cached under "
+              f"{DEFAULT_SCENE_CACHE}); falling back to synthetic")
 
     if use_synthetic:
         label = "synthetic"
@@ -245,14 +346,14 @@ def main() -> int:
         print(f"  Vulkan lit pixels: {int((vk_img[..., :3].sum(-1) > 0).sum())}")
     else:
         label = f"hdmap frame {args.frame} ({args.camera})"
-        print(f"Rendering {label} at {args.width}x{args.height}...")
-        print(f"  CUDA backend...")
-        cuda_img = render_hdmap(LudusCudaTimestampedContext, args.scene,
+        print(f"Rendering {label} from {scene_dir} at {args.width}x{args.height}...")
+        print("  CUDA backend...")
+        cuda_img = render_hdmap(LudusCudaTimestampedContext, str(scene_dir),
                                 args.frame, args.width, args.height,
                                 args.camera, args.msaa)
         print(f"    lit pixels: {int((cuda_img[..., :3].sum(-1) > 0).sum())}")
-        print(f"  Vulkan backend...")
-        vk_img = render_hdmap(LudusTimestampedContext, args.scene,
+        print("  Vulkan backend...")
+        vk_img = render_hdmap(LudusTimestampedContext, str(scene_dir),
                               args.frame, args.width, args.height,
                               args.camera, args.msaa)
         print(f"    lit pixels: {int((vk_img[..., :3].sum(-1) > 0).sum())}")
@@ -264,15 +365,16 @@ def main() -> int:
     Image.fromarray(diff_amp, mode="RGBA").save(out_dir / "diff_10x.png")
     Image.fromarray(side,     mode="RGBA").save(out_dir / "side_by_side.png")
 
-    max_diff = int(np.abs(cuda_img.astype(np.int16) - vk_img.astype(np.int16))[..., :3].max())
-    mean_diff = float(np.abs(cuda_img.astype(np.int16) - vk_img.astype(np.int16))[..., :3].mean())
-    differing = int((np.abs(cuda_img.astype(np.int16) - vk_img.astype(np.int16))[..., :3].sum(-1) > 0).sum())
+    rgb_diff = np.abs(cuda_img[..., :3].astype(np.int16) - vk_img[..., :3].astype(np.int16))
+    max_diff = int(rgb_diff.max())
+    mean_diff = float(rgb_diff.mean())
+    differing = int((rgb_diff.sum(-1) > 0).sum())
     total = cuda_img.shape[0] * cuda_img.shape[1]
 
     print(f"\nOutputs written to: {out_dir}")
     for name in ("cuda.png", "vulkan.png", "diff_10x.png", "side_by_side.png"):
         print(f"  {name:<18} {os.path.getsize(out_dir / name):>9} bytes")
-    print(f"\nPixel comparison (RGB only):")
+    print("\nPixel comparison (RGB only):")
     print(f"  Max per-channel difference: {max_diff} / 255")
     print(f"  Mean per-channel difference: {mean_diff:.3f} / 255")
     print(f"  Differing pixels: {differing} / {total} ({100.0 * differing / total:.2f}%)")
