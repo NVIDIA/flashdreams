@@ -14,6 +14,7 @@ import numpy.typing as npt
 from flashdreams.quality.video_quality.manifest import Window
 
 RGBVideo = npt.NDArray[np.uint8]
+CORE_METRIC_GROUPS = frozenset({"decode_metadata", "grey_blank", "sharpness", "stripe"})
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,10 @@ def compute_video_metrics(
     *,
     fps: float | None = None,
     windows: Mapping[str, Window] | None = None,
+    metric_groups: tuple[str, ...] | None = None,
 ) -> dict[str, float | int | bool | None]:
     """Compute cheap deterministic quality metrics for an RGB video."""
+    selected_groups = _selected_metric_groups(metric_groups)
     frames = _as_uint8_rgb(video)
     frame_count, height, width, _ = frames.shape
     metrics: dict[str, float | int | bool | None] = {
@@ -70,7 +73,7 @@ def compute_video_metrics(
         "height": int(height),
         "width": int(width),
     }
-    metrics.update(_content_metrics(frames))
+    metrics.update(_content_metrics(frames, metric_groups=selected_groups))
 
     if windows and fps:
         window_metrics: dict[str, dict[str, float]] = {}
@@ -79,7 +82,7 @@ def compute_video_metrics(
             end = min(frame_count, int(round(window.end_s * fps)))
             if end <= start:
                 continue
-            values = _content_metrics(frames[start:end])
+            values = _content_metrics(frames[start:end], metric_groups=selected_groups)
             numeric_values = {
                 key: value for key, value in values.items() if isinstance(value, float)
             }
@@ -99,38 +102,68 @@ def compute_video_metrics(
     return metrics
 
 
-def _content_metrics(frames: RGBVideo) -> dict[str, float]:
+def _selected_metric_groups(metric_groups: tuple[str, ...] | None) -> frozenset[str]:
+    if not metric_groups:
+        return CORE_METRIC_GROUPS
+    selected_groups = frozenset(metric_groups)
+    unknown_groups = selected_groups - CORE_METRIC_GROUPS
+    if unknown_groups:
+        raise ValueError(f"Unsupported metric group(s): {sorted(unknown_groups)}")
+    return selected_groups | {"decode_metadata"}
+
+
+def _content_metrics(
+    frames: RGBVideo, *, metric_groups: frozenset[str]
+) -> dict[str, float]:
     rgb = frames.astype(np.float32) / 255.0
     luma = _luma(rgb)
-    rgb_range = np.max(rgb, axis=-1) - np.min(rgb, axis=-1)
-    channel_max = np.max(rgb, axis=-1)
-    saturation = np.divide(
-        rgb_range,
-        np.maximum(channel_max, 1.0e-6),
-        out=np.zeros_like(rgb_range),
-        where=channel_max > 1.0e-6,
-    )
-    laplacian = _laplacian(luma)
-    grad_y = np.diff(luma, axis=1)
-    grad_x = np.diff(luma, axis=2)
-    row_profile = np.mean(luma, axis=(0, 2))
-    col_profile = np.mean(luma, axis=(0, 1))
-    row_fft = _periodic_energy_ratio(row_profile)
-    col_fft = _periodic_energy_ratio(col_profile)
+    metrics: dict[str, float] = {}
 
-    return {
-        "luma_std": float(np.std(luma)),
-        "rgb_channel_std": float(np.mean(np.std(rgb, axis=(0, 1, 2)))),
-        "saturation_mean": float(np.mean(saturation)),
-        "grey_pixel_ratio": float(np.mean(rgb_range <= 0.025)),
-        "laplacian_variance": float(np.var(laplacian)),
-        "high_frequency_energy": float(
-            0.5 * (np.mean(np.abs(grad_y)) + np.mean(np.abs(grad_x)))
-        ),
-        "fft_axis_energy_ratio": float(max(row_fft, col_fft)),
-        "row_autocorr_peak": _autocorr_peak(row_profile),
-        "col_autocorr_peak": _autocorr_peak(col_profile),
-    }
+    if "grey_blank" in metric_groups:
+        rgb_range = np.max(rgb, axis=-1) - np.min(rgb, axis=-1)
+        channel_max = np.max(rgb, axis=-1)
+        saturation = np.divide(
+            rgb_range,
+            np.maximum(channel_max, 1.0e-6),
+            out=np.zeros_like(rgb_range),
+            where=channel_max > 1.0e-6,
+        )
+        metrics.update(
+            {
+                "luma_std": float(np.std(luma)),
+                "rgb_channel_std": float(np.mean(np.std(rgb, axis=(0, 1, 2)))),
+                "saturation_mean": float(np.mean(saturation)),
+                "grey_pixel_ratio": float(np.mean(rgb_range <= 0.025)),
+            }
+        )
+
+    if "sharpness" in metric_groups:
+        laplacian = _laplacian(luma)
+        grad_y = np.diff(luma, axis=1)
+        grad_x = np.diff(luma, axis=2)
+        metrics.update(
+            {
+                "laplacian_variance": float(np.var(laplacian)),
+                "high_frequency_energy": float(
+                    0.5 * (np.mean(np.abs(grad_y)) + np.mean(np.abs(grad_x)))
+                ),
+            }
+        )
+
+    if "stripe" in metric_groups:
+        row_profile = np.mean(luma, axis=(0, 2))
+        col_profile = np.mean(luma, axis=(0, 1))
+        row_fft = _periodic_energy_ratio(row_profile)
+        col_fft = _periodic_energy_ratio(col_profile)
+        metrics.update(
+            {
+                "fft_axis_energy_ratio": float(max(row_fft, col_fft)),
+                "row_autocorr_peak": _autocorr_peak(row_profile),
+                "col_autocorr_peak": _autocorr_peak(col_profile),
+            }
+        )
+
+    return metrics
 
 
 def _luma(rgb: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:

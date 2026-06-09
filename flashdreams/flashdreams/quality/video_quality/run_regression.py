@@ -169,7 +169,10 @@ def _run_case(
             hf_revision_override=hf_revision_override,
         )
         metrics = compute_video_metrics(
-            metrics_input.frames, fps=metrics_input.fps, windows=case.windows
+            metrics_input.frames,
+            fps=metrics_input.fps,
+            windows=case.windows,
+            metric_groups=case.metrics,
         )
         threshold_failures = _threshold_failures(metrics, case.thresholds)
         decision = _clip_decision(
@@ -207,6 +210,7 @@ def _run_case(
         "suites": list(case.suites),
         "hf_dataset": case.hf_dataset,
         "hf_revision": hf_revision_override or case.hf_revision,
+        "metrics": list(case.metrics),
         "generation": case.generation,
         "windows": {name: asdict(window) for name, window in case.windows.items()},
         "thresholds": [asdict(threshold) for threshold in case.thresholds],

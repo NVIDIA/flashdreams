@@ -10,10 +10,13 @@ suites:
 
 default_hf_dataset: nvidia/flashdreams-video-quality-regression
 
+# Minimal case shape: id, description, suites, metrics, assets, and thresholds.
+# Add generation and windows only when a model runner or windowed metric needs them.
 cases:
   - id: synthetic_core_metric_sentinels
     description: Synthetic evaluate-only clips that exercise blank, blur, and stripe metrics without model inference.
     suites: [calibration, per_commit]
+    metrics: [decode_metadata, grey_blank, sharpness, stripe]
     source:
       type: synthetic
       fps: 8
@@ -23,6 +26,9 @@ cases:
       seed: 17
     assets:
       known_good: synthetic://textured_motion
+      # known_bad clips are calibration fixtures. They should fail exactly the
+      # listed thresholds, proving the selected metrics catch known failure modes
+      # without turning those bad outputs into production golden references.
       known_bad:
         - id: grey_blank
           path: synthetic://grey_blank
@@ -34,14 +40,6 @@ cases:
           path: synthetic://horizontal_stripes
           expected_failures: [stripe_axis_max, stripe_row_autocorr_max]
       sha256: {}
-    generation:
-      runner: synthetic
-      seed: 17
-      duration_s: 2
-      extra_args: []
-    windows:
-      head: {start_s: 0, end_s: 1}
-      tail: {start_s: 1, end_s: 2}
     thresholds:
       - id: luma_std_min
         metric: luma_std

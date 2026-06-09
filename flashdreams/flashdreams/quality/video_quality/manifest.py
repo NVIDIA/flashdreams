@@ -68,6 +68,7 @@ class VideoQualityCase:
     description: str
     suites: tuple[str, ...]
     assets: CaseAssets
+    metrics: tuple[str, ...]
     thresholds: tuple[Threshold, ...]
     windows: dict[str, Window]
     source: dict[str, Any]
@@ -218,6 +219,7 @@ def _parse_case(
         description=_required_str(value, "description", context=case_context),
         suites=case_suites,
         assets=_parse_assets(raw_assets, context=case_context),
+        metrics=_optional_str_tuple(value, "metrics", context=case_context),
         thresholds=thresholds,
         windows=windows,
         source=source,

@@ -24,7 +24,9 @@ def test_starter_manifest_loads() -> None:
 
     assert manifest.schema_version == 1
     assert "calibration" in manifest.suites
-    assert manifest.select_cases(suite="calibration")[0].hf_dataset is None
+    case = manifest.select_cases(suite="calibration")[0]
+    assert case.hf_dataset is None
+    assert case.metrics == ("decode_metadata", "grey_blank", "sharpness", "stripe")
     assert (
         manifest.select_cases(suite="per_commit")[0].id
         == "synthetic_core_metric_sentinels"
