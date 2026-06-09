@@ -4,12 +4,12 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 /**
- * Hover-to-zoom for documentation images and videos (opt-in).
+ * Click-to-zoom for documentation images and videos (opt-in).
  *
  * Only elements inside a .zoomable container (or with the class directly)
- * participate. On mouseenter the element's full-resolution version is shown
- * in a fixed overlay. The overlay never captures pointer events -- the
- * cursor stays on the source element, so mouseleave fires reliably.
+ * participate. Clicking the element shows its full-resolution version in a
+ * fixed overlay. Clicking the zoomed overlay (or pressing Escape) zooms back
+ * out.
  */
 (function () {
   "use strict";
@@ -17,12 +17,12 @@ SPDX-License-Identifier: Apache-2.0
   var overlay = null;
   var clone = null;
   var activeEl = null;
-  var showTimer = null;
-  var SHOW_DELAY = 120; // ms before showing (avoids flash on quick pass-through)
 
   function createOverlay() {
     overlay = document.createElement("div");
     overlay.className = "img-zoom-overlay";
+    // Clicking anywhere on the zoomed overlay closes it.
+    overlay.addEventListener("click", hide);
     document.body.appendChild(overlay);
   }
 
@@ -58,8 +58,6 @@ SPDX-License-Identifier: Apache-2.0
   }
 
   function hide() {
-    clearTimeout(showTimer);
-    showTimer = null;
     if (!overlay) return;
     overlay.classList.remove("visible");
     activeEl = null;
@@ -90,22 +88,18 @@ SPDX-License-Identifier: Apache-2.0
                   document.querySelector("[role='main']") ||
                   document.body;
 
-    content.addEventListener("mouseenter", function (e) {
+    content.addEventListener("click", function (e) {
       var target = e.target;
       if (isZoomTarget(target)) {
-        clearTimeout(showTimer);
-        showTimer = setTimeout(function () {
-          show(target);
-        }, SHOW_DELAY);
+        e.preventDefault();
+        show(target);
       }
-    }, true);
+    });
 
-    content.addEventListener("mouseleave", function (e) {
-      var target = e.target;
-      if (target === activeEl || (showTimer && isZoomTarget(target))) {
-        hide();
-      }
-    }, true);
+    // Pressing Escape zooms back out.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && activeEl) hide();
+    });
   }
 
   if (document.readyState === "loading") {
