@@ -35,6 +35,12 @@ environment:
    cd flashdreams
    uv sync --extra dev --extra runners
 
+The unified runner CLI is then available through ``uv run``:
+
+.. code-block:: bash
+
+   uv run flashdreams-run --help
+
 Library-only install
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -61,6 +67,9 @@ access token before launching:
 
    export HF_TOKEN=<your-hf-token>
    export HF_HOME=~/.cache/huggingface  # optional cache location override
+
+For more environment and container details, see the project
+`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
 
 Speeding up CUDA builds
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -100,7 +109,12 @@ the TAEHV decoder:
        --total-blocks 7
 
 The first invocation downloads checkpoints from Hugging Face into
-``HF_HOME``. Subsequent runs reuse the local cache.
+``HF_HOME``. First runs take some time (Triton autotuning +
+CUDA-graph warmup) but subsequent runs reuse the local cache and finish
+far sooner. Output lands at
+``outputs/self-forcing-wan2.1-t2v-1.3b-taehv.mp4`` (16 FPS, 480×832 by
+default). See :doc:`/models/self_forcing` for ``--total-blocks``,
+measured runtimes, and multi-GPU guidance.
 
 Interactive serving with LingBot-World
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -121,6 +135,8 @@ Where to next
 - :doc:`/models/index` — every shipped recipe with its CLI slug,
   checkpoint source, and per-recipe knobs, alongside the benchmark
   numbers.
+- :doc:`/models/omnidreams` — drive a world model in real time with the
+  ``interactive-drive`` demo.
 - :doc:`/developer_guides/inference_pipeline_overview` — the generation
   loop end to end: KV cache, ring attention, CUDA-graph capture.
 - :doc:`/developer_guides/config_system` — the configuration layer
@@ -131,3 +147,10 @@ Where to next
 - :doc:`/models/index` — steady-state per-step latency numbers
   with reproducer commands.
 - :doc:`/troubleshooting` — common first-run failures and fixes.
+
+Project and support
+-------------------
+
+- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_
+- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_
+- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_
