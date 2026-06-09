@@ -63,7 +63,6 @@ FlashDreams
                 class="fd-promo-video-player"
                 src="_static/promo/flashdreams-promo.avif"
                 alt="FlashDreams quick intro animation"
-                loading="lazy"
                 decoding="async">
             </div>
 
