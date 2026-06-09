@@ -7,10 +7,14 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
-from tools.video_quality.manifest import load_manifest
-from tools.video_quality.metrics import compute_video_metrics, synthetic_video
-from tools.video_quality.run_regression import main
+from flashdreams.quality.video_quality.manifest import load_manifest
+from flashdreams.quality.video_quality.metrics import (
+    compute_video_metrics,
+    synthetic_video,
+)
+from flashdreams.quality.video_quality.run_regression import main
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -20,10 +24,21 @@ def test_starter_manifest_loads() -> None:
 
     assert manifest.schema_version == 1
     assert "calibration" in manifest.suites
+    assert manifest.select_cases(suite="calibration")[0].hf_dataset is None
     assert (
         manifest.select_cases(suite="per_commit")[0].id
         == "synthetic_core_metric_sentinels"
     )
+
+
+def test_manifest_rejects_bool_schema_version(tmp_path: Path) -> None:
+    data = yaml.safe_load(Path("configs/video_quality_cases.yml").read_text())
+    data["schema_version"] = True
+    manifest_path = tmp_path / "cases.yml"
+    manifest_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version must be an integer"):
+        load_manifest(manifest_path)
 
 
 def test_core_metrics_separate_synthetic_failures() -> None:
@@ -37,14 +52,18 @@ def test_core_metrics_separate_synthetic_failures() -> None:
     blurry_metrics = compute_video_metrics(blurry.frames, fps=blurry.fps)
     stripe_metrics = compute_video_metrics(stripes.frames, fps=stripes.fps)
 
-    assert good_metrics["luma_std"] > 0.08
-    assert grey_metrics["luma_std"] < 0.01
+    assert _float_metric(good_metrics, "luma_std") > 0.08
+    assert _float_metric(grey_metrics, "luma_std") < 0.01
     assert grey_metrics["grey_pixel_ratio"] == 1.0
-    assert good_metrics["laplacian_variance"] > blurry_metrics["laplacian_variance"]
-    assert (
-        stripe_metrics["fft_axis_energy_ratio"] > good_metrics["fft_axis_energy_ratio"]
+    assert _float_metric(good_metrics, "laplacian_variance") > _float_metric(
+        blurry_metrics, "laplacian_variance"
     )
-    assert stripe_metrics["row_autocorr_peak"] > good_metrics["row_autocorr_peak"]
+    assert _float_metric(stripe_metrics, "fft_axis_energy_ratio") > _float_metric(
+        good_metrics, "fft_axis_energy_ratio"
+    )
+    assert _float_metric(stripe_metrics, "row_autocorr_peak") > _float_metric(
+        good_metrics, "row_autocorr_peak"
+    )
 
 
 def test_runner_writes_evaluate_only_manifest(tmp_path: Path) -> None:
@@ -70,3 +89,12 @@ def test_runner_writes_evaluate_only_manifest(tmp_path: Path) -> None:
         clip["id"]: clip for clip in case["clips"] if clip["role"] == "known_bad"
     }
     assert known_bad["grey_blank"]["decision"]["calibration_expected_failure_observed"]
+    for clip in known_bad.values():
+        assert clip["decision"]["status"] == "pass"
+        assert clip["decision"]["unexpected_failure_ids"] == []
+
+
+def _float_metric(metrics: dict[str, float | int | bool | None], key: str) -> float:
+    value = metrics[key]
+    assert isinstance(value, (float, int)) and not isinstance(value, bool)
+    return float(value)

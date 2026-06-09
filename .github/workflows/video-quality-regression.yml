@@ -62,20 +62,24 @@ jobs:
 
       - name: Run video-quality regression
         env:
+          CASE_ID: ${{ github.event.inputs.case_id || '' }}
+          EVALUATE_ONLY: ${{ github.event.inputs.evaluate_only || 'true' }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REVISION: ${{ github.event.inputs.hf_revision || '' }}
+          SELECTED_SUITE: ${{ github.event.inputs.suite || 'calibration' }}
         run: |
           args=(
             --manifest configs/video_quality_cases.yml
-            --suite "${{ github.event.inputs.suite || 'calibration' }}"
+            --suite "${SELECTED_SUITE}"
             --output-dir artifacts/video_quality
           )
-          if [ -n "${{ github.event.inputs.case_id }}" ]; then
-            args+=(--case-id "${{ github.event.inputs.case_id }}")
+          if [ -n "${CASE_ID}" ]; then
+            args+=(--case-id "${CASE_ID}")
           fi
-          if [ -n "${{ github.event.inputs.hf_revision }}" ]; then
-            args+=(--hf-revision "${{ github.event.inputs.hf_revision }}")
+          if [ -n "${HF_REVISION}" ]; then
+            args+=(--hf-revision "${HF_REVISION}")
           fi
-          if [ "${{ github.event.inputs.evaluate_only || 'true' }}" = "true" ]; then
+          if [ "${EVALUATE_ONLY}" = "true" ]; then
             args+=(--evaluate-only)
           else
             args+=(--no-evaluate-only)
