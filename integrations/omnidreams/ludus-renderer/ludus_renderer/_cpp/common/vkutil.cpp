@@ -453,6 +453,10 @@ VkExternalImage createExternalImage(
         mipDesc.arrayDesc.Width = width;
         mipDesc.arrayDesc.Height = height;
         mipDesc.arrayDesc.Depth = layers;
+        // Layered images (arrayLayers > 1) need CUDA_ARRAY3D_LAYERED, else CUDA
+        // reads Depth as a 3D volume and the import fails with INVALID_VALUE.
+        if (layers > 1)
+            mipDesc.arrayDesc.Flags = CUDA_ARRAY3D_LAYERED;
         if (format == VK_FORMAT_R8G8B8A8_UNORM) {
             mipDesc.arrayDesc.Format = CU_AD_FORMAT_UNSIGNED_INT8;
             mipDesc.arrayDesc.NumChannels = 4;
