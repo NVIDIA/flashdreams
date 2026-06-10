@@ -16,7 +16,7 @@
 Add a new method
 ===================================
 
-Before you start adding a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to get a big picture of the system architecture.
+Before you start adding a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to obtain an overview of the system architecture.
 
 FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a *standalone repository* that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory of this repository.
 
@@ -41,7 +41,10 @@ We recommend the following file structure for your new method:
     │   └── ...
     └── pyproject.toml
 
-Add optional files only when you need to customize the behavior beyond what we carry in FlashDreams. Most integrations can use the base :class:`~flashdreams.infra.pipeline.StreamInferencePipeline` directly and only provide model components plus config literals. As explained in :doc:`/developer_guides/config_system`, a method typically defines a pipeline config and a runner config. The runner handles CLI-facing I/O and runtime loops.
+Add optional files only when you need to customize the behavior beyond what we carry in FlashDreams.
+Most integrations can use the base :class:`~flashdreams.infra.pipeline.StreamInferencePipeline` directly and only provide model components plus config literals.
+As explained in :doc:`/developer_guides/config_system`, a method typically defines a pipeline config and a runner config.
+The runner handles CLI-facing I/O and runtime loops.
 
 .. code-block:: python
    :caption: customized_method/runner.py
@@ -61,16 +64,16 @@ Add optional files only when you need to customize the behavior beyond what we c
        def run(self) -> None:
            cfg = self.config
 
-           # 1. Initialize the autoregressive cache.
+           # 1. Initialize the autoregressive cache
            cache = self.pipeline.initialize_cache(text=[cfg.prompt])
 
-           # 2. Drive the autoregressive rollout.
+           # 2. Drive the autoregressive rollout
            for i in range(cfg.total_blocks):
                video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
                self.pipeline.finalize(autoregressive_index=i, cache=cache)
 
            if self.is_rank_zero:
-               # 3. Write outputs only on the main process.
+               # 3. Write outputs only on the main process
                ...
 
 .. code-block:: python
@@ -119,7 +122,7 @@ After registering your method you should be able to see it in the CLI helptext a
    # Run the model
    flashdreams-run customized-method --prompt "A beautiful custom generation."
 
-To register your own models, package your code as a Python package and declare a runner entry point in its ``pyproject.toml``. FlashDreams discovers every registered runner at import time and surfaces it through the same command-line interface as the in-tree recipes — there is no central manifest to keep in sync.
+To register your own models, package your code as a Python package and declare a runner entry point in its ``pyproject.toml``. FlashDreams discovers every registered runner at import time and surfaces it through the same command-line interface as the in-tree recipes. There is no central manifest to keep in sync.
 
 Create a ``pyproject.toml`` file. This is where the entrypoint to your method is set and also where you can specify additional dependencies required by your codebase.
 
@@ -131,7 +134,7 @@ Create a ``pyproject.toml`` file. This is where the entrypoint to your method is
    version = "0.1.0"
 
    dependencies = [
-       "flashdreams", # you may want to consider pinning the version, ie "flashdreams==0.1.0"
+       "flashdreams", # consider pinning the version, ie "flashdreams==0.1.0"
        "mediapy>=1.1",
    ]
 
@@ -158,4 +161,5 @@ The ``FLASHDREAMS_RUNNER_CONFIGS`` environment variable additionally accepts a f
 Adding to the FlashDreams documentation
 ---------------------------------------
 
-We invite researchers to contribute their own integrations to our official codebase and documentation. You can find more information on how to do this in the repository's `CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`_. See the existing model pages under the `docs/source/models/ <https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models>`_ directory (e.g., :doc:`/models/self_forcing`) as templates for documenting your new method.
+We invite researchers to contribute their own integrations to our official codebase and documentation. You can find more information on how to do this in the repository's `CONTRIBUTING.md <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md>`_.
+See the existing model pages under the `docs/source/models/ <https://github.com/NVIDIA/flashdreams/tree/main/docs/source/models>`_ directory (e.g., :doc:`/models/self_forcing`) as templates for documenting your new method.

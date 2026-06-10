@@ -22,9 +22,13 @@ This configuration system is similar to the one employed in `nerfstudio <https:/
 Base components
 ---------------
 
-All configurable components in FlashDreams—such as the encoder, transformer, scheduler, and decoder—have a corresponding configuration dataclass and can be found under ``flashdreams.infra``. As outlined in the :doc:`/developer_guides/inference_pipeline_overview`, the main entry point for defining an integration is the :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`.
+All configurable components in FlashDreams (such as the encoder, transformer, scheduler, and decoder)
+have a corresponding configuration dataclass and can be found under ``flashdreams.infra``.
+As outlined in the :doc:`/developer_guides/inference_pipeline_overview`, the main entry point for defining an integration
+is the :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`.
 
-These config objects are modular and nestable. A typical pipeline config defines the architecture by composing other config dataclasses:
+These config objects are modular and nestable.
+A typical pipeline config defines the architecture by composing other config dataclasses:
 
 .. code-block:: python
 
@@ -32,7 +36,7 @@ These config objects are modular and nestable. A typical pipeline config defines
    from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
    from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 
-   # Define your own configs for the encoder, transformer, and decoder.
+   # Define your own configs for the encoder, transformer, and decoder
    MyStreamingEncoderConfig = ...
    MyTransformerConfig = ...
    MyStreamingDecoderConfig = ...
@@ -97,7 +101,7 @@ Alternatively, you do not always have to write a complete configuration from scr
    from my_project.configs import MyBasePipelineConfig
 
    # Create a variant that inherits everything from MyBasePipelineConfig
-   # but overrides the encoder's embedding dimension.
+   # but overrides the encoder's embedding dimension
    my_variant_config = derive_config(
        MyBasePipelineConfig,
        encoder=dict(embedding_dim=1024),
@@ -106,11 +110,11 @@ Alternatively, you do not always have to write a complete configuration from scr
 Modifying from CLI
 ------------------
 
-Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface — powered by `tyro <https://github.com/brentyi/tyro>`_ — exposes every nested dataclass field as a flag.
+Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface, powered by `tyro <https://github.com/brentyi/tyro>`_, exposes every nested dataclass field as a flag.
 
 Because configurations are strongly typed dataclasses, ``tyro`` generates the CLI automatically. Each shipped model is a named runner slug; pass any nested field as a flag to override it.
 
-For example, to list out all existing configurable parameters for a model:
+For example, to list all existing configurable parameters for a model:
 
 .. code-block:: bash
 
@@ -118,7 +122,7 @@ For example, to list out all existing configurable parameters for a model:
 
 .. image:: /_static/diagrams/cli-screen-shot.png
    :alt: CLI helptext showing tyro dynamically parsing nested configuration arguments.
-
+   :class: zoomable
 
 To run the model with a modified configuration:
 
