@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
 from omnidreams.interactive_drive.runtime.timing import (
@@ -103,13 +104,12 @@ def _record_input_to_present_for_profile(
     wall_present_fps = float(count) / window_s if window_s > 1e-9 else 0.0
     avg_raw_ms = _PROFILE_E2E_SUM_RAW_MS / float(count)
     avg_adj_ms = _PROFILE_E2E_SUM_ADJ_MS / float(count)
-    print(
+    logger.info(
         "[profile] e2e "
         f"wall_present_fps={wall_present_fps:.1f} "
         f"avg_adj_control_to_present_ms={avg_adj_ms:.2f} "
         f"avg_raw_control_to_present_ms={avg_raw_ms:.2f} "
         f"samples={count}",
-        flush=True,
     )
     _PROFILE_E2E_SUM_RAW_MS = 0.0
     _PROFILE_E2E_SUM_ADJ_MS = 0.0
@@ -393,10 +393,9 @@ def _log_oob_transition(
     """
     prev_label = "in-bounds" if previous is None else _truncate(previous, 32)
     curr_label = "in-bounds" if current is None else _truncate(current, 32)
-    print(
+    logger.info(
         f"[loop] oob {prev_label!r} -> {curr_label!r}"
         f" proximity={proximity:.3f} streak={streak} action={action}",
-        flush=True,
     )
 
 

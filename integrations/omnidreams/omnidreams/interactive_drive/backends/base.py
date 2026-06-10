@@ -39,6 +39,18 @@ class RenderBackend(ABC):
         """
         return True
 
+    @property
+    def optimizes_on_first_chunk(self) -> bool:
+        """Whether the first generated chunk pays a one-time optimization cost.
+
+        ``True`` for backends (e.g. the world model) whose first chunk after
+        warmup triggers torch.compile / CUDA-graph capture / Triton autotuning,
+        so the demo can show "Optimizing world model..." instead of "Loading
+        scene..." until it lands. ``False`` (the default, e.g. raster) skips
+        that phase text.
+        """
+        return False
+
     @abstractmethod
     def warmup_model(self) -> None:
         """Load/compile the scene-independent model. Called once per process."""
