@@ -37,12 +37,12 @@ SPDX-License-Identifier: Apache-2.0
 /* ----- 1. Design tokens --------------------------------------------------- */
 
 :root {
-    /* Accent — single source of truth for branded color. Tuned to the
-       green that the FlashDreams logo uses (#76B900). Re-brand
+    /* Accent, single source of truth for branded color. Tuned to the
+       green that the FlashDreams logo uses, but 20% darker. Re-brand
        by editing these four values. */
-    --fd-accent:        #76b900;
-    --fd-accent-hover:  #5e9300;
-    --fd-accent-soft:   rgba(118, 185, 0, 0.12);
+    --fd-accent:        #5e9400;
+    --fd-accent-hover:  #4b7600;
+    --fd-accent-soft:   rgba(94, 148, 0, 0.12);
     --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
 
     /* Type scale — four sizes. Smaller labels (eyebrows, stat labels,
@@ -111,9 +111,9 @@ html[data-theme="dark"] {
 
     /* Dark-mode accent: a brighter green so it pops against #0f1218
        without losing the NVIDIA-green identity. */
-    --fd-accent:        #8ddc1a;
-    --fd-accent-hover:  #a4ea3a;
-    --fd-accent-soft:   rgba(141, 220, 26, 0.18);
+    --fd-accent:        #71b015;
+    --fd-accent-hover:  #83bb2e;
+    --fd-accent-soft:   rgba(113, 176, 21, 0.18);
     --fd-accent-ink:    #0f1218;
 
     /* Heavier shadows are noise on a dark background; flatten them. */
@@ -138,6 +138,15 @@ html[data-theme="dark"] {
     --sd-color-primary:         var(--fd-accent);
     --sd-color-primary-text:    var(--fd-accent-ink);
     --sd-color-primary-highlight: var(--fd-accent-hover);
+
+    /* "Secondary" defaults to a theme purple (pydata #8045e5 / #9c5ffd,
+       sphinx-design #6c757d gray). Re-bind both onto the same green so
+       secondary buttons / badges match the brand instead of standing out. */
+    --pst-color-secondary:          var(--fd-accent);
+    --pst-color-secondary-bg:       var(--fd-accent-soft);
+    --sd-color-secondary:           var(--fd-accent);
+    --sd-color-secondary-text:      var(--fd-accent-ink);
+    --sd-color-secondary-highlight: var(--fd-accent-hover);
 }
 
 
