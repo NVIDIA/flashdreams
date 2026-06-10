@@ -58,12 +58,27 @@ jobs:
           uv sync --extra dev --group lint \
             --no-install-package transformer-engine-torch
 
-      - name: Run linter checks
+      - name: Run linter checks (comment /lint-fix to auto-fix)
         run: |
           # Container runs as root but the workspace is owned by the runner
           # uid -- git refuses to operate without safe.directory.
           git config --global --add safe.directory "$(pwd)"
+          set +e
           uv run --no-sync pre-commit run -a
+          status=$?
+          set -e
+
+          if [ "${status}" -ne 0 ]; then
+            echo "::notice title=Auto-fix available::Some lint failures can be fixed automatically. A maintainer can comment /lint-fix on the PR to open an automated fix PR."
+            {
+              echo "## Linter checks failed"
+              echo
+              echo "Some pre-commit failures can be fixed automatically."
+              echo "A maintainer can comment \`/lint-fix\` on the PR to open an automated fix PR for formatting, imports, and version-sync changes."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          exit "${status}"
 
       - name: Install remaining system dependencies
         run: |

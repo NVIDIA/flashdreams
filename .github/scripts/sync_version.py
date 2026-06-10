@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import re
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -111,6 +112,26 @@ def sync_version(version: str) -> list[Path]:
 
 
 def main() -> None:
+    global REPO_ROOT
+
+    parser = ArgumentParser(
+        description=(
+            "Sync flashdreams package versions to the canonical "
+            "flashdreams/flashdreams/_version.py value."
+        )
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=REPO_ROOT,
+        help=(
+            "Repository root to update. Defaults to the repository containing "
+            "this script."
+        ),
+    )
+    args = parser.parse_args()
+    REPO_ROOT = args.repo_root.resolve()
+
     version = read_canonical_version()
     changed = sync_version(version)
     if changed:

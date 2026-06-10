@@ -230,6 +230,9 @@ short ping comment.
 - Formatting is enforced by `ruff` via pre-commit (`uv run pre-commit
   run -a`). The CI will reject unformatted code; running pre-commit
   locally is the easiest way to avoid surprises.
+- If CI reports fixable pre-commit changes, a maintainer can comment
+  `/lint-fix` on the PR to open an automated fix PR for formatting,
+  imports, and version-sync updates.
 - Prefer small, well-named functions over long functions with comments
   explaining each block. Comments should explain *why*, not *what*.
 - Tests live in `flashdreams/tests/` and `integrations/*/tests/`. Use

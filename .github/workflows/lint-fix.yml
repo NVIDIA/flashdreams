@@ -1,0 +1,183 @@
+name: Lint Fix
+
+on:
+  repository_dispatch:
+    types: [lint-fix-command]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  lint-fix:
+    if: >-
+      github.repository == 'NVIDIA/flashdreams' &&
+      github.event.client_payload.github.payload.repository.full_name == 'NVIDIA/flashdreams' &&
+      github.event.client_payload.pull_request.base.repo.full_name == 'NVIDIA/flashdreams'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.client_payload.pull_request.head.ref }}
+          path: pr-branch
+          persist-credentials: false
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/flashdreams
+          ref: ${{ github.event.client_payload.pull_request.base.ref }}
+          path: target-branch
+          persist-credentials: false
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run fixable pre-commit hooks
+        id: fixers
+        working-directory: pr-branch
+        env:
+          PRE_COMMIT_HOME: ${{ runner.temp }}/pre-commit
+        run: |
+          set -euo pipefail
+
+          config="${RUNNER_TEMP}/flashdreams-lint-fix-pre-commit.yaml"
+          cp ../target-branch/.pre-commit-config.yaml "${config}"
+          command -v uvx >/dev/null
+
+          {
+            echo "## Lint fix"
+            echo
+            echo "Ran fixable pre-commit hooks from the target branch against this PR branch."
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          run_hook() {
+            local hook_id="$1"
+            local status=0
+
+            echo "::group::pre-commit ${hook_id}"
+            set +e
+            uvx --from pre-commit==4.3.0 pre-commit run \
+              --config "${config}" \
+              "${hook_id}" \
+              --all-files
+            status=$?
+            set -e
+            echo "::endgroup::"
+
+            if [ "${status}" -eq 0 ]; then
+              echo "- \`${hook_id}\`: clean" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              echo "- \`${hook_id}\`: exited with ${status}; this is expected when files are rewritten" >> "${GITHUB_STEP_SUMMARY}"
+            fi
+          }
+
+          run_hook trailing-whitespace
+          run_hook end-of-file-fixer
+          run_hook ruff-fix
+          run_hook ruff-format
+
+          sync_status=0
+          echo "::group::sync-version"
+          set +e
+          python ../target-branch/.github/scripts/sync_version.py --repo-root .
+          sync_status=$?
+          set -e
+          echo "::endgroup::"
+
+          if [ "${sync_status}" -eq 0 ]; then
+            echo "- \`sync-version\`: clean" >> "${GITHUB_STEP_SUMMARY}"
+          elif [ "${sync_status}" -eq 1 ]; then
+            echo "- \`sync-version\`: updated package versions" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "- \`sync-version\`: failed with ${sync_status}" >> "${GITHUB_STEP_SUMMARY}"
+            exit "${sync_status}"
+          fi
+
+          echo >> "${GITHUB_STEP_SUMMARY}"
+          if git diff --quiet; then
+            echo "No automatic lint fixes were produced." >> "${GITHUB_STEP_SUMMARY}"
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Automatic lint fixes were produced:" >> "${GITHUB_STEP_SUMMARY}"
+            git diff --stat | tee -a "${GITHUB_STEP_SUMMARY}"
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Check bot token
+        if: steps.fixers.outputs.changed == 'true'
+        env:
+          FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FLASHDREAMS_BOT_PAT:-}" ]; then
+            echo "::error title=Missing bot token::Set FLASHDREAMS_BOT_PAT so /lint-fix can push a fix branch and open a PR."
+            exit 1
+          fi
+
+      - name: Resolve bot identity
+        if: steps.fixers.outputs.changed == 'true'
+        id: bot
+        env:
+          FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
+        run: |
+          set -euo pipefail
+          bot_info="$(curl -fsSL \
+            -H "Authorization: Bearer ${FLASHDREAMS_BOT_PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)"
+          bot_name="$(echo "${bot_info}" | jq --raw-output '.login')"
+          bot_identity="$(echo "${bot_info}" | jq --raw-output '.login + " <" + (.id|tostring) + "+" + .login + "@users.noreply.github.com>"')"
+          echo "name=${bot_name}" >> "${GITHUB_OUTPUT}"
+          echo "identity=${bot_identity}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create lint fix pull request
+        if: steps.fixers.outputs.changed == 'true'
+        id: create-pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.FLASHDREAMS_BOT_PAT }}
+          path: pr-branch
+          commit-message: "lint fixes"
+          committer: ${{ steps.bot.outputs.identity }}
+          author: ${{ steps.bot.outputs.identity }}
+          signoff: true
+          title: "Apply lint fixes for PR #${{ github.event.client_payload.pull_request.number }}"
+          body: "Automated lint fixes for ${{ github.event.client_payload.pull_request.html_url }}"
+          branch: lint-fix-${{ github.event.client_payload.pull_request.number }}-${{ github.event.client_payload.pull_request.head.ref }}
+          base: ${{ github.event.client_payload.pull_request.head.ref }}
+          push-to-fork: ${{ steps.bot.outputs.name }}/flashdreams
+          delete-branch: true
+
+      - name: Comment on PR
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: NVIDIA/flashdreams
+          issue-number: ${{ github.event.client_payload.pull_request.number }}
+          body: |
+            ${{
+              steps.fixers.conclusion != 'success'
+              && format('Lint fix failed before creating a PR. Check the workflow run: https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id)
+              || (steps.fixers.outputs.changed != 'true'
+                  && 'No automatic lint fixes were produced. The remaining failures likely need manual changes.'
+              || (steps.create-pr.conclusion != 'success'
+                  && format('Failed to create the lint-fix pull request. Check the workflow run: https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id)
+                  || (steps.create-pr.outputs.pull-request-url != ''
+                      && format('Lint fixes are ready: {0}', steps.create-pr.outputs.pull-request-url)
+                      || 'No automatic lint fixes were produced. The remaining failures likely need manual changes.')))
+            }}
+
+      - name: Add reaction
+        if: steps.create-pr.conclusion == 'success' && steps.create-pr.outputs.pull-request-url != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+          reactions-edit-mode: replace
+          reactions: hooray
