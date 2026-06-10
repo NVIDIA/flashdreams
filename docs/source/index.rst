@@ -56,15 +56,11 @@ FlashDreams
 
       .. container:: fd-split-visual
 
-         .. raw:: html
+         .. container:: fd-promo-video-wrap
 
-            <div class="fd-promo-video-wrap">
-              <img
-                class="fd-promo-video-player"
-                src="_static/promo/flashdreams-promo.avif"
-                alt="FlashDreams quick intro animation"
-                decoding="async">
-            </div>
+            .. image:: /_static/promo/flashdreams-promo.avif
+               :alt: FlashDreams quick intro animation
+               :class: fd-promo-video-player zoomable
 
 Why FlashDreams?
 ----------------
