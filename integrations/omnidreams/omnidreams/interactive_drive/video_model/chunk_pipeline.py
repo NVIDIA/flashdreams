@@ -72,11 +72,9 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 class ChunkPipeline:
     def __init__(self, backend: VideoModelBackend) -> None:
         self._backend = backend
-        # TODO: replace the loop's chunk-level ``chunks_outstanding`` gate with
-        # frame-level in-flight tracking (frames requested - frames consumed,
-        # alpasim style) and surface a hook here so callers gate at the
-        # request site instead of the queue boundary. Until then the queue is
-        # unbounded so ``put`` cannot deadlock the worker against shutdown.
+        # Unbounded so ``put`` never blocks the worker against shutdown.
+        # TODO: gate in-flight work at the request site (frame-level, alpasim
+        # style) instead of the loop's chunk-level ``chunks_outstanding`` gate.
         self._frame_queue: queue.Queue[QueuedFrame] = queue.Queue()
         self._command_queue: queue.Queue[_WorkerCommand] = queue.Queue()
         # Captures any exception raised on the worker thread (warmup, render,
@@ -93,12 +91,10 @@ class ChunkPipeline:
         # stays optimized across resets and scene switches.
         self._first_chunk_produced = threading.Event()
         # Monotonic generation bumped on every reset / scene switch. Renders
-        # submitted under an older generation are superseded: their frames
-        # are dropped instead of presented, so a reset or scene load doesn't
-        # first flash stale frames from the rollout it replaced. The worker
-        # can't interrupt an in-flight torch generate(), but its output is
-        # discarded -- the single-process analog of alpasim cancelling the
-        # runtime stream and clearing its frame queues on reload.
+        # submitted under an older generation are superseded: their frames are
+        # dropped rather than presented, so a reload doesn't flash stale frames
+        # from the rollout it replaced. An in-flight torch ``generate()`` can't
+        # be interrupted, but its output is discarded.
         self._generation_lock = threading.Lock()
         self._generation = 0
         self._thread = threading.Thread(
@@ -227,12 +223,8 @@ class ChunkPipeline:
     def reset(self) -> None:
         """Signal the worker to start a new rollout. Non-blocking.
 
-        Bumps the generation so any in-flight / queued render is superseded:
-        its frames are dropped rather than presented, so the reset doesn't
-        first replay a stretch of old-rollout frames (the single-process
-        analog of alpasim cancelling the runtime stream and clearing its
-        frame queues). The in-flight torch generate() can't be interrupted,
-        but its output is discarded; the worker still handles the reset
+        Bumps the generation (see ``__init__``) so in-flight / queued frames
+        are dropped rather than replayed; the worker still handles the reset
         FIFO so the next rollout starts from a clean cache.
         """
         self._raise_worker_error_if_any()

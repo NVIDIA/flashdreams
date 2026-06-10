@@ -21,52 +21,34 @@ _SCENE_ID = "synthetic-test-scene"
 _CAMERA_CLIPGT_NAME = "camera:front:wide:120fov"
 _CAMERA_LOGICAL_NAME = "camera_front_wide_120fov"
 _FPS = 30
-# Trajectory length used by the test fixture and as the default for the
-# runtime synthetic-scene helper. 180 frames (6 s at 30 fps, ~60 m at the
-# default speed) is enough for the scene-loader unit tests; the runtime
-# helper bumps this to ~10 minutes of road via ``length_frames``.
+# Default trajectory length: 180 frames (6 s @ 30 fps, ~60 m) is enough for the
+# scene-loader tests; the runtime helper passes a larger ``length_frames``.
 _DEFAULT_TRAJECTORY_FRAMES = 180
 _START_TIMESTAMP_US = 1_700_000_000_000_000
-# Centerline shape. A pure sine at one wavelength reads as visually
-# monotonous over a multi-km drive, so we superpose two waves: a long
-# highway-style sweep (1200 m wavelength) and a short drift (200 m
-# wavelength). The combined min turn radius is ~600 m -- a clearly
-# visible curve from inside the cab without snaking, and the differing
-# periods stop the road from feeling like the same kilometre repeated.
+# Centerline = two superposed sines (long highway sweep + short drift) so the
+# road curves visibly (~600 m min radius) without feeling repetitive.
 _WAVE_LONG_AMPLITUDE_M = 7.0
 _WAVE_LONG_PERIOD_S = 120.0
 _WAVE_SHORT_AMPLITUDE_M = 2.0
 _WAVE_SHORT_PERIOD_S = 20.0
 _FORWARD_SPEED_MPS = 10.0
-# Lateral half-widths used by the synthetic geometry (meters from the
-# centerline).
-#   - lane lines at ~1.8 m matches a standard US lane (3.6 m wide).
-#   - road boundaries at 9 m make the visible road 18 m wide, i.e. a
-#     2-lane carriageway plus shoulders, which is the look the
-#     synthetic demo defaults to.
+# Lateral half-widths (m from centerline): lane lines at 1.8 m = a 3.6 m US
+# lane; road boundaries at 9 m = an 18 m 2-lane carriageway plus shoulders.
 _LANE_LINE_OFFSET_M = 1.8
 _ROAD_BOUNDARY_OFFSET_M = 9.0
 _POLE_OFFSET_M = 9.5
-# Periodic roadside furniture. Poles spaced like streetlamps (~50 m on
-# real highways), parked cars on alternating shoulders, and traffic
-# signs on alternating shoulders. Each helper respects the wavy
-# centerline so the geometry stays anchored to the lane regardless of
-# drive distance.
+# Periodic roadside furniture spacing (poles ~50 m like streetlamps, plus parked
+# cars / signs on alternating shoulders), anchored to the wavy centerline.
 _POLE_PERIOD_M = 50.0
 _PARKED_CAR_PERIOD_M = 150.0
 _PARKED_CAR_LATERAL_M = 5.0
 _TRAFFIC_SIGN_PERIOD_M = 200.0
 _TRAFFIC_SIGN_LATERAL_M = 7.0
 _TRAFFIC_SIGN_HEIGHT_M = 2.5
-# Off-road clutter ("trees / telephone poles") scattered far from the road
-# in a wide lateral band. Without these the HDMap goes empty as soon as
-# the ego strays past the road boundary -- the world model gets a black
-# conditioning frame and either freezes or drifts. Spacing is dense
-# (one pair every 15 m forward) and lateral position + height are
-# randomized in fixed seeded ranges so the scene reproduces across
-# runs while still looking varied. Both sides get a pole per period
-# but at INDEPENDENT random lateral offsets so it doesn't read as a
-# parallel two-line corridor.
+# Off-road clutter ("trees / poles") in a wide lateral band so the HDMap stays
+# non-empty when the ego leaves the road (a black conditioning frame makes the
+# world model drift). Dense (one pair / 15 m), seeded for reproducibility, with
+# independent per-side offsets so it isn't a parallel two-line corridor.
 _OFF_ROAD_POLE_PERIOD_M = 15.0
 _OFF_ROAD_POLE_LATERAL_MIN_M = 15.0
 _OFF_ROAD_POLE_LATERAL_MAX_M = 100.0
@@ -74,11 +56,8 @@ _OFF_ROAD_POLE_HEIGHT_MIN_M = 3.0
 _OFF_ROAD_POLE_HEIGHT_MAX_M = 8.0
 _OFF_ROAD_POLE_FORWARD_JITTER_M = 4.0
 _OFF_ROAD_POLE_RNG_SEED = 42
-# Long lane-line / road-boundary polylines render as a single subdivided
-# strip; very long strips can fade out at distance because the rasterizer
-# coarsens the whole run. Splitting into ~80 m chunks keeps each render
-# group short and self-contained, which mitigates the distance fade and
-# also avoids any per-polyline soft caps in the line uploader.
+# Split long lane-line / boundary polylines into ~80 m chunks so the rasterizer's
+# whole-run coarsening doesn't fade distant segments (and to dodge per-polyline caps).
 _LANE_LINE_CHUNK_FRAMES = 240
 _IMAGE_WIDTH = 1280
 _IMAGE_HEIGHT = 704
@@ -146,16 +125,10 @@ def _chunk_polyline(
     *,
     chunk_size: int,
 ) -> list[list[dict[str, float]]]:
-    """Split a long polyline into overlapping chunks of ~``chunk_size`` points.
+    """Split a long polyline into overlapping ~``chunk_size``-point chunks.
 
-    The chunks share their endpoint with the previous chunk so the
-    rasterizer's per-row coarsening produces a continuous line on screen
-    instead of visible gaps at the chunk boundaries.
-
-    Splitting matters for the synthetic scene because lane lines and
-    road boundaries each cover the full ~10-20 km trajectory; a single
-    polyline of 30 000+ points runs into the rasterizer's distance-fade
-    behaviour for very long subdivided strips.
+    Chunks share endpoints so the rasterizer's per-row coarsening stays
+    continuous; splitting also avoids the distance-fade on very long strips.
     """
     if chunk_size < 2:
         raise ValueError(f"chunk_size must be >= 2, got {chunk_size}")
@@ -408,19 +381,10 @@ def _off_road_poles(
     forward_jitter_m: float = _OFF_ROAD_POLE_FORWARD_JITTER_M,
     seed: int = _OFF_ROAD_POLE_RNG_SEED,
 ) -> list[list[dict[str, float]]]:
-    """Scatter "tree / telephone pole" clutter in a wide off-road band.
+    """Scatter randomized "tree / telephone pole" clutter in a wide off-road band.
 
-    Unlike :func:`_periodic_poles` (streetlamp-style poles at a fixed
-    offset just outside the road boundary), these are randomly placed in
-    a configurable [lateral_min_m, lateral_max_m] strip on both sides of
-    the road. Heights vary so the rendered HDMap reads as a forest /
-    telephone-pole field instead of a uniform corridor.
-
-    The point of the helper is to keep the HDMap non-empty when the ego
-    strays off the road -- without this, driving past the road boundary
-    sees nothing but black conditioning frames, which the world model
-    has no idea how to extend. Output is deterministic via the seeded
-    RNG so the scene reproduces across runs.
+    Keeps the HDMap non-empty when the ego strays off the road (black
+    conditioning frames make the world model drift); seeded for reproducibility.
     """
     if len(x_m) == 0:
         return []

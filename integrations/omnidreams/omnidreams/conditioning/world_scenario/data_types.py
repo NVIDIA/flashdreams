@@ -35,8 +35,6 @@ from scipy.spatial.transform import Rotation, Slerp
 
 
 class ObjectType(str, Enum):
-    """Dynamic object types."""
-
     CAR = "Car"
     PEDESTRIAN = "Pedestrian"
     CYCLIST = "Cyclist"
@@ -47,8 +45,6 @@ class ObjectType(str, Enum):
 
 
 class LaneLineStyle(str, Enum):
-    """Lane line styles."""
-
     SOLID_SINGLE = "SOLID_SINGLE"
     DASHED_SINGLE = "DASHED_SINGLE"
     SOLID_DOUBLE = "SOLID_DOUBLE"
@@ -67,8 +63,6 @@ class LaneLineStyle(str, Enum):
 
 
 class LaneLineColor(str, Enum):
-    """Lane line colors."""
-
     WHITE = "WHITE"
     YELLOW = "YELLOW"
     BLUE = "BLUE"
@@ -84,13 +78,10 @@ class LaneLineType:
 
     @property
     def canonical_name(self) -> str:
-        """Return the canonical name for this lane line type."""
         return self.color.value + " " + self.style.value
 
 
 class TrafficLightState(str, Enum):
-    """Traffic light states."""
-
     RED = "RED"
     YELLOW = "YELLOW"
     GREEN = "GREEN"
@@ -99,8 +90,6 @@ class TrafficLightState(str, Enum):
 
 
 class TrafficSignType(str, Enum):
-    """Traffic sign types."""
-
     STOP = "STOP"
     YIELD = "YIELD"
     SPEED_LIMIT = "SPEED_LIMIT"
@@ -214,12 +203,10 @@ class LaneLine(PolylineElement):
 
     @property
     def color(self) -> LaneLineColor:
-        """Get the lane line color from the type."""
         return self.lane_type.color
 
     @property
     def style(self) -> LaneLineStyle:
-        """Get the lane line style from the type."""
         return self.lane_type.style
 
 
@@ -291,8 +278,6 @@ class TrafficLight(OrientedBoxElement):
 
 @dataclass
 class TrafficSign(OrientedBoxElement):
-    """Traffic sign."""
-
     sign_type: TrafficSignType = TrafficSignType.UNKNOWN
     text: Optional[str] = None  # For speed limit signs, etc.
 
@@ -309,13 +294,6 @@ class RoadIsland(PolygonElement):
     """Traffic island/median area."""
 
     pass
-
-
-@dataclass
-class BufferZone(PolygonElement):
-    """Buffer/safety zone."""
-
-    zone_type: str = "general"
 
 
 # ============================================================================
@@ -554,7 +532,6 @@ class SceneData:
     traffic_signs: List[TrafficSign] = field(default_factory=list)
     intersection_areas: List[IntersectionArea] = field(default_factory=list)
     road_islands: List[RoadIsland] = field(default_factory=list)
-    buffer_zones: List[BufferZone] = field(default_factory=list)
 
     # Dynamic objects
     dynamic_objects: Dict[str, DynamicObject] = field(
@@ -566,31 +543,8 @@ class SceneData:
 
     @property
     def num_frames(self) -> int:
-        """Get number of frames in the scene."""
         return len(self.ego_poses)
 
     @property
     def timestamps(self) -> NDArray[np.int64]:
-        """Get array of timestamps."""
         return np.array([pose.timestamp for pose in self.ego_poses], dtype=np.int64)
-
-    def get_objects_at_frame(self, frame_id: int) -> Dict[str, Dict[str, Any]]:
-        """Get all dynamic objects at a specific frame in legacy format for compatibility."""
-        result = {}
-        timestamps = self.timestamps
-
-        for track_id, obj in self.dynamic_objects.items():
-            pose_data = obj.get_pose_at_timestamp(timestamps[frame_id])
-            if pose_data is not None:
-                _center, dims, _orientation = pose_data
-                transform = obj.get_transformation_at_frame(frame_id, timestamps)
-
-                if transform is not None:
-                    result[track_id] = {
-                        "object_to_world": transform.tolist(),
-                        "object_lwh": dims.tolist(),
-                        "object_type": obj.object_type.value,
-                        "object_is_moving": obj.is_moving,
-                    }
-
-        return result

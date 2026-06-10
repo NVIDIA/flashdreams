@@ -154,10 +154,10 @@ class SceneBundle:
     triangle_layers: tuple[WorldTriangleList, ...]
     polygon_layers: tuple[WorldPolygonList, ...] = ()
     vehicle_bbox_tracks: tuple[WorldVehicleBBoxTrack, ...] = ()
-    # Ground-plane mesh from ``mesh_ground.ply`` in the USDZ. Used by
-    # :class:`omnidreams.interactive_drive.physics.GroundSnapper` to keep the ego on the
-    # ground after each kinematic integration step. ``None`` when the USDZ
-    # ships no ground mesh (e.g. legacy fixtures); ground-snap then no-ops.
+    # Ground-plane mesh from ``mesh_ground.ply``; used by
+    # :class:`~omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper`
+    # to keep the ego on the ground. ``None`` when the USDZ ships no ground
+    # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
 
@@ -171,13 +171,6 @@ class DriverCommand:
     reverse: bool = False
     steer_is_direct: bool = False
     manual_control: bool = False
-
-
-@dataclass(frozen=True)
-class DriveControls:
-    throttle: float = 0.0
-    brake: float = 0.0
-    steer: float = 0.0
 
 
 @dataclass
@@ -207,12 +200,9 @@ class PresentedFrame:
     rgb_native: Any | None = None
     depth_native: Any | None = None
     model_rgb_host_uint8: Any | None = None
-    # Top-down BEV map rendered from the same scene with a synthetic camera
-    # 25m above the rig (configured by :class:`BevConfig`). Carried alongside
-    # the main camera frame so the demo HUD can show a minimap panel without
-    # needing a second rasterizer instance. ``None`` when BEV rendering is
-    # disabled, or when the world-model backend's first chunk replays the
-    # debug HDMap override (BEV is not in that override set).
+    # Top-down BEV minimap rendered with a synthetic overhead camera (see
+    # :class:`BevConfig`). ``None`` when BEV is disabled or the world-model
+    # first chunk replays the debug HDMap override.
     bev_host_uint8: Any | None = None
     status_message: str | None = None
 

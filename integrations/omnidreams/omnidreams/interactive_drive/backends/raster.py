@@ -21,8 +21,7 @@ class RasterRenderBackend(RenderBackend):
         self._scene: SceneBundle | None = None
 
     def warmup_model(self) -> None:
-        # The raster backend has no model to load; all per-scene work
-        # happens in load_scene, so there is nothing to pre-warm.
+        # No model to load; per-scene work happens in load_scene.
         return
 
     def load_scene(self, scene: SceneBundle) -> None:

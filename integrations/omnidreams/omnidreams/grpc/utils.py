@@ -22,7 +22,7 @@ Key conversions:
 - Image proto → Tensor
 - StaticWorldMap (zip) → SceneData
 - Trajectory proto → camera poses (numpy)
-- DynamicWorldState proto → renderer object_info
+- DynamicWorldState proto → Ludus dynamic obstacle pool
 - CameraSpec proto → FThetaCamera
 """
 
@@ -32,7 +32,6 @@ import io
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import torch
@@ -43,16 +42,11 @@ from ludus_renderer.clipgt import OBSTACLE_COLORS_V3
 from omnidreams.conditioning.renderer import load_and_attach_ludus_scene
 from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.data_types import SceneData
-from omnidreams.conditioning.world_scenario.data_utils import convert_pose_flu_to_rdf
 from omnidreams.conditioning.world_scenario.ftheta import FThetaCamera
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from PIL import Image
 from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
-
-# =============================================================================
-# Image Encoding/Decoding
-# =============================================================================
 
 
 def decode_image(
@@ -76,11 +70,9 @@ def decode_image(
         if target_resolution_hw is not None:
             target_h, target_w = target_resolution_hw
             img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-        # Convert to tensor [C, H, W]
         arr = np.array(img, dtype=np.uint8)
         return torch.from_numpy(arr).permute(2, 0, 1)
     elif image_format == "RGB_UINT8_PLANAR":
-        # Raw planar RGB data
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         if target_resolution_hw is not None:
             target_h, target_w = target_resolution_hw
@@ -114,11 +106,6 @@ def encode_image(
     else:
         img.save(buf, format=format)
     return buf.getvalue()
-
-
-# =============================================================================
-# Static World Map Loading
-# =============================================================================
 
 
 def load_static_world_from_zip_bytes(
@@ -168,11 +155,6 @@ def load_static_world_from_zip_bytes(
         )
 
     return scene_data
-
-
-# =============================================================================
-# Pose and Trajectory Conversion
-# =============================================================================
 
 
 def pose_to_matrix(
@@ -234,20 +216,6 @@ def trajectory_to_camera_poses(
     return np.stack(matrices), timestamps
 
 
-# =============================================================================
-# Dynamic State Conversion (gRPC DynamicWorldState → renderer object_info)
-# =============================================================================
-
-# Actor class mapping from proto enum to renderer's expected types
-ACTOR_CLASS_MAP = {
-    0: "Others",  # INVALID
-    1: "Car",  # CAR
-    2: "Truck",  # TRUCK
-    3: "Pedestrian",  # PEDESTRIAN
-    4: "Cyclist",  # CYCLIST
-    5: "Others",  # OTHER
-}
-
 ACTOR_CLASS_TO_OBSTACLE_CATEGORY = {
     0: "Other",
     1: "Car",
@@ -262,120 +230,6 @@ ACTOR_CLASS_TO_OBSTACLE_CATEGORY = {
     "CYCLIST": "Cyclist",
     "OTHER": "Other",
 }
-
-
-def dynamic_actor_to_object_info(
-    actor: dict,
-    frame_timestamp_us: int,
-    coordinate_system: Literal["FLU", "RDF"] = "FLU",
-) -> dict | None:
-    """
-    Convert a single DynamicActor to renderer object_info format at a specific time.
-
-    Interpolates the actor's trajectory to get pose at the given timestamp.
-
-    Args:
-        actor: Dict with 'class_id', 'bbox_dims', 'trajectory'.
-        frame_timestamp_us: Timestamp in microseconds for which to get pose.
-
-    Returns:
-        Dict with 'object_type', 'object_to_world', 'object_lwh', or None if
-        actor is not visible at this time.
-    """
-    trajectory = actor.get("trajectory", {}).get("poses", [])
-    if not trajectory:
-        return None
-
-    # Find poses bracketing the requested timestamp for interpolation
-    # For now, use nearest neighbor (TODO: linear interpolation)
-    best_pose = None
-    best_diff = float("inf")
-    for pose_at_time in trajectory:
-        ts = pose_at_time.get("timestamp_us", 0)
-        diff = abs(ts - frame_timestamp_us)
-        if diff < best_diff:
-            best_diff = diff
-            best_pose = pose_at_time
-
-    if best_pose is None:
-        return None
-
-    # Convert pose to 4x4 matrix
-    pose = best_pose.get("pose", {})
-    vec = pose.get("vec", {})
-    quat = pose.get("quat", {})
-    translation = (
-        float(vec.get("x", 0.0)),
-        float(vec.get("y", 0.0)),
-        float(vec.get("z", 0.0)),
-    )
-    quat_wxyz = (
-        float(quat.get("w", 1.0)),
-        float(quat.get("x", 0.0)),
-        float(quat.get("y", 0.0)),
-        float(quat.get("z", 0.0)),
-    )
-    object_to_world_flu = pose_to_matrix(translation, quat_wxyz)
-
-    # Convert from FLU (client coordinate frame) to RDF (internal coordinate frame)
-    if coordinate_system == "RDF":
-        object_to_world = convert_pose_flu_to_rdf(object_to_world_flu)
-    else:
-        object_to_world = object_to_world_flu
-
-    # Get dimensions (AABB: size_x, size_y, size_z → LWH convention)
-    bbox = actor.get("bbox_dims", {})
-    # Client sends dimensions in FLU order: size_x=forward/length, size_y=left/width, size_z=up/height
-    # Renderer expects [length, width, height] which is the same semantic order
-    object_lwh = np.array(
-        [
-            bbox.get("size_x", 1.0),  # length (forward direction)
-            bbox.get("size_y", 1.0),  # width (left direction)
-            bbox.get("size_z", 1.0),  # height (up direction)
-        ],
-        dtype=np.float32,
-    )
-
-    # Map class ID to type string
-    class_id = actor.get("class_id", 0)
-    object_type = ACTOR_CLASS_MAP.get(class_id, "Others")
-
-    return {
-        "object_type": object_type,
-        "object_to_world": object_to_world,
-        "object_lwh": object_lwh,
-    }
-
-
-def dynamic_state_to_object_info(
-    dynamic_state: dict,
-    frame_timestamp_us: int,
-    coordinate_system: Literal["FLU", "RDF"] = "FLU",
-) -> dict[str, dict]:
-    """
-    Convert gRPC DynamicWorldState to renderer's object_info format.
-
-    Args:
-        dynamic_state: Dict with 'actors' (list of DynamicActor dicts).
-        frame_timestamp_us: Timestamp for which to get actor poses.
-
-    Returns:
-        Dict mapping tracking_id → object info suitable for renderer.
-        Format: {tracking_id: {"object_type", "object_to_world", "object_lwh"}}
-    """
-    object_info = {}
-    actors = dynamic_state.get("actors", [])
-
-    for idx, actor in enumerate(actors):
-        info = dynamic_actor_to_object_info(
-            actor, frame_timestamp_us, coordinate_system=coordinate_system
-        )
-        if info is not None:
-            # Use index as tracking ID (proto doesn't have explicit IDs)
-            tracking_id = str(idx)
-            object_info[tracking_id] = info
-
-    return object_info
 
 
 def _actor_class_to_obstacle_category(class_id: object) -> str:
@@ -594,11 +448,6 @@ def dynamic_state_to_ludus_cube_pool(
     )
 
 
-# =============================================================================
-# Rig-to-Camera Transforms
-# =============================================================================
-
-
 def parse_rig_to_camera(rig_to_camera_dict: dict) -> np.ndarray:
     """
     Convert a rig-to-camera Pose dict to a 4x4 transformation matrix.
@@ -675,11 +524,6 @@ def compute_camera_poses_from_rig(
         return torch.einsum("nij,jk->nik", rig_poses, rig_to_camera)
     else:
         return np.einsum("nij,jk->nik", rig_poses, rig_to_camera).astype(np.float32)
-
-
-# =============================================================================
-# Camera Intrinsics Conversion (gRPC CameraSpec → FThetaCamera)
-# =============================================================================
 
 
 def camera_spec_to_ftheta(camera_spec: dict) -> FThetaCamera:
@@ -779,24 +623,10 @@ def camera_spec_to_ftheta(camera_spec: dict) -> FThetaCamera:
         raise ValueError("No supported camera model found in camera_spec")
 
 
-# =============================================================================
-# Protobuf Helper
-# =============================================================================
-
-
 def proto_to_dict(proto_msg) -> dict:
-    """
-    Convert protobuf message to dictionary.
-
-    Args:
-        proto_msg: Protobuf message.
-
-    Returns:
-        Dictionary representation.
-    """
-    # Handle both old and new protobuf API
-    # Old: including_default_value_fields (deprecated in protobuf 4.x)
-    # New: always_print_fields_with_no_presence (protobuf 4.x+)
+    """Convert a protobuf message to a dict, preserving proto field names."""
+    # always_print_fields_with_no_presence is protobuf 4.x+; older versions
+    # spell the same option including_default_value_fields.
     try:
         return MessageToDict(
             proto_msg,
@@ -804,7 +634,6 @@ def proto_to_dict(proto_msg) -> dict:
             always_print_fields_with_no_presence=True,
         )
     except TypeError:
-        # Fall back to old API for older protobuf versions
         return MessageToDict(
             proto_msg,
             preserving_proto_field_name=True,

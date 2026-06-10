@@ -15,18 +15,14 @@
 
 """Omnidreams HDMap-conditioned I2V runner classes (single- + multi-view).
 
-Pure implementation module. The per-slug ``*_RUNNER`` literals + the
-``OMNIDREAMS_RUNNERS`` aggregating dict live in
-:mod:`omnidreams.config`, alongside the matching
-pipeline configs.
-
-:meth:`OmnidreamsRunner.run` dispatches across three modes:
+The ``*_RUNNER`` literals + ``OMNIDREAMS_RUNNERS`` dict live in
+:mod:`omnidreams.config`. :meth:`OmnidreamsRunner.run` dispatches three modes:
 
 - Default: encode then AR rollout, write MP4 + per-step stats.
-- ``--save_embeddings_path``: run only the one-shot encoders,
-  ``torch.save`` the embeddings, exit before the AR loop.
-- ``--embeddings_path``: hydrate the cache from precomputed
-  embeddings and skip the one-shot encoder forward pass.
+- ``--save_embeddings_path``: run only the one-shot encoders, ``torch.save``
+  the embeddings, exit before the AR loop.
+- ``--embeddings_path``: hydrate the cache from precomputed embeddings, skip
+  the one-shot encoder forward pass.
 """
 
 from __future__ import annotations
@@ -304,8 +300,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             text=[list(prompts)],
             image=first_frames_t,
         )
-        # ``negative_text_embeddings`` is opt-in (``Tensor | None``);
-        # text + image are always present.
+        # negative_text_embeddings is opt-in; text + image are always present.
         text_emb = embeddings["text_embeddings"]
         image_emb = embeddings["image_embeddings"]
         assert text_emb is not None and image_emb is not None
@@ -371,8 +366,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             )
             for i in range(num_views)
         ]
+        # [B=1, V, T, C, H, W]
         hdmap_videos_t = torch.stack(hdmap_videos, dim=0).unsqueeze(0)
-        # Shape: [B=1, V, T, C, H, W]
         hdmap_num_frames = hdmap_videos_t.shape[2]
         if self.is_rank_zero:
             logger.info(

@@ -46,17 +46,14 @@ from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
-# The canonical implementations of these evdev helpers now live in
-# ``input/wheel_profiles.py`` so the configuration tool can share them.
-# Private aliases keep the existing call sites in this module unchanged.
+# Private aliases for the evdev helpers (canonical defs in
+# ``input/wheel_profiles.py``, shared with the configuration tool).
 _scan_evdev_devices = scan_evdev_devices
 _read_evdev_name = read_evdev_name
 _query_axis_range = query_axis_range
 
-# Width of the right-side HUD panel that holds the steering wheel,
-# pedals, speed digit and BEV minimap. The camera area fills the rest
-# of the live screen width. Pinned at 500 px because the panel content
-# (wheel asset, pedal pngs) is asset-driven and doesn't reflow.
+# Right-side HUD panel width (wheel, pedals, speed, BEV minimap); camera fills
+# the rest. Pinned at 500 px because the panel content is asset-driven.
 HUD_PANEL_WIDTH = 500
 
 # Bundled AlpaSim-style steering-wheel / pedal PNGs that drive the HUD
@@ -76,36 +73,25 @@ BEV_PANEL_SIDE_MARGIN = 14
 BEV_PANEL_BOTTOM_MARGIN = 12
 BEV_PANEL_MIN_HEIGHT = 100
 
-# Google-Maps "land" colour: warm cream, slightly desaturated. Matches the
-# off-white background on Google Maps' default day-mode tiles. Black /
-# unrendered regions of the BEV image get blended toward this colour by
-# :func:`_apply_googlemaps_filter`.
+# Google-Maps day-mode palette for the BEV filter (:func:`_apply_googlemaps_filter`).
+# Warm cream "land" that unrendered/black BEV regions blend toward.
 GMAPS_LAND_RGB = (234, 226, 209)
-# Highlight tint for road paint / lane markings. Google Maps draws minor
-# roads in pale grey; we keep the rasterizer's whites/yellows but blend
-# them slightly toward this so they don't feel neon-bright on the cream.
+# Off-white "road" tint so lane paint reads as roads, not neon on the cream.
 GMAPS_ROAD_RGB = (252, 250, 244)
-# Substitute colour for magenta-rendered road boundaries. Soft warm grey
-# slightly darker than the cream land so the boundary still reads as a
-# road edge but with low enough contrast that aliasing on diagonals is
-# imperceptible. The cream-vs-magenta jump (~150 lightness) was the
-# dominant aliasing offender; cream-vs-grey is ~30, well below the
-# threshold most viewers can resolve at panel size.
+# Low-contrast warm grey for magenta road boundaries: keeps the edge readable
+# while dropping the cream-vs-magenta lightness jump that drove diagonal aliasing.
 GMAPS_BOUNDARY_GREY_RGB = (170, 165, 155)
-# Pre-built float32 arrays used by ``_apply_googlemaps_filter`` so the
-# numpy expression that runs once per BEV frame doesn't re-allocate
-# these constant 3-vectors each call.
+# Pre-built float32 vectors so the per-BEV-frame numpy expression doesn't
+# re-allocate these constants each call.
 _GMAPS_LAND_FLOAT = np.array(GMAPS_LAND_RGB, dtype=np.float32)
 _GMAPS_BOUNDARY_GREY_FLOAT = np.array(GMAPS_BOUNDARY_GREY_RGB, dtype=np.float32)
 _GMAPS_TINTED_MUL = (
     0.55 + 0.45 * np.array(GMAPS_ROAD_RGB, dtype=np.float32) / 255.0
 ).astype(np.float32)
 
-# Pull BEV camera defaults from the canonical :class:`BevConfig` so the
-# HUD's ego-marker placement automatically follows changes to the rasterizer
-# default. The marker sits at the rig's image projection: pure top-down
-# (tilt = 0) places it in the centre; positive tilt pushes it lower in the
-# frame because the camera now sees more ahead of the rig.
+# BEV camera defaults from the canonical :class:`BevConfig` so the HUD's
+# ego-marker placement tracks the rasterizer default (tilt=0 centres the
+# marker; positive tilt pushes it lower as the camera sees more ahead).
 _BEV_DEFAULTS = BevConfig()
 BEV_FOV_DEG = _BEV_DEFAULTS.fov_deg
 BEV_TILT_DEG = _BEV_DEFAULTS.tilt_deg
@@ -138,11 +124,8 @@ class WheelState:
 
 class KeyboardDriveState:
     def __init__(self, control: Any) -> None:
-        # ``control`` quacks like the supervisor-era ``ControlClient``:
-        # it has ``set_drive(steer, throttle, brake)``. In the slangpy
-        # HUD path it's
-        # :class:`~omnidreams.interactive_drive.slangpy_hud_presenter.KeyboardStateDriveSink`,
-        # which writes straight into the in-process ``KeyboardState``.
+        # ``control`` is a drive sink with ``set_drive(steer, throttle, brake)``
+        # (the HUD's ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
         self._control = control
         self._pressed: set[str] = set()
         self._state = WheelState()
@@ -248,14 +231,11 @@ class WheelBridge:
         profile: WheelProfile,
         control: Any,
     ) -> None:
-        # ``control`` quacks like the supervisor-era ``ControlClient``:
-        # it has ``set_drive(steer, throttle, brake)`` and
-        # ``release_all()``. In-process the slangpy HUD passes a
-        # :class:`KeyboardStateDriveSink`; the wheel reader thread
-        # then writes to ``KeyboardState`` directly with no HTTP hop.
-        #
-        # ``device_paths`` maps each device index (into ``profile.devices``)
-        # to its resolved evdev path; a profile may span several devices.
+        # ``control`` is a drive sink with ``set_drive(...)`` + ``release_all()``
+        # (the HUD's ``KeyboardStateDriveSink``); the wheel reader thread writes
+        # straight into ``KeyboardState``. ``device_paths`` maps each device
+        # index (into ``profile.devices``) to its resolved evdev path; a profile
+        # may span several devices.
         self._device_paths = dict(device_paths)
         self._profile = profile
         self._control = control
@@ -500,24 +480,12 @@ class WheelBridge:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the unified ``interactive-drive`` argument parser.
+    """Build the unified ``interactive-drive`` parser.
 
-    The parser is the union of three groups:
-
-    * Backend args (``--scene``, ``--backend``, ``--manifest``,
-      ``--bev``, ``--stream-mjpeg``, ...) inherited verbatim from
-      :func:`omnidreams.interactive_drive.cli.build_parser`. These
-      flags apply whether the user runs the supervised HUD wrapper or
-      the bare backend with ``--no-hud`` / ``--stream-mjpeg``.
-    * Supervisor / HUD args (``--scene-dir``, ``--auto-start``,
-      ``--cuda-visible-devices``, ``--wheel-*``, ``--no-wheel``) that
-      only matter when a HUD viewer is running. They're harmlessly
-      ignored under ``--no-hud`` / ``--stream-mjpeg``.
-    * The ``--no-hud`` toggle itself, which falls through to the bare
-      slangpy Vulkan window. ``--stream-mjpeg`` (in the inherited
-      backend group) implicitly does the same and serves the bare
-      backend's frames over HTTP. For a richer browser frontend use
-      ``omnidreams.webrtc.server``.
+    Union of: the backend args from
+    :func:`omnidreams.interactive_drive.cli.build_parser`; HUD args
+    (``--scene-dir``, ``--wheel-*``, ...) ignored under ``--no-hud`` /
+    ``--stream-mjpeg``; and the ``--no-hud`` toggle (bare Vulkan window).
     """
     parser = _cli.build_parser()
     # Demo-friendly defaults: most users want the world model and the
@@ -660,27 +628,14 @@ def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
 
 
 def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) -> Path:
-    """Auto-download a known scene UUID on first launch.
+    """Auto-download the default scene UUID on first launch.
 
-    Triggers only when ``scene`` lives under the shared scenes cache
-    root (``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``), is missing on
-    disk, and the filename matches the ``clipgt-<uuid>.usdz`` convention
-    used by ``nvidia/omni-dreams-scenes``. User-pointed external paths
-    and non-clipgt filenames are returned unchanged so the demo's
-    normal "file not found" error fires for them.
-
-    With ``allow_skip`` (any scene-picker mode -- HUD or MJPEG), a missing
-    default scene is also returned unchanged whenever the picker already
-    has staged scenes to offer, so a demo curated to a specific scene set
-    never blocks on the default UUID (no Hugging Face download, no early
-    exit). The run loop then backfills ``args.scene`` from the first
-    discovered scene.
-
-    The explicit ``omnidreams-prepare`` script remains the way to
-    pre-stage arbitrary UUIDs and to pre-warm the Cosmos-Reason1 text
-    encoder; this helper just covers the "I just ran ``interactive-drive``
-    and the default scene isn't there yet" case so first-launch is a
-    single command.
+    Triggers only for a missing ``clipgt-<uuid>.usdz`` under the shared scenes
+    cache root; external / non-clipgt paths are returned unchanged. With
+    ``allow_skip`` (any scene-picker mode), a missing default is skipped when
+    the picker already has staged scenes, so a curated set never blocks on the
+    default UUID. ``omnidreams-prepare`` remains the way to pre-stage arbitrary
+    UUIDs.
     """
     if scene.exists():
         return scene
@@ -766,27 +721,12 @@ def main() -> None:
 def _run_slangpy_hud(args: argparse.Namespace) -> None:
     """Run the engine with the slangpy + PIL HUD presenter in one process.
 
-    Replaces the supervised pygame-HUD architecture entirely. The engine
-    runs on the main thread (matching ``--no-hud``'s topology, the only
-    one we have empirical evidence for working on this hardware: pygame
-    + Ludus + CUDA in one process consistently failed at the EGL or
-    CUDA-GL interop layer).
-
-    One ``SlangPyHudPresenter`` and one long-lived
-    :class:`InteractiveDriveApp` are constructed at startup. Building the
-    app starts the (scene-independent) model warmup on the pipeline worker
-    thread immediately, so the long weight-load + compile overlaps with
-    the user's scene-selection wait. The function then loops over
-    scene-change requests, calling ``app.load_scene`` + ``app.run_scene``
-    per scene: the warmed model stays resident, so each switch only
-    re-uploads the scene geometry instead of reloading the model, and the
-    slangpy window never closes and reopens (``close_presenter_on_exit=False``
-    keeps the presenter alive until the user actually closes the window).
-
-    The wheel is a long-lived resource too -- evdev fd, FFB context -- and
-    binds once to the app's single ``KeyboardState`` via
-    :meth:`SlangPyHudPresenter.bind_keyboard`; no per-scene rebinding,
-    since the keyboard now lives for the whole session.
+    Builds one ``SlangPyHudPresenter`` and one long-lived
+    :class:`InteractiveDriveApp` at startup (model warmup overlaps the
+    scene-selection wait), then loops over scene-change requests calling
+    ``app.load_scene`` / ``app.run_scene`` per scene. The warmed model and the
+    window stay alive across switches (``close_presenter_on_exit=False``); the
+    wheel binds once to the app's single ``KeyboardState``.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.slangpy_hud_presenter import (
@@ -939,18 +879,10 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 def _run_streaming(args: argparse.Namespace) -> None:
     """Run the engine with the MJPEG streaming presenter and a scene-change loop.
 
-    Mirrors :func:`_run_slangpy_hud`'s outer-loop structure but with a
-    long-lived :class:`MJPEGStreamingPresenter` instead of a slangpy
-    window. The HTTP server (and any connected browser sessions) stay
-    alive across scene transitions; the backend / pipeline are built once
-    and only the scene (geometry + simulation) is swapped per scene. The
-    browser shows the loading overlay during the swap and resumes
-    streaming the moment the new scene produces its first chunk.
-
-    Scene options come from the same discovery layer the slangpy HUD
-    uses. They get serialised into a JSON-friendly shape and posted to
-    the presenter so the in-browser ``/scenes`` endpoint can populate
-    its dropdown without round-tripping through the SceneOption class.
+    Like :func:`_run_slangpy_hud` but with a long-lived
+    :class:`MJPEGStreamingPresenter`: the HTTP server / browser sessions stay
+    alive across scene swaps while only the scene is rebuilt. Scene options are
+    serialised to JSON for the in-browser ``/scenes`` dropdown.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.streaming_presenter import (
@@ -1088,19 +1020,11 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
 
 def _apply_cuda_visible_devices_inplace(requested: str) -> None:
-    """Resolve ``--cuda-visible-devices`` into the in-process ``os.environ``.
+    """Resolve ``--cuda-visible-devices`` into ``os.environ`` before backend build.
 
-    In-process we mutate ``os.environ`` directly so torch / CUDA see the
-    right device list before any backend construction. MUST run before
-    ``_cli.run`` (which is what pulls in flashdreams /
-    WorldModelRenderBackend / torch.cuda).
-
-    ``auto`` is a no-op (leave whatever the user already exported alone).
-    Earlier versions of this helper auto-picked GPU ``1`` on any
-    multi-GPU host -- that assumed the RTX6000 + GB300 dev box layout
-    and silently picked the wrong GPU on other multi-GPU machines.
-    Users on hosts where the default-zero pick is wrong should export
-    ``CUDA_VISIBLE_DEVICES`` themselves or pass an explicit value.
+    Must run before ``_cli.run`` (which imports torch.cuda). ``auto`` leaves
+    the user's existing export untouched (no auto GPU pick); ``""`` unsets it;
+    any other value is passed through verbatim.
     """
     if requested == "":
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
@@ -1124,10 +1048,8 @@ def _project_path(path: Path) -> Path:
     path = Path(path).expanduser()
     if path.is_absolute():
         return path
-    # Resolve relative paths against the current working directory -- the
-    # standard CLI convention, and what users expect when running from the
-    # repo root. (This previously resolved against the package directory,
-    # integrations/omnidreams, which was surprising for --scene/--scene-dir.)
+    # Resolve relative paths against the cwd (standard CLI convention, what
+    # users expect when running from the repo root).
     return (Path.cwd() / path).resolve()
 
 
@@ -1383,13 +1305,6 @@ def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     fitted = _fit_image(image, size)
     thumb.paste(fitted, ((size[0] - fitted.width) // 2, (size[1] - fitted.height) // 2))
     return thumb
-
-
-# ``_variant_from_stem`` removed in favour of the shared
-# :func:`omnidreams.scenes.variant_from_stem` -- all three discovery paths
-# (USDZ archives, unpacked scene dirs, HUD variant selector) now agree on
-# both canonical ``prompt_<N>.txt`` names and legacy numeric
-# ``prompt<N>.txt`` names.
 
 
 def _variant_label(variant: str) -> str:
@@ -1679,11 +1594,8 @@ def _apply_wheel_overrides(
         if args.wheel_pedals_inverted is None
         else bool(args.wheel_pedals_inverted)
     )
-    # Use ``replace`` so every other field is preserved. The previous manual
-    # reconstruction silently dropped any field it didn't relist -- which
-    # reset steering_range / steering_deadzone to their no-op defaults and
-    # unbound reverse/reset buttons at runtime, even though the saved
-    # profile had them.
+    # ``replace`` preserves every other profile field (steering_range,
+    # deadzone, bound buttons) instead of resetting them to defaults.
     return replace(profile, axis_map=axis_map, inverted_pedals=inverted)
 
 
@@ -1696,25 +1608,6 @@ def _parse_axis(value: str) -> int:
         ) from exc
 
 
-def _tk_key_to_browser_key(keysym: str) -> str | None:
-    mapping = {
-        "w": "w",
-        "W": "w",
-        "a": "a",
-        "A": "a",
-        "s": "s",
-        "S": "s",
-        "d": "d",
-        "D": "d",
-        "Up": "ArrowUp",
-        "Down": "ArrowDown",
-        "Left": "ArrowLeft",
-        "Right": "ArrowRight",
-        "space": " ",
-    }
-    return mapping.get(keysym)
-
-
 def _move_towards(current: float, target: float, max_delta: float) -> float:
     if current < target:
         return min(current + max_delta, target)
@@ -1722,33 +1615,18 @@ def _move_towards(current: float, target: float, max_delta: float) -> float:
 
 
 def _apply_googlemaps_filter(rgb_image: Image.Image) -> Image.Image:
-    """Restyle a BEV frame to look like a Google-Maps minimap.
+    """Restyle a BEV frame as a Google-Maps minimap (single numpy expression).
 
-    The rasterizer renders lane lines / boundaries / crosswalks against a
-    black background. Translate that into Google's day-mode palette by:
-
-    1. Blending the empty (dark) regions toward a warm cream "land" tone.
-    2. Blending the rendered features toward a slightly off-white "road"
-       tone so they read as roads/markings instead of neon paint.
-
-    The presence curve has a deliberate knee: anything below ~0.08
-    brightness is treated as background and goes fully to land. This
-    knocks down JPEG ringing around high-contrast edges (8x8 DCT blocks
-    leak dim grey pixels up to ~0.10 brightness) which would otherwise
-    survive a smooth-curve blend as dirty halos around vehicles and
-    lane lines. The whole transform is a single numpy expression; on a
-    384x384 BEV it runs in <2 ms.
+    Blends dark regions toward cream "land" and rendered features toward an
+    off-white "road" tone. The presence curve has a hard low knee so JPEG
+    ringing around high-contrast edges collapses to land instead of surviving
+    as dirty grey halos.
     """
-    # The stream loop already gave us an RGB-mode PIL Image, so skip the
-    # redundant ``convert`` here; ``np.asarray`` handles the C buffer
-    # directly without an extra copy.
+    # Already RGB-mode, so skip ``convert``; ``np.asarray`` is zero-copy.
     arr = np.asarray(rgb_image, dtype=np.float32)
-    # Recolour magenta road boundaries to a low-contrast warm grey so
-    # the BEV's road outlines read as Google-Maps-style soft borders
-    # instead of vibrant high-contrast lines. Detection is loose on
-    # purpose -- partial-coverage edge pixels (anti-aliased magenta
-    # toward black/cream) get caught too, which kills the JPEG / MSAA
-    # halo that was the dominant remaining aliasing offender.
+    # Recolour magenta road boundaries to low-contrast grey for soft
+    # Google-Maps-style borders. Loose detection on purpose so anti-aliased
+    # edge pixels get caught too, killing the JPEG/MSAA halo.
     is_magenta = (
         (arr[..., 0] > 130)
         & (arr[..., 2] > 130)
@@ -1759,12 +1637,8 @@ def _apply_googlemaps_filter(rgb_image: Image.Image) -> Image.Image:
     # would do every BEV frame at 512x512.
     np.copyto(arr, _GMAPS_BOUNDARY_GREY_FLOAT, where=is_magenta[..., np.newaxis])
     bright = arr.max(axis=2, keepdims=True) / 255.0
-    # Tight knee: ``< 0.14`` brightness collapses to land, ``> 0.21``
-    # is fully drawn, with only a 0.07-wide blend band so JPEG ringing
-    # and bilinear-resize halos around vehicle / lane edges don't
-    # survive as partial-presence grey outlines. Bilinear resampling
-    # later in ``_draw_bev_panel`` adds enough natural antialiasing
-    # that we don't need much soft-knee here.
+    # Tight knee: < 0.14 collapses to land, > 0.21 fully drawn (0.07-wide
+    # blend band) so JPEG ringing / resize halos don't survive as grey outlines.
     presence = np.clip((bright - 0.14) / 0.07, 0.0, 1.0)
     # Tint feature pixels toward the road colour while keeping their
     # original chroma so yellow lane paint stays warmer than white paint.

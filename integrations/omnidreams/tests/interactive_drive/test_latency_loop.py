@@ -20,7 +20,7 @@ from omnidreams.interactive_drive.runtime.loop import (
     present_queued_frame,
     run_main_loop,
 )
-from omnidreams.interactive_drive.runtime.timing import ChunkPrediction, ChunkTimes
+from omnidreams.interactive_drive.runtime.timing import ChunkTimes
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     PresentedFrame,
@@ -59,7 +59,6 @@ def _chunk_times() -> ChunkTimes:
         input_sample_time=now,
         request_time=now,
         request_poses_ready_time=now + 0.001,
-        prediction=ChunkPrediction.create(request_time=now, frame_interval_s=0.1),
         intended_present_times=[now + 0.1],
     )
 
@@ -445,7 +444,6 @@ def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(
         input_sample_time: float,
         request_time: float,
         request_poses_ready_time: float,
-        prediction: ChunkPrediction,
         intended_present_times: list[float],
     ) -> ChunkTimes:
         instance = original_create(
@@ -453,7 +451,6 @@ def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(
             input_sample_time=input_sample_time,
             request_time=request_time,
             request_poses_ready_time=request_poses_ready_time,
-            prediction=prediction,
             intended_present_times=intended_present_times,
         )
         captured.append(instance)

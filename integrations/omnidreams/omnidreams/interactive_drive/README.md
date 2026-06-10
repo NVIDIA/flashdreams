@@ -489,11 +489,6 @@ printed for debugging. Set
 `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S` to adjust the report
 period; the default is `2`.
 
-For HUD-specific render timing, set `INTERACTIVE_DRIVE_PROFILE_HUD=1`. The
-`[profile] hud ...` line breaks `present_frame` into stages such as PIL chrome
-rendering, full-window overlay extraction, CUDA enqueue, and Vulkan submission.
-Set `INTERACTIVE_DRIVE_PROFILE_HUD_INTERVAL_S` to adjust its report period.
-
 ### Rollout drift and resets
 
 OmniDreams generates video autoregressively, so long rollouts can accumulate
