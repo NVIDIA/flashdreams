@@ -17,7 +17,9 @@ Config system
 ===================================
 
 FlashDreams configuration is built around simple, strongly-typed Python ``dataclass`` objects.
-This configuration system is similar to the one employed in `nerfstudio <https://github.com/nerfstudio-project/nerfstudio>`_. It allows you to easily plug in different permutations of model components and nest configurations to define the complete inference pipeline.
+This configuration system is similar to the one employed in `nerfstudio <https://github.com/nerfstudio-project/nerfstudio>`_.
+It allows you to easily plug in different permutations of model components and nest configurations to define the complete
+inference pipeline.
 
 Base components
 ---------------
@@ -87,6 +89,7 @@ Let's say you want to create a new encoder called ``MyEncoder``. You can create 
 
        def __init__(self, config: MyEncoderConfig) -> None:
            super().__init__(config)
+
            # Build your layers using self.config.embedding_dim, etc.
            ...
 

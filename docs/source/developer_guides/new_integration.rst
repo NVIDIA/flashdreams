@@ -41,7 +41,7 @@ We recommend the following file structure for your new method:
     │   └── ...
     └── pyproject.toml
 
-Add optional files only when you need to customize the behavior beyond what we carry in FlashDreams.
+Add optional files only when you need to customize the behavior beyond what is available in FlashDreams.
 Most integrations can use the base :class:`~flashdreams.infra.pipeline.StreamInferencePipeline` directly and only provide model components plus config literals.
 As explained in :doc:`/developer_guides/config_system`, a method typically defines a pipeline config and a runner config.
 The runner handles CLI-facing I/O and runtime loops.
@@ -119,7 +119,7 @@ After registering your method you should be able to see it in the CLI helptext a
    # See configurable parameters for your new model
    flashdreams-run customized-method --help
 
-   # Run the model
+   # Run the new model
    flashdreams-run customized-method --prompt "A beautiful custom generation."
 
 To register your own models, package your code as a Python package and declare a runner entry point in its ``pyproject.toml``. FlashDreams discovers every registered runner at import time and surfaces it through the same command-line interface as the in-tree recipes. There is no central manifest to keep in sync.
