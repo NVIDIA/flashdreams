@@ -16,6 +16,8 @@ KNOWN_SUITES = frozenset(
 )
 KNOWN_THRESHOLD_OPS = frozenset({">", ">=", "<", "<=", "==", "!="})
 KNOWN_SEVERITIES = frozenset({"critical", "warning", "info"})
+KNOWN_CONTROL_CHANNELS = frozenset({"structured", "prompt", "first_frame", "unknown"})
+KNOWN_CHECK_TIERS = frozenset({"presence", "attribute", "fidelity", "dynamic"})
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,27 @@ class Threshold:
     op: str
     value: float | bool | int | str
     severity: str
+
+
+@dataclass(frozen=True)
+class Check:
+    """One yes/no capability check the benchmark asks about a generated clip.
+
+    ``expected`` is the canonical answer derived from the scene spec (the answer
+    key); the evaluator named by ``evaluator`` produces an answer that is scored
+    against it. ``control_channel`` records how the capability is requested
+    (structured conditioning, text prompt, ...) so a low score can be read as a
+    model gap vs. an interface gap.
+    """
+
+    id: str
+    question: str
+    expected: str
+    evaluator: str
+    category: str
+    control_channel: str = "unknown"
+    tier: str = "presence"
+    target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +98,8 @@ class VideoQualityCase:
     generation: dict[str, Any]
     hf_dataset: str | None
     hf_revision: str | None
+    checks: tuple[Check, ...] = ()
+    category: str | None = None
 
     def belongs_to_suite(self, suite: str) -> bool:
         """Return whether this case should run for ``suite``."""
@@ -190,9 +215,9 @@ def _parse_case(
         for name, item in raw_windows.items()
     }
 
-    raw_thresholds = value.get("thresholds")
-    if not isinstance(raw_thresholds, list) or not raw_thresholds:
-        raise ValueError(f"{case_context}.thresholds must be a non-empty list")
+    raw_thresholds = value.get("thresholds", [])
+    if not isinstance(raw_thresholds, list):
+        raise ValueError(f"{case_context}.thresholds must be a list")
     thresholds = tuple(
         _parse_threshold(item, context=case_context) for item in raw_thresholds
     )
@@ -207,6 +232,26 @@ def _parse_case(
     if duplicate_thresholds:
         raise ValueError(
             f"{case_context} has duplicate threshold ids: {duplicate_thresholds}"
+        )
+
+    case_category = _optional_str(value, "category")
+    raw_checks = value.get("checks", [])
+    if not isinstance(raw_checks, list):
+        raise ValueError(f"{case_context}.checks must be a list")
+    checks = tuple(
+        _parse_check(item, context=case_context, case_category=case_category)
+        for item in raw_checks
+    )
+    check_ids = [check.id for check in checks]
+    duplicate_checks = sorted(
+        {check_id for check_id in check_ids if check_ids.count(check_id) > 1}
+    )
+    if duplicate_checks:
+        raise ValueError(f"{case_context} has duplicate check ids: {duplicate_checks}")
+
+    if not thresholds and not checks:
+        raise ValueError(
+            f"{case_context} must declare at least one threshold or check"
         )
 
     source = _optional_mapping(value, "source")
@@ -226,6 +271,8 @@ def _parse_case(
         generation=_optional_mapping(value, "generation"),
         hf_dataset=hf_dataset,
         hf_revision=_optional_str(value, "hf_revision"),
+        checks=checks,
+        category=case_category,
     )
 
 
@@ -294,6 +341,39 @@ def _parse_threshold(value: Any, *, context: str) -> Threshold:
         op=op,
         value=threshold_value,
         severity=severity,
+    )
+
+
+def _parse_check(value: Any, *, context: str, case_category: str | None) -> Check:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context}.checks entries must be mappings")
+    check_id = _required_str(value, "id", context=f"{context}.check")
+    check_context = f"{context}.check {check_id!r}"
+    category = _optional_str(value, "category") or case_category
+    if not category:
+        raise ValueError(
+            f"{check_context} needs a category (on the check or the case)"
+        )
+    control_channel = _optional_str(value, "control_channel") or "unknown"
+    if control_channel not in KNOWN_CONTROL_CHANNELS:
+        raise ValueError(
+            f"{check_context} has unknown control_channel {control_channel!r}; "
+            f"known: {sorted(KNOWN_CONTROL_CHANNELS)}"
+        )
+    tier = _optional_str(value, "tier") or "presence"
+    if tier not in KNOWN_CHECK_TIERS:
+        raise ValueError(
+            f"{check_context} has unknown tier {tier!r}; known: {sorted(KNOWN_CHECK_TIERS)}"
+        )
+    return Check(
+        id=check_id,
+        question=_required_str(value, "question", context=check_context),
+        expected=_required_str(value, "expected", context=check_context),
+        evaluator=_required_str(value, "evaluator", context=check_context),
+        category=category,
+        control_channel=control_channel,
+        tier=tier,
+        target=_optional_str(value, "target"),
     )
 
 

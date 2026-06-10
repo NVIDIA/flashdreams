@@ -1,0 +1,92 @@
+schema_version: 1
+description: FlashDreams video-quality capability benchmark (example scenes).
+
+# Example/skeleton scenarios backed by 3 real single-view HD-map clips from the
+# public HF dataset nvidia/omni-dreams-samples (data/single_view/<uuid>). The
+# descriptions, prompts, and checks here are FAKED placeholders that only
+# exercise the plumbing; real answer-key checks are authored in a later pass.
+#
+# Run modes:
+#   --generator omnidreams              pulls each scene's *_hdmap.mp4 +
+#                                       first_frame.png from HF (needs HF_TOKEN in
+#                                       the environment + a GPU) and runs the real
+#                                       HD-map -> RGB inference.
+#   --generator synthetic_passthrough   (default) ignores the HD-map and makes a
+#                                       deterministic synthetic clip, for CPU/CI.
+suites:
+  - nightly
+  - per_commit
+  - vlm_experimental
+
+cases:
+  - id: omnidreams_sample_pedestrian
+    description: (example) Front-camera urban drive; check pedestrian presence.
+    category: pedestrian
+    suites: [nightly, per_commit]
+    generation:
+      recipe: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+      total_blocks: 8
+      example_data_uuid: 239560dc-33d1-11ef-9720-00044bcbccac
+    assets:
+      prompt: "Front-facing dashcam, urban street with pedestrians, vehicles, and traffic signs; clear daylight, photorealistic."
+    checks:
+      - id: pedestrian_present
+        question: "Is there a pedestrian in the scene?"
+        expected: "yes"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: presence
+      - id: pedestrian_on_hood
+        question: "Is a pedestrian standing on the hood of the ego vehicle?"
+        expected: "no"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: attribute
+
+  - id: omnidreams_sample_vehicle
+    description: (example) Front-camera drive; check lead-vehicle presence.
+    category: vehicle
+    suites: [nightly]
+    generation:
+      recipe: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+      total_blocks: 8
+      example_data_uuid: 23599139-948f-4681-b7f4-74794113086d
+    assets:
+      prompt: "Front-facing dashcam following traffic on a multi-lane road; clear daylight, photorealistic."
+    checks:
+      - id: lead_vehicle_present
+        question: "Is there a vehicle ahead of the ego vehicle?"
+        expected: "yes"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: presence
+      - id: road_surface_visible
+        question: "Is the road surface visible ahead of the ego vehicle?"
+        expected: "yes"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: presence
+
+  - id: omnidreams_sample_signage
+    description: (example) Front-camera drive; check traffic-sign legibility.
+    category: signage
+    suites: [nightly]
+    generation:
+      recipe: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf
+      total_blocks: 8
+      example_data_uuid: 237a3c21-9c03-4d06-aab9-6c2ff407f660
+    assets:
+      prompt: "Front-facing dashcam approaching intersections with traffic signs; clear daylight, photorealistic."
+    checks:
+      - id: traffic_sign_present
+        question: "Is there a traffic sign visible?"
+        expected: "yes"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: presence
+      - id: traffic_sign_legible
+        question: "Is at least one traffic sign legible?"
+        expected: "yes"
+        evaluator: stub_presence
+        control_channel: structured
+        tier: fidelity
