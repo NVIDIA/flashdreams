@@ -16,12 +16,17 @@
 LingBot-World
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://technology.robbyant.com/lingbot-world" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://technology.robbyant.com/lingbot-world
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://github.com/robbyant/lingbot-world
+      :color: primary
+
+      Official code
 
 Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support.

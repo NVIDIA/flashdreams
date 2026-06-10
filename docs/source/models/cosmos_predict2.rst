@@ -16,14 +16,27 @@
 Cosmos-Predict2.5
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2511.00062" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://huggingface.co/nvidia/Cosmos-Predict2.5-2B" target="_blank" rel="noopener noreferrer">Model page</a>
-     <a class="model-link-button" href="https://github.com/nvidia-cosmos/cosmos-predict2.5" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2511.00062
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://huggingface.co/nvidia/Cosmos-Predict2.5-2B
+      :color: primary
+
+      Model page
+
+   .. button-link:: https://github.com/nvidia-cosmos/cosmos-predict2.5
+      :color: primary
+
+      Official code
 
 Cosmos-Predict2.5 is the latest member of the Cosmos World Foundation Models
 (WFMs) family. It is a flow-based model that unifies Text2World, Image2World,

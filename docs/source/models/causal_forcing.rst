@@ -16,13 +16,22 @@
 Causal-Forcing
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://thu-ml.github.io/CausalForcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2602.02214" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/thu-ml/Causal-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://thu-ml.github.io/CausalForcing.github.io/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2602.02214
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/thu-ml/Causal-Forcing
+      :color: primary
+
+      Official code
 
 Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
 asymmetric DMD as a theoretically correct initialization for real-time

@@ -16,13 +16,22 @@
 Wan2.1
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://wan.video/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2503.20314" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://wan.video/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2503.20314
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/Wan-Video/Wan2.1
+      :color: primary
+
+      Official code
 
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
