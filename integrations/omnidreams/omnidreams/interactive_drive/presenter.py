@@ -13,6 +13,7 @@ from omnidreams.interactive_drive.cuda_env import (
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+from omnidreams.interactive_drive.recording import slangpy_key_name_candidates
 from omnidreams.interactive_drive.types import PresentedFrame
 
 
@@ -326,6 +327,8 @@ class SlangPyPresenter:
             self._keyboard.set_view_mode("rgb")
         elif is_press and self._matches_key(event.key, "r"):
             self._keyboard.request_reset()
+        elif is_press and self._matches_recording_hotkey(event.key):
+            self._keyboard.request_recording_toggle()
 
     def _build_key_codes(self) -> dict[str, object | None]:
         return {
@@ -353,6 +356,14 @@ class SlangPyPresenter:
     def _matches_key(self, event_key: object, name: str) -> bool:
         key_code = self._key_codes.get(name)
         return key_code is not None and event_key == key_code
+
+    def _matches_recording_hotkey(self, event_key: object) -> bool:
+        if not self._keyboard.recording_enabled:
+            return False
+        for name in slangpy_key_name_candidates(self._keyboard.recording_hotkey):
+            if event_key == self._lookup_key_code(name):
+                return True
+        return False
 
 
 class _CudaRGBInterop:

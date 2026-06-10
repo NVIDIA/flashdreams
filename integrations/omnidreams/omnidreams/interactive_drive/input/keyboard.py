@@ -5,6 +5,7 @@ import threading
 import time
 
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
+from omnidreams.interactive_drive.recording import normalize_recording_hotkey
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
@@ -24,12 +25,17 @@ class KeyboardState:
     referencing the per-scene simulation object.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, *, recording_enabled: bool = False, recording_hotkey: str = "f9"
+    ) -> None:
         self._lock = threading.Lock()
         self._pressed: set[str] = set()
         self._view_mode = "rgb"
         self._drive_command: DriverCommand | None = None
         self._reset_pending = False
+        self._recording_enabled = bool(recording_enabled)
+        self._recording_hotkey = normalize_recording_hotkey(recording_hotkey)
+        self._recording_toggle_pending = False
         # Rising-edge "exit the current scene and return to the scene
         # selector" request, set by a wheel/controller's bound exit button
         # (the HUD's ``x`` key calls the presenter directly). The presenter
@@ -56,6 +62,27 @@ class KeyboardState:
     def request_reset(self) -> None:
         with self._lock:
             self._reset_pending = True
+
+    def request_recording_toggle(self) -> None:
+        with self._lock:
+            if self._recording_enabled:
+                self._recording_toggle_pending = True
+
+    def consume_recording_toggle_request(self) -> bool:
+        with self._lock:
+            pending = self._recording_toggle_pending
+            self._recording_toggle_pending = False
+            return pending
+
+    @property
+    def recording_enabled(self) -> bool:
+        with self._lock:
+            return self._recording_enabled
+
+    @property
+    def recording_hotkey(self) -> str:
+        with self._lock:
+            return self._recording_hotkey
 
     def request_exit_scene(self) -> None:
         """Request a return to the scene selector from a bound device button."""

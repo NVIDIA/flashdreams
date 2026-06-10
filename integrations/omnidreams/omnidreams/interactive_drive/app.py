@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.input.keyboard import (
     KeyboardState,
 )
 from omnidreams.interactive_drive.presenter import SlangPyPresenter
+from omnidreams.interactive_drive.recording import InteractiveDriveRecorder
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
     PresenterBackend,
@@ -82,7 +83,10 @@ class InteractiveDriveApp:
         """
         self._config = config
         self._backend = backend
-        self._keyboard = KeyboardState()
+        self._keyboard = KeyboardState(
+            recording_enabled=config.recording.enabled,
+            recording_hotkey=config.recording.hotkey,
+        )
         if config.backend == "omnidreams":
             self._keyboard.set_view_mode("model_rgb")
         if presenter is None:
@@ -438,60 +442,77 @@ class InteractiveDriveApp:
         # world model..."); subsequent rollouts come from a manual reset or
         # OOB respawn, so switch the indicator to "Resetting..." for those.
         loading_status = self._loading_status_message
-        while not self._presenter.should_close:
-            simulation = EgoVehicleKinematics(
-                initial_state=state_from_initial_pose(
-                    initial_rig_to_world=self._scene.initial_rig_to_world,
-                    initial_yaw_rad=self._scene.initial_yaw_rad,
-                    # Start each rollout at a fixed 10 m/s so the ego is
-                    # already rolling on initial load (and after a manual
-                    # reset / OOB respawn), instead of launching at the
-                    # clip's full recorded speed.
-                    initial_speed_mps=10.0,
-                ),
-                vehicle_config=self._config.vehicle,
-                ground_snapper=self._ground_snapper,
-                initial_timestamp_us=self._scene.initial_timestamp_us,
-                map_bounds=self._map_bounds,
-                oob_margin_m=self._config.oob_margin_m,
-                oob_warning_zone_m=self._config.oob_warning_zone_m,
-            )
-            # Publish the freshly-built initial state up front so read-side
-            # speed readouts (the HUD speed digit, the browser ``/state``
-            # endpoint) reflect a reset / respawn immediately. Without this
-            # the last telemetry from the previous rollout would linger on
-            # screen through the "Resetting..." window until the new rollout
-            # requested its first chunk -- the "reset doesn't reset the
-            # displayed speed" symptom.
-            self._keyboard.update_telemetry(simulation.current_state)
-            input_backend = KeyboardInputBackend(self._keyboard)
-            reset_requested = run_main_loop(
-                presenter=self._presenter,
-                runtime_controls=self._keyboard,
-                initial_presented_frame=loading_frame,
-                input_backend=input_backend,
-                simulation=simulation,
-                pipeline=self._pipeline,
-                config=LoopConfig(
-                    initial_chunk_size=self._config.chunk.initial_chunk_frames,
-                    chunk_size=self._config.chunk.chunk_frames,
-                    frame_interval_s=self._config.chunk.frame_interval_s,
-                    oob_warn_proximity=self._config.oob_warn_proximity,
-                    oob_respawn_proximity=self._config.oob_respawn_proximity,
-                    oob_respawn_debounce_chunks=(
-                        self._config.oob_respawn_debounce_chunks
+        recorder = self._build_recorder()
+        try:
+            while not self._presenter.should_close:
+                simulation = EgoVehicleKinematics(
+                    initial_state=state_from_initial_pose(
+                        initial_rig_to_world=self._scene.initial_rig_to_world,
+                        initial_yaw_rad=self._scene.initial_yaw_rad,
+                        # Start each rollout at a fixed 10 m/s so the ego is
+                        # already rolling on initial load (and after a manual
+                        # reset / OOB respawn), instead of launching at the
+                        # clip's full recorded speed.
+                        initial_speed_mps=10.0,
                     ),
-                ),
-                loading_status=loading_status,
-            )
-            if not reset_requested:
-                break
-            self._pipeline.reset()
-            loading_status = self._resetting_status_message
-            # Paint the reset indicator at once, before the next rollout's
-            # setup, so a reset shows on screen the instant it's requested
-            # rather than after the rebuild completes.
-            self._present_loading_once(loading_status)
+                    vehicle_config=self._config.vehicle,
+                    ground_snapper=self._ground_snapper,
+                    initial_timestamp_us=self._scene.initial_timestamp_us,
+                    map_bounds=self._map_bounds,
+                    oob_margin_m=self._config.oob_margin_m,
+                    oob_warning_zone_m=self._config.oob_warning_zone_m,
+                )
+                # Publish the freshly-built initial state up front so read-side
+                # speed readouts (the HUD speed digit, the browser ``/state``
+                # endpoint) reflect a reset / respawn immediately. Without this
+                # the last telemetry from the previous rollout would linger on
+                # screen through the "Resetting..." window until the new rollout
+                # requested its first chunk -- the "reset doesn't reset the
+                # displayed speed" symptom.
+                self._keyboard.update_telemetry(simulation.current_state)
+                input_backend = KeyboardInputBackend(self._keyboard)
+                reset_requested = run_main_loop(
+                    presenter=self._presenter,
+                    runtime_controls=self._keyboard,
+                    initial_presented_frame=loading_frame,
+                    input_backend=input_backend,
+                    simulation=simulation,
+                    pipeline=self._pipeline,
+                    config=LoopConfig(
+                        initial_chunk_size=self._config.chunk.initial_chunk_frames,
+                        chunk_size=self._config.chunk.chunk_frames,
+                        frame_interval_s=self._config.chunk.frame_interval_s,
+                        oob_warn_proximity=self._config.oob_warn_proximity,
+                        oob_respawn_proximity=self._config.oob_respawn_proximity,
+                        oob_respawn_debounce_chunks=(
+                            self._config.oob_respawn_debounce_chunks
+                        ),
+                    ),
+                    loading_status=loading_status,
+                    recorder=recorder,
+                )
+                if not reset_requested:
+                    break
+                self._pipeline.reset()
+                loading_status = self._resetting_status_message
+                # Paint the reset indicator at once, before the next rollout's
+                # setup, so a reset shows on screen the instant it's requested
+                # rather than after the rebuild completes.
+                self._present_loading_once(loading_status)
+        finally:
+            if recorder is not None:
+                recorder.close(reason="scene-end")
+
+    def _build_recorder(self) -> InteractiveDriveRecorder | None:
+        if not self._config.recording.enabled:
+            return None
+        if self._scene is None:
+            return None
+        return InteractiveDriveRecorder(
+            self._config.recording,
+            scene=self._scene,
+            fps=self._config.chunk.fps,
+        )
 
     def _present_loading_once(self, loading_status: Callable[[], str]) -> None:
         """Render a single loading-overlay frame immediately (used on reset)."""

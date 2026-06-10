@@ -58,3 +58,9 @@ native_dit_attention_backend: cudnn # auto | cudnn | sparge | sage3 | sage3_fp8
 # or uncomment and set an absolute or manifest-relative path below.
 native_vae_encoder: disabled             # disabled | fp8
 # native_vae_fp8_state_path: /path/to/lightvae_fp8_state.pt
+
+
+recording_enabled: true
+recording_dir: recordings
+recording_hotkey: F9
+recording_auto_start: true

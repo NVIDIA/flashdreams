@@ -149,8 +149,14 @@ class _PreparingPresenter(_CountingPresenter):
 
 
 class _FakeRuntimeControls:
-    def __init__(self, *, reset_after_present: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        reset_after_present: int | None = None,
+        recording_toggle_after_present: int | None = None,
+    ) -> None:
         self._reset_after_present = reset_after_present
+        self._recording_toggle_after_present = recording_toggle_after_present
         self._presenter: _CountingPresenter | None = None
         self.view_mode = "rgb"
 
@@ -164,6 +170,44 @@ class _FakeRuntimeControls:
             self._reset_after_present = None
             return True
         return False
+
+    def consume_recording_toggle_request(self) -> bool:
+        if self._recording_toggle_after_present is None or self._presenter is None:
+            return False
+        if len(self._presenter.records) >= self._recording_toggle_after_present:
+            self._recording_toggle_after_present = None
+            return True
+        return False
+
+
+class _RecorderProbe:
+    def __init__(self, *, auto_start: bool = False) -> None:
+        self.auto_start = auto_start
+        self.start_calls = 0
+        self.toggle_calls = 0
+        self.recorded_frames: list[PresentedFrame] = []
+        self.close_reasons: list[str] = []
+        self._active = False
+
+    def start(self) -> None:
+        self.start_calls += 1
+        self._active = True
+
+    def toggle(self) -> None:
+        self.toggle_calls += 1
+        if self._active:
+            self.close(reason="hotkey")
+            return
+        self.start()
+
+    def record_frame(self, frame: PresentedFrame) -> None:
+        if self._active:
+            self.recorded_frames.append(frame)
+
+    def close(self, *, reason: str) -> None:
+        if self._active:
+            self.close_reasons.append(reason)
+            self._active = False
 
 
 class _FakeInputBackend:
@@ -202,6 +246,7 @@ def _drive_loop(
     simulation: _FakeSimulation,
     initial: PresentedFrame,
     frame_interval_s: float,
+    recorder: _RecorderProbe | None = None,
 ) -> bool:
     pipeline = ChunkPipeline(backend)
     pipeline.request_scene(minimal_scene())
@@ -214,6 +259,7 @@ def _drive_loop(
             simulation=simulation,
             pipeline=pipeline,
             config=_loop_config(frame_interval_s=frame_interval_s),
+            recorder=recorder,
         )
     finally:
         pipeline.shutdown()
@@ -402,6 +448,55 @@ def test_loop_presents_backend_frames_when_available() -> None:
 
     assert result is False
     assert any(record.frame is not initial for record in presenter.records)
+
+
+def test_loop_auto_starts_recorder_and_records_backend_frames() -> None:
+    initial = _make_frame()
+    presenter = _CountingPresenter(
+        present_budget=_backend_frame_wait_budget(), close_on_frame=initial
+    )
+    controls = _FakeRuntimeControls()
+    recorder = _RecorderProbe(auto_start=True)
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=7),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+        recorder=recorder,
+    )
+
+    assert result is False
+    assert recorder.start_calls == 1
+    assert recorder.recorded_frames
+    assert all(frame is not initial for frame in recorder.recorded_frames)
+    assert recorder.close_reasons == ["loop-end"]
+
+
+def test_loop_consumes_recording_hotkey_toggle() -> None:
+    initial = _make_frame()
+    presenter = _CountingPresenter(
+        present_budget=_backend_frame_wait_budget(), close_on_frame=initial
+    )
+    controls = _FakeRuntimeControls(recording_toggle_after_present=0)
+    controls.bind_presenter(presenter)
+    recorder = _RecorderProbe()
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=7),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+        recorder=recorder,
+    )
+
+    assert recorder.toggle_calls == 1
+    assert recorder.start_calls == 1
+    assert recorder.recorded_frames
 
 
 def test_loop_prepares_backend_frames_before_presenting_them() -> None:

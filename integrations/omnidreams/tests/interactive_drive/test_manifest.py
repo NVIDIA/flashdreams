@@ -7,6 +7,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 
@@ -30,6 +31,7 @@ class WorldModelManifestTest(unittest.TestCase):
             self.assertEqual(manifest.native_dit_acceleration, "disabled")
             self.assertEqual(manifest.native_vae_encoder, "disabled")
             self.assertIsNone(manifest.native_vae_fp8_state_path)
+            self.assertEqual(manifest.recording_hotkey, "f9")
 
     def test_loads_native_dit_knobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -82,6 +84,46 @@ class WorldModelManifestTest(unittest.TestCase):
                 manifest.native_vae_fp8_state_path,
                 (root / "native/lightvae-fp8-state.pt").resolve(),
             )
+
+    def test_loads_recording_knobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                textwrap.dedent(
+                    """
+                    recording_enabled: true
+                    recording_dir: captures
+                    recording_hotkey: F9
+                    recording_auto_start: true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            manifest = load_world_model_manifest(path)
+            self.assertTrue(manifest.recording_enabled)
+            self.assertEqual(manifest.recording_dir, Path("captures"))
+            self.assertEqual(manifest.recording_hotkey, "f9")
+            self.assertTrue(manifest.recording_auto_start)
+
+    def test_warns_when_recording_hotkey_collides_with_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                textwrap.dedent(
+                    """
+                    recording_enabled: true
+                    recording_hotkey: r
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            with patch(
+                "omnidreams.interactive_drive.world_model.manifest.logger.warning"
+            ) as warning:
+                manifest = load_world_model_manifest(path)
+
+            self.assertEqual(manifest.recording_hotkey, "r")
+            warning.assert_called_once()
 
     def test_rejects_unaligned_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

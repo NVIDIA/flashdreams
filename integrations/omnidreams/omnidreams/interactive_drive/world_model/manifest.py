@@ -16,6 +16,11 @@ from omnidreams.hf_org import (
     resolve_hf_org,
     rewrite_omni_dreams_urls,
 )
+from omnidreams.interactive_drive.recording import (
+    RECORDING_HOTKEY_COLLISIONS,
+    normalize_recording_hotkey,
+    recording_hotkey_collides_with_controls,
+)
 
 _HF_URL_PATTERN = re.compile(
     r"^https?://(?:www\.)?huggingface\.co/[^/]+/[^/]+/(?:blob|resolve)/[^/]+/.+$",
@@ -143,6 +148,54 @@ def _parse_native_vae_encoder(raw: object) -> str:
     return encoder
 
 
+def _parse_recording_dir(raw: object) -> Path | None:
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def _parse_recording_hotkey(raw: object, *, enabled: bool) -> str:
+    hotkey = normalize_recording_hotkey("f9" if raw is None else raw)
+    if enabled and recording_hotkey_collides_with_controls(hotkey):
+        logger.warning(
+            "[manifest] recording_hotkey={!r} overlaps an interactive-drive "
+            "control key {}; choose a non-control key such as F9 to avoid "
+            "shadowing reset/view/exit controls.",
+            hotkey,
+            sorted(RECORDING_HOTKEY_COLLISIONS),
+        )
+    return hotkey
+
+
+@dataclass(frozen=True)
+class RecordingManifest:
+    enabled: bool = False
+    dir: Path | None = None
+    hotkey: str = "f9"
+    auto_start: bool = False
+
+
+def parse_recording_manifest(data: dict[str, object]) -> RecordingManifest:
+    enabled = bool(data.get("recording_enabled", False))
+    return RecordingManifest(
+        enabled=enabled,
+        dir=_parse_recording_dir(data.get("recording_dir")),
+        hotkey=_parse_recording_hotkey(
+            data.get("recording_hotkey"),
+            enabled=enabled,
+        ),
+        auto_start=bool(data.get("recording_auto_start", False)),
+    )
+
+
+def load_recording_manifest(path: str | Path) -> RecordingManifest:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return parse_recording_manifest(data)
+
+
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
@@ -171,6 +224,10 @@ class WorldModelManifest:
     native_dit_sparge_hybrid_phase: int | None = None
     native_vae_encoder: str = "disabled"
     native_vae_fp8_state_path: Path | None = None
+    recording_enabled: bool = False
+    recording_dir: Path | None = None
+    recording_hotkey: str = "f9"
+    recording_auto_start: bool = False
 
 
 def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
@@ -191,6 +248,7 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         raw_yaml = rewritten
     data = yaml.safe_load(raw_yaml) or {}
     resolution = _parse_resolution_wh(data.get("resolution_wh"))
+    recording = parse_recording_manifest(data)
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(
             data.get("debug_condition_frame_dir"),
@@ -248,4 +306,8 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
             data.get("native_vae_fp8_state_path"),
             manifest_dir=manifest_dir,
         ),
+        recording_enabled=recording.enabled,
+        recording_dir=recording.dir,
+        recording_hotkey=recording.hotkey,
+        recording_auto_start=recording.auto_start,
     )

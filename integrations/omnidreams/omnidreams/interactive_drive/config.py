@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from omnidreams.interactive_drive.recording import RecordingConfig
+
 BackendName = Literal["raster", "omnidreams"]
 ViewMode = Literal["rgb", "model_rgb"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
@@ -110,6 +112,7 @@ class AppConfig:
     vehicle: VehicleConfig = VehicleConfig()
     world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_offload_text_encoder: bool = False
+    recording: RecordingConfig = RecordingConfig()
     bev: BevConfig = BevConfig()
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0

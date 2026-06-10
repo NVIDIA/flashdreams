@@ -467,6 +467,28 @@ Controls (apply in all three modes):
 - `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
 
+Manifests can enable rollout recording with either backend:
+
+```yaml
+recording_enabled: true
+recording_dir: recordings
+recording_hotkey: F9
+recording_auto_start: false
+```
+
+Press the configured hotkey once to start and again to stop. Set
+`recording_auto_start: true` to start recording as soon as each rollout begins.
+Relative `recording_dir` values are written under the flashdreams repository
+root; absolute paths are used as-is. Each saved recording writes
+`first_frame.png`, `prompt.txt`, `metadata.json`, `hdmap.mp4`, and
+`inferred.mp4` under a timestamped subdirectory. `first_frame.png` is copied
+from the first retained inferred frame so it matches the inferred video. To
+bound host memory during long auto-start rollouts, each stream keeps the most
+recent 600 frames; `metadata.json` records any dropped frame counts.
+Raster-only recordings contain the HD-map/raster stream, save `first_frame.png`
+from that stream, and omit `inferred.mp4` because there is no world-model
+output.
+
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.

@@ -127,6 +127,19 @@ class PresenterBackend(Protocol):
     def close(self) -> None: ...
 
 
+class RecordingBackend(Protocol):
+    @property
+    def auto_start(self) -> bool: ...
+
+    def start(self) -> None: ...
+
+    def toggle(self) -> None: ...
+
+    def record_frame(self, frame: PresentedFrame) -> None: ...
+
+    def close(self, *, reason: str) -> None: ...
+
+
 class MainLoopState:
     """Mutable per-iteration counters and timestamps for :func:`run_main_loop`.
 
@@ -397,6 +410,22 @@ def _drain_pipeline_frames(
         ready_frames.append(queued_frame)
 
 
+def _consume_recording_toggle_request(runtime_controls: RuntimeControls) -> bool:
+    consume = getattr(runtime_controls, "consume_recording_toggle_request", None)
+    if not callable(consume):
+        return False
+    return bool(consume())
+
+
+def _close_recording(
+    recorder: RecordingBackend | None,
+    *,
+    reason: str,
+) -> None:
+    if recorder is not None:
+        recorder.close(reason=reason)
+
+
 def run_main_loop(
     presenter: PresenterBackend,
     runtime_controls: RuntimeControls,
@@ -406,6 +435,7 @@ def run_main_loop(
     pipeline: ChunkPipeline,
     config: LoopConfig,
     loading_status: Callable[[], str | None] | None = None,
+    recorder: RecordingBackend | None = None,
 ) -> bool:
     """Drive the request -> render -> present pipeline.
 
@@ -426,13 +456,18 @@ def run_main_loop(
     chunk_history = ChunkHistory(config.history_capacity)
     if _profile_input_to_present_enabled():
         reset_input_to_present_profile_window()
+    if recorder is not None and recorder.auto_start and not presenter.should_close:
+        recorder.start()
 
     while not presenter.should_close:
         presenter.process_events()
         if presenter.should_close:
             break
         if runtime_controls.consume_reset_request():
+            _close_recording(recorder, reason="reset")
             return True
+        if _consume_recording_toggle_request(runtime_controls) and recorder is not None:
+            recorder.toggle()
         sampled = input_backend.sample()
 
         # Keep one chunk in flight.
@@ -450,6 +485,7 @@ def run_main_loop(
             # OOB overlay from the new boundary frame and auto-respawn (same
             # ``return True`` as a manual reset) when far enough off-map.
             if update_oob_state(state, simulation, config):
+                _close_recording(recorder, reason="respawn")
                 return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
@@ -481,6 +517,8 @@ def run_main_loop(
                 view_mode=view_mode,
                 oob_message=state.oob_message,
             )
+            if recorder is not None:
+                recorder.record_frame(queued_frame.frame)
             last_presented_frame = queued_frame.frame
             state.frame_count += 1
         else:
@@ -500,4 +538,5 @@ def run_main_loop(
             )
 
         state.next_present_time += config.frame_interval_s
+    _close_recording(recorder, reason="loop-end")
     return False

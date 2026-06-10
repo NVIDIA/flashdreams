@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,8 +22,13 @@ from omnidreams.interactive_drive.config import (
     WorldModelProfileConfig,
 )
 from omnidreams.interactive_drive.log import configure_logging
+from omnidreams.interactive_drive.recording import RecordingConfig
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
-from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
+from omnidreams.interactive_drive.world_model.manifest import (
+    RecordingManifest,
+    load_recording_manifest,
+    load_world_model_manifest,
+)
 from omnidreams.scenes import local_scene_archive_path
 
 # Package root (from this file's location) so packaged-asset defaults below
@@ -31,6 +37,26 @@ from omnidreams.scenes import local_scene_archive_path
 # ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` (shared with the webrtc server).
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
+_DEFAULT_RECORDING_DIR_NAME = "recordings"
+
+
+def _find_flashdreams_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / "pyproject.toml").is_file() and (
+            candidate / "integrations" / "omnidreams"
+        ).is_dir():
+            return candidate
+    fallback = Path.cwd().resolve()
+    warnings.warn(
+        "Could not locate the flashdreams repository root from "
+        f"{start}; resolving relative recording_dir values from {fallback}.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return fallback
+
+
+_FLASHDREAMS_ROOT = _find_flashdreams_root(_PACKAGE_ROOT)
 
 # Default scene UUID staged by ``omnidreams-prepare`` (clear-weather base
 # archive in nvidia/omni-dreams-scenes).
@@ -67,6 +93,21 @@ def resolve_manifest_path(path: str | Path) -> Path:
             return configs_path
 
     return cwd_path
+
+
+def _resolve_recording_output_dir(
+    raw_dir: Path | None, *, enabled: bool
+) -> Path | None:
+    if not enabled:
+        return None
+    path = (
+        Path(_DEFAULT_RECORDING_DIR_NAME)
+        if raw_dir is None
+        else Path(raw_dir).expanduser()
+    )
+    if path.is_absolute():
+        return path
+    return (_FLASHDREAMS_ROOT / path).resolve()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -148,8 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Omnidreams pipeline manifest (YAML). Accepts a path or a bundled "
-            "config filename such as example_world_model_perf.yaml."
+            "Interactive-drive manifest (YAML). For the omnidreams backend this "
+            "also configures the world-model pipeline; for raster, recording_* "
+            "fields are honored when present. Accepts a path or a bundled config "
+            "filename such as example_world_model_perf.yaml."
         ),
     )
     parser.add_argument(
@@ -369,6 +412,18 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
     return overrides
 
 
+def _recording_config_from_manifest(manifest: RecordingManifest) -> RecordingConfig:
+    return RecordingConfig(
+        enabled=manifest.enabled,
+        output_dir=_resolve_recording_output_dir(
+            manifest.dir,
+            enabled=manifest.enabled,
+        ),
+        hotkey=manifest.hotkey,
+        auto_start=manifest.auto_start,
+    )
+
+
 def main() -> None:
     """Stand-alone entry point for ``python -m omnidreams.interactive_drive.cli``.
 
@@ -448,6 +503,13 @@ def prepare_config_and_backend(
 
     backend: RenderBackend
     if config.backend == "raster":
+        if config.manifest_path is not None:
+            config = replace(
+                config,
+                recording=_recording_config_from_manifest(
+                    load_recording_manifest(config.manifest_path)
+                ),
+            )
         backend = RasterRenderBackend(
             chunk=config.chunk, raster=config.raster, bev=config.bev
         )
@@ -468,6 +530,17 @@ def prepare_config_and_backend(
                     height=manifest.resolution_wh[1],
                 ),
             )
+        config = replace(
+            config,
+            recording=_recording_config_from_manifest(
+                RecordingManifest(
+                    enabled=manifest.recording_enabled,
+                    dir=manifest.recording_dir,
+                    hotkey=manifest.recording_hotkey,
+                    auto_start=manifest.recording_auto_start,
+                )
+            ),
+        )
         backend = WorldModelRenderBackend(
             manifest=manifest,
             chunk=config.chunk,
