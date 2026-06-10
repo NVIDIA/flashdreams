@@ -21,6 +21,7 @@ from omnidreams.interactive_drive.runtime.loop import (
     PresenterBackend,
     run_main_loop,
 )
+from omnidreams.interactive_drive.runtime.timing import TraceContext, TraceSink
 from omnidreams.interactive_drive.scene_loader import (
     load_scene_bundle,
     reseed_scene_bundle,
@@ -65,6 +66,7 @@ class InteractiveDriveApp:
         backend: RenderBackend,
         presenter: PresenterBackend | None = None,
         *,
+        trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
     ) -> None:
         """Construct the engine and begin model warmup.
@@ -107,7 +109,10 @@ class InteractiveDriveApp:
         # Scenes are bound later via load_scene; the model is never rebuilt
         # on a scene change.
         self._adapter = LocalVideoModelAdapter(backend)
-        self._pipeline = ChunkPipeline(self._adapter)
+        self._trace_context = (
+            None if trace_sink is None else TraceContext.create(trace_sink)
+        )
+        self._pipeline = ChunkPipeline(self._adapter, trace_context=self._trace_context)
         self._scene: SceneBundle | None = None
         self._map_bounds: MapBounds | None = None
         # Ground snapper for the current scene. Built once per scene (its
@@ -481,8 +486,12 @@ class InteractiveDriveApp:
                     oob_respawn_debounce_chunks=(
                         self._config.oob_respawn_debounce_chunks
                     ),
+                    stop_after_consumed_chunks=(
+                        self._config.stop_after_consumed_chunks
+                    ),
                 ),
                 loading_status=loading_status,
+                trace_context=self._trace_context,
             )
             if not reset_requested:
                 break

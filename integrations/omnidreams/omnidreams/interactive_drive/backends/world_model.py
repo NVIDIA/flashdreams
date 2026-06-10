@@ -23,6 +23,7 @@ from omnidreams.interactive_drive.types import (
     PresentedFrame,
     SceneBundle,
     TrajectoryChunk,
+    VideoModelTimings,
 )
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
@@ -171,6 +172,14 @@ class WorldModelRenderBackend(RenderBackend):
             frames=merged_frames,
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="omnidreams",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
         )
 
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
@@ -206,6 +215,14 @@ class WorldModelRenderBackend(RenderBackend):
             frames=merged_frames,
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="omnidreams",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
         )
 
     def reset(self) -> None:

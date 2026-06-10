@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from loguru import logger
-from omnidreams.interactive_drive.runtime.timing import ChunkTimes
+from omnidreams.interactive_drive.runtime.timing import (
+    ChunkTimes,
+    TraceContext,
+    event_dependencies,
+    trace_time_ns,
+)
 from omnidreams.interactive_drive.types import (
     FrameChunk,
     PresentedFrame,
@@ -50,6 +55,7 @@ class ChunkRequest:
 
     trajectory: TrajectoryChunk
     chunk_times: ChunkTimes
+    trace_dependency_event: int | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +67,7 @@ class QueuedFrame:
     # switch bumps the generation; the loop drops frames whose generation
     # no longer matches so stale rollout/scene frames aren't presented.
     generation: int = 0
+    worker_ready_event_id: int | None = None
 
 
 # Worker commands are closures that take the backend and return ``True`` to
@@ -70,8 +77,11 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 
 class ChunkPipeline:
-    def __init__(self, backend: VideoModelBackend) -> None:
+    def __init__(
+        self, backend: VideoModelBackend, trace_context: TraceContext | None = None
+    ) -> None:
         self._backend = backend
+        self._trace_context = trace_context
         # Unbounded so ``put`` never blocks the worker against shutdown.
         # TODO: gate in-flight work at the request site (frame-level, alpasim
         # style) instead of the loop's chunk-level ``chunks_outstanding`` gate.
@@ -182,10 +192,15 @@ class ChunkPipeline:
 
         chunk_times = request.chunk_times
         trajectory = request.trajectory
+        trace_dependency_event = request.trace_dependency_event
         submit_generation = self.current_generation
 
         def render_command(backend: VideoModelBackend) -> bool:
-            chunk_times.chunk_render_start_time = time.perf_counter()
+            trace_context = (
+                self._trace_context if chunk_times.chunk_index >= 1 else None
+            )
+            render_start = time.perf_counter()
+            chunk_times.chunk_render_start_time = render_start
             if submit_generation != self.current_generation:
                 chunk_times.chunk_ready_time = time.perf_counter()
                 logger.info(
@@ -194,8 +209,59 @@ class ChunkPipeline:
                     f"current_generation={self.current_generation}",
                 )
                 return True
+            queue_wait_event = None
+            if trace_context is not None:
+                queue_wait_event = trace_context.add_range(
+                    "queue_wait",
+                    thread=trace_context.worker_thread,
+                    begin_ns=trace_time_ns(chunk_times.request_poses_ready_time),
+                    end_ns=trace_time_ns(render_start),
+                    depends_on=event_dependencies(trace_dependency_event),
+                    chunk_index=chunk_times.chunk_index,
+                )
             frame_chunk = backend.render_chunk(trajectory)
-            chunk_times.chunk_ready_time = time.perf_counter()
+            render_end = time.perf_counter()
+            chunk_times.chunk_ready_time = render_end
+            worker_ready_event_id = None
+            if trace_context is not None:
+                chunk_render_event = trace_context.add_range(
+                    "chunk_render",
+                    thread=trace_context.worker_thread,
+                    begin_ns=trace_time_ns(render_start),
+                    end_ns=trace_time_ns(render_end),
+                    depends_on=event_dependencies(queue_wait_event),
+                    chunk_index=chunk_times.chunk_index,
+                    chunk_size=len(trajectory.timestamps_us),
+                    input_sample_time_ns=trace_time_ns(chunk_times.input_sample_time),
+                    source=frame_chunk.source_name,
+                )
+                worker_ready_event_id = chunk_render_event
+                timings = frame_chunk.video_model_timings
+                if timings is not None:
+                    condition_event = trace_context.add_range(
+                        "condition_raster",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.condition_start_time),
+                        end_ns=trace_time_ns(timings.condition_ready_time),
+                        depends_on=event_dependencies(queue_wait_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
+                    model_event = trace_context.add_range(
+                        "model_generate",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.model_start_time),
+                        end_ns=trace_time_ns(timings.model_ready_time),
+                        depends_on=event_dependencies(condition_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
+                    worker_ready_event_id = trace_context.add_range(
+                        "frame_merge",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.merge_start_time),
+                        end_ns=trace_time_ns(timings.merge_ready_time),
+                        depends_on=event_dependencies(model_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
             # Drop the output if a reset / scene switch superseded this chunk
             # while it was queued or rendering -- its frames belong to a
             # rollout the user has already moved on from.
@@ -214,6 +280,7 @@ class ChunkPipeline:
                         chunk_times=chunk_times,
                         frame_index=frame_index,
                         generation=submit_generation,
+                        worker_ready_event_id=worker_ready_event_id,
                     )
                 )
             return True
@@ -252,7 +319,15 @@ class ChunkPipeline:
             warmup_start = time.perf_counter()
             logger.info("[chunk-pipeline] warmup start")
             self._backend.warmup_model()
-            warmup_elapsed_ms = (time.perf_counter() - warmup_start) * 1000.0
+            warmup_end = time.perf_counter()
+            if self._trace_context is not None:
+                self._trace_context.add_range(
+                    "worker_warmup",
+                    thread=self._trace_context.worker_thread,
+                    begin_ns=trace_time_ns(warmup_start),
+                    end_ns=trace_time_ns(warmup_end),
+                )
+            warmup_elapsed_ms = (warmup_end - warmup_start) * 1000.0
             logger.info(
                 f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
             )

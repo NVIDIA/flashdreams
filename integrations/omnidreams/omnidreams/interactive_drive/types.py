@@ -208,10 +208,21 @@ class PresentedFrame:
 
 
 @dataclass(frozen=True)
+class VideoModelTimings:
+    condition_start_time: float
+    condition_ready_time: float
+    model_start_time: float
+    model_ready_time: float
+    merge_start_time: float
+    merge_ready_time: float
+
+
+@dataclass(frozen=True)
 class FrameChunk:
     frames: tuple[PresentedFrame, ...]
     boundary_state_after_chunk: VehicleState
     source_name: str
+    video_model_timings: VideoModelTimings | None = None
 
 
 @dataclass(frozen=True)
