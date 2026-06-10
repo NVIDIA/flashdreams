@@ -170,8 +170,13 @@ class InteractiveDriveRecorder:
                 json.dumps(metadata, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            if session.inferred_frames:
-                Image.fromarray(session.inferred_frames[0]).save(
+            first_frame = (
+                session.inferred_frames[0] if session.inferred_frames else None
+            )
+            if first_frame is None and session.hdmap_frames:
+                first_frame = session.hdmap_frames[0]
+            if first_frame is not None:
+                Image.fromarray(first_frame).save(
                     session.output_dir / "first_frame.png",
                 )
             _write_video(

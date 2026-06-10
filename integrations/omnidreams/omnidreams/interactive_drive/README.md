@@ -485,8 +485,9 @@ root; absolute paths are used as-is. Each saved recording writes
 from the first retained inferred frame so it matches the inferred video. To
 bound host memory during long auto-start rollouts, each stream keeps the most
 recent 600 frames; `metadata.json` records any dropped frame counts.
-Raster-only recordings contain the HD-map/raster stream and omit
-`inferred.mp4` / `first_frame.png` because there is no world-model output.
+Raster-only recordings contain the HD-map/raster stream, save `first_frame.png`
+from that stream, and omit `inferred.mp4` because there is no world-model
+output.
 
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be

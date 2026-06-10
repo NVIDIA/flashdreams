@@ -174,6 +174,50 @@ def test_recorder_caps_frame_buffers(tmp_path, monkeypatch) -> None:
     assert metadata["max_buffer_frames"] == 2
 
 
+def test_recorder_saves_first_frame_from_hdmap_when_no_inferred_frames(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    writes: list[tuple[Path, int]] = []
+
+    def fake_write_video(frames: list[np.ndarray], path: Path, fps: int) -> None:
+        del fps
+        writes.append((path, len(frames)))
+        if frames:
+            path.write_bytes(b"fake mp4")
+
+    monkeypatch.setattr(recording_module, "_write_video", fake_write_video)
+    scene = replace(minimal_scene(), scene_id="raster scene")
+    recorder = InteractiveDriveRecorder(
+        RecordingConfig(enabled=True, output_dir=tmp_path, hotkey="F9"),
+        scene=scene,
+        fps=30,
+    )
+
+    recorder.start()
+    recorder.record_frame(
+        PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.full((4, 4, 3), 17, dtype=np.uint8),
+            depth_host_f32=None,
+            model_rgb_host_uint8=None,
+        )
+    )
+    output_dir = recorder.stop(reason="hotkey")
+
+    assert output_dir is not None
+    assert np.array_equal(
+        np.asarray(Image.open(output_dir / "first_frame.png")),
+        np.full((4, 4, 3), 17, dtype=np.uint8),
+    )
+    assert (output_dir / "hdmap.mp4").read_bytes() == b"fake mp4"
+    assert not (output_dir / "inferred.mp4").exists()
+    assert writes == [
+        (output_dir / "hdmap.mp4", 1),
+        (output_dir / "inferred.mp4", 0),
+    ]
+
+
 def test_recorder_collision_suffix_starts_at_one(tmp_path, monkeypatch) -> None:
     class FixedDateTime:
         @classmethod
