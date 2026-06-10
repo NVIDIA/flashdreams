@@ -1423,6 +1423,23 @@ body.fd-page-landing .fd-split-text .highlight {
    side-by-side teaser-video card). Kept here so the page authors don't
    have to reach for inline styles. */
 
+/* Note admonitions read in the branded accent (the primary --fd-accent
+   green) rather than the theme's default info-blue. Overrides the three
+   pydata note rules: the left accent border, the title background, and
+   the title icon. */
+.admonition.note,
+div.admonition.note {
+    border-color: var(--fd-accent);
+}
+.admonition.note > .admonition-title,
+div.admonition.note > .admonition-title {
+    background-color: var(--fd-accent-soft);
+}
+.admonition.note > .admonition-title::after,
+div.admonition.note > .admonition-title::after {
+    color: var(--fd-accent);
+}
+
 .video-slot {
     border: 1px dashed var(--fd-border);
     border-radius: 10px;
