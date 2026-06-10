@@ -130,6 +130,7 @@ html_sidebars = {
     "community/*": ["sidebar-nav-bs"],
     "community/index": [],
     "models/*": ["sidebar-nav-bs"],
+    "models/index": [],
     "documentation": ["search-field", "sidebar-nav-bs"],
     "developer_guides/*": ["search-field", "sidebar-nav-bs"],
     "api/*": ["search-field", "sidebar-nav-bs"],
