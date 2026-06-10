@@ -55,9 +55,9 @@ _TOML_VERSION_RE = re.compile(r'^(version\s*=\s*)"[^"]*"', re.MULTILINE)
 _TOML_NAME_RE = re.compile(r'^name\s*=\s*"([^"]+)"', re.MULTILINE)
 
 
-def read_canonical_version() -> str:
+def read_canonical_version(repo_root: Path) -> str:
     """Read the version string from flashdreams/_version.py."""
-    version_file = REPO_ROOT / "flashdreams" / "flashdreams" / "_version.py"
+    version_file = repo_root / "flashdreams" / "flashdreams" / "_version.py"
     text = version_file.read_text()
     match = _VERSION_RE.search(text)
     if not match:
@@ -66,19 +66,19 @@ def read_canonical_version() -> str:
     return match.group(1)
 
 
-def find_pyproject_files() -> list[Path]:
+def find_pyproject_files(repo_root: Path) -> list[Path]:
     """Return all pyproject.toml files under the repo root."""
-    return sorted(REPO_ROOT.rglob("pyproject.toml"))
+    return sorted(repo_root.rglob("pyproject.toml"))
 
 
-def should_skip(path: Path, text: str) -> bool:
+def should_skip(path: Path, text: str, repo_root: Path) -> bool:
     """Return True if this pyproject.toml should not be version-synced."""
-    rel_path = path.relative_to(REPO_ROOT)
+    rel_path = path.relative_to(repo_root)
     # Skip the root workspace config (has no [project] section).
-    if path == REPO_ROOT / "pyproject.toml":
+    if path == repo_root / "pyproject.toml":
         return True
     # Skip the canonical source itself.
-    if path == REPO_ROOT / "flashdreams" / "pyproject.toml":
+    if path == repo_root / "flashdreams" / "pyproject.toml":
         return True
     # Skip integration test harnesses (e.g. integrations/*/tests/**).
     if (
@@ -97,12 +97,12 @@ def should_skip(path: Path, text: str) -> bool:
     return False
 
 
-def sync_version(version: str) -> list[Path]:
+def sync_version(repo_root: Path, version: str) -> list[Path]:
     """Update all pyproject.toml files and return the list of changed paths."""
     changed: list[Path] = []
-    for path in find_pyproject_files():
+    for path in find_pyproject_files(repo_root):
         text = path.read_text()
-        if should_skip(path, text):
+        if should_skip(path, text, repo_root):
             continue
         new_text = _TOML_VERSION_RE.sub(rf'\g<1>"{version}"', text)
         if new_text != text:
@@ -112,8 +112,6 @@ def sync_version(version: str) -> list[Path]:
 
 
 def main() -> None:
-    global REPO_ROOT
-
     parser = ArgumentParser(
         description=(
             "Sync flashdreams package versions to the canonical "
@@ -130,13 +128,13 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-    REPO_ROOT = args.repo_root.resolve()
+    repo_root = args.repo_root.resolve()
 
-    version = read_canonical_version()
-    changed = sync_version(version)
+    version = read_canonical_version(repo_root)
+    changed = sync_version(repo_root, version)
     if changed:
         for path in changed:
-            rel = path.relative_to(REPO_ROOT)
+            rel = path.relative_to(repo_root)
             print(f"Updated {rel} -> {version}")
         # Non-zero exit tells pre-commit that files were modified.
         sys.exit(1)

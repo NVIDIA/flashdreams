@@ -17,7 +17,26 @@ jobs:
       github.event.client_payload.pull_request.base.repo.full_name == 'NVIDIA/flashdreams'
     runs-on: ubuntu-latest
     steps:
+      - name: Check PR branch scope
+        id: pr-scope
+        env:
+          HEAD_REPO: ${{ github.event.client_payload.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          if [ "${HEAD_REPO}" = "NVIDIA/flashdreams" ]; then
+            echo "supported=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "supported=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "## Lint fix"
+              echo
+              echo "\`/lint-fix\` can only update PR branches in NVIDIA/flashdreams."
+              echo "This PR branch is in \`${HEAD_REPO}\`, so no automatic fix PR was created."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
       - name: Checkout PR branch
+        if: steps.pr-scope.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.event.client_payload.pull_request.head.repo.full_name }}
@@ -26,6 +45,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout target branch
+        if: steps.pr-scope.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           repository: NVIDIA/flashdreams
@@ -34,21 +54,24 @@ jobs:
           persist-credentials: false
 
       - name: Setup uv
+        if: steps.pr-scope.outputs.supported == 'true'
         uses: astral-sh/setup-uv@v6
 
       - name: Run fixable pre-commit hooks
+        if: steps.pr-scope.outputs.supported == 'true'
         id: fixers
         working-directory: pr-branch
         env:
           PRE_COMMIT_HOME: ${{ runner.temp }}/pre-commit
           UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
-          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/lint-fix-venv
         run: |
           set -euo pipefail
 
           config="${RUNNER_TEMP}/flashdreams-lint-fix-pre-commit.yaml"
           cp ../target-branch/.pre-commit-config.yaml "${config}"
-          command -v uvx >/dev/null
+          command -v uv >/dev/null
+          uv sync --project ../target-branch --only-group lint --frozen
 
           {
             echo "## Lint fix"
@@ -66,7 +89,7 @@ jobs:
             echo "::group::pre-commit ${hook_id}"
             git diff --binary > "${before_diff}"
             set +e
-            uvx --from pre-commit==4.3.0 pre-commit run \
+            uv run --project ../target-branch --no-sync pre-commit run \
               --config "${config}" \
               "${hook_id}" \
               --all-files
@@ -97,7 +120,7 @@ jobs:
           sync_status=0
           echo "::group::sync-version"
           set +e
-          python ../target-branch/.github/scripts/sync_version.py --repo-root .
+          uv run --project ../target-branch --no-sync python ../target-branch/.github/scripts/sync_version.py --repo-root .
           sync_status=$?
           set -e
           echo "::endgroup::"
@@ -122,7 +145,7 @@ jobs:
           fi
 
       - name: Check bot token
-        if: steps.fixers.outputs.changed == 'true'
+        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
         env:
           FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
         run: |
@@ -133,7 +156,7 @@ jobs:
           fi
 
       - name: Resolve bot identity
-        if: steps.fixers.outputs.changed == 'true'
+        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
         id: bot
         env:
           FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
@@ -148,8 +171,25 @@ jobs:
           echo "name=${bot_name}" >> "${GITHUB_OUTPUT}"
           echo "identity=${bot_identity}" >> "${GITHUB_OUTPUT}"
 
+      - name: Choose fix branch
+        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
+        id: fix-branch
+        env:
+          HEAD_REF: ${{ github.event.client_payload.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
+        run: |
+          set -euo pipefail
+          raw="lint-fix-${PR_NUMBER}-${HEAD_REF}"
+          branch="$(printf '%s' "${raw}" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          branch="${branch:0:240}"
+          if [ -z "${branch}" ]; then
+            echo "::error title=Invalid fix branch::Could not build a valid lint-fix branch name."
+            exit 1
+          fi
+          echo "name=${branch}" >> "${GITHUB_OUTPUT}"
+
       - name: Create lint fix pull request
-        if: steps.fixers.outputs.changed == 'true'
+        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
         id: create-pr
         uses: peter-evans/create-pull-request@v7
         with:
@@ -161,10 +201,21 @@ jobs:
           signoff: true
           title: "Apply lint fixes for PR #${{ github.event.client_payload.pull_request.number }}"
           body: "Automated lint fixes for ${{ github.event.client_payload.pull_request.html_url }}"
-          branch: lint-fix-${{ github.event.client_payload.pull_request.number }}-${{ github.event.client_payload.pull_request.head.ref }}
+          branch: ${{ steps.fix-branch.outputs.name }}
           base: ${{ github.event.client_payload.pull_request.head.ref }}
           push-to-fork: ${{ steps.bot.outputs.name }}/flashdreams
           delete-branch: true
+
+      - name: Find lint fix comment
+        if: always()
+        id: find-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: NVIDIA/flashdreams
+          issue-number: ${{ github.event.client_payload.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: "<!-- flashdreams-lint-fix -->"
 
       - name: Comment on PR
         if: always()
@@ -172,10 +223,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           repository: NVIDIA/flashdreams
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.client_payload.pull_request.number }}
+          edit-mode: replace
           body: |
+            <!-- flashdreams-lint-fix -->
             ${{
-              steps.fixers.conclusion != 'success'
+              steps.pr-scope.outputs.supported != 'true'
+              && format('`/lint-fix` can only update PR branches in NVIDIA/flashdreams. This PR branch is in `{0}`, so no automatic fix PR was created. Use the copied internal PR from the `/ok to test` flow, or apply fixes manually.', github.event.client_payload.pull_request.head.repo.full_name)
+              || (steps.fixers.conclusion != 'success'
               && format('Lint fix failed before creating a PR. Check the workflow run: https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id)
               || (steps.fixers.outputs.changed != 'true'
                   && 'No automatic lint fixes were produced. The remaining failures likely need manual changes.'
@@ -183,7 +239,7 @@ jobs:
                   && format('Failed to create the lint-fix pull request. Check the workflow run: https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id)
                   || (steps.create-pr.outputs.pull-request-url != ''
                       && format('Lint fixes are ready: {0}', steps.create-pr.outputs.pull-request-url)
-                      || 'No automatic lint fixes were produced. The remaining failures likely need manual changes.')))
+                      || 'No automatic lint fixes were produced. The remaining failures likely need manual changes.'))))
             }}
 
       - name: Add reaction
