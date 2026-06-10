@@ -27,7 +27,7 @@ Documentation
       FlashDreams, combining conceptual explanation with worked code
       examples.
 
-   .. grid-item-card:: CLI and API reference
+   .. grid-item-card:: CLI and API Reference
       :link: /api/index
       :link-type: doc
 
