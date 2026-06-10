@@ -467,7 +467,7 @@ Controls (apply in all three modes):
 - `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
 
-World-model manifests can enable rollout recording with:
+Manifests can enable rollout recording with either backend:
 
 ```yaml
 recording_enabled: true
@@ -485,6 +485,8 @@ root; absolute paths are used as-is. Each saved recording writes
 from the first retained inferred frame so it matches the inferred video. To
 bound host memory during long auto-start rollouts, each stream keeps the most
 recent 600 frames; `metadata.json` records any dropped frame counts.
+Raster-only recordings contain the HD-map/raster stream and omit
+`inferred.mp4` / `first_frame.png` because there is no world-model output.
 
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be

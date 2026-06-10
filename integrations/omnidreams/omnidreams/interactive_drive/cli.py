@@ -24,7 +24,11 @@ from omnidreams.interactive_drive.config import (
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.recording import RecordingConfig
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
-from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
+from omnidreams.interactive_drive.world_model.manifest import (
+    RecordingManifest,
+    load_recording_manifest,
+    load_world_model_manifest,
+)
 from omnidreams.scenes import local_scene_archive_path
 
 # Package root (from this file's location) so packaged-asset defaults below
@@ -185,8 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Omnidreams pipeline manifest (YAML). Accepts a path or a bundled "
-            "config filename such as example_world_model_perf.yaml."
+            "Interactive-drive manifest (YAML). For the omnidreams backend this "
+            "also configures the world-model pipeline; for raster, recording_* "
+            "fields are honored when present. Accepts a path or a bundled config "
+            "filename such as example_world_model_perf.yaml."
         ),
     )
     parser.add_argument(
@@ -406,6 +412,18 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
     return overrides
 
 
+def _recording_config_from_manifest(manifest: RecordingManifest) -> RecordingConfig:
+    return RecordingConfig(
+        enabled=manifest.enabled,
+        output_dir=_resolve_recording_output_dir(
+            manifest.dir,
+            enabled=manifest.enabled,
+        ),
+        hotkey=manifest.hotkey,
+        auto_start=manifest.auto_start,
+    )
+
+
 def main() -> None:
     """Stand-alone entry point for ``python -m omnidreams.interactive_drive.cli``.
 
@@ -485,6 +503,13 @@ def prepare_config_and_backend(
 
     backend: RenderBackend
     if config.backend == "raster":
+        if config.manifest_path is not None:
+            config = replace(
+                config,
+                recording=_recording_config_from_manifest(
+                    load_recording_manifest(config.manifest_path)
+                ),
+            )
         backend = RasterRenderBackend(
             chunk=config.chunk, raster=config.raster, bev=config.bev
         )
@@ -507,14 +532,13 @@ def prepare_config_and_backend(
             )
         config = replace(
             config,
-            recording=RecordingConfig(
-                enabled=manifest.recording_enabled,
-                output_dir=_resolve_recording_output_dir(
-                    manifest.recording_dir,
+            recording=_recording_config_from_manifest(
+                RecordingManifest(
                     enabled=manifest.recording_enabled,
-                ),
-                hotkey=manifest.recording_hotkey,
-                auto_start=manifest.recording_auto_start,
+                    dir=manifest.recording_dir,
+                    hotkey=manifest.recording_hotkey,
+                    auto_start=manifest.recording_auto_start,
+                )
             ),
         )
         backend = WorldModelRenderBackend(

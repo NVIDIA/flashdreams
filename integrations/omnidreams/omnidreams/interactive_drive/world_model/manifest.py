@@ -171,6 +171,32 @@ def _parse_recording_hotkey(raw: object, *, enabled: bool) -> str:
 
 
 @dataclass(frozen=True)
+class RecordingManifest:
+    enabled: bool = False
+    dir: Path | None = None
+    hotkey: str = "f9"
+    auto_start: bool = False
+
+
+def parse_recording_manifest(data: dict[str, object]) -> RecordingManifest:
+    enabled = bool(data.get("recording_enabled", False))
+    return RecordingManifest(
+        enabled=enabled,
+        dir=_parse_recording_dir(data.get("recording_dir")),
+        hotkey=_parse_recording_hotkey(
+            data.get("recording_hotkey"),
+            enabled=enabled,
+        ),
+        auto_start=bool(data.get("recording_auto_start", False)),
+    )
+
+
+def load_recording_manifest(path: str | Path) -> RecordingManifest:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return parse_recording_manifest(data)
+
+
+@dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
     resolution_wh: tuple[int, int] = _DEFAULT_RESOLUTION_WH
@@ -222,7 +248,7 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         raw_yaml = rewritten
     data = yaml.safe_load(raw_yaml) or {}
     resolution = _parse_resolution_wh(data.get("resolution_wh"))
-    recording_enabled = bool(data.get("recording_enabled", False))
+    recording = parse_recording_manifest(data)
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(
             data.get("debug_condition_frame_dir"),
@@ -280,11 +306,8 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
             data.get("native_vae_fp8_state_path"),
             manifest_dir=manifest_dir,
         ),
-        recording_enabled=recording_enabled,
-        recording_dir=_parse_recording_dir(data.get("recording_dir")),
-        recording_hotkey=_parse_recording_hotkey(
-            data.get("recording_hotkey"),
-            enabled=recording_enabled,
-        ),
-        recording_auto_start=bool(data.get("recording_auto_start", False)),
+        recording_enabled=recording.enabled,
+        recording_dir=recording.dir,
+        recording_hotkey=recording.hotkey,
+        recording_auto_start=recording.auto_start,
     )
