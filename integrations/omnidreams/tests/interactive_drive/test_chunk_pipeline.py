@@ -12,7 +12,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-from omnidreams.interactive_drive.runtime.timing import ChunkPrediction, ChunkTimes
+from omnidreams.interactive_drive.runtime.timing import ChunkTimes
 from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
@@ -107,7 +107,6 @@ def _chunk_times(chunk_size: int) -> ChunkTimes:
         input_sample_time=now,
         request_time=now,
         request_poses_ready_time=now + 0.001,
-        prediction=ChunkPrediction.create(request_time=now, frame_interval_s=0.1),
         intended_present_times=[
             now + 0.1 + idx * (1.0 / 30.0) for idx in range(chunk_size)
         ],

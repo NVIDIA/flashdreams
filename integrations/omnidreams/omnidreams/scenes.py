@@ -1,42 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Shared metadata + helpers for the ``omni-dreams-scenes`` Hugging Face dataset.
+"""Shared metadata + helpers for the ``omni-dreams-scenes`` HF dataset.
 
-Both demo paths in this package consume the same source of scene data
-(the ``omni-dreams-scenes`` HF dataset at ``scenes/clipgt-<uuid>.usdz``)
-and now also share an on-disk cache layout under
-:data:`FLASHDREAMS_CACHE_DIR`/``omnidreams-scenes/``. They still differ
-in *what they do* with the cached archive:
-
-* ``omnidreams.interactive_drive`` (desktop demo) keeps the USDZ
-  archive intact (its scene loader reads prompts / first-images out of
-  the zip via ``zipfile.ZipFile``). ``omnidreams-prepare`` / the
-  demo's first-launch auto-stage copies the HF-cached archive to
-  ``<scenes_cache_root>/clipgt-<uuid>.usdz``.
-* ``omnidreams.webrtc.session`` extracts the USDZ payload into
-  ``<scenes_cache_root>/<uuid>/clipgt/`` and reads
-  ``clipgt/first_image.*`` + ``clipgt/prompt.txt`` directly from disk.
-
-The two layouts coexist in the same root: an archive lives at
-``<root>/clipgt-<uuid>.usdz`` (a file) while the extracted directory
-lives at ``<root>/<uuid>/`` (a directory). No name conflict, and
-neither side downloads twice because both call
-:func:`hf_hub_download_scene` which goes through ``huggingface_hub``'s
-content-addressed HF cache.
-
-This module owns:
-
-* the dataset name and HF org resolver,
-* the archive filename template and bare-UUID convention,
-* the on-disk cache root (env-overridable via ``FLASHDREAMS_CACHE_DIR``),
-* the file-suffix conventions and the variant-suffix parser used by
-  the interactive-drive scene loader,
-* a ``list_available_scene_uuids`` helper that walks the HF dataset.
-
-Centralising these keeps the two demos in lock-step on what a "clipgt
-scene" looks like, where to fetch one from, and where one ends up on
-disk.
+Keeps the desktop ``interactive_drive`` demo (which uses the USDZ archive
+intact) and ``webrtc.session`` (which extracts it) in lock-step on scene
+naming, the HF org resolver, the variant-suffix parser, and the shared
+on-disk cache layout under :data:`FLASHDREAMS_CACHE_DIR`/``omnidreams-scenes/``.
+The archive (``<root>/clipgt-<uuid>.usdz``) and extracted dir
+(``<root>/<uuid>/``) coexist without name conflict.
 """
 
 from __future__ import annotations
@@ -48,25 +20,16 @@ from typing import Final
 
 from omnidreams.hf_org import hf_repo
 
-# ---------------------------------------------------------------------------
-# Hugging Face dataset metadata
-# ---------------------------------------------------------------------------
-
-# Filename suffixes accepted as the scene's first-frame image. Both demo
-# paths normalise to lowercase before comparison.
+# First-frame image suffixes; both demo paths lowercase before comparison.
 SCENE_IMAGE_SUFFIXES: Final[frozenset[str]] = frozenset(
     {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 )
 
-# Canonical filename for the per-scene prompt inside an extracted clipgt
-# bundle. The interactive-drive demo also supports ``prompt_<N>.txt`` for
-# multiple variants of the same scene (parsed via ``variant_from_stem``
-# below); the webrtc session pipeline only uses the canonical name.
+# Per-scene prompt filename. interactive-drive also supports ``prompt_<N>.txt``
+# variants (via ``variant_from_stem``); webrtc uses only this canonical name.
 SCENE_PROMPT_FILENAME: Final[str] = "prompt.txt"
 
-# Conventional subdirectory under which a USDZ archive's payload is
-# unpacked by the webrtc session pipeline (``<scenes_cache_root>/<uuid>/
-# clipgt/``).
+# Subdir webrtc unpacks a USDZ payload into (``<scenes_cache_root>/<uuid>/clipgt/``).
 SCENE_CLIPGT_DIRNAME: Final[str] = "clipgt"
 
 # Per-camera ground-truth frames live at ``frames/<camera>/<ts_us>.jpeg``;
@@ -93,10 +56,8 @@ _CLIPGT_STEM_RE: Final = re.compile(
     r"(?:-(?P<variant>.+))?$"
 )
 
-# Convenience link to the canonical NVIDIA-hosted dataset browser. The
-# resolver below honours OMNI_DREAMS_HF_ORG when picking the actual repo
-# id; this URL is intentionally fixed at ``nvidia/`` because the public
-# docs always point there.
+# Canonical NVIDIA dataset browser URL; intentionally fixed at ``nvidia/``
+# (public docs always point there) even when OMNI_DREAMS_HF_ORG overrides the repo.
 HF_DATASET_BROWSER_URL: Final[str] = (
     "https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes"
 )
@@ -105,10 +66,8 @@ HF_DATASET_BROWSER_URL: Final[str] = (
 def hf_scenes_repo_id(org: str | None = None) -> str:
     """Return ``<resolved-org>/omni-dreams-scenes`` for HF lookups.
 
-    Delegates to :func:`omnidreams.hf_org.hf_repo` so the
-    ``OMNI_DREAMS_HF_ORG`` env var / ``--hf-org`` CLI flag flow through
-    here too, keeping the webrtc server in lock-step with
-    interactive-drive once the env var is set.
+    Delegates to :func:`omnidreams.hf_org.hf_repo` so ``OMNI_DREAMS_HF_ORG``
+    / ``--hf-org`` flow through here too.
     """
     return hf_repo(kind="scenes", org=org)
 
@@ -133,11 +92,6 @@ def normalise_scene_uuid(scene_uuid: str) -> str:
     local path helpers all assume the bare form.
     """
     return parse_scene_stem(scene_uuid)[0]
-
-
-def scene_variant_from_stem(stem: str) -> str:
-    """Return just the variant slug parsed out of a clipgt archive stem."""
-    return parse_scene_stem(stem)[1]
 
 
 def _variant_suffix(variant: str | None) -> str:
@@ -185,39 +139,25 @@ def resolve_variant_archive(scene_path: Path, variant: str) -> Path:
     return scene_path
 
 
-# ---------------------------------------------------------------------------
-# On-disk cache layout
-# ---------------------------------------------------------------------------
-
-# Root of every flashdreams-managed cache directory. Honours an opt-in
-# ``FLASHDREAMS_CACHE_DIR`` env var so users who keep dot-caches on a
-# separate volume can redirect everything in one place. Defined as a
-# module-level constant rather than a function so monkeypatching it in
-# tests is straightforward; helpers below read it on every call so a
-# late re-assignment still takes effect.
+# Root of every flashdreams-managed cache dir (override via
+# ``FLASHDREAMS_CACHE_DIR``). Module-level constant read on every call so tests
+# can monkeypatch it and a late re-assignment still takes effect.
 FLASHDREAMS_CACHE_DIR: Path = Path(
     os.path.expanduser(os.getenv("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams"))
 )
 
 
 def scenes_cache_root() -> Path:
-    """Shared cache root for staged scenes (both archive and extracted forms).
-
-    Resolves to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes``. Read on
-    every call so tests that monkeypatch :data:`FLASHDREAMS_CACHE_DIR`
-    immediately see the redirect.
-    """
+    """Shared cache root for staged scenes: ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes``."""
     return FLASHDREAMS_CACHE_DIR / "omnidreams-scenes"
 
 
 def local_scene_archive_path(
     scene_uuid: str, variant: str = SCENE_VARIANT_DEFAULT
 ) -> Path:
-    """Where the desktop demo expects a staged scene archive to live.
+    """Staged archive path ``<scenes_cache_root>/clipgt-<uuid>[-<variant>].usdz``.
 
-    ``<scenes_cache_root>/clipgt-<uuid>[-<variant>].usdz``. Matches the
-    ``clipgt-<uuid>[-<variant>].usdz`` naming the HF dataset uses so a user
-    staring at the cache dir sees the same filenames as on Hugging Face.
+    Mirrors the HF dataset's filenames so the cache dir matches Hugging Face.
     """
     return (
         scenes_cache_root()
@@ -225,38 +165,13 @@ def local_scene_archive_path(
     )
 
 
-# ---------------------------------------------------------------------------
-# Filename convention helpers
-# ---------------------------------------------------------------------------
-
-
 def variant_from_stem(stem: str, prefix: str) -> str | None:
-    """Canonical scene-variant name parser.
+    """Map a file *stem* to its variant slug (``--variant`` / HUD selector).
 
-    Maps a file *stem* (no extension) to the variant slug used by
-    ``--variant`` / the HUD's variant selector. The convention, matching
-    what ``nvidia/omni-dreams-scenes`` ships:
-
-    * ``<prefix>``           -> ``"default"``  (e.g. ``prompt.txt``, ``first_image.png``)
-    * ``<prefix>_<X>``       -> ``<X>``        (e.g. ``prompt_1.txt`` -> ``"1"``)
-    * ``<prefix><N>``        -> ``<N>``        (e.g. ``prompt1.txt`` -> ``"1"``)
-    * anything else          -> ``None``       (rejected; caller skips it)
-
-    The trailing-suffix-without-underscore form is accepted for numeric
-    legacy scene assets such as ``prompt1.txt`` while non-numeric suffixes
-    still require the underscore form. Previously a naive
-    ``stem.replace(prefix, "")`` quietly mapped ``prompt_1`` to ``_1``
-    while the HUD displayed ``1``, so the selector silently fell back to
-    the default prompt on real scenes.
-
-    Used by every discovery path that walks clipgt asset names:
-
-    * ``omnidreams.interactive_drive.scene_loader._discover_prompts``
-      and ``._discover_first_images`` (USDZ archive entries).
-    * ``omnidreams.interactive_drive.demo._discover_variants``
-      (HUD variant-selector dropdown).
-    * ``omnidreams.interactive_drive.assets.scene_bundle._discover_prompts``
-      and ``._discover_first_frames`` (unpacked scene directories).
+    * ``<prefix>``      -> ``"default"`` (e.g. ``prompt.txt``)
+    * ``<prefix>_<X>``  -> ``<X>``       (e.g. ``prompt_1.txt`` -> ``"1"``)
+    * ``<prefix><N>``   -> ``<N>``       (numeric only, e.g. ``prompt1.txt`` -> ``"1"``)
+    * anything else     -> ``None``      (rejected; caller skips it)
     """
     if stem == prefix:
         return "default"
@@ -267,11 +182,6 @@ def variant_from_stem(stem: str, prefix: str) -> str | None:
         if suffix.isdecimal():
             return suffix
     return None
-
-
-# ---------------------------------------------------------------------------
-# Dataset enumeration
-# ---------------------------------------------------------------------------
 
 
 def _list_repo_scene_files() -> list[str]:

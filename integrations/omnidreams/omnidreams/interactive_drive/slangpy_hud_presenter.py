@@ -1,51 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Single-process slangpy + PIL HUD presenter for ``interactive-drive``.
+"""Single-process slangpy-window HUD presenter for ``interactive-drive``.
 
-Replaces the supervised pygame-HUD architecture entirely. The engine,
-the chrome, and the presentation all live in one Python process here:
-
-* :class:`SlangPyHudPresenter` plugs into the same engine seam
-  :class:`~omnidreams.interactive_drive.presenter.SlangPyPresenter` fills for
-  ``--no-hud``, so the chunk pipeline / world model / simulation never
-  see that the presenter changed.
-* The window itself is a :class:`slangpy.Window`, the same SDL3-backed
-  swapchain we use for ``--no-hud``. Slangpy + Ludus + CUDA in a single
-  process is proven (``--no-hud`` works); pygame + Ludus + CUDA is not
-  (we hit ``eglMakeCurrent`` failures and CUDA-GL interop errors), so
-  this avoids pygame entirely.
-* Chrome (panel, scene/variant dropdowns, BEV minimap, speed digit,
-  steering-wheel sprite, pedal sprites, status overlays) is rendered
-  on the CPU with PIL into an offscreen RGBA canvas. With CUDA interop
-  enabled, generated camera frames stay on CUDA and the PIL canvas is
-  uploaded as an alpha overlay; otherwise the HUD falls back to the
-  original CPU camera composite + swapchain upload.
-* Mouse / keyboard input flows through ``Window.on_mouse_event`` /
-  ``on_keyboard_event`` callbacks straight into
-  :class:`~omnidreams.interactive_drive.input.keyboard.KeyboardState` (no HTTP,
-  no IPC). The optional wheel evdev reader writes to ``KeyboardState``
-  via :class:`KeyboardStateDriveSink`, which is a duck-typed drop-in
-  for the supervisor-era ``ControlClient``.
-* Scene / variant changes from the dropdown signal the engine to
-  exit by setting ``_pending_scene_change`` and flipping the close
-  flag. The demo's outer loop in
-  :func:`omnidreams.interactive_drive.demo._run_slangpy_hud` then calls
-  ``app.load_scene`` on the single long-lived
-  :class:`InteractiveDriveApp` and re-enters ``app.run_scene`` over this
-  same presenter. The warmed world model stays resident across the
-  switch (only the per-scene geometry is re-uploaded), so the slangpy
-  window survives the transition and the user sees a continuous HUD
-  instead of the close-and-reopen flash -- and minutes of model reload --
-  the older teardown/rebuild (and the ``os.execv`` path before it)
-  incurred.
+Plugs into the same engine seam as ``SlangPyPresenter`` (``--no-hud``), but
+draws PIL chrome (panel, dropdowns, BEV minimap, speed/wheel/pedals) over the
+camera frame -- composited on CUDA when interop is available, else on the CPU.
+Input goes straight to ``KeyboardState``; dropdown scene/variant changes are
+handled by the demo's outer loop over this same long-lived window.
 """
 
 from __future__ import annotations
 
 import contextlib
 import math as _math
-import os
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -63,8 +31,8 @@ from omnidreams.interactive_drive.presenter import (
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
 
-# Colour palette mirrors :mod:`omnidreams.interactive_drive.demo` and the
-# pygame HUD it replaces, so the visual identity stays the same.
+# Colour palette mirrors :mod:`omnidreams.interactive_drive.demo` for a
+# consistent visual identity.
 NVIDIA_GREEN: tuple[int, int, int] = (118, 185, 0)
 BG_COLOR: tuple[int, int, int] = (20, 20, 30)
 PANEL_BG: tuple[int, int, int] = (25, 25, 35)
@@ -76,9 +44,7 @@ ACTIVE_BG: tuple[int, int, int] = (30, 80, 30)
 ACCENT_AMBER: tuple[int, int, int] = (200, 150, 50)
 GMAPS_LAND_RGB: tuple[int, int, int] = (234, 226, 209)
 
-# Initial windowed dimensions and minimum size. Picked to match the
-# pygame HUD's defaults so users moving between the two presenters see
-# the same first impression.
+# Initial windowed dimensions and minimum size.
 DEFAULT_WINDOW_W = 1920
 DEFAULT_WINDOW_H = 1080
 MIN_WINDOW_W = 640
@@ -97,8 +63,8 @@ BEV_PANEL_MIN_HEIGHT = 100
 # Image.rotate per render tick.
 WHEEL_ROTATION_QUANTUM_DEG = 3
 
-# Render loop sleep target between event polls. Same 5 ms slice the
-# pygame HUD used; keeps input latency low without burning a core.
+# Render loop sleep target between event polls; 5 ms keeps input latency
+# low without burning a core.
 EVENT_POLL_INTERVAL_S = 0.005
 
 # Metres-per-second to miles-per-hour, for the speed digit.
@@ -108,38 +74,15 @@ MPS_TO_MPH = 2.2369362920544
 # ``_pending_drive_releases`` field documentation in
 # :class:`SlangPyHudPresenter`.
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
-_HUD_PROFILE_ENV = "INTERACTIVE_DRIVE_PROFILE_HUD"
-_HUD_PROFILE_INTERVAL_S_ENV = "INTERACTIVE_DRIVE_PROFILE_HUD_INTERVAL_S"
-_HUD_PROFILE_FIELDS = (
-    "total_ms",
-    "camera_ms",
-    "bev_ms",
-    "render_ms",
-    "overlay_ms",
-    "pre_submit_ms",
-    "enqueue_ms",
-    "post_submit_ms",
-    "present_ms",
-)
-_HUD_PROFILE_SUMS: dict[str, float] = {}
-_HUD_PROFILE_COUNTS: dict[str, int] = {}
-_HUD_PROFILE_WINDOW_START: float | None = None
 
 
 def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
-    """Allocate the chrome composition buffer and a PIL Image view over it.
+    """Allocate the chrome buffer and a PIL Image view sharing its memory.
 
-    PIL's :func:`Image.frombuffer` shares the underlying buffer for the
-    RGBA "raw" decoder (Pillow >= 9), so subsequent PIL draw / paste /
-    ``alpha_composite`` operations on the returned image write into
-    ``buf`` directly. We then hand ``buf`` straight to slangpy's
-    ``copy_from_numpy`` in :meth:`SlangPyHudPresenter._present_canvas`,
-    skipping the ~4 ms ``np.array(canvas)`` PIL-to-numpy memcpy the
-    previous incarnation paid per frame at 1080p.
-
-    The image is marked ``readonly = 0`` so PIL accepts it as a target
-    for in-place drawing operations; with ``readonly = 1`` (the
-    ``frombuffer`` default) ``ImageDraw`` raises.
+    ``Image.frombuffer`` (RGBA "raw", Pillow >= 9) aliases ``buf``, so PIL
+    draws write into it directly and we can hand ``buf`` straight to slangpy's
+    ``copy_from_numpy`` with no PIL-to-numpy memcpy. ``readonly = 0`` is
+    required or ``ImageDraw`` rejects the image as a draw target.
     """
     buf = np.empty((height, width, 4), dtype=np.uint8)
     buf[..., :3] = BG_COLOR
@@ -174,13 +117,10 @@ class _LRUCache(OrderedDict):
 
 
 def _resolve_font(size: int) -> Any:
-    """Find a TrueType font that exists on the host, fall back to PIL default.
+    """Find a host TrueType font (DejaVu Sans / Arial / Segoe UI), else PIL's default.
 
-    pygame uses the platform default sysfont (typically DejaVu Sans on
-    Linux). PIL doesn't have a sysfont resolver, so we look for the same
-    file in the well-known locations. ``ImageFont.load_default(size=...)``
-    is the last-resort fallback; it's a small bitmap font that scales
-    blockily but stays readable.
+    PIL has no sysfont resolver, so we probe well-known paths;
+    ``ImageFont.load_default`` is the last-resort bitmap fallback.
     """
     candidates = (
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -212,13 +152,10 @@ def _measure_text(font: Any, text: str) -> tuple[int, int, int, int]:
 def _truncate_text_to_width(
     font: Any, text: str, max_width: int, ellipsis: str = "\u2026"
 ) -> str:
-    """Shrink ``text`` until it fits within ``max_width`` pixels.
+    """Shrink ``text`` (with a trailing ``…``) until it fits ``max_width`` pixels.
 
-    PIL doesn't auto-clip text rendered via :meth:`ImageDraw.text`, so a
-    long scene UUID rendered straight into the header bar will overflow
-    out of the panel. We measure progressively shorter prefixes + ``…``
-    until the result fits, mirroring the standard "Running cli…" UX
-    pattern.
+    PIL doesn't auto-clip ``ImageDraw.text``, so a long label would overflow
+    the panel; we measure progressively shorter prefixes until one fits.
     """
     bbox = _measure_text(font, text)
     if bbox[2] - bbox[0] <= max_width:
@@ -234,18 +171,11 @@ def _truncate_text_to_width(
 
 
 class KeyboardStateDriveSink:
-    """Duck-typed drop-in for the supervisor-era ``ControlClient``.
+    """Duck-typed control sink that writes drive commands straight to ``KeyboardState``.
 
-    The legacy HUD's wheel + keyboard wiring posted ``set_drive`` /
-    ``set_key`` / ``pulse`` / ``release_all`` calls over HTTP into the
-    backend's MJPEG presenter, which then wrote into ``KeyboardState``.
-    Single-process we cut the HTTP round-trip out and write directly.
-
-    Only the methods :class:`~omnidreams.interactive_drive.demo.WheelBridge` and
-    :class:`~omnidreams.interactive_drive.demo.KeyboardDriveState` actually call are
-    implemented. ``set_key`` / ``pulse`` are unused by those (they're
-    for the browser MJPEG path) but kept here so a future caller that
-    leans on them gets the same in-process semantics for free.
+    Consumed by :class:`~omnidreams.interactive_drive.demo.WheelBridge` and
+    :class:`~omnidreams.interactive_drive.demo.KeyboardDriveState`. ``set_key`` /
+    ``pulse`` are unused no-ops kept only so the full control surface exists.
     """
 
     def __init__(self, keyboard: KeyboardState) -> None:
@@ -254,11 +184,9 @@ class KeyboardStateDriveSink:
     def set_drive(
         self, *, steer: float, throttle: float, brake: float, reverse: bool = False
     ) -> None:
-        # ``manual_control`` + ``steer_is_direct`` mirror what the
-        # MJPEG-era ``_apply_drive_control`` set so the engine state
-        # is byte-identical regardless of which transport drove it.
-        # ``reverse`` is set by a wheel/controller's bound reverse button
-        # (the keyboard path leaves it at the default ``False``).
+        # ``manual_control`` + ``steer_is_direct`` keep the engine state
+        # identical regardless of transport. ``reverse`` is set by a
+        # wheel/controller's bound reverse button (keyboard leaves it False).
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
@@ -284,11 +212,9 @@ class KeyboardStateDriveSink:
         # its event-pump thread and converts it into an exit-to-selection.
         self._keyboard.request_exit_scene()
 
-    # The methods below are no-ops in-process because the slangpy HUD
-    # writes pygame-style key events directly to ``KeyboardState`` from
-    # its ``on_keyboard_event`` callback. They exist so anything
-    # accidentally wired against ``ControlClient``'s full surface fails
-    # silently rather than raising ``AttributeError``.
+    # No-ops in-process: the HUD writes key events directly to ``KeyboardState``
+    # from its ``on_keyboard_event`` callback. Kept so the full control surface
+    # exists for duck-typed callers.
     def set_key(self, key: str, down: bool) -> None:  # noqa: ARG002 -- unused in-process
         return
 
@@ -535,7 +461,6 @@ class SlangPyHudPresenter:
             _prefetch_to_numpy(frame.bev_host_uint8)
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
-        total_start = time.perf_counter()
         # Apply any pending resize before touching the display texture
         # this frame. Done here (not inside on_resize) so Vulkan
         # resources are only ever rebuilt on the main thread.
@@ -559,36 +484,11 @@ class SlangPyHudPresenter:
                 with contextlib.suppress(Exception):
                     self._cuda_hud_interop.close()
                 self._cuda_hud_interop = None
-        camera_start = time.perf_counter()
         self._update_camera_pil(rgb)
-        camera_end = time.perf_counter()
-        bev_start = camera_end
         if frame.bev_host_uint8 is not None:
             self._update_bev_pil(frame.bev_host_uint8)
-        bev_end = time.perf_counter()
         self._render_canvas(frame.status_message)
-        render_end = time.perf_counter()
         self._present_canvas(use_gpu_camera=frame.status_message is None)
-        present_end = time.perf_counter()
-        _record_hud_profile(
-            "host",
-            total_ms=(present_end - total_start) * 1000.0,
-            camera_ms=(camera_end - camera_start) * 1000.0,
-            bev_ms=(bev_end - bev_start) * 1000.0,
-            render_ms=(render_end - bev_end) * 1000.0,
-            present_ms=(present_end - render_end) * 1000.0,
-        )
-
-    def present_loading(self, rgb_host_uint8: np.ndarray) -> None:
-        # Used during world-model warmup. Goes through the same render
-        # path so the HUD chrome stays drawn around the loading frame.
-        # CPU camera path here so the "Loading world model..." status
-        # overlay still composites over the loading frame; the GPU path
-        # would paint the camera *after* the canvas upload and bury the
-        # overlay underneath.
-        self._update_camera_pil(rgb_host_uint8)
-        self._render_canvas("Loading world model...")
-        self._present_canvas(use_gpu_camera=False)
 
     def present_world_model_loading(self, *, process_events: bool = True) -> None:
         """Paint the HUD's world-model loading state during blocking setup work."""
@@ -599,7 +499,6 @@ class SlangPyHudPresenter:
         self._present_canvas(use_gpu_camera=False)
 
     def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
-        total_start = time.perf_counter()
         if self._cuda_hud_interop is None:
             return False
 
@@ -608,62 +507,27 @@ class SlangPyHudPresenter:
             return False
 
         if not cuda_frame.ready:
-            submit_start = time.perf_counter()
             self._submit_ready_cuda_hud()
-            submit_end = time.perf_counter()
-            _record_hud_profile(
-                "cuda_pending",
-                total_ms=(submit_end - total_start) * 1000.0,
-                pre_submit_ms=(submit_end - submit_start) * 1000.0,
-            )
             return True
 
-        bev_start = time.perf_counter()
         if frame.bev_host_uint8 is not None:
             self._update_bev_pil(frame.bev_host_uint8)
-        bev_end = time.perf_counter()
         self._has_camera_frame = True
         self._render_canvas(frame.status_message, camera_transparent=True)
-        render_end = time.perf_counter()
         overlay = np.array(self._canvas, dtype=np.uint8)
-        overlay_end = time.perf_counter()
         camera_area, _panel_rect = self._layout_regions()
 
-        pre_submit_start = time.perf_counter()
         submitted = self._submit_ready_cuda_hud()
-        pre_submit_end = time.perf_counter()
         queued = self._cuda_hud_interop.enqueue_camera_to_shared_rgba(
             cuda_frame,
             overlay_rgba=overlay,
             camera_area=camera_area,
             bg_rgb=BG_COLOR,
         )
-        enqueue_end = time.perf_counter()
         if not queued:
-            _record_hud_profile(
-                "cuda_busy",
-                total_ms=(enqueue_end - total_start) * 1000.0,
-                bev_ms=(bev_end - bev_start) * 1000.0,
-                render_ms=(render_end - bev_end) * 1000.0,
-                overlay_ms=(overlay_end - render_end) * 1000.0,
-                pre_submit_ms=(pre_submit_end - pre_submit_start) * 1000.0,
-                enqueue_ms=(enqueue_end - pre_submit_end) * 1000.0,
-            )
             return True
-        post_submit_start = enqueue_end
         if not submitted:
             self._submit_ready_cuda_hud()
-        post_submit_end = time.perf_counter()
-        _record_hud_profile(
-            "cuda",
-            total_ms=(post_submit_end - total_start) * 1000.0,
-            bev_ms=(bev_end - bev_start) * 1000.0,
-            render_ms=(render_end - bev_end) * 1000.0,
-            overlay_ms=(overlay_end - render_end) * 1000.0,
-            pre_submit_ms=(pre_submit_end - pre_submit_start) * 1000.0,
-            enqueue_ms=(enqueue_end - pre_submit_end) * 1000.0,
-            post_submit_ms=(post_submit_end - post_submit_start) * 1000.0,
-        )
         return True
 
     def close(self) -> None:
@@ -723,12 +587,9 @@ class SlangPyHudPresenter:
 
     def _update_bev_pil(self, bev_rgb: object) -> None:
         bev_rgb = _as_rgb_host_uint8(bev_rgb)
-        # Wrap the raw BEV without applying the GoogleMaps recolour
-        # here -- the filter runs in :meth:`_get_bev_panel_image`
-        # *after* the panel-sized resize, so the float32 pipeline
-        # processes ~0.22 MP (470x470) instead of 1 MP (1024x1024).
-        # See that method for the resize+filter ordering rationale
-        # and the measured savings.
+        # Wrap the raw BEV; the GoogleMaps recolour runs in
+        # :meth:`_get_bev_panel_image` *after* the panel-sized resize so the
+        # float32 pipeline processes ~0.22 MP instead of 1 MP.
         if not bev_rgb.flags["C_CONTIGUOUS"]:
             bev_rgb = np.ascontiguousarray(bev_rgb)
         try:
@@ -1000,13 +861,9 @@ class SlangPyHudPresenter:
         if not surface_texture:
             time.sleep(0.001)
             return
-        # ``self._canvas_buffer`` is the same memory PIL drew into this
-        # tick (see :func:`_allocate_canvas`), so this is a direct
-        # PCIe upload -- no PIL-to-numpy memcpy. The previous
-        # ``np.array(canvas, dtype=np.uint8)`` indirection cost ~4 ms
-        # per frame at 1080p (~12% of the 33 ms 30 fps budget) for no
-        # functional reason; the numpy buffer already satisfies
-        # slangpy's writable + C-contiguous + uint8 constraints.
+        # ``self._canvas_buffer`` is the same memory PIL drew into this tick
+        # (see :func:`_allocate_canvas`), so this is a direct upload with no
+        # PIL-to-numpy memcpy.
         try:
             self._display_texture.copy_from_numpy(self._canvas_buffer)
             encoder = self._device.create_command_encoder()
@@ -1027,12 +884,8 @@ class SlangPyHudPresenter:
     def _composite_camera_gpu(self, encoder: Any) -> None:
         """Stamp the camera frame into the display texture on the GPU.
 
-        Replaces the CPU ``Image.resize`` + ``Image.paste`` pair that
-        used to cost ~5.9 ms / frame at 1080p with a hardware bilinear
-        blit + sub-region copy that runs in <1 ms on the GPU. The
-        chrome canvas (with bg color filling the camera-area letterbox
-        bars) was already uploaded to the display texture by the
-        caller, so we just stamp the camera over the centred fit rect.
+        Hardware bilinear blit + sub-region copy (<1 ms) over the chrome
+        canvas the caller already uploaded; just fills the centred fit rect.
         """
         fit = self._compute_camera_fit()
         if fit is None:
@@ -1046,13 +899,9 @@ class SlangPyHudPresenter:
         # Hardware bilinear resize: source-sized texture to fit-sized
         # texture (whole-extent blit with linear filter).
         encoder.blit(self._camera_fit_texture, self._camera_texture)
-        # Sub-region copy: fit-sized texture into the centred rect in
-        # the display texture. ``dst_offset`` is in texels; ``extent``
-        # defaults to "as much as possible" which here means the
-        # source texture's full extent (fit_w x fit_h). Uses the
-        # int-layer / int-mip ``copy_texture`` overload because the
-        # ``SubresourceRange`` ctor in this slangpy build only accepts
-        # a dict, not kwargs.
+        # Sub-region copy: fit-sized texture into the centred rect. Uses the
+        # int-layer / int-mip ``copy_texture`` overload because this slangpy
+        # build's ``SubresourceRange`` ctor only accepts a dict, not kwargs.
         spy = self._spy
         encoder.copy_texture(
             self._display_texture,
@@ -1094,13 +943,10 @@ class SlangPyHudPresenter:
     def _ensure_camera_texture_uploaded(self) -> bool:
         """Upload the latest world-model frame to the GPU camera texture.
 
-        Lazily allocates the source-sized texture on first use / when
-        the world-model output size changes. Pads the source RGB into
-        an RGBA8 numpy view (slangpy textures are RGBA8 to match the
-        swapchain format) and uploads via ``copy_from_numpy``. The
-        RGBA expansion is cached on ``_latest_camera_rgba`` so back-to-
-        back ticks with the same frame (e.g., a stalled chunk pipeline)
-        skip the copy.
+        Lazily (re)allocates the source-sized RGBA8 texture, pads the source
+        RGB into an RGBA8 staging buffer, and uploads via ``copy_from_numpy``.
+        The expansion is cached so back-to-back ticks with the same frame skip
+        the copy.
         """
         if self._latest_camera_pil is None or self._latest_camera_src_size is None:
             return False
@@ -1119,14 +965,9 @@ class SlangPyHudPresenter:
             self._latest_camera_rgba = None
             # Drop the staging buffer too -- it follows source-size.
             self._camera_rgba_staging = None
-        # Re-use a single RGBA staging buffer per source size with
-        # the alpha channel pre-filled. The previous incarnation ran
-        # ``np.full(..., 255)`` + ``np.concatenate([rgb, alpha], 2)``
-        # + a (no-op since concatenate is already C-contiguous)
-        # ``np.ascontiguousarray`` on every GPU-camera tick: that's
-        # an alpha allocation, a fresh RGBA allocation, and two
-        # memory passes for what only needs to be one RGB slice
-        # copy into a long-lived buffer.
+        # Re-use a single alpha-pre-filled RGBA staging buffer per source size
+        # so the per-tick work is one RGB slice copy, not an alpha alloc +
+        # fresh RGBA alloc + concatenate.
         if self._camera_rgba_staging is None or self._camera_rgba_staging.shape[:2] != (
             src_h,
             src_w,
@@ -1138,12 +979,8 @@ class SlangPyHudPresenter:
             # Force the RGB refill below since the buffer is fresh.
             self._latest_camera_rgba = None
         if self._latest_camera_rgba is None:
-            # Single RGB copy into the pre-allocated, alpha-padded
-            # staging buffer. ``np.asarray(pil)`` is zero-copy over
-            # the PIL Image's buffer (which itself wraps the
-            # world-model's numpy frame), so the only actual data
-            # movement is this one strided uint8 copy of the RGB
-            # bytes into the staging buffer's first three channels.
+            # Single strided RGB copy into the alpha-padded staging buffer;
+            # ``np.asarray(pil)`` is a zero-copy view of the world-model frame.
             self._camera_rgba_staging[..., :3] = np.asarray(self._latest_camera_pil)
             self._latest_camera_rgba = self._camera_rgba_staging
         self._camera_texture.copy_from_numpy(self._latest_camera_rgba)
@@ -1229,19 +1066,10 @@ class SlangPyHudPresenter:
     ) -> None:
         """Composite camera + chrome into ``self._canvas`` for this frame.
 
-        Mirrors :meth:`PygameHudViewer._render_frame`'s structure:
-
-        1. Fill background.
-        2. Draw camera into the camera area (or a placeholder).
-        3. Draw the panel chrome (cached when state hasn't changed).
-        4. Draw dynamic chrome (speed digit, wheel sprite, pedals, BEV).
-        5. Draw the open dropdown over everything.
-        6. Draw the loading/status overlay over the camera if set.
-
-        Drawing happens directly on ``self._canvas`` so we don't allocate
-        a fresh RGBA buffer every frame. ``ImageDraw.Draw(canvas)`` is
-        cheap; the per-frame cost is dominated by ``Image.paste`` of the
-        cached panel chrome and the camera resize.
+        Steps: fill background, draw camera (or placeholder), paste the cached
+        panel chrome, draw dynamic chrome (speed/wheel/pedals/BEV), then any
+        open dropdown and status overlay. Drawing is in-place on ``self._canvas``
+        to avoid a fresh RGBA alloc each frame.
         """
         # Apply any debounced drive-key releases whose grace window has
         # elapsed. Done here because ``_render_canvas`` runs once per
@@ -1256,15 +1084,10 @@ class SlangPyHudPresenter:
         panel_w = panel_rect[2] - panel_rect[0]
 
         draw = ImageDraw.Draw(canvas)
-        # No full-canvas clear here. The chrome panel paste in
-        # :meth:`_draw_panel` fully covers the panel column with an
-        # opaque RGBA chrome image every frame, ``_draw_camera`` covers
-        # the central camera region with the resized opaque RGB frame,
-        # and the camera area's letterbox bars stay at BG_COLOR from
-        # canvas init / resize (nothing paints there in the hot path).
-        # Only the placeholder branch needs to wipe the camera area --
-        # see below. Skipping the full-canvas rectangle here saves a
-        # 2 MP RGBA fill (~3-8 ms at 1080p) every render tick.
+        # No full-canvas clear: the panel paste and ``_draw_camera`` fully
+        # cover their regions every frame and the letterbox bars stay at
+        # BG_COLOR, so skipping the 2 MP RGBA fill saves ~3-8 ms / tick at
+        # 1080p. Only the placeholder branch wipes the camera area (below).
         if camera_transparent:
             # CUDA HUD mode composites the camera on the GPU, so keep
             # only the camera area transparent before drawing any
@@ -1276,13 +1099,9 @@ class SlangPyHudPresenter:
             camera_drawn = True
         elif self._latest_camera_pil is not None:
             if status_message is None:
-                # GPU camera path will fill the centred fit rect after
-                # the canvas upload; we only need to paint the
-                # letterbox bars with BG_COLOR here so they don't show
-                # last frame's content when the fit rect resizes.
-                # Cheaper than the full ``Image.resize`` + ``paste``
-                # that the CPU path runs (~5.9 ms at 1080p) -- this is
-                # just a 1420x1080 fill, ~0.3 ms.
+                # GPU camera path fills the centred fit rect after the canvas
+                # upload; here we only repaint the letterbox bars (~0.3 ms) so
+                # they don't show last frame's content when the fit rect resizes.
                 draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             else:
                 # CPU camera path: composite onto canvas so the status
@@ -1291,20 +1110,9 @@ class SlangPyHudPresenter:
                 self._draw_camera(canvas, self._latest_camera_pil, camera_area)
             camera_drawn = True
         if not camera_drawn:
-            # Placeholder states:
-            #   - engine off, model still warming (pre-warm overlapping the
-            #     selection wait): "Loading world model..." + dropdown hint.
-            #   - engine off, model warm (or pre-warm disabled): "Ready -
-            #     pick a scene" / "Load Scene" + dropdown hint.
-            #   - engine on, model not ready yet (user picked mid-warmup):
-            #     "Loading World Model".
-            #   - engine on, model warm, no frame yet (geometry upload +
-            #     first chunk): "Loading Scene...".
-            # Wipe the camera area so the previous tick's placeholder
-            # text / camera frame doesn't ghost behind the new
-            # placeholder. Cheap relative to the full-screen clear we
-            # used to pay every frame: ~1.5 MP fill instead of 2 MP,
-            # *and* only on placeholder ticks rather than always.
+            # Wipe the camera area so the previous tick's placeholder / camera
+            # frame doesn't ghost behind the new placeholder (placeholder ticks
+            # only, so cheaper than an always-on full-screen clear).
             draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             if not self._engine_active:
                 if self._model_can_prewarm and not self._model_ready_probe():
@@ -1321,16 +1129,10 @@ class SlangPyHudPresenter:
                 placeholder = "Loading Scene..."
             self._draw_camera_placeholder(canvas, draw, camera_area, placeholder)
 
-        # Poll the wheel / keyboard drive sink *every* tick, before any
-        # conditional panel drawing below. ``_keyboard_drive.update()``
-        # is the side-effect that publishes key state into the
-        # simulation; if it only ran from inside ``_draw_panel`` then a
-        # narrow window (``panel_w == 0``) or a user who resized the
-        # panel away mid-keypress would leave the last published drive
-        # command frozen until the panel came back -- e.g. release the
-        # throttle while the panel is hidden, then the throttle stays
-        # "down" until the next ``_draw_panel`` call. Speed-digit smoothing
-        # also lives downstream of this state, so it would otherwise drift.
+        # Poll the drive sink *every* tick (before the conditional panel draw):
+        # ``_keyboard_drive.update()`` publishes key state to the simulation, so
+        # gating it on ``_draw_panel`` would freeze drive input whenever the
+        # panel is hidden (narrow window). Speed smoothing also reads this.
         wheel_state = self._poll_drive_state()
         self._update_speed(wheel_state)
 
@@ -2000,39 +1802,13 @@ class SlangPyHudPresenter:
         from omnidreams.interactive_drive.demo import _apply_googlemaps_filter
 
         bev = self._latest_bev_pil
-        # Cover-fit + crop, matching the supervised HUD's
-        # ``_get_bev_panel_surface``, but with two ordering changes
-        # vs. the prior incarnation to cut ~48 ms / BEV tick at the
-        # default 1024x1024 source / 472x400 panel sizes:
-        #
-        # 1) Resize FIRST, then run the GoogleMaps filter on the
-        #    panel-sized image. The filter is per-pixel
-        #    (magenta-recolour, brightness-presence blend, road tint),
-        #    so it commutes with bilinear resampling to within
-        #    perceptual error -- only the hard ``presence`` knee at
-        #    ``bright == 0.14`` differs at antialiased edges, and the
-        #    BEV's natural smoothness keeps the mean uint8 delta to
-        #    ~2 channel units (visually identical). Running the float32
-        #    pipeline on ~0.22 MP instead of 1 MP is the bulk of the
-        #    saving.
-        #
-        # 2) BILINEAR instead of LANCZOS for the panel resize. LANCZOS
-        #    is PIL's most expensive resampler (large window,
-        #    single-threaded C); BILINEAR is several times faster and
-        #    the GoogleMaps tint blend applied afterward masks the
-        #    sharpness difference at minimap scale.
-        #
-        # Microbenchmark on this host (1024x1024 BEV -> 472x400 panel):
-        #
-        #   BEFORE: 57.5 ms / tick (filter@1024 + LANCZOS)
-        #   AFTER :  9.7 ms / tick (BILINEAR + filter@~470)
-        #   Savings:  47.8 ms / tick (83% reduction)
-        #
-        # Visual delta vs. before: mean=2.2, max=189 channel units --
-        # the max is at hard-knee crossings on isolated bright pixels
-        # in the synthetic test; on real BEV (continuous lane lines,
-        # smooth roads) the mean drops further and the diff is below
-        # perception threshold for minimap viewing.
+        # Cover-fit + crop, then GoogleMaps filter. Two ordering choices keep
+        # this cheap (~10 ms vs ~57 ms / tick at 1024 -> ~470 panel):
+        #   1) Resize before filtering so the per-pixel float32 filter runs on
+        #      ~0.22 MP not 1 MP; it commutes with bilinear resampling to
+        #      within ~2 channel units (visually identical).
+        #   2) BILINEAR not LANCZOS -- far cheaper, and the tint blend masks
+        #      the sharpness difference at minimap scale.
         scale = max(target_w / bev.width, target_h / bev.height)
         scaled_w = max(1, int(bev.width * scale))
         scaled_h = max(1, int(bev.height * scale))
@@ -2216,18 +1992,10 @@ class SlangPyHudPresenter:
         return False
 
     def _update_speed(self, wheel_state: Any) -> None:
-        # Drive the digit from the *authoritative* ego speed the simulation
-        # publishes once per chunk (``KeyboardState.vehicle_state``), so the
-        # readout always matches the vehicle the user is actually watching --
-        # the same source the browser/MJPEG ``/state`` readout already uses.
-        # The HUD's own ``target_speed_mps`` integrator (``wheel_state``) is a
-        # separate model that drifts from the ego and never resets on R /
-        # respawn, which is exactly the mismatch we're fixing here; it stays
-        # responsible only for force-feedback and the pedal chrome.
-        #
-        # Magnitude only: the digit shows speed and reverse is conveyed by the
-        # "R" indicator, so a reverse ego reads as a positive number that
-        # dips to 0 at the direction change.
+        # Drive the digit from the authoritative ego speed
+        # (``KeyboardState.vehicle_state``, same source as the MJPEG /state),
+        # not the HUD's ``target_speed_mps`` integrator which drifts and never
+        # resets on R/respawn. Magnitude only; reverse shows via the "R" box.
         telemetry = self._keyboard.vehicle_state
         if telemetry is not None:
             target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
@@ -2342,10 +2110,8 @@ class SlangPyHudPresenter:
             self._pending_drive_releases.pop(keysym, None)
 
     # Map slangpy ``KeyCode`` to the keysym vocabulary
-    # :func:`omnidreams.interactive_drive.demo._keyboard_drive_key` expects:
-    # the cardinal arrow keys are spelled with a leading capital
-    # ("Up"/"Down"/"Left"/"Right") because that maps came from the
-    # supervised HUD's tk-style keysyms.
+    # :func:`omnidreams.interactive_drive.demo._keyboard_drive_key` expects;
+    # cardinal arrows are capitalised ("Up"/"Down"/"Left"/"Right").
     _DRIVE_KEYSYMS: tuple[tuple[str, str], ...] = (
         ("w", "w"),
         ("a", "a"),
@@ -2472,17 +2238,11 @@ class SlangPyHudPresenter:
         self._signal_scene_change(self._current_scene, variant)
 
     def _signal_scene_change(self, scene_path: Any, variant: str) -> None:
-        """Tell the engine to exit while keeping the window alive.
+        """Tell the engine to exit (window stays alive) and stash the next scene.
 
-        Sets ``_pending_scene_change`` and flips the close flag so
-        :func:`run_main_loop` exits, ``app.run_scene`` returns, and the
-        demo's outer scene-change loop in
-        :func:`omnidreams.interactive_drive.demo._run_slangpy_hud` picks the
-        request up. That loop calls ``app.load_scene`` for the new scene
-        and re-enters ``app.run_scene`` over this same presenter, so the
-        slangpy swapchain / window (and the resident model) survive the
-        change without the close-and-reopen flash -- or model reload --
-        the older teardown/rebuild and ``os.execv`` paths produced.
+        Sets ``_pending_scene_change`` + the close flag so ``run_main_loop``
+        exits and the demo's outer loop loads the new scene over this same
+        presenter, keeping the swapchain and resident model alive.
         """
         self._args.scene = scene_path
         self._args.variant = variant
@@ -2490,10 +2250,8 @@ class SlangPyHudPresenter:
         # An explicit scene pick supersedes any pending exit-to-selection.
         self._pending_exit_scene = False
         self._should_close_flag = True
-        # Drop the wheel-set DriverCommand so input state is clean for
-        # the next scene -- otherwise a stale steer/throttle could
-        # apply to the new pipeline before the user has even pressed a
-        # key. Pressed-key state is reset on the next bind_keyboard().
+        # Drop the wheel-set DriverCommand so a stale steer/throttle doesn't
+        # apply to the next scene before the user touches a key.
         self._keyboard.set_drive_command(None)
 
     @property
@@ -2504,12 +2262,9 @@ class SlangPyHudPresenter:
     def exit_scene(self) -> None:
         """Request a return to the scene selector, keeping the window alive.
 
-        Mirrors :meth:`_signal_scene_change`: flips the close flag so
-        :func:`run_main_loop` exits and ``app.run_scene`` returns, but sets
-        ``_pending_exit_scene`` (instead of ``_pending_scene_change``) so the
-        demo's outer loop re-enters :meth:`wait_for_scene_selection` rather
-        than loading a new scene. No-op unless a scene is actually running, so
-        pressing ``x`` (or a bound exit button) at the selector does nothing.
+        Like :meth:`_signal_scene_change` but sets ``_pending_exit_scene`` so
+        the outer loop re-enters :meth:`wait_for_scene_selection`. No-op unless
+        a scene is running.
         """
         if not self._engine_active:
             return
@@ -2527,14 +2282,11 @@ class SlangPyHudPresenter:
         return self._pending_exit_scene
 
     def acknowledge_exit_scene(self) -> None:
-        """Clear the exit request and reopen the window for scene selection.
+        """Clear the exit request and reset per-rollout view state for the selector.
 
-        Called by the demo's outer loop just before it re-enters
-        :meth:`wait_for_scene_selection`. Resets the close flag (so the
-        selection loop runs), resets the selected variant, and drops all
-        per-rollout view state so the selector shows the clean "Ready - pick a
-        scene" / "WAITING FOR BEV..." state rather than ghosting the
-        just-exited rollout's last camera frame, BEV minimap, and speed.
+        Called before the outer loop re-enters :meth:`wait_for_scene_selection`;
+        resets the close flag, the selected variant, and the last rollout's
+        camera/BEV/speed so the selector doesn't ghost them.
         """
         self._pending_exit_scene = False
         self._should_close_flag = False
@@ -2558,24 +2310,18 @@ class SlangPyHudPresenter:
     ) -> None:
         """Wire the camera-placeholder text to model-warmup progress.
 
-        ``can_prewarm`` is True when the model loads at startup (the
-        default world-model path), so the selection wait reads "Loading
-        world model..." then "Ready - pick a scene" once warmup finishes.
-        False (e.g. ``--offload-text-encoder``, which only builds after the
-        first scene is known) keeps the plain "Load Scene" prompt.
-        ``ready_probe`` returns True once warmup has completed; it is
-        polled each render tick, so the text updates live mid-wait.
+        ``can_prewarm`` True (default world-model path) shows "Loading world
+        model..." then "Ready - pick a scene"; False keeps "Load Scene".
+        ``ready_probe`` (polled each tick) flips to ready once warmup finishes.
         """
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
-        """Gate scene/variant selection while ``probe()`` returns True.
+        """Lock scene/variant selection while ``probe()`` returns True (--preload-scenes).
 
-        Used with --preload-scenes so the user can't pick a scene until
-        every scene has finished preloading (and would therefore hit the
-        instant cache path). While locked the dropdowns ignore clicks and
-        the camera placeholder shows a "Preloading scenes..." hint.
+        Dropdowns ignore clicks until every scene is cached; the placeholder
+        shows a "Preloading scenes..." hint.
         """
         self._scene_selection_locked_probe = probe
 
@@ -2583,40 +2329,27 @@ class SlangPyHudPresenter:
         return self._scene_selection_locked_probe()
 
     def set_engine_active(self, active: bool) -> None:
-        """Toggle the scene-running chrome and placeholder text.
+        """Toggle the scene-running chrome / placeholder text.
 
-        ``active=False`` is the initial selection wait and the brief gap
-        between scene switches; ``active=True`` is a scene running (or
-        loading). The demo's outer loop calls this around each scene's
-        run. The exact placeholder string also depends on the model-warmup
-        state set via :meth:`set_model_status`.
+        ``active=False`` is the selection wait and the gap between switches;
+        ``True`` is a scene running/loading. Called by the demo around each run.
         """
         self._engine_active = bool(active)
         if not self._engine_active:
             # No scene loaded -> the variant dropdown isn't selectable, so a
             # previously-open one must not linger into the no-scene state.
             self._variant_dropdown_open = False
-        # Drop the chrome cache so the panel is redrawn promptly --
-        # the cache key includes scene/variant/dropdown state but not
-        # engine activity, and the camera placeholder lives outside
-        # the cached panel anyway, so this is just defence-in-depth.
+        # Drop the chrome cache so the panel redraws promptly (the cache key
+        # doesn't include engine activity).
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
 
     def wait_for_scene_selection(self) -> tuple[Any, str] | None:
         """Run a chrome-only event loop until the user picks a scene.
 
-        Used when ``--auto-start`` is False (the default) and on
-        the very first launch: we open the slangpy window with the
-        HUD chrome but no engine, render a "Load Scene" placeholder
-        in the camera area, and wait for the user to pick a scene from
-        the dropdown. Returns ``(scene_path, variant)`` on selection
-        or ``None`` if the user closes the window first.
-
-        The loop runs at ~60 fps with a 5 ms sleep between renders to
-        keep input latency low without burning a core. Per-tick work is
-        just the chrome render + a Vulkan present, which we already
-        clock at ~2 ms / frame.
+        Opens the HUD window with no engine and a "Load Scene" placeholder;
+        returns ``(scene_path, variant)`` on selection or ``None`` if the
+        window closes first. ~60 fps (5 ms sleep) of chrome render + present.
         """
         prior_engine_active = self._engine_active
         self.set_engine_active(False)
@@ -2655,13 +2388,10 @@ class SlangPyHudPresenter:
             self.set_engine_active(prior_engine_active)
 
     def acknowledge_scene_change(self, scene_path: Any, variant: str) -> None:
-        """Accept the scene change and prepare the presenter for the next scene.
+        """Accept the scene change and prep the presenter for the next scene.
 
-        Called by the demo's outer loop just before it calls
-        ``app.load_scene`` for the newly-selected scene. Resets the close
-        flag, clears cached per-scene state (camera frames, BEV,
-        dropdowns), and updates ``_current_scene`` / ``_selected_variant``
-        so the chrome reflects the new selection.
+        Resets the close flag, clears per-scene view state, and updates
+        ``_current_scene`` / ``_selected_variant`` for the chrome.
         """
         self._pending_scene_change = None
         self._pending_exit_scene = False
@@ -2671,14 +2401,11 @@ class SlangPyHudPresenter:
         self._reset_scene_view_state()
 
     def _reset_scene_view_state(self) -> None:
-        """Drop all per-rollout view state so the next state starts clean.
+        """Drop all per-rollout view state (camera, BEV, chrome, speed, telemetry).
 
-        Shared by :meth:`acknowledge_scene_change` (new scene about to load)
-        and :meth:`acknowledge_exit_scene` (returning to the selector). Clears
-        the camera frame, BEV minimap, cached chrome, speed digit, and
-        telemetry so the camera area falls back to its placeholder ("Ready -
-        pick a scene" / "Loading Scene...") and the BEV panel to "WAITING FOR
-        BEV..." instead of ghosting the just-ended rollout's last frame.
+        Shared by :meth:`acknowledge_scene_change` and
+        :meth:`acknowledge_exit_scene` so the next state starts clean instead
+        of ghosting the just-ended rollout.
         """
         self._scene_dropdown_open = False
         self._variant_dropdown_open = False
@@ -2705,26 +2432,17 @@ class SlangPyHudPresenter:
     def set_wheel(self, wheel: Any | None) -> None:
         """Attach (or detach) a :class:`WheelBridge` after construction.
 
-        The demo wrapper builds the wheel just after the engine (so its
-        drive sink targets the app's keyboard) and attaches it here, before
-        the scene-selection wait, so the HUD's steering / pedal chrome
-        reacts to the physical device while the user is still picking a
-        scene. Without this hook the presenter would still see
-        ``self._wheel = None`` from its constructor even after the wheel
-        was created, and chrome rendering would always fall through to the
-        keyboard-drive smoother.
+        The demo builds the wheel after the engine (so its sink targets the
+        app's keyboard) and attaches it here, before the selection wait, so the
+        steering / pedal chrome reacts to the device while picking a scene.
         """
         self._wheel = wheel
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Rebind to the engine's ``KeyboardState``.
+        """Rebind to the engine's long-lived ``KeyboardState``.
 
-        :class:`InteractiveDriveApp` owns one long-lived ``KeyboardState``
-        and calls this once at construction to point the injected
-        presenter at it. Update our reference + the ``KeyboardDriveState``
-        smoother that wraps it so subsequent ``set_key`` /
-        ``set_drive_command`` calls land on the engine's actual state
-        object.
+        :class:`InteractiveDriveApp` calls this once at construction; updates
+        our reference + the ``KeyboardDriveState`` smoother that wraps it.
         """
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
@@ -2746,60 +2464,6 @@ def _lookup_key(key_enum: Any, *names: str) -> Any:
 def _rect_contains(rect: tuple[int, int, int, int], pos: tuple[int, int]) -> bool:
     x, y = pos
     return rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
-
-
-def _hud_profile_interval_s() -> float:
-    raw = os.environ.get(_HUD_PROFILE_INTERVAL_S_ENV, "2").strip()
-    try:
-        value = float(raw)
-    except ValueError:
-        return 2.0
-    return max(0.25, value)
-
-
-def _record_hud_profile(path: str, **stages_ms: float) -> None:
-    if not _env_truthy(_HUD_PROFILE_ENV):
-        return
-
-    global _HUD_PROFILE_WINDOW_START
-
-    now = time.perf_counter()
-    if _HUD_PROFILE_WINDOW_START is None:
-        _HUD_PROFILE_WINDOW_START = now
-
-    _HUD_PROFILE_COUNTS[path] = _HUD_PROFILE_COUNTS.get(path, 0) + 1
-    for field in _HUD_PROFILE_FIELDS:
-        key = f"{path}.{field}"
-        _HUD_PROFILE_SUMS[key] = _HUD_PROFILE_SUMS.get(key, 0.0) + float(
-            stages_ms.get(field, 0.0)
-        )
-
-    interval_s = _hud_profile_interval_s()
-    if now - _HUD_PROFILE_WINDOW_START < interval_s:
-        return
-
-    window_s = max(1e-9, now - _HUD_PROFILE_WINDOW_START)
-    for profiled_path in sorted(_HUD_PROFILE_COUNTS):
-        count = _HUD_PROFILE_COUNTS[profiled_path]
-        if count <= 0:
-            continue
-        fps = float(count) / window_s
-        parts = [
-            "[profile] hud",
-            f"path={profiled_path}",
-            f"fps={fps:.1f}",
-            f"samples={count}",
-        ]
-        for field in _HUD_PROFILE_FIELDS:
-            total = _HUD_PROFILE_SUMS.get(f"{profiled_path}.{field}", 0.0)
-            if total <= 0.0:
-                continue
-            parts.append(f"avg_{field}={total / float(count):.2f}")
-        logger.info(" ".join(parts))
-
-    _HUD_PROFILE_SUMS.clear()
-    _HUD_PROFILE_COUNTS.clear()
-    _HUD_PROFILE_WINDOW_START = now
 
 
 def _prefetch_to_numpy(frame: object) -> None:

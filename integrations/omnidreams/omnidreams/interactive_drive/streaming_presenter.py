@@ -1,30 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MJPEG-over-HTTP presenter.
+"""MJPEG-over-HTTP presenter: CPU-JPEG-encoded frames served as a
+``multipart/x-mixed-replace`` stream with keydown/keyup posted back.
 
-An alternative to :class:`omnidreams.interactive_drive.presenter.SlangPyPresenter`
-for deployments where no graphics-capable GPU is available (e.g. a DGX
-Station with only a GB300 compute card). Frames produced by the backend
-are JPEG-encoded on the CPU and served to connected HTTP clients as a
-``multipart/x-mixed-replace`` stream. The user's browser posts keydown/
-keyup events back to the server so the demo stays interactive.
-
-For a full WebRTC viewer with a polished frontend and lower latency,
-use ``omnidreams.webrtc.server`` instead. This presenter is the
-single-process, dependency-free fallback for headless / compute-only
-hosts where the WebRTC server isn't a fit.
-
-Expected end-to-end latency on the same LAN:
-
-  * JPEG encode (PIL / libjpeg-turbo, 704x1280 @ quality 85): 10-15 ms
-  * TCP transmit: <5 ms on 1 Gbps LAN
-  * Browser decode + <img> swap: 15-30 ms
-
-so the *streaming* latency is roughly 50 ms. Keypress-to-visible-effect
-latency is dominated by the backend's per-chunk wall-clock time (~900 ms
-steady-state), which is the same problem we have with the local Vulkan
-presenter; streaming doesn't add more than ~50 ms on top of it.
+Dependency-free fallback for headless / compute-only hosts with no
+graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 """
 
 from __future__ import annotations
@@ -86,17 +67,10 @@ _BROWSER_KEY_TO_VIEW_MODE: dict[str, str] = {
 
 
 class _KeyboardDriveSink:
-    """In-process duck-typed ``ControlClient`` that writes to ``KeyboardState``.
+    """In-process duck-typed ``ControlClient`` writing to ``KeyboardState``.
 
-    The slangpy HUD ships its own ``KeyboardStateDriveSink`` in
-    :mod:`slangpy_hud_presenter`, but importing that module would pull
-    SlangPy / Vulkan into the streaming-presenter import graph -- the
-    very thing the streaming presenter exists to avoid (it's the
-    fallback for compute-only hosts where SlangPy can't initialise a
-    Vulkan device). We replicate the same minimal surface here so the
-    MJPEG keyboard path produces the byte-identical
-    ``DriverCommand(manual_control=True, steer_is_direct=True, ...)``
-    the HUD does, without dragging the graphics stack in.
+    Duplicates the HUD's ``KeyboardStateDriveSink`` rather than importing it,
+    to keep SlangPy / Vulkan out of the streaming presenter's import graph.
     """
 
     def __init__(self, keyboard: KeyboardState) -> None:
@@ -116,10 +90,7 @@ class _KeyboardDriveSink:
     def release_all(self) -> None:
         self._keyboard.set_drive_command(None)
 
-    # The methods below exist so anything wired against the legacy
-    # supervisor-era ``ControlClient`` surface fails silently rather
-    # than raising ``AttributeError`` -- they're no-ops in-process
-    # because the streaming presenter writes directly via
+    # No-ops in-process: the streaming presenter writes directly via
     # ``KeyboardState`` from its HTTP handler thread.
     def set_key(self, key: str, down: bool) -> None:  # noqa: ARG002
         return
@@ -171,9 +142,6 @@ def _print_port_conflict_help(host: str, port: int, exc: OSError) -> None:
     )
 
 
-# Single HTML page served at ``/``. Shows the MJPEG stream and forwards
-# keydown/keyup to ``/control``. Kept inline (not a separate file) so the
-# presenter is a single-file drop-in with no template loading to configure.
 # Single HTML page served at ``/``. Shows the MJPEG stream, an HTML/CSS
 # HUD with a speed readout and WASD-indicator chiclets keyed off the
 # locally-tracked DOWN_KEYS set, and JS that forwards keydown/keyup to
@@ -673,13 +641,7 @@ class MJPEGStreamingPresenter:
 
     @property
     def pending_scene_change(self) -> tuple[Path, str] | None:
-        """Scene the browser asked to load next, or ``None`` if no change is pending.
-
-        Set by the ``/scene/select`` endpoint and cleared by
-        :meth:`acknowledge_scene_change`. The demo wrapper polls this
-        between scenes to drive the scene-change loop without tearing
-        down the HTTP server / browser session.
-        """
+        """Scene the browser asked to load next (via ``/scene/select``), or ``None``."""
         return self._pending_scene_change
 
     def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
@@ -690,50 +652,28 @@ class MJPEGStreamingPresenter:
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
     ) -> None:
-        """Wire the idle overlay text to model-warmup progress.
+        """Wire the idle overlay text to model-warmup progress (mirrors the HUD).
 
-        Mirrors :meth:`SlangPyHudPresenter.set_model_status`. When
-        ``can_prewarm`` is True the idle "select a scene" frame published
-        during :meth:`wait_for_scene_selection` reads "Loading world
-        model..." until ``ready_probe`` returns True, then falls back to
-        the normal "Select a scene to begin driving" prompt.
+        While ``can_prewarm`` and not ``ready_probe()``, the idle frame reads
+        "Loading world model..." instead of the "select a scene" prompt.
         """
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
-        """Gate ``/scene/select`` while ``probe()`` returns True.
+        """Reject ``/scene/select`` while ``probe()`` returns True (--preload-scenes).
 
-        Mirrors :meth:`SlangPyHudPresenter.set_scene_selection_locked`: used
-        with --preload-scenes so the browser can't pick a scene until every
-        scene has preloaded. While locked the idle overlay reads "Preloading
-        scenes..." and select requests are rejected.
+        Locks scene picking until every scene is cached; idle overlay then
+        reads "Preloading scenes...".
         """
         self._scene_selection_locked_probe = probe
 
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        """Block until the browser POSTs a scene selection.
+        """Block until the browser POSTs a scene selection (or the presenter closes).
 
-        Used by the demo wrapper at startup so we don't burn world-model
-        warmup on whatever ``args.scene`` defaulted to before the user
-        has actually picked something. Publishes an idle "Select a
-        scene to begin" overlay frame so connected browsers have
-        something to display while the wait spins; then polls
-        :attr:`_pending_scene_change` until either the browser triggers
-        ``/scene/select`` or :meth:`close` flips the stop event.
-
-        Re-publishes the idle frame on a slow heartbeat (every 2 s) so
-        a browser that connects after ``wait_for_scene_selection``
-        first fired -- e.g. the user navigates to the demo URL after
-        the server has already started waiting -- gets the placeholder
-        promptly via the standard MJPEG ``frame_count`` increment path
-        instead of having to wait for an unrelated frame.
-
-        Returns ``(scene_path, variant)`` once the user picks, or
-        ``None`` when the presenter is closed first (Ctrl-C in the
-        terminal where the demo is running). Mirrors
-        :meth:`SlangPyHudPresenter.wait_for_scene_selection`'s contract
-        so the demo wrapper's flow is identical across HUD / MJPEG.
+        Publishes an idle overlay frame, re-published on a 2 s heartbeat so a
+        late-connecting browser still gets the placeholder promptly. Returns
+        ``(scene_path, variant)`` on selection, or ``None`` if closed first.
         """
         idle_heartbeat_s = 2.0
         last_publish = 0.0
@@ -748,16 +688,10 @@ class MJPEGStreamingPresenter:
                 return self._pending_scene_change
 
     def _publish_idle_frame(self) -> None:
-        """Stream the cached black placeholder frame.
+        """Stream the cached idle placeholder frame.
 
-        While the model is still pre-warming (see :meth:`set_model_status`)
-        the overlay reads "Loading world model..."; otherwise it reads
-        "Select a scene to begin driving". Each variant's PIL render is
-        memoised so the heartbeat in :meth:`wait_for_scene_selection`
-        doesn't pay the text-overlay cost on every tick. Each publish call
-        still bumps :attr:`_frame_count` so connected MJPEG handlers wake
-        up and push the frame out to the browser, which is what actually
-        matters for late-arriving clients.
+        Overlay text follows warmup / lock state; each variant's PIL render is
+        memoised so the heartbeat doesn't re-pay the text-overlay cost.
         """
         if self._model_can_prewarm and not self._model_ready_probe():
             message = "Loading world model..."
@@ -775,25 +709,15 @@ class MJPEGStreamingPresenter:
         self._publish(cached)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Re-target the presenter at ``keyboard``.
-
-        :class:`InteractiveDriveApp` owns one long-lived ``KeyboardState``
-        and binds the injected presenter to it at construction. The
-        keyboard-drive integrator captures the keyboard reference
-        internally, so it gets rebuilt here.
-        """
+        """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
         self._keyboard = keyboard
         self._keyboard_drive = self._keyboard_drive_factory(
             _KeyboardDriveSink(keyboard)
         )
 
     def process_events(self) -> None:
-        # Input arrives asynchronously via ``/control`` HTTP requests, but
-        # the keyboard-drive integrator owes a per-tick update so its
-        # auto-crawl smoothing (steer rate, throttle taper, creep target)
-        # advances at sim cadence regardless of how often the browser
-        # sends events. Mirrors the slangpy HUD's per-frame
-        # ``_keyboard_drive.update()`` call.
+        # Per-tick integrator update so auto-crawl smoothing advances at sim
+        # cadence regardless of how often the browser posts /control events.
         self._keyboard_drive.update()
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
@@ -835,14 +759,10 @@ class MJPEGStreamingPresenter:
             self._frame_cond.notify_all()
 
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
-        """Encode the BEV minimap and stash it for ``/bev_stream`` waiters.
+        """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
 
-        BEV frames are tiny (<= 384x384) so JPEG encode is sub-millisecond
-        and we boost quality to 95 vs 85 for the main stream. The HUD's
-        Google-Maps post-process is sensitive to JPEG ringing around the
-        high-contrast lane / vehicle edges (dim ringing pixels survive as
-        dirty grey halos), so paying ~12 KB / frame of bandwidth to keep
-        edges clean is a good trade.
+        Higher quality avoids JPEG ringing the HUD's Google-Maps filter would
+        otherwise surface as grey halos around lane / vehicle edges.
         """
         buf = io.BytesIO()
         Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
@@ -904,34 +824,11 @@ class MJPEGStreamingPresenter:
             if key in ("r", "R"):
                 self._keyboard.request_reset()
 
-    def _apply_drive_control(
-        self,
-        *,
-        throttle: float,
-        brake: float,
-        steer: float,
-        reverse: bool = False,
-    ) -> None:
-        self._keyboard.set_drive_command(
-            DriverCommand(
-                throttle=max(0.0, min(1.0, throttle)),
-                brake=max(0.0, min(1.0, brake)),
-                steer=max(-1.0, min(1.0, steer)),
-                reverse=reverse,
-                steer_is_direct=True,
-                manual_control=True,
-            )
-        )
-
     def _state_snapshot(self) -> dict[str, float | None]:
-        """Return a JSON-serialisable snapshot of the current sim telemetry.
+        """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.
 
-        Reads from :attr:`KeyboardState.vehicle_state`, which the runtime
-        loop refreshes once per chunk via
-        :func:`omnidreams.interactive_drive.runtime.loop.push_telemetry`.
-        Before the simulation has produced its first chunk (warmup
-        window), ``vehicle_state`` is ``None`` and we return ``None``s
-        so the browser shows ``--`` instead of a stale zero.
+        Returns ``None`` fields before the first chunk so the browser shows
+        ``--`` instead of a stale zero.
         """
         snapshot = self._keyboard.vehicle_state
         if snapshot is None:
@@ -947,13 +844,10 @@ class MJPEGStreamingPresenter:
         }
 
     def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
-        """Validate and stash a ``/scene/select`` request.
+        """Validate a ``/scene/select`` request against registered ``_scenes`` and stash it.
 
-        The validation gate is paranoid on purpose: the only paths that
-        can be loaded are ones the demo wrapper explicitly registered
-        in :attr:`_scenes`. A stale browser tab that POSTs an arbitrary
-        ``scene=`` path gets a 400 instead of having its filesystem
-        path latch into the next ``app.run`` iteration.
+        Only registered paths load; an arbitrary ``scene=`` from a stale tab
+        is rejected rather than latching a filesystem path into the engine.
         """
         if not scene_path_str:
             return False
@@ -1022,8 +916,6 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_thumbnail(parse_qs(parsed.query))
             elif parsed.path == "/control":
                 self._serve_control(parse_qs(parsed.query))
-            elif parsed.path == "/drive":
-                self._serve_drive(parse_qs(parsed.query))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -1045,14 +937,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.wfile.write(body)
 
         def _serve_state(self) -> None:
-            """Return the latest simulation telemetry as JSON.
-
-            Polled by the browser ~10 Hz to drive the speed readout. The
-            payload is intentionally tiny so the polling cost is negligible
-            even on slow links; if a richer dashboard wants more state the
-            ``KeyboardState`` snapshot is the authoritative source and we
-            can extend this without touching the producer side.
-            """
+            """Latest telemetry as JSON; polled ~10 Hz by the browser speed readout."""
             body = json.dumps(presenter._state_snapshot()).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1062,15 +947,10 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.wfile.write(body)
 
         def _serve_scenes(self) -> None:
-            """Return the discovered scene options as JSON for the browser dropdown.
+            """Discovered scenes as JSON ``{label, path, variants, has_thumbnail}`` for the picker.
 
-            Each entry is ``{label, path, variants, has_thumbnail}``;
-            the browser renders them as clickable cards in the
-            bottom-right scene picker. ``has_thumbnail`` lets the
-            client decide whether to issue a ``/thumbnail`` request --
-            cleaner than relying on ``<img onerror>`` and avoids the
-            broken-image flash for scenes that ship no first-image
-            asset.
+            ``has_thumbnail`` lets the client skip ``/thumbnail`` for scenes
+            with no image instead of relying on ``<img onerror>``.
             """
             scenes_with_thumbs = [
                 {
@@ -1091,15 +971,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
         def _serve_scene_select(self, query: dict[str, list[str]]) -> None:
             """Mark ``?scene=PATH&variant=NAME`` as the next scene to load.
 
-            Sets the presenter's ``pending_scene_change`` channel; the
-            demo wrapper picks it up between scenes and switches the
-            long-lived engine to the new scene. Validates the
-            requested scene against the presenter's ``_scenes`` list so a
-            stale browser tab can't smuggle in an arbitrary path. The
-            ``variant`` query parameter is optional: when omitted (or
-            unrecognised) the scene's first registered variant is used,
-            which is what the streaming UI relies on now that it has
-            no variant selector.
+            Validated against ``_scenes``; an omitted/unknown ``variant``
+            falls back to the scene's first registered variant.
             """
             scene = query.get("scene", [""])[0]
             variant = query.get("variant", ["default"])[0]
@@ -1112,14 +985,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.end_headers()
 
         def _serve_thumbnail(self, query: dict[str, list[str]]) -> None:
-            """Return the JPEG-encoded thumbnail for ``?scene=PATH``.
-
-            The thumbnails were JPEG-encoded once at startup in the
-            demo wrapper (no per-request encode cost). Sends a 404
-            when the scene has no thumbnail or wasn't registered, so
-            the browser's ``onerror`` hook can hide the ``<img>``
-            element cleanly.
-            """
+            """Return the pre-encoded JPEG thumbnail for ``?scene=PATH`` (404 if none)."""
             scene = query.get("scene", [""])[0]
             data = presenter._thumbnails.get(scene)
             if not data:
@@ -1197,25 +1063,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def _serve_drive(self, query: dict[str, list[str]]) -> None:
-            presenter._apply_drive_control(
-                throttle=_query_float(query, "throttle"),
-                brake=_query_float(query, "brake"),
-                steer=_query_float(query, "steer"),
-                reverse=bool(int(query.get("reverse", ["0"])[0])),
-            )
-            self.send_response(HTTPStatus.NO_CONTENT)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
     return Handler
-
-
-def _query_float(query: dict[str, list[str]], name: str) -> float:
-    try:
-        return float(query.get(name, ["0"])[0])
-    except ValueError:
-        return 0.0
 
 
 def _as_rgb_host_uint8(frame: object) -> np.ndarray:
@@ -1239,18 +1087,13 @@ def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndar
 
 
 def parse_bind(value: str) -> tuple[str, int]:
-    """Accept ``HOST:PORT``, bare ``:PORT``, or a bare port number.
+    """Accept ``HOST:PORT``, bare ``:PORT``, or a bare port (all default to 0.0.0.0).
 
-    All three forms bind on ``0.0.0.0`` (all interfaces) by default;
-    pass an explicit host (e.g. ``127.0.0.1:8080``) to restrict the
-    listener to a single interface, which is the right choice when
-    you're terminating the connection through an SSH tunnel and don't
-    want the port reachable directly from the network.
+    Pass an explicit host (e.g. ``127.0.0.1:8080``) to restrict the listener
+    to one interface, e.g. behind an SSH tunnel.
     """
     if ":" not in value:
-        # Bare port number form (``--stream-mjpeg 8080``). Friendly
-        # shortcut for the common all-interfaces case; equivalent to
-        # ``:8080``.
+        # Bare port number form (``--stream-mjpeg 8080``); equivalent to ``:8080``.
         host = "0.0.0.0"
         port_str = value
     else:

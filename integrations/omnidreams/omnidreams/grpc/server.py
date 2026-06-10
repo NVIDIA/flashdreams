@@ -167,15 +167,12 @@ class RenderVideoChunkPayload:
         )
 
 
-# decorator to capture exceptions and print stack trace
 def capture_exceptions(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
             logger.error(f"Error in {func.__name__}: {e}")  # ty:ignore[unresolved-attribute]
-
-            # print stack trace
             traceback.print_exc()
             raise
 
@@ -245,11 +242,9 @@ class WorldModelEngine:
         seed_for_every_rollout: int | None = None,
         resolution: str = "704p",
     ):
-        # determine rank
         self.MASTER_RANK = 0
         self.rank = 0 if not dist.is_initialized() else dist.get_rank()
 
-        # Save configurations
         self.device = torch.device(device)
         if self.device.type != "cuda":
             raise ValueError(f"CUDA device is required, got {self.device}")
@@ -269,7 +264,6 @@ class WorldModelEngine:
         self.n_cameras = self.conditioning_wrapper.n_cameras
         logger.info("WorldModelEngine initialized successfully")
 
-        # Store encoding configuration
         self.output_format = output_format.lower()
         self.jpeg_quality = jpeg_quality
         logger.info(
@@ -297,17 +291,7 @@ class WorldModelEngine:
         self.conditioning_wrapper.set_rollout_seed(seed)
 
     def _cleanup_session(self, session_id: str) -> None:
-        """
-        Clean up a session and its associated resources.
-
-        Closes the recorder if one exists and removes the session from storage.
-        This is idempotent - safe to call multiple times.
-
-        Args:
-            session_id: The session ID to clean up.
-        """
-
-        # Remove session from storage if it exists
+        """Remove a session from engine storage (idempotent)."""
         session = self.sessions.get(session_id)
         if session is not None:
             del self.sessions[session_id]
@@ -351,18 +335,15 @@ class WorldModelEngine:
                 f"      ╰────> Effective random seed: {open_session_payload.effective_seed}\n"
             )
 
-        # Clean up all existing sessions (we only keep one session at a time)
-        # This handles cases where a previous session wasn't properly closed
+        # Only one session is kept at a time; drop any left by an unclosed session.
         if self.sessions:
             logger.info(
                 f"[Rank {self.rank}] Cleaning up {len(self.sessions)} existing session(s) before starting new one"
             )
-            # Create a list of session IDs to avoid modifying dict during iteration
             existing_session_ids = list(self.sessions.keys())
             for old_session_id in existing_session_ids:
                 self._cleanup_session(old_session_id)
 
-        # Retrieve profiler and start time
         profiler = get_profiler()
         chunk_idx = profiler.get_chunk_idx(open_session_payload.session_id)
 
@@ -446,7 +427,6 @@ class WorldModelEngine:
         rig_poses_flu_tensor: torch.Tensor = torch.as_tensor(
             render_video_chunk_payload.rig_poses_flu, device=self.device
         )
-        # -------------------------------------------------------------------
         if VERBOSE:
             requested_actor_count = len(
                 render_video_chunk_payload.dynamic_state.get("actors", [])
@@ -458,7 +438,6 @@ class WorldModelEngine:
                 f"      ╰────> # of rig poses: {len(rig_poses_flu_tensor)}, type: {type(rig_poses_flu_tensor)}"
             )
 
-        # Retrieve profiler and start time
         profiler = get_profiler()
         chunk_idx = profiler.get_chunk_idx(render_video_chunk_payload.session_id)
 
@@ -569,15 +548,7 @@ class WorldModelEngine:
                     )
             session_state.omnidreams_state = output.state
 
-        # # TODO: Somehow this is necessary to avoid creating black frames in the output video. Need to investigate why...
-        # with profiler.measure("synchronize_cuda", session_id=session_id, chunk_idx=chunk_idx):
-        #     torch.cuda.synchronize()
-
-        # Build response data
-        skip_video_generation = session_state.skip_video_generation
-
-        # Encode per-camera outputs into CameraOutput messages
-        # output.rgb_frames: [B, V, T, 3, H, W], output.condition_frames: [B, V, T, 3, H, W]
+        # output.rgb_frames / output.condition_frames: [B, V, T, 3, H, W]
         camera_outputs = []
         with profiler.measure(
             "encode_output_frames",
@@ -698,14 +669,15 @@ class WorldModelEngine:
         )
 
     def _encode_images(self, images: torch.Tensor) -> list[video_model_pb2.Image]:
-        """
-        Encode a batch of images using nvjpeg.
+        """Encode a batch of images to Image protos.
+
+        Uses nvjpeg for JPEG output and CPU encoding for PNG.
 
         Args:
-            images: Tensor of shape [B, 3, H, W] uint8.
+            images: Tensor of shape [B, 3, H, W] uint8 (on GPU).
 
         Returns:
-            List of bytes objects, one per image in the batch.
+            One ``video_model_pb2.Image`` per image in the batch.
         """
         assert self.device.type == "cuda", "Images must be on GPU"
         if self.output_format == "jpeg":
@@ -730,8 +702,7 @@ class WorldModelEngine:
     def _encode_single_image_cpu(
         self, image_np: np.ndarray
     ) -> tuple[bytes, video_model_pb2.ImageFormat]:
-        """
-        Encode a numpy image using the configured output format.
+        """CPU-encode a single image.
 
         Args:
             image_np: Numpy array [H, W, 3] uint8.
@@ -845,7 +816,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         Args:
             session_id: The session ID to clean up.
         """
-        # Close and remove recorder if it exists
         if session_id in self.recorders:
             try:
                 self.recorders[session_id].close()
@@ -855,7 +825,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             del self.recorders[session_id]
             logger.info(f"Session recorder session {session_id} closed")
 
-        # Remove session from storage if it exists
         self.engine._cleanup_session(session_id)
 
     @capture_exceptions
@@ -881,8 +850,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         start_time_ns = time.time_ns()
         logger.info("Server received start_session request")
 
-        # Clean up all existing sessions (we only keep one session at a time)
-        # This handles cases where a previous session wasn't properly closed
+        # Only one session is kept at a time; drop any left by an unclosed session.
         if self.sessions:
             logger.info(
                 f"Cleaning up {len(self.sessions)} existing session(s) before starting new one"
@@ -1143,7 +1111,6 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             finalization_thread = threading.Thread(target=do_finalization, daemon=True)
             finalization_thread.start()
 
-        # Increment chunk counter
         profiler.increment_chunk_idx(session_id)
 
         duration_ns = time.time_ns() - start_time_ns
@@ -1395,15 +1362,15 @@ def main() -> None:
 
     args = parse_args()
 
-    # The CP-divisibility check inside ``initialize_distributed`` needs
-    # ``n_cameras`` up front, but ``n_cameras`` is now fixed by the chosen
-    # pipeline config. Resolve it from the registry before distributed init.
+    # n_cameras is fixed by the chosen pipeline config; resolve it from the
+    # registry before distributed init for the CP-divisibility check.
     pipeline_cfg = OMNIDREAMS_CONFIGS[args.pipeline_config_name]
     transformer_cfg = pipeline_cfg.diffusion_model.transformer
     assert isinstance(transformer_cfg, CosmosTransformerConfig)
     n_cameras = transformer_cfg.num_views
 
-    device, world_rank, context_parallel_size = initialize_distributed(n_cameras)
+    # CP size is consumed via dist.get_world_size() inside the pipeline, not here.
+    device, world_rank, _ = initialize_distributed(n_cameras)
     logger.info(
         "Using flashdreams pipeline backend; checkpoints are loaded lazily via flashdreams checkpoint loader."
     )
@@ -1421,10 +1388,6 @@ def main() -> None:
 
         atexit.register(save_profiling_data)
 
-    del (
-        context_parallel_size
-    )  # observed only via dist.get_world_size() inside the pipeline.
-
     engine = WorldModelEngine(
         pipeline_config_name=args.pipeline_config_name,
         device=device,
@@ -1436,7 +1399,7 @@ def main() -> None:
 
     server: grpc.Server | None = None
     service: WorldModelService | None = None
-    if world_rank == 0:  # Only rank 0 runs the HTTP server
+    if world_rank == 0:  # Only rank 0 runs the gRPC server
         logger.info("=" * 80)
         logger.info("Starting gRPC World Model Service")
         logger.info(f"Host: {args.host}")
@@ -1499,8 +1462,6 @@ def main() -> None:
     if world_rank == 0 and server is not None and service is not None:
         del server
         del service
-    else:
-        pass
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -1513,7 +1474,6 @@ def main() -> None:
             f"[Rank {world_rank}] All ranks synchronized, destroying process group..."
         )
         dist.destroy_process_group()
-    # Hierarchical CP completed successfully
     logger.critical("Done!")
 
 

@@ -15,7 +15,6 @@ import numpy as np
 import pyarrow.parquet as pq
 import yaml
 from loguru import logger
-from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.colors import (
     BBOX_V3_COLORS,
     HDMAP_V3_COLORS,
@@ -572,13 +571,9 @@ def _build_cuboid_layer(
             ],
             dtype=np.float32,
         )
-        # Some ClipGT scenes (e.g. clipgt-065dcac9-...) publish a
-        # traffic_light whose orientation quaternion is entirely null
-        # because the upstream pose-fitting step couldn't infer a
-        # rotation. Default to identity so the scene still loads; the
-        # cuboid ends up axis-aligned, which is a reasonable placeholder
-        # for a sign that otherwise wouldn't appear in the HDMap view
-        # at all.
+        # Some ClipGT scenes publish a null orientation quaternion (upstream
+        # pose-fit failure); default to identity so the cuboid still loads
+        # axis-aligned instead of dropping out of the HDMap view.
         orient = payload.get("orientation") or {}
         qx = orient.get("x")
         qy = orient.get("y")
@@ -864,7 +859,7 @@ def _load_ground_mesh(
     """Read ``mesh_ground.ply`` from the USDZ archive if present.
 
     Returns ``(vertices, faces)`` for use by
-    :class:`omnidreams.interactive_drive.physics.GroundSnapper`, or ``(None, None)`` when the
+    :class:`omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper`, or ``(None, None)`` when the
     archive ships no ground mesh (e.g. legacy fixtures), in which case
     ground-snap silently no-ops at runtime.
     """
@@ -944,7 +939,3 @@ def reseed_scene_bundle(
     return replace(
         bundle, scene_path=scene_path, initial_rgb=initial_rgb, prompt=prompt
     )
-
-
-def build_camera_model(scene: SceneBundle) -> FThetaCameraModel:
-    return FThetaCameraModel(scene.selected_camera)

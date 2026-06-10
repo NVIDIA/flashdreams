@@ -30,10 +30,7 @@ from omnidreams.native import (
     NativePrepError,
     NativeTensorLayout,
     NativeTensorSpec,
-    NativeWorkspaceRequest,
-    allocate_native_workspaces,
     prepare_tensor_for_native,
-    validate_tensor,
 )
 from omnidreams.native import omnidreams_singleview as native
 from omnidreams.native.acceleration import (
@@ -541,17 +538,20 @@ def test_native_tensor_spec_validates_shape_dtype_and_divisibility() -> None:
         axis_divisibility=(("T", 4),),
     )
 
-    descriptor = validate_tensor(tensor, spec)
+    descriptor = prepare_tensor_for_native(tensor, spec).descriptor
 
     assert descriptor.shape == (1, 2, 8, 16, 9, 10)
     assert descriptor.layout.axes == ("B", "V", "T", "C", "H", "W")
-    assert descriptor.nbytes == tensor.numel() * tensor.element_size()
 
     with pytest.raises(NativePrepError, match="axis T size 7"):
-        validate_tensor(torch.empty((1, 2, 7, 16, 9, 10), dtype=torch.float16), spec)
+        prepare_tensor_for_native(
+            torch.empty((1, 2, 7, 16, 9, 10), dtype=torch.float16), spec
+        )
 
     with pytest.raises(NativePrepError, match="expected dtype"):
-        validate_tensor(torch.empty((1, 2, 8, 16, 9, 10), dtype=torch.float32), spec)
+        prepare_tensor_for_native(
+            torch.empty((1, 2, 8, 16, 9, 10), dtype=torch.float32), spec
+        )
 
 
 @pytest.mark.ci_cpu
@@ -572,34 +572,6 @@ def test_prepare_tensor_for_native_makes_contiguous_copy() -> None:
 
     already_contiguous = prepare_tensor_for_native(prepared.tensor, spec)
     assert already_contiguous.copied is False
-
-
-@pytest.mark.ci_cpu
-def test_native_workspace_requests_allocate_named_workspaces() -> None:
-    requests = [
-        NativeWorkspaceRequest(
-            name="activation_scratch",
-            shape=(2, 4, 16),
-            dtype=torch.float16,
-            device="cpu",
-        ),
-        NativeWorkspaceRequest(
-            name="descriptor_state",
-            shape=(8,),
-            dtype=torch.int64,
-            device=torch.device("cpu"),
-        ),
-    ]
-
-    workspaces = allocate_native_workspaces(requests)
-
-    assert set(workspaces) == {"activation_scratch", "descriptor_state"}
-    assert workspaces["activation_scratch"].tensor.shape == (2, 4, 16)
-    assert workspaces["activation_scratch"].nbytes == 2 * 4 * 16 * 2
-    assert workspaces["descriptor_state"].tensor.dtype == torch.int64
-
-    with pytest.raises(NativePrepError, match="Duplicate"):
-        allocate_native_workspaces([requests[0], requests[0]])
 
 
 @pytest.mark.ci_cpu

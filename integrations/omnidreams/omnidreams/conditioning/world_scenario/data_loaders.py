@@ -117,13 +117,6 @@ class SceneDataLoaderRegistry:
 
         logger.debug(f"Registered loader: {name} (priority={priority})")
 
-    def unregister(self, name: str) -> None:
-        """Unregister a loader by name."""
-        if name in self._loaders:
-            del self._loaders[name]
-            self._loader_order.remove(name)
-            logger.debug(f"Unregistered loader: {name}")
-
     def get_loader(self, name: str) -> Optional[SceneDataLoader]:
         """Get a specific loader by name."""
         return self._loaders.get(name)
@@ -186,10 +179,6 @@ class SceneDataLoaderRegistry:
         """Get list of registered loader names in priority order."""
         return self._loader_order.copy()
 
-    def describe_loaders(self) -> Dict[str, str]:
-        """Get descriptions of all registered loaders."""
-        return {name: loader.description for name, loader in self._loaders.items()}
-
 
 # Global registry instance
 _global_registry = SceneDataLoaderRegistry()
@@ -198,11 +187,6 @@ _global_registry = SceneDataLoaderRegistry()
 def register_loader(loader: SceneDataLoader, priority: int = 0) -> None:
     """Register a loader with the global registry."""
     _global_registry.register(loader, priority)
-
-
-def get_loader(name: str) -> Optional[SceneDataLoader]:
-    """Get a loader from the global registry."""
-    return _global_registry.get_loader(name)
 
 
 def load_scene(
@@ -231,7 +215,6 @@ def auto_register(priority: int = 0) -> Any:
     """
 
     def decorator(cls: Type[SceneDataLoader]) -> Type[SceneDataLoader]:
-        # Create instance and register
         instance = cls()
         register_loader(instance, priority)
         return cls
@@ -239,7 +222,6 @@ def auto_register(priority: int = 0) -> Any:
     return decorator
 
 
-# Auto-import all loaders when this module is imported
 def _auto_import_loaders() -> None:
     """Automatically import all loader modules to trigger registration."""
     loader_modules = ("omnidreams.conditioning.world_scenario.clipgt_loader",)
@@ -252,5 +234,4 @@ def _auto_import_loaders() -> None:
             )
 
 
-# Automatically import loaders when this module is imported
 _auto_import_loaders()

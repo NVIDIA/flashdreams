@@ -64,7 +64,7 @@ class VehicleConfig:
     max_accel_mps2: float = 3.5
     max_brake_mps2: float = 6.0
     drag_mps2: float = 0.7
-    # Ego AABB used by :class:`omnidreams.interactive_drive.physics.GroundSnapper` to decide
+    # Ego AABB used by :class:`omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper` to decide
     # which area of the ground mesh to query when snapping z + pitch + roll.
     # Defaults match a typical sedan; the alpasim test data uses
     # 5.393 x 2.109 x 1.503 m.
@@ -80,47 +80,20 @@ class WorldModelProfileConfig:
 
 @dataclass(frozen=True)
 class BevConfig:
-    """Synthetic top-down bird's-eye-view rendered alongside the main camera.
-
-    Mirrors AlpaSim's ``video_model.return_bev_map`` configuration in
-    ``alpasim_runtime`` (cfg paths in
-    ``references/alpasim-human-driver/src/wizard/configs/cameras/bev.yaml``):
-    a virtual pinhole camera rendered ``height_m`` metres above the rig
-    looking straight down with ``fov_deg`` vertical field of view.
-
-    The BEV stream is a tiny extra rasterizer dispatch and is published as
-    a separate MJPEG endpoint so the demo HUD can show it as a small map
-    panel under the steering / pedal controls.
-    """
+    """Synthetic top-down BEV camera rendered alongside the main view, published as a separate stream for the HUD minimap."""
 
     enabled: bool = True
-    # 1024x1024 gives ~2x SSAA per axis at the HUD's ~470x400 BEV panel,
-    # which the LANCZOS cover-fit resize then bandlimits cleanly. This
-    # is the dominant lever for BEV image quality — under-sampling here
-    # bakes aliasing into the source frame that no downstream filter
-    # can recover. The producer-side decode + GoogleMaps filter cost is
-    # roughly 4x of 512x512 but it runs on the supervisor's stream
-    # consumer thread, not the render thread, so it doesn't compete
-    # with the main camera path. Drop this if you're rasterizer-bound
-    # on the backend; quality degrades smoothly.
+    # 1024x1024 = ~2x SSAA at the HUD's ~470x400 BEV panel; dominant lever
+    # for BEV quality (under-sampling bakes in unrecoverable aliasing).
     width: int = 1024
     height: int = 1024
-    # 75 m altitude with 60° vertical FOV covers roughly 87 m of ground.
-    # Combined with the 20° forward tilt the top of the image looks ~90 m
-    # ahead of the rig and the bottom shows ~10 m behind, which is a
-    # comfortable navigation-style minimap zoom (AlpaSim's
-    # ``return_bev_map`` defaults are ``height_m=40`` / ``fov_deg=50``,
-    # ~37 m coverage, but their panel is much smaller than ours).
+    # 75 m altitude + 60° vertical FOV covers ~87 m of ground (with the
+    # forward tilt, ~90 m ahead / ~10 m behind the rig): a navigation zoom.
     height_m: float = 75.0
     fov_deg: float = 60.0
-    # Forward pitch in degrees. ``0`` is pure top-down (AlpaSim's default
-    # BEV); a positive value tilts the camera forward to give the
-    # Google-Maps-navigation feel where ahead-of-rig fills more of the
-    # image and the rig sits low in the frame. ``28`` puts us just
-    # under the ``fov_deg / 2 = 30`` ceiling above which the bottom of
-    # the image would cross the horizon (no rendered geometry above
-    # the ground plane to fill it). The HUD's ego marker placement
-    # follows this automatically via :func:`_bev_marker_y_rel`.
+    # Forward pitch: 0 is pure top-down, positive tilts forward for a
+    # Google-Maps feel. 28 stays just under the fov_deg/2 = 30 ceiling above
+    # which the image bottom would cross the horizon.
     tilt_deg: float = 28.0
 
 
@@ -138,40 +111,22 @@ class AppConfig:
     world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_offload_text_encoder: bool = False
     bev: BevConfig = BevConfig()
-    # Out-of-bounds detection thresholds plumbed through to
-    # :class:`~omnidreams.interactive_drive.runtime.loop.LoopConfig`.
-    # Exposed on AppConfig so the CLI's ``--oob-*`` flags can override
-    # them per-run; the defaults match the LoopConfig defaults so the
-    # behaviour is identical when the flags aren't passed. Mirrors
-    # alpasim's driver-side thresholds (warn > 0.6, respawn >= 2.0
-    # against the AABB-distance proximity).
+    # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
+    # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
+    # against the AABB-distance proximity.
     oob_warn_proximity: float = 0.6
     oob_respawn_proximity: float = 2.0
     oob_respawn_debounce_chunks: int = 1
-    # OOB AABB geometry. ``oob_margin_m`` expands the scene's
-    # spatial-content AABB before any in-bounds check (alpasim uses
-    # 50 m around the GT trajectory; we use the same default around
-    # the union of all scene geometry). ``oob_warning_zone_m`` is the
-    # depth of the linear ramp inside that expanded AABB where the
-    # warning overlay shows. Set ``oob_margin_m`` higher to give the
-    # ego more room to leave the geometry-covered area without firing
-    # the respawn -- useful on scenes whose geometry layers don't
-    # cover the full driveable area.
+    # OOB AABB geometry: oob_margin_m (50 m, matching alpasim) expands the
+    # scene's spatial-content AABB before any in-bounds check;
+    # oob_warning_zone_m is the depth of the linear warning ramp inside it.
     oob_margin_m: float = 50.0
     oob_warning_zone_m: float = 100.0
-    # When non-None, the app swaps the Vulkan presenter out for
-    # :class:`omnidreams.interactive_drive.streaming_presenter.MJPEGStreamingPresenter`
-    # which serves frames to a browser over HTTP and reads keyboard
-    # events back from it. Format: "HOST:PORT" (e.g. "0.0.0.0:8080"),
-    # or bare ":PORT" to bind on all interfaces. Required on
-    # compute-only boxes (e.g. GB300-only DGX Station) where no
-    # Vulkan-capable GPU exists; for richer browser viewers prefer
-    # ``omnidreams.webrtc.server`` instead.
+    # When set ("HOST:PORT" or bare ":PORT"), swap the Vulkan presenter for
+    # the MJPEG streaming presenter (HTTP frames + keyboard) -- needed on
+    # compute-only boxes with no Vulkan-capable GPU.
     stream_mjpeg_bind: str | None = None
-    # Substring to match against the Vulkan adapter name for the presenter.
-    # When None, SlangPy picks whichever Vulkan adapter it enumerates first.
-    # When set (e.g. "RTX PRO"), we call ``spy.Device.enumerate_adapters``
-    # and pass ``adapter_luid`` so Vulkan is forced onto that adapter even
-    # when the default NVIDIA Vulkan ICD would pick a different GPU (e.g.
-    # a compute-only GB300 that has no graphics queue).
+    # Substring matched against the Vulkan adapter name to force the
+    # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
+    # the first enumerated adapter.
     presenter_adapter: str | None = None

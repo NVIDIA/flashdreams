@@ -30,29 +30,13 @@ from omnidreams.grpc.recording_io import write_log_entry
 
 
 class SessionRecorder:
-    """Records gRPC session requests and responses to a binary log file.
+    """Records gRPC requests/responses as length-prefixed LogEntry protos.
 
-    The recording uses a length-prefixed binary format where each entry
-    is a serialized LogEntry protobuf message.
-
-    Usage:
-        recorder = SessionRecorder("session.binlog")
-
-        # After each RPC call:
-        recorder.record_start_session(request, response, start_ns, duration_ns)
-        recorder.record_render_video_chunk(request, response, start_ns, duration_ns)
-        recorder.record_close_session(request, response, start_ns, duration_ns)
-
-        # When done:
-        recorder.close()
+    Call ``record_*`` after each RPC and ``close()`` when finished.
     """
 
     def __init__(self, output_path: Path | str):
-        """Initialize the session recorder.
-
-        Args:
-            output_path: Path to the output recording file.
-        """
+        """Create a recorder for ``output_path`` (file opened lazily on first write)."""
         self.output_path = Path(output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._file: BinaryIO | None = None
@@ -72,7 +56,7 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a start_session RPC call.
+        """Record a start_session RPC call to the binary log.
 
         Args:
             request: The SessionRequest message.
@@ -99,7 +83,7 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a render_video_chunk RPC call.
+        """Record a render_video_chunk RPC call to the binary log.
 
         Args:
             request: The VideoChunkRequest message.
@@ -126,7 +110,7 @@ class SessionRecorder:
         timestamp_ns: int,
         duration_ns: int,
     ) -> None:
-        """Record a close_session RPC call.
+        """Record a close_session RPC call to the binary log.
 
         Args:
             request: The SessionCloseRequest message.

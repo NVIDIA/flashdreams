@@ -127,11 +127,7 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
 
 
 class CosmosDiTNetwork(nn.Module):
-    """DiT for video generation with block-causal attention and KV-caching.
-
-    Combines the Cosmos DiT architecture with causal attention masking for
-    autoregressive video generation.
-    """
+    """DiT for autoregressive video generation with block-causal attention and KV-caching."""
 
     def __init__(self, config: CosmosDiTNetworkConfig):
         super().__init__()
@@ -231,27 +227,12 @@ class CosmosDiTNetwork(nn.Module):
             block.set_context_parallel_group(self_attn_group, cross_view_attn_group)
 
     def _fuse_shuffle_op_into_last_layer(self):
-        """Fuse the channel-shuffle that follows the last linear into its weights.
+        """Fold the post-network channel-shuffle into ``final_layer.linear`` weights.
 
-        In the Cosmos model the patchify pattern is
-        ``b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)`` while the
-        unpatchify pattern is
-        ``b (t h w) (kt kh kw c) -> b c (t kt) (h kh) (w kw)``. This mismatch
-        (likely a Cosmos bug) means the last dimension must be shuffled after
-        the network. Folding that shuffle into ``final_layer.linear`` removes
-        the explicit ``rearrange`` from the inference path.
-
-        Calling this once is equivalent to running the following after the
-        last layer::
-
-            x = rearrange(
-                x,
-                "... (kt kh kw c) -> ... (c kt kh kw)",
-                kt=self.patch_temporal,
-                kh=self.patch_spatial,
-                kw=self.patch_spatial,
-                c=self.out_channels,
-            )
+        Cosmos patchifies ``b c (t kt) (h kh) (w kw) -> b (t h w) (c kt kh kw)``
+        but unpatchifies ``b (t h w) (kt kh kw c) -> b c (t kt) (h kh) (w kw)``;
+        the mismatched last dim (likely a Cosmos bug) must be shuffled after the
+        network. Folding it here removes the explicit ``rearrange`` at inference.
         """
         if self._is_shuffle_op_fused:
             return
@@ -275,21 +256,15 @@ class CosmosDiTNetwork(nn.Module):
             ).contiguous()
 
         self._is_shuffle_op_fused = True
-        return
 
     def _fuse_padding_mask_into_patch_embed(self) -> None:
         """Fold the always-zero inference padding mask into ``x_embedder`` in place.
 
-        When ``self.concat_padding_mask`` is ``True`` training concatenates a
-        ``[B, 1, T, H, W]`` padding mask to the input on the channel dimension
-        before ``x_embedder`` (``1`` marks padded regions for variable spatial
-        resolutions). At inference the mask is always zero, so the matching
-        input channels of ``x_embedder`` can simply be dropped.
-
-        Calling this once is equivalent to running the following before
-        ``x_embedder``::
-
-            x_B_C_T_H_W = torch.cat([x_B_C_T_H_W, padding_mask], dim=1)
+        When ``concat_padding_mask`` is ``True`` training concatenates a
+        ``[B, 1, T, H, W]`` padding mask on the channel dim before ``x_embedder``
+        (``1`` marks padded regions for variable resolutions). At inference the
+        mask is always zero, so the matching ``x_embedder`` input channels are
+        simply dropped.
         """
         if not self.config.concat_padding_mask:
             return
@@ -310,7 +285,6 @@ class CosmosDiTNetwork(nn.Module):
             ].contiguous()
 
         self._is_padding_mask_fused = True
-        return
 
     def update_parameters_after_loading_checkpoint(self) -> None:
         """Fuse load-time-known ops into weights; call once after loading the checkpoint."""

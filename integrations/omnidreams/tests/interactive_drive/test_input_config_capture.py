@@ -17,7 +17,6 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
 )
 from omnidreams.interactive_drive.input_config.capture import (
     build_profile,
-    detect_moved_axis,
     infer_pedal_inverted,
     infer_steering_invert,
     peak_from_observed,
@@ -30,25 +29,6 @@ RANGES = {
     0x02: AxisRange(0, 255),
     0x05: AxisRange(0, 255),
 }
-
-
-def test_detect_moved_axis_picks_the_operated_control() -> None:
-    before = {0x00: 32768, 0x02: 0, 0x05: 0}
-    after = {0x00: 33000, 0x02: 255, 0x05: 5}
-    assert detect_moved_axis(before, after, RANGES) == 0x02
-
-
-def test_detect_moved_axis_ignores_idle_jitter() -> None:
-    before = {0x00: 32768, 0x02: 10}
-    after = {0x00: 32770, 0x02: 12}
-    assert detect_moved_axis(before, after, RANGES) is None
-
-
-def test_detect_moved_axis_normalizes_across_axis_scales() -> None:
-    # 0x00 moves 5000/65535 (~7.6%, below threshold); 0x02 moves 200/255 (~78%).
-    before = {0x00: 30000, 0x02: 0}
-    after = {0x00: 35000, 0x02: 200}
-    assert detect_moved_axis(before, after, RANGES) == 0x02
 
 
 def test_steering_invert_depends_on_which_extreme_is_lower() -> None:

@@ -68,7 +68,6 @@ class LudusRenderer:
                 ),
                 fw_poly=camera._fw_poly_torch,
                 max_ray_angle=float(camera._max_ray_angle_torch),
-                # linear_distortion=camera._A_torch,  # TODO: Is it _A_torch or _inv_A_torch?
                 depth_max=200.0,  # TODO: How to get it from camera data?
             )
 
@@ -96,11 +95,17 @@ class LudusRenderer:
         device: torch.device = torch.device("cuda"),
         coordinate_system: Literal["FLU", "RDF"] = "FLU",
     ):
-        """Render a full sequence for one or more cameras.
+        """Set up a Ludus rendering context for the given scene and cameras.
 
         Args:
-            args: Command line arguments
-            all_cameras: If True, render all available cameras. Otherwise uses args.camera.
+            scene_data: Static world / HD map data (must contain ``ludus_scene`` metadata).
+            camera_models: Mapping of camera name to FTheta/Pinhole camera model.
+            hdmap_color_version: HD-map color palette version (only ``"v3"`` supported).
+            bbox_color_version: Bounding-box color palette version (only ``"v3"`` supported).
+            traffic_light_color_version: Traffic-light color palette version (only ``"v2"`` supported).
+            windowless: Render off-screen without a display window.
+            device: CUDA device the rendering context runs on.
+            coordinate_system: Camera-pose coordinate frame (only ``"FLU"`` supported).
         """
         assert hdmap_color_version == "v3", (
             "Only v3 color version is supported for LudusRenderer"
