@@ -5,7 +5,7 @@ on:
     types: [lint-fix-command]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
 
@@ -144,33 +144,6 @@ jobs:
             echo "changed=true" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Check bot token
-        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
-        env:
-          FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
-        run: |
-          set -euo pipefail
-          if [ -z "${FLASHDREAMS_BOT_PAT:-}" ]; then
-            echo "::error title=Missing bot token::Set FLASHDREAMS_BOT_PAT so /lint-fix can push a fix branch and open a PR."
-            exit 1
-          fi
-
-      - name: Resolve bot identity
-        if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
-        id: bot
-        env:
-          FLASHDREAMS_BOT_PAT: ${{ secrets.FLASHDREAMS_BOT_PAT }}
-        run: |
-          set -euo pipefail
-          bot_info="$(curl -fsSL \
-            -H "Authorization: Bearer ${FLASHDREAMS_BOT_PAT}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/user)"
-          bot_name="$(echo "${bot_info}" | jq --raw-output '.login')"
-          bot_identity="$(echo "${bot_info}" | jq --raw-output '.login + " <" + (.id|tostring) + "+" + .login + "@users.noreply.github.com>"')"
-          echo "name=${bot_name}" >> "${GITHUB_OUTPUT}"
-          echo "identity=${bot_identity}" >> "${GITHUB_OUTPUT}"
-
       - name: Choose fix branch
         if: steps.pr-scope.outputs.supported == 'true' && steps.fixers.outputs.changed == 'true'
         id: fix-branch
@@ -193,17 +166,14 @@ jobs:
         id: create-pr
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.FLASHDREAMS_BOT_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: pr-branch
           commit-message: "lint fixes"
-          committer: ${{ steps.bot.outputs.identity }}
-          author: ${{ steps.bot.outputs.identity }}
           signoff: true
           title: "Apply lint fixes for PR #${{ github.event.client_payload.pull_request.number }}"
           body: "Automated lint fixes for ${{ github.event.client_payload.pull_request.html_url }}"
           branch: ${{ steps.fix-branch.outputs.name }}
           base: ${{ github.event.client_payload.pull_request.head.ref }}
-          push-to-fork: ${{ steps.bot.outputs.name }}/flashdreams
           delete-branch: true
 
       - name: Find lint fix comment
