@@ -482,7 +482,9 @@ Relative `recording_dir` values are written under the flashdreams repository
 root; absolute paths are used as-is. Each saved recording writes
 `first_frame.png`, `prompt.txt`, `metadata.json`, `hdmap.mp4`, and
 `inferred.mp4` under a timestamped subdirectory. `first_frame.png` is copied
-from the first recorded inferred frame so it matches the inferred video.
+from the first retained inferred frame so it matches the inferred video. To
+bound host memory during long auto-start rollouts, each stream keeps the most
+recent 600 frames; `metadata.json` records any dropped frame counts.
 
 The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be

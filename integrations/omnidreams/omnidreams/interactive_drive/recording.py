@@ -24,6 +24,7 @@ class RecordingConfig:
     output_dir: Path | None = None
     hotkey: str = "f9"
     auto_start: bool = False
+    max_buffer_frames: int = 600
 
 
 @dataclass
@@ -32,7 +33,9 @@ class _RecordingSession:
     start_time_utc: str
     hdmap_frames: list[np.ndarray]
     inferred_frames: list[np.ndarray]
-    first_frame_written: bool = False
+    dropped_hdmap_frames: int = 0
+    dropped_inferred_frames: int = 0
+    frame_drop_warning_emitted: bool = False
 
 
 def normalize_recording_hotkey(raw: object) -> str:
@@ -90,6 +93,8 @@ class InteractiveDriveRecorder:
             raise ValueError("InteractiveDriveRecorder requires recording.enabled")
         if config.output_dir is None:
             raise ValueError("InteractiveDriveRecorder requires an output directory")
+        if config.max_buffer_frames <= 0:
+            raise ValueError("RecordingConfig.max_buffer_frames must be positive")
         self._config = config
         self._scene = scene
         self._fps = int(fps)
@@ -121,8 +126,19 @@ class InteractiveDriveRecorder:
         self._session_count += 1
         start_time = datetime.now(timezone.utc)
         output_dir = self._next_output_dir(start_time)
-        output_dir.mkdir(parents=True, exist_ok=False)
-        (output_dir / "prompt.txt").write_text(self._scene.prompt, encoding="utf-8")
+        try:
+            output_dir.mkdir(parents=True, exist_ok=False)
+            (output_dir / "prompt.txt").write_text(
+                self._scene.prompt,
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.warning(
+                "[recording] failed to start dir={} error={!r}",
+                output_dir,
+                exc,
+            )
+            return
         self._active_session = _RecordingSession(
             output_dir=output_dir,
             start_time_utc=start_time.isoformat(),
@@ -145,12 +161,19 @@ class InteractiveDriveRecorder:
             "reason": reason,
             "hdmap_frames": len(session.hdmap_frames),
             "inferred_frames": len(session.inferred_frames),
+            "dropped_hdmap_frames": session.dropped_hdmap_frames,
+            "dropped_inferred_frames": session.dropped_inferred_frames,
+            "max_buffer_frames": self._config.max_buffer_frames,
         }
         try:
             (session.output_dir / "metadata.json").write_text(
                 json.dumps(metadata, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+            if session.inferred_frames:
+                Image.fromarray(session.inferred_frames[0]).save(
+                    session.output_dir / "first_frame.png",
+                )
             _write_video(
                 session.hdmap_frames,
                 session.output_dir / "hdmap.mp4",
@@ -183,15 +206,20 @@ class InteractiveDriveRecorder:
         session = self._active_session
         if session is None:
             return
-        session.hdmap_frames.append(_as_rgb_host_uint8(frame.rgb_host_uint8))
+        self._append_frame(
+            session,
+            buffer=session.hdmap_frames,
+            frame=_as_rgb_host_uint8(frame.rgb_host_uint8),
+            stream="hdmap",
+        )
         if frame.model_rgb_host_uint8 is not None:
             inferred_frame = _as_rgb_host_uint8(frame.model_rgb_host_uint8)
-            if not session.first_frame_written:
-                Image.fromarray(inferred_frame).save(
-                    session.output_dir / "first_frame.png"
-                )
-                session.first_frame_written = True
-            session.inferred_frames.append(inferred_frame)
+            self._append_frame(
+                session,
+                buffer=session.inferred_frames,
+                frame=inferred_frame,
+                stream="inferred",
+            )
 
     def close(self, *, reason: str) -> None:
         if self.is_recording:
@@ -210,6 +238,30 @@ class InteractiveDriveRecorder:
             suffix += 1
             candidate = root / f"{base.name}-{suffix:02d}"
         return candidate
+
+    def _append_frame(
+        self,
+        session: _RecordingSession,
+        *,
+        buffer: list[np.ndarray],
+        frame: np.ndarray,
+        stream: str,
+    ) -> None:
+        if len(buffer) >= self._config.max_buffer_frames:
+            buffer.pop(0)
+            if stream == "hdmap":
+                session.dropped_hdmap_frames += 1
+            elif stream == "inferred":
+                session.dropped_inferred_frames += 1
+            if not session.frame_drop_warning_emitted:
+                logger.warning(
+                    "[recording] frame buffer reached max_buffer_frames={}; "
+                    "dropping oldest frames for dir={}",
+                    self._config.max_buffer_frames,
+                    session.output_dir,
+                )
+                session.frame_drop_warning_emitted = True
+        buffer.append(frame)
 
 
 def _as_rgb_host_uint8(value: Any) -> np.ndarray:

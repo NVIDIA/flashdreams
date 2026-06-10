@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import json
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -106,6 +107,71 @@ def test_recorder_video_write_failure_is_nonfatal(tmp_path, monkeypatch) -> None
     assert recorder.stop(reason="hotkey") is None
     assert recorder.is_recording is False
     assert recorder.closed_paths == ()
+
+
+def test_recorder_start_failure_is_nonfatal(tmp_path) -> None:
+    output_root = tmp_path / "not-a-directory"
+    output_root.write_text("plain file", encoding="utf-8")
+    recorder = InteractiveDriveRecorder(
+        RecordingConfig(enabled=True, output_dir=output_root, hotkey="F9"),
+        scene=minimal_scene(),
+        fps=30,
+    )
+
+    recorder.start()
+
+    assert recorder.is_recording is False
+    assert recorder.closed_paths == ()
+
+
+def test_recorder_caps_frame_buffers(tmp_path, monkeypatch) -> None:
+    writes: list[tuple[Path, list[int]]] = []
+
+    def fake_write_video(frames: list[np.ndarray], path: Path, fps: int) -> None:
+        del fps
+        writes.append((path, [int(frame[0, 0, 0]) for frame in frames]))
+        path.write_bytes(b"fake mp4")
+
+    monkeypatch.setattr(recording_module, "_write_video", fake_write_video)
+    scene = replace(minimal_scene(), scene_id="recording scene")
+    recorder = InteractiveDriveRecorder(
+        RecordingConfig(
+            enabled=True,
+            output_dir=tmp_path,
+            hotkey="F9",
+            max_buffer_frames=2,
+        ),
+        scene=scene,
+        fps=30,
+    )
+
+    recorder.start()
+    for value in (1, 2, 3):
+        recorder.record_frame(
+            PresentedFrame(
+                timestamp_us=value,
+                rgb_host_uint8=np.full((4, 4, 3), value, dtype=np.uint8),
+                depth_host_f32=None,
+                model_rgb_host_uint8=np.full((4, 4, 3), value + 10, dtype=np.uint8),
+            )
+        )
+    output_dir = recorder.stop(reason="hotkey")
+
+    assert output_dir is not None
+    assert writes == [
+        (output_dir / "hdmap.mp4", [2, 3]),
+        (output_dir / "inferred.mp4", [12, 13]),
+    ]
+    assert np.array_equal(
+        np.asarray(Image.open(output_dir / "first_frame.png")),
+        np.full((4, 4, 3), 12, dtype=np.uint8),
+    )
+    metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["hdmap_frames"] == 2
+    assert metadata["inferred_frames"] == 2
+    assert metadata["dropped_hdmap_frames"] == 1
+    assert metadata["dropped_inferred_frames"] == 1
+    assert metadata["max_buffer_frames"] == 2
 
 
 def test_recorder_collision_suffix_starts_at_one(tmp_path, monkeypatch) -> None:
