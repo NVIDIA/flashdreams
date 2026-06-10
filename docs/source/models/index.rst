@@ -29,17 +29,21 @@ Models
    omnidreams
    wan21
 
+FlashDreams runs a growing family of world and video models (text-to-video,
+image-to-video, camera-controlled, and super-resolution), all through one
+consistent command line and Python interface. Browse the models below, pick the
+one that fits what you want to make, and follow its card through to the full
+recipe.
+
 Available models
 ----------------
 
-FlashDreams supports multiple world/video model families behind one
-unified CLI and programmatic pipeline interface. Streaming and
-autoregressive recipes emit per-AR-step output and target sub-second
-steady-state step latency once the CUDA graph is captured;
-bidirectional recipes emit one end-to-end output per invocation and
-serve as the parity reference for the streaming variants. Each tile
-links to the recipe's page, which carries the canonical invocation, the
-checkpoint source, and the per-recipe knobs.
+The models come in two flavors. Streaming and autoregressive recipes build a
+video step by step and stay fast once warmed up, aiming for sub-second latency
+per step; bidirectional recipes produce a clip in a single pass and serve as the
+quality reference for their streaming counterparts. Each card links to that
+recipe's page, where you'll find the exact command to run it, the checkpoint it
+uses, and the settings you can tune.
 
 .. container:: fd-eyebrow
 
@@ -53,6 +57,12 @@ checkpoint source, and the per-recipe knobs.
       :link: /models/self_forcing
       :link-type: doc
 
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
+         </video>
+
       Streaming Wan 2.1 T2V via the Self-Forcing plugin. AR steps
       after warmup are sub-second on H100 / GB200.
 
@@ -60,6 +70,12 @@ checkpoint source, and the per-recipe knobs.
       :class-card: fd-feature
       :link: /models/causal_forcing
       :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
+         </video>
 
       Causal-forcing framewise T2V and I2V variants of Wan 2.1 via
       the Causal-Forcing plugin.
@@ -69,12 +85,29 @@ checkpoint source, and the per-recipe knobs.
       :link: /models/causal_wan22
       :link-type: doc
 
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
+         </video>
+
       FastVideo Wan 2.2 14B causal T2V recipe.
 
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
       :link: /models/lingbot_world
       :link-type: doc
+
+      .. raw:: html
+
+         <div class="fd-card-video-wrap">
+           <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+             <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
+           </video>
+           <video class="fd-card-video-pip" autoplay muted loop playsinline preload="metadata">
+             <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
+           </video>
+         </div>
 
       Camera-controlled I2V with bundled prompt, first-frame, and
       camera arrays.
@@ -84,6 +117,12 @@ checkpoint source, and the per-recipe knobs.
       :link: /models/omnidreams
       :link-type: doc
 
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+         </video>
+
       Single-view and multi-view streaming recipes against the
       OmniDreams checkpoints, including a diffusion-forcing AR
       variant.
@@ -92,6 +131,12 @@ checkpoint source, and the per-recipe knobs.
       :class-card: fd-feature
       :link: /models/flashvsr
       :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
+         </video>
 
       Streaming video super-resolution for the FlashVSR checkpoint
       family.
@@ -108,6 +153,12 @@ checkpoint source, and the per-recipe knobs.
       :link: /models/wan21
       :link-type: doc
 
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
+         </video>
+
       Bidirectional Wan 2.1: T2V 1.3B / 480p and I2V 14B / 480p.
       The parity baseline for ``self-forcing`` and
       ``causal-forcing`` recipes.
@@ -117,13 +168,19 @@ checkpoint source, and the per-recipe knobs.
       :link: /models/cosmos_predict2
       :link-type: doc
 
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
+         </video>
+
       Bidirectional Cosmos-Predict2 recipes (T2V / I2V, 2B).
 
 Benchmarks
 ----------
 
 The reported metric is **steady-state per-step latency**: the
-wall-clock of one autoregressive step once past AR step 2 and the
+real elapsed time of one autoregressive step once past AR step 2 and the
 steady-state CUDA graph is captured. This is the ``total(w/o
 finalize)`` value the inference pipeline logs each step. Time to first
 frame is not reported, and quality metrics (FVD, CLIP-T) are out of

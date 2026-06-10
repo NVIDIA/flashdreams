@@ -1676,6 +1676,42 @@ div.admonition.note > .admonition-title::after {
     opacity: 1;
 }
 
+/* Sample-clip thumbnail shown at the top of each model card on the Models
+   index. Fixed 16:9 + object-fit:cover so the mixed-resolution sample clips
+   line up as a uniform strip across the grid. */
+.fd-feature .fd-card-video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #000;
+    border-radius: var(--fd-radius-sm);
+    margin-bottom: var(--fd-space-3);
+}
+
+/* Picture-in-picture inset (e.g. LingBot-World's camera-trajectory clip
+   over the generated view), mirroring the inset on the model page. The
+   wrapper is the positioning context so the inset pins to the main clip,
+   not the padded card body. */
+.fd-feature .fd-card-video-wrap {
+    position: relative;
+    margin-bottom: var(--fd-space-3);
+}
+
+.fd-feature .fd-card-video-wrap .fd-card-video {
+    margin-bottom: 0;
+}
+
+.fd-feature .fd-card-video-pip {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 33%;
+    opacity: 0.7;
+    border-radius: var(--fd-radius-sm);
+    pointer-events: none;
+}
+
 @media (max-width: 800px) {
     .fd-highlight-grid {
         grid-template-columns: 1fr;
