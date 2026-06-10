@@ -90,6 +90,7 @@ class OmnidreamsGenerator:
 
     def generate(self, request: GenerationRequest) -> VideoMetricsInput:
         import dataclasses  # noqa: PLC0415
+        import gc  # noqa: PLC0415
         import tempfile  # noqa: PLC0415
         from pathlib import Path  # noqa: PLC0415
 
@@ -135,9 +136,21 @@ class OmnidreamsGenerator:
 
         cfg = dataclasses.replace(base, **overrides)
         runner = cfg.setup()
-        runner.run()
+        try:
+            runner.run()
+            canvas = media.read_video(str(output_dir / f"{recipe}.mp4"))
+        finally:
+            # Scenarios run sequentially and each call builds a fresh pipeline,
+            # so release it here or GPU memory accumulates across scenes (it
+            # looks like several models resident at once and OOMs). Build-once
+            # reuse is the proper follow-up; this just stops the leak.
+            del runner
+            gc.collect()
+            import torch  # noqa: PLC0415
 
-        canvas = media.read_video(str(output_dir / f"{recipe}.mp4"))
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         # The runner stacks [HD-map (top), generated (bottom)] vertically; the
         # generated RGB is the lower ``pixel_height`` rows.
         generated = np.ascontiguousarray(canvas[:, cfg.pixel_height :, :, :3])
