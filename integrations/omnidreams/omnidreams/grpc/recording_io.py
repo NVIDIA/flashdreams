@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
+from loguru import logger
 from omnidreams.grpc.protos import video_model_pb2
 
 
@@ -79,8 +80,6 @@ def read_log_entries_from_stream(
     Yields:
         LogEntry messages from the stream.
     """
-    from loguru import logger
-
     while True:
         size_prefix = file.read(4)
         if size_prefix == b"":  # EOF

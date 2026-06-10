@@ -5,7 +5,8 @@
 
 Supports ASCII, binary little-endian, and binary big-endian PLY files.
 Roaddreams uses this to read ``mesh_ground.ply`` out of scene USDZ archives
-for the ground-snap step (see :mod:`omnidreams.interactive_drive.physics`) and to emit a flat
+for the ground-snap step (see
+:mod:`omnidreams.interactive_drive.simulation.ground_snap`) and to emit a flat
 synthetic ground mesh from :mod:`omnidreams.interactive_drive.scene_fixture`.
 
 Ported (numpy-only, no Warp) from ``alpasim_physics.ply_io``.

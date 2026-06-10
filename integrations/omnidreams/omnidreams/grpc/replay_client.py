@@ -15,22 +15,10 @@
 
 """Replay recorded gRPC sessions for performance testing and regression detection.
 
-This script reads a binary log file containing recorded gRPC requests and responses,
-replays them against a running server, and compares performance metrics.
-
-Requests are sent sequentially (waiting for each response before sending the next)
-because the order matters for correct simulation—concurrent requests would result
-in incorrect state.
-
-Usage:
-    # Replay session for performance testing
-    python replay_client.py session.binlog --server localhost:50051
-
-    # Show recording info without replaying
-    python replay_client.py session.binlog --info
-
-    # Generate comparison video (origin vs replay)
-    python replay_client.py session.binlog --server localhost:50051 --compare-video comparison.mp4
+Reads a binary log of recorded gRPC requests/responses, replays them against a
+running server, and compares performance metrics. Requests are sent sequentially
+(waiting for each response) because simulation state depends on call order;
+concurrent requests would corrupt it. Run with ``--help`` for usage examples.
 """
 
 from __future__ import annotations
@@ -90,7 +78,7 @@ def decode_image_proto(image: video_model_pb2.Image) -> np.ndarray:
     """Decode an Image proto to a numpy array.
 
     Args:
-        image: Image proto with data and format.
+        image: The Image proto to decode.
 
     Returns:
         Numpy array [H, W, 3] uint8 RGB.
@@ -169,9 +157,8 @@ class ReplayClient:
             disable_font: If True, disable font in the comparison video.
             disable_origin: If True, disable origin in the comparison video.
             mock_burden_ms: Mock burden time in milliseconds to simulate client work.
-            defer_frame_processing: If True, defer frame processing until after all
-                replay is done. If False (default), process frames immediately during
-                each replay call (original behavior).
+            defer_frame_processing: If True, collect raw outputs and build frame
+                pairs after all replay completes instead of during each call.
         """
         self.server_address = server_address
         self.collect_frames = collect_frames
@@ -181,6 +168,9 @@ class ReplayClient:
         self.request_hdmap = request_hdmap
         self.text_prompt = text_prompt
         self.defer_frame_processing = defer_frame_processing
+        # Set per-session in _replay_start_session; default guards a malformed
+        # log whose first entry isn't a start_session.
+        self.return_hdmap_frames_flag = False
         self.channel = grpc.insecure_channel(
             server_address,
             options=[
@@ -224,11 +214,7 @@ class ReplayClient:
         logger.info("Server channel is READY")
 
     def replay(self, recording_path: Path) -> list[ReplayStats]:
-        """Replay all entries from a recording file.
-
-        Requests are sent sequentially, waiting for each response before
-        sending the next request. This is required because the order matters
-        for correct simulation—concurrent requests would result in incorrect state.
+        """Replay all entries from a recording file sequentially.
 
         Args:
             recording_path: Path to the recording file.
@@ -361,7 +347,6 @@ class ReplayClient:
         Args:
             call: StartSessionEntry containing the request/response pair.
         """
-        # Create a copy of the request to optionally modify HDmap settings
         request = video_model_pb2.SessionRequest()
         request.CopyFrom(call.request)
 
@@ -382,7 +367,6 @@ class ReplayClient:
             f"Session mapped: {origin_id[:8]}... -> {response.session_id[:8]}..."
         )
 
-        # Store whether return_hdmap_frames is set
         self.return_hdmap_frames_flag = request.debug_options.return_hdmap_frames
 
         return duration_ns
@@ -433,7 +417,7 @@ class ReplayClient:
             wait_for_ready=True,
         )
         if self.mock_burden_ms > 0.0:
-            time.sleep(self.mock_burden_ms / 1000.0)  # sleep for mock burden time
+            time.sleep(self.mock_burden_ms / 1000.0)
         duration_ns = time.time_ns() - start_ns
 
         # Collect frame pairs for comparison video (mosaic = all cameras stacked per frame)
@@ -442,12 +426,10 @@ class ReplayClient:
             outputs_replay = list(repl_response.camera_outputs)
 
             if self.defer_frame_processing:
-                # Defer processing: collect raw outputs (processed after all replay is done)
                 self.output_pairs.append(
                     OutputPair(origin=outputs_orig, replay=outputs_replay)
                 )
             else:
-                # Immediate processing (original behavior)
                 self._process_single_output_pair(outputs_orig, outputs_replay)
 
         return duration_ns
@@ -748,7 +730,7 @@ Examples:
     )
 
     # Auto-enable request_hdmap if compare-video-hdmap is requested
-    request_hdmap = args.request_hdmap or args.compare_video_hdmap is not None
+    request_hdmap = args.compare_video_hdmap is not None
 
     client = ReplayClient(
         args.server,

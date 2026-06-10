@@ -13,22 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Server-side profiling wrapper for the gRPC server.
+"""Server-side timing instrumentation for the gRPC server.
 
-This module adds timing instrumentation to the gRPC server to track:
-- Total request processing time
-- HDMap rendering time
-- Video model inference time
-- Image encoding time
-- Road state computation time
-- gRPC serialization overhead
-
-Usage:
-    Add --enable_profiling and --profile_output arguments to grpc_server.py
-
-The profiler auto-saves periodically and on session end, so you don't need
-to stop the server to get profiling data.
+Enabled via ``--enable_profiling``/``--profile_output`` on the gRPC server;
+collected timings are written to JSON when the server shuts down.
 """
 
 from __future__ import annotations
@@ -57,15 +45,9 @@ _profiling_context = threading.local()
 
 @contextmanager
 def profiling_context(session_id: str, chunk_idx: int):
-    """
-    Context manager to set session_id and chunk_idx for nested profiling calls.
+    """Bind session_id/chunk_idx for nested profiling calls.
 
-    Usage in grpc_server.py:
-        with profiling_context(session_id, chunk_idx):
-            result = self.api.continue_generation(...)
-
-    Then in bbox_conditioned_api.py, get_profiling_context() will return
-    the session_id and chunk_idx set by the caller.
+    ``conditioning_wrapper.py`` reads them back via ``get_profiling_context()``.
     """
     old_session_id = getattr(_profiling_context, "session_id", None)
     old_chunk_idx = getattr(_profiling_context, "chunk_idx", None)
@@ -120,12 +102,10 @@ class ServerProfiler:
         self.pending_msgs: list[str | None] = []
 
     def get_chunk_idx(self, session_id: str) -> int:
-        """Get current chunk index for a session."""
         with self._lock:
             return self.session_chunk_counters.get(session_id, 0)
 
     def increment_chunk_idx(self, session_id: str):
-        """Increment chunk counter for a session."""
         with self._lock:
             self.session_chunk_counters[session_id] = (
                 self.session_chunk_counters.get(session_id, 0) + 1
@@ -139,7 +119,6 @@ class ServerProfiler:
         chunk_idx: int | None = None,
         **metadata,
     ):
-        """Context manager to measure execution time."""
         if not self.enabled:
             yield
             return
@@ -215,7 +194,6 @@ class ServerProfiler:
         logger.info(f"Saved {len(self.records)} profiling records to {output_path}")
 
     def print_summary(self):
-        """Print summary statistics."""
         from collections import defaultdict
 
         import numpy as np
@@ -247,19 +225,16 @@ class ServerProfiler:
         logger.info("=" * 80)
 
 
-# Global profiler instance
 _profiler: ServerProfiler | None = None
 
 
 def init_profiler(enabled: bool = True) -> ServerProfiler:
-    """Initialize the global profiler."""
     global _profiler
     _profiler = ServerProfiler(enabled=enabled)
     return _profiler
 
 
 def get_profiler() -> ServerProfiler:
-    """Get the global profiler instance."""
     global _profiler
     if _profiler is None:
         _profiler = ServerProfiler(enabled=False)

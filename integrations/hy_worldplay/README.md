@@ -79,7 +79,6 @@ That gives you:
 ```bash
 uv run flashdreams-run hy-worldplay-wan-i2v-5b \
     --example-data \
-    --ckpt-path /path/to/models/wan_distilled_model/model.pt \
     --num-chunk 1 \
     --output-dir outputs
 ```
@@ -93,11 +92,10 @@ to override either; the pose source is prefix-sliced to the rollout's
 `num_chunk * 4` latent budget, so the 33-entry sample drives any
 `num-chunk` up to 8.
 
-`--ckpt-path` is optional. Without it the pipeline loads the base
-Wan 2.2 TI2V-5B safetensors and HY's conditioners stay zero-init
-(strict identity, parity-safe against the base Wan 2.2 output). Pass
-`--ckpt-path` to load the distilled WAN-5B weights and exercise the
-full HY-WorldPlay stack.
+By default the pipeline downloads HY-WorldPlay's distilled WAN-5B
+checkpoint from `tencent/HY-WorldPlay` and runs the full HY-WorldPlay
+stack. `--ckpt-path` is an optional override pointing at a local
+`wan_distilled_model/model.pt` (e.g. a copy you pre-downloaded above).
 
 Per-runner `--help` lists every overridable field:
 
@@ -245,8 +243,10 @@ default. Phase 3 is future.
 
 3. **Phase 2b — native HY-WorldPlay integration.** All conditioners
    are wired into the static pipeline in `hy_worldplay.config` and
-   zero-initialised so a run without `--ckpt-path` is a strict
-   identity against the base Wan 2.2 TI2V-5B output.
+   zero-initialised, so they stay identity until trained weights load.
+   The default loads the distilled checkpoint; pointing `--ckpt-path`
+   at a base Wan 2.2 TI2V-5B checkpoint is a strict identity against
+   the base output.
 
    - **2b.1 / 2b.2.** Native runner over `PIPELINE_WAN22_TI2V_5B` +
      distilled 4-step Euler schedule swapped in on the native path.

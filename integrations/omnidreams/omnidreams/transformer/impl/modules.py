@@ -142,11 +142,9 @@ class PatchEmbed(nn.Module):
         )
 
     def _compute_in_features(self) -> int:
-        """Compute the flattened patch dimension."""
         return self.in_channels * self.temporal_patch_size * self.spatial_patch_size**2
 
     def get_linear_in_channels(self) -> int:
-        """Return input dimension for the linear projection (for external use)."""
         return self._compute_in_features()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -284,7 +282,6 @@ class MultiHeadAttention(nn.Module):
         self.attn_op.set_context_parallel_group(cp_group=cp_group)
 
     def is_context_parallel_enabled(self) -> bool:
-        """Whether context parallelism is active for attention."""
         return self.attn_op.is_context_parallel_enabled()
 
     def context_parallel_size(self) -> int:
@@ -309,7 +306,7 @@ class MultiHeadAttention(nn.Module):
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
-        L, D = context.shape[-2:]
+        L = context.shape[-2]
         n, d = self.n_heads, self.head_dim
 
         k = self.k_norm(self.k_proj(context).reshape(batch_size, L, n, d))
@@ -471,11 +468,9 @@ class BlockCache:
     cross_attn: BlockKVCache
 
     def before_update(self, chunk_idx: int) -> None:
-        """Run cache pre-update hook for the current chunk."""
         self.self_attn.before_update(chunk_idx)
 
     def after_update(self, chunk_idx: int) -> None:
-        """Run cache post-update hook for the current chunk."""
         self.self_attn.after_update(chunk_idx)
 
 
@@ -704,7 +699,7 @@ class Block(nn.Module):
             scale_mlp = scale_mlp + expand_view_mod(view_scale_mlp)
             gate_mlp = gate_mlp + expand_view_mod(view_gate_mlp)
 
-        # Self-attention (API aligned with Attention.forward)
+        # Self-attention
         normed_x = self.layer_norm_self_attn(x) * (1 + scale_self) + shift_self
         attn_out = self.self_attn(
             normed_x,
@@ -721,18 +716,14 @@ class Block(nn.Module):
             normed_x_cv = self.layer_norm_cross_view_attn(x)
             x_cv = rearrange(normed_x_cv, "b v (t hw) d -> b t v hw d", t=T, hw=HW)
             if self.cross_view_attn.is_context_parallel_enabled():
-                # When cross-view attention is CP-enabled, assume views are split
-                # across GPUs in rank order. For 4 views on 2 GPUs, that is
-                # [0, 1] on one rank group and [2, 3] on the other.
+                # CP-enabled: views are split across GPUs in rank order
+                # (e.g. 4 views on 2 GPUs -> [0,1] and [2,3]).
                 if V == 1:
-                    # If CP size equals number of views, each GPU processes one view.
-                    # Ring attention gathers all K/V, so local context can remain unexpanded.
+                    # CP size == num views: ring attention gathers all K/V,
+                    # so local context stays unexpanded.
                     x_context = x_cv
-                    # Effectively equivalent to the repeat() branch when V == 1.
-                    # x_context = repeat(x, f"b t v hw d -> b t v2 (v hw) d", v2=V)
                 else:
-                    # If CP size is smaller than number of views, each GPU handles multiple
-                    # views locally before global K/V gathering.
+                    # CP size < num views: gather each GPU's local views first.
                     x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
             else:
                 # Without CP, repeat context so each view attends over all views.

@@ -25,28 +25,19 @@ from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_t
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 from omnidreams.scenes import local_scene_archive_path
 
-# Package root, derived from this file's location so all packaged-asset
-# defaults below resolve correctly regardless of the user's cwd. Layout:
-#   ``omnidreams/interactive_drive/cli.py`` (this file)
-#   ``omnidreams/interactive_drive/configs/{example_world_model.yaml,wheels/}``
-# Users invoke ``uv run --package flashdreams-omnidreams interactive-drive``
-# from the workspace root; the bundled configs are reached relative to
-# the installed package, not the cwd. Scene USDZs no longer live under
-# the package -- they're staged into ``$FLASHDREAMS_CACHE_DIR/
-# omnidreams-scenes/`` (shared with the webrtc server).
+# Package root (from this file's location) so packaged-asset defaults below
+# resolve relative to the install, not the user's cwd. Bundled configs live at
+# ``interactive_drive/configs/``; scene USDZs are staged into
+# ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` (shared with the webrtc server).
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
 
-# UUID of the scene staged by ``omnidreams-prepare`` when no ``--scene-uuid``
-# is specified and used as the demo's ``--scene`` default. A scene currently
-# published in nvidia/omni-dreams-scenes (clear-weather base archive).
+# Default scene UUID staged by ``omnidreams-prepare`` (clear-weather base
+# archive in nvidia/omni-dreams-scenes).
 DEFAULT_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
 
-# Default scene path: shared cache dir under ``$FLASHDREAMS_CACHE_DIR/
-# omnidreams-scenes/clipgt-<uuid>.usdz``. The desktop demo and the
-# webrtc server both cache under this root, so the HF download is
-# shared via huggingface_hub's content-addressed cache and a
-# pre-existing staged scene from one demo is visible to the other.
+# Default scene path under the shared ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``
+# cache, so a scene staged by the desktop demo or webrtc server is visible to both.
 DEFAULT_SCENE = local_scene_archive_path(DEFAULT_SCENE_UUID)
 
 
@@ -381,12 +372,9 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
 def main() -> None:
     """Stand-alone entry point for ``python -m omnidreams.interactive_drive.cli``.
 
-    The packaged ``interactive-drive`` console script and the
-    ``python -m omnidreams.interactive_drive`` invocation both go through
-    :func:`omnidreams.interactive_drive.demo.main` so the HUD wrapper can wrap
-    this same backend behind ``--no-hud``. This function stays in
-    place so callers that want to import :func:`run` can still
-    exercise the parser via ``main()`` directly.
+    The console script and ``python -m omnidreams.interactive_drive`` go through
+    :func:`omnidreams.interactive_drive.demo.main` (HUD wrapper behind
+    ``--no-hud``); this stays so ``run`` can still be driven via the parser.
     """
     run(build_parser().parse_args())
 
@@ -396,18 +384,12 @@ def prepare_config_and_backend(
 ) -> tuple[AppConfig, RenderBackend]:
     """Build the :class:`AppConfig` and :class:`RenderBackend` for ``args``.
 
-    Split out of :func:`run` so the demo wrappers in
-    :mod:`omnidreams.interactive_drive.demo` can build the backend once, up
-    front, and hand it to a single long-lived
-    :class:`InteractiveDriveApp` that switches scenes in place via
-    ``app.load_scene`` -- keeping the warmed model resident instead of
-    rebuilding it on every scene click.
+    Split out of :func:`run` so the demo wrappers build the backend once and
+    hand it to a long-lived :class:`InteractiveDriveApp` that switches scenes in
+    place (keeping the warmed model resident).
     """
-    # Stamp the resolved HF org into the env var BEFORE we touch anything
-    # that fetches (manifest loader, scene staging, world-model build).
-    # All downstream omni-dreams URL composition reads this env var
-    # lazily, so this single call is the only place the CLI flag plumbs
-    # through to runtime fetches.
+    # Stamp the resolved HF org into the env var before anything fetches
+    # (manifest, scene staging, model build read it lazily).
     resolved_org = apply_cli_to_env(args.hf_org)
     if resolved_org != DEFAULT_HF_ORG:
         logger.info(
@@ -498,13 +480,10 @@ def prepare_config_and_backend(
 
 
 def run(args: argparse.Namespace) -> None:
-    """Execute the interactive-drive backend with the given parsed args.
+    """Execute the interactive-drive backend for ``args`` (single-scene ``--no-hud`` path).
 
-    Convenience wrapper used by the ``--no-hud`` path that doesn't need to
-    switch scenes mid-run. The slangpy HUD / streaming paths in
-    :mod:`omnidreams.interactive_drive.demo` build one long-lived
-    :class:`InteractiveDriveApp` and call ``load_scene`` / ``run_scene``
-    per scene so the warmed model survives across scene clicks.
+    The HUD / streaming paths instead build one long-lived
+    :class:`InteractiveDriveApp` and call ``load_scene`` / ``run_scene`` per scene.
     """
     configure_logging()
     config, backend = prepare_config_and_backend(args)

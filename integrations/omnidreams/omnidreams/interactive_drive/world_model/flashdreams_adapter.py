@@ -384,17 +384,11 @@ class FlashdreamsWorldModelSession:
     ) -> None:
         """Per-scene conditioning prep, run on every scene (re)load.
 
-        Default path: a no-op. The pipeline keeps its text/image encoders
-        and re-embeds the current prompt in ``initialize_cache`` on every
-        rollout, so switching scenes needs no model-side work here.
-
-        Offload path: the one-shot encoders are freed to save VRAM, so a
-        new scene's prompt/first-frame cannot reuse the previous scene's
-        cached embeddings. The factory (test) path recomputes them lazily
-        on the next ``start``; the real path rebuilds the pipeline per
-        scene (precompute embeddings -> free encoders -> build pipeline) to
-        keep peak VRAM low. This is the only path that does not keep the
-        model resident across scene changes.
+        No-op on the default path (the pipeline re-embeds the prompt in
+        ``initialize_cache`` per rollout). On the offload path the one-shot
+        encoders were freed, so this rebuilds the pipeline per scene
+        (precompute embeddings -> free encoders -> build pipeline) to keep
+        peak VRAM low; the factory test path recomputes lazily in ``start``.
         """
         if not self._offload_text_encoder:
             return

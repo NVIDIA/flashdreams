@@ -6,11 +6,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 
-
-def _np():
-    import numpy as np
-
-    return np
+import numpy as np
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -18,7 +14,6 @@ def clamp(value: float, lo: float, hi: float) -> float:
 
 
 def normalize(v: Iterable[float]) -> object:
-    np = _np()
     arr = np.asarray(tuple(v), dtype=np.float32)
     nrm = float(np.linalg.norm(arr))
     if nrm < 1e-8:
@@ -29,7 +24,6 @@ def normalize(v: Iterable[float]) -> object:
 def quaternion_from_rpy_deg(
     roll_deg: float, pitch_deg: float, yaw_deg: float
 ) -> object:
-    np = _np()
     half = np.radians(np.array([roll_deg, pitch_deg, yaw_deg], dtype=np.float32)) * 0.5
     cr, cp, cy = np.cos(half)
     sr, sp, sy = np.sin(half)
@@ -42,7 +36,6 @@ def quaternion_from_rpy_deg(
 
 
 def quaternion_to_matrix_xyzw(quat_xyzw: Iterable[float]) -> object:
-    np = _np()
     x, y, z, w = normalize(quat_xyzw)
     xx = x * x
     yy = y * y
@@ -66,7 +59,6 @@ def quaternion_to_matrix_xyzw(quat_xyzw: Iterable[float]) -> object:
 def matrix_from_quaternion_translation(
     quat_xyzw: Iterable[float], translation_xyz: Iterable[float]
 ) -> object:
-    np = _np()
     matrix = np.eye(4, dtype=np.float32)
     matrix[:3, :3] = quaternion_to_matrix_xyzw(quat_xyzw)
     matrix[:3, 3] = np.asarray(tuple(translation_xyz), dtype=np.float32)
@@ -81,7 +73,6 @@ def matrix_from_rpy_translation(
 
 
 def matrix_from_xy_yaw(x_m: float, y_m: float, z_m: float, yaw_rad: float) -> object:
-    np = _np()
     cy = math.cos(yaw_rad)
     sy = math.sin(yaw_rad)
     matrix = np.eye(4, dtype=np.float32)
@@ -96,12 +87,10 @@ def matrix_from_xy_yaw(x_m: float, y_m: float, z_m: float, yaw_rad: float) -> ob
 
 
 def compose(a: object, b: object) -> object:
-    np = _np()
     return np.asarray(a, dtype=np.float32) @ np.asarray(b, dtype=np.float32)
 
 
 def invert_rigid(transform: object) -> object:
-    np = _np()
     t = np.asarray(transform, dtype=np.float32)
     rot = t[:3, :3]
     trans = t[:3, 3]
@@ -112,7 +101,6 @@ def invert_rigid(transform: object) -> object:
 
 
 def polyline_to_segments(points: object) -> object:
-    np = _np()
     pts = np.asarray(points, dtype=np.float32)
     if len(pts) < 2:
         return np.empty((0, 2, 3), dtype=np.float32)
@@ -120,7 +108,6 @@ def polyline_to_segments(points: object) -> object:
 
 
 def sample_polyline(points: object, spacing_m: float) -> object:
-    np = _np()
     pts = np.asarray(points, dtype=np.float32)
     if len(pts) < 2:
         return pts.copy()
@@ -159,7 +146,6 @@ def sample_polyline(points: object, spacing_m: float) -> object:
 def dash_polyline(
     points: object, pattern: list[tuple[bool, float]], spacing_m: float = 0.25
 ) -> list[object]:
-    np = _np()
     sampled = sample_polyline(points, spacing_m=spacing_m)
     if len(sampled) < 2:
         return []
@@ -188,7 +174,6 @@ def dash_polyline(
 
 
 def offset_segments(segments: object, offset_m: float) -> object:
-    np = _np()
     segs = np.asarray(segments, dtype=np.float32)
     if len(segs) == 0:
         return segs.copy()
@@ -213,7 +198,6 @@ def offset_segments(segments: object, offset_m: float) -> object:
 
 
 def triangle_fan(vertices: object) -> object:
-    np = _np()
     verts = np.asarray(vertices, dtype=np.float32)
     if len(verts) < 3:
         return np.empty((0, 3, 3), dtype=np.float32)
@@ -227,7 +211,6 @@ def triangle_fan(vertices: object) -> object:
 def oriented_box_triangles(
     center: Iterable[float], dimensions: Iterable[float], quat_xyzw: Iterable[float]
 ) -> object:
-    np = _np()
     cx, cy, cz = center
     dx, dy, dz = dimensions
     half = np.array([dx, dy, dz], dtype=np.float32) * 0.5
