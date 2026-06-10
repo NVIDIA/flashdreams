@@ -18,16 +18,13 @@ File originally from https://github.com/nv-tlabs/Cosmos-Drive-Dreams/tree/main/c
 """
 
 import json
-from typing import Any, Dict, Optional, TypeVar, cast
+from typing import Any, Dict, Optional, cast
 
 import numpy as np
 import torch
 from numpy.polynomial.polynomial import Polynomial
 from omnidreams.conditioning.world_scenario.camera_base import CameraBase
 from scipy.optimize import curve_fit
-
-CropParams = TypeVar("CropParams")
-ScaleParams = TypeVar("ScaleParams")
 
 
 def compute_max_distance_to_border(
@@ -65,7 +62,7 @@ def compute_ftheta_fw_mapping_max_angle(
     Best guess of the valid domain of a forward mapping (ray to pixel).
 
     Args:
-        fw_mapping (callable): Forward mapping function that maps angle to pixel radius.
+        fwpoly (np.ndarray): Forward polynomial coefficients mapping angle to pixel radius.
         max_radius_pixels (float): Maximum radius in pixels.
 
     Returns:
@@ -744,15 +741,6 @@ class FThetaCamera(CameraBase):
         xd_norm = torch.norm(xd, dim=1, keepdim=False)
 
         # Calculate angle using vectorized polynomial evaluation
-        if not hasattr(self, "_bw_poly_torch"):
-            self._bw_poly_torch = torch.tensor(
-                self._bw_poly.coef, dtype=self.dtype, device=self.device
-            )
-            self._bw_poly_powers_torch = torch.arange(
-                len(self._bw_poly_torch), dtype=self.dtype, device=self.device
-            )
-
-        # Vectorized polynomial evaluation
         xd_norm_powers = xd_norm.unsqueeze(-1) ** self._bw_poly_powers_torch
         alpha = torch.sum(self._bw_poly_torch * xd_norm_powers, dim=-1)
 

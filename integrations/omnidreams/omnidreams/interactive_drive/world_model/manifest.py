@@ -72,11 +72,9 @@ def download_hf_file(url: str) -> Path:
             revision=revision,
         )
     except RepositoryNotFoundError as exc:
-        # 401 / 403 / 404 from HF all surface as RepositoryNotFoundError and
-        # almost always come from one of two misconfigurations: HF_TOKEN
-        # missing/misnamed, or OMNI_DREAMS_HF_ORG left at the default when
-        # the caller is entitled to a different org. Replace the stock HF
-        # message with a diagnostic that names both knobs explicitly.
+        # HF reports 401/403/404 all as RepositoryNotFoundError; usually a
+        # missing HF_TOKEN or a wrong OMNI_DREAMS_HF_ORG, so swap in a hint
+        # naming both knobs.
         raise RuntimeError(hf_access_hint(repo_id, url)) from exc
     return Path(local_path)
 
@@ -179,13 +177,9 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
     manifest_path = Path(path)
     manifest_dir = manifest_path.resolve().parent
     raw_yaml = manifest_path.read_text(encoding="utf-8")
-    # Some deployments set ``OMNI_DREAMS_HF_ORG`` (or the equivalent
-    # ``--hf-org`` CLI flag, which is stamped into the env var early in
-    # ``main()``). The canonical example yaml ships with NVIDIA URLs; rewrite
-    # ``nvidia/omni-dreams-scenes`` to the resolved org here so callers don't
-    # have to maintain a parallel yaml file. Other HF URLs in the manifest
-    # (lightx2v Autoencoders, Cosmos-Reason1, ...) are not OmniDreams scene
-    # repos and pass through unchanged.
+    # When ``OMNI_DREAMS_HF_ORG`` (or ``--hf-org``) overrides the default org,
+    # rewrite the example yaml's ``nvidia/omni-dreams-*`` scene URLs to it so
+    # callers don't maintain a parallel yaml. Non-scene HF URLs pass through.
     resolved_org = resolve_hf_org()
     if resolved_org != DEFAULT_HF_ORG:
         rewritten = rewrite_omni_dreams_urls(raw_yaml, org=resolved_org)

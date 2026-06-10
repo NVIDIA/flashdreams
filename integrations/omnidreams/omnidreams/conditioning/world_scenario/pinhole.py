@@ -74,7 +74,6 @@ class PinholeCamera(CameraBase):
         self.cache_torch_and_np_intrinsics()
 
     def cache_torch_and_np_intrinsics(self) -> None:
-        # cache intrinsics matrix
         self.intrinsics_matrix_torch = self.get_intrinsics_matrix()
         self.intrinsics_matrix_inv_torch = self.get_inv_intrinsics_matrix()
         self.intrinsics_matrix_np = self.intrinsics_matrix_torch.cpu().numpy()
@@ -201,9 +200,7 @@ class PinholeCamera(CameraBase):
         return torch.inverse(self.get_intrinsics_matrix())
 
     def _get_rays_impl(self) -> torch.Tensor:
-        """
-        Returns:
-            rays: (H, W, 3), normalized camera rays in opencv convention
+        """Compute normalized per-pixel camera rays.
 
           z (front)
          /

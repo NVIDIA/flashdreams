@@ -73,11 +73,21 @@ _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 # Default scene (clear-weather base archive). Weather siblings are selected
 # via OmnidreamsRuntimeConfig.scene_variant / the server's --scene-variant.
 DEFAULT_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-# Re-export ``omnidreams.scenes`` constants under their pre-existing
-# ``WEBRTC_SCENES_*`` aliases so external imports (logs, tests, docs)
-# stay valid.
+# Back-compat aliases for ``omnidreams.scenes`` constants used by external imports.
 WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
 WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
+
+
+def _resolve_cuda_device(device_spec: str | torch.device) -> torch.device:
+    """Resolve a device spec, filling in the active CUDA index when unspecified."""
+    device = torch.device(device_spec)
+    if device.type == "cuda" and device.index is None:
+        device = torch.device(
+            f"cuda:{torch.cuda.current_device()}"
+            if torch.cuda.is_available()
+            else "cuda:0"
+        )
+    return device
 
 
 def _choose_existing_asset(
@@ -445,13 +455,7 @@ class OmnidreamsInferenceRuntime:
         self.MASTER_RANK = 0
         self.rank = 0 if not dist.is_initialized() else dist.get_rank()
 
-        control_device = torch.device(self.config.device)
-        if control_device.type == "cuda" and control_device.index is None:
-            control_device = torch.device(
-                f"cuda:{torch.cuda.current_device()}"
-                if torch.cuda.is_available()
-                else "cuda:0"
-            )
+        control_device = _resolve_cuda_device(self.config.device)
 
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
@@ -472,15 +476,9 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
-        # Keep every blocking runtime call on the same OS thread. This is not
-        # for throughput: Omnidreams uses CUDA graph capture/replay through
-        # torch.compile/cuDNN, and the captured state appears to depend on
-        # thread-local CUDA/cuDNN context. Replacing this with
-        # ``asyncio.to_thread`` lets the default executor move initialize,
-        # warmup, and generation calls across workers; that was observed to
-        # fail after a few chunks with
-        # CUDNN_STATUS_INTERNAL_ERROR_DEVICE_ALLOCATION_FAILED followed by
-        # cudaErrorStreamCaptureInvalidated during capture_end.
+        # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
+        # graph capture/replay state is thread-local, so spreading calls across
+        # workers (e.g. asyncio.to_thread) crashes capture after a few chunks.
         self._executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="omnidreams-webrtc-runtime",
@@ -565,13 +563,7 @@ class OmnidreamsInferenceRuntime:
     ) -> _T:
         device = self._device
         if device is None:
-            device = torch.device(self.config.device)
-            if device.type == "cuda" and device.index is None:
-                device = torch.device(
-                    f"cuda:{torch.cuda.current_device()}"
-                    if torch.cuda.is_available()
-                    else "cuda:0"
-                )
+            device = _resolve_cuda_device(self.config.device)
         if device.type == "cuda":
             torch.cuda.set_device(device)
         return func(*args)

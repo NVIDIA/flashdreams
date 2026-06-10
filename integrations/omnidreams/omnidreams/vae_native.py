@@ -98,16 +98,7 @@ def _native_vae_availability_check(
     )
 
     def check(extension: ModuleType) -> tuple[bool, str]:
-        symbol_result = symbol_check(extension)
-        if isinstance(symbol_result, tuple):
-            ok, reason = symbol_result
-        else:
-            ok = bool(symbol_result)
-            reason = (
-                "required native symbols are available"
-                if ok
-                else "required native symbols are unavailable"
-            )
+        ok, reason = symbol_check(extension)
         if not ok:
             return ok, reason
 
@@ -204,36 +195,7 @@ def _wan_encoder_symbols(backend: NativeVAEBackend) -> tuple[str, tuple[str, ...
     )
 
 
-class _NativeVAEExecutor:
-    def __init__(
-        self,
-        *,
-        selection: NativeBackendSelection,
-        backend: NativeVAEBackend,
-    ) -> None:
-        self.selection = selection
-        self.extension = selection.require_extension()
-        self.backend = backend
-
-    @property
-    def _required(self) -> bool:
-        return self.selection.mode == "required"
-
-    def _fallback_or_raise(self, exc: Exception) -> None:
-        if self._required:
-            raise NativeAccelerationUnavailable(str(exc)) from exc
-
-    def after_initialize_autoregressive_cache(self, cache: object) -> None:
-        hook = getattr(
-            self.extension,
-            "omnidreams_vae_after_initialize_autoregressive_cache",
-            None,
-        )
-        if callable(hook):
-            hook(self.selection.component, cache)
-
-
-class _NativeWanVAEEncoderExecutor(_NativeVAEExecutor):
+class _NativeWanVAEEncoderExecutor:
     _FP8_INPUT_SPEC = NativeTensorSpec(
         name="wan_vae_encoder_input",
         layout="B C T H W",
@@ -248,7 +210,9 @@ class _NativeWanVAEEncoderExecutor(_NativeVAEExecutor):
         selection: NativeBackendSelection,
         backend: NativeVAEBackend,
     ) -> None:
-        super().__init__(selection=selection, backend=backend)
+        self.selection = selection
+        self.extension = selection.require_extension()
+        self.backend = backend
         self._helper: ModuleType | None = None
         self._native_encoder: object | None = None
         self._native_encoder_model_id: int | None = None
@@ -258,6 +222,14 @@ class _NativeWanVAEEncoderExecutor(_NativeVAEExecutor):
         self._fp8_state_loaded_path: str | None = None
         self._cache_id: int | None = None
         self._cache_is_empty = True
+
+    @property
+    def _required(self) -> bool:
+        return self.selection.mode == "required"
+
+    def _fallback_or_raise(self, exc: Exception) -> None:
+        if self._required:
+            raise NativeAccelerationUnavailable(str(exc)) from exc
 
     @classmethod
     def from_config(

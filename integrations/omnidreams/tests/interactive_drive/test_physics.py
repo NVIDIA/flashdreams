@@ -3,8 +3,10 @@
 
 """Tests for the ground-snap physics step.
 
-Covers ``omnidreams.interactive_drive.ply_io``, ``omnidreams.interactive_drive.physics.GroundSnapper``, and the
-integration into ``omnidreams.interactive_drive.control.sample_chunk_trajectory``.
+Covers ``omnidreams.interactive_drive.ply_io``,
+``omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper``, and the
+integration into
+``omnidreams.interactive_drive.simulation.ego_vehicle_kinematics.sample_chunk_trajectory``.
 """
 
 from __future__ import annotations
@@ -15,11 +17,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
-from omnidreams.interactive_drive.control import sample_chunk_trajectory
-from omnidreams.interactive_drive.physics import GroundSnapper
 from omnidreams.interactive_drive.ply_io import load_mesh_vf, save_mesh_vf
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle
+from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
+    sample_chunk_trajectory,
+)
+from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
 from omnidreams.interactive_drive.types import DriverCommand, VehicleState
 
 # ---------------------------------------------------------------------------
@@ -148,7 +152,6 @@ def test_snap_flat_ground_calibrates_anchor_and_keeps_z() -> None:
 
     snapped = snapper.snap(initial, VehicleConfig())
 
-    assert snapper.anchor_offset_m == pytest.approx(5.0, abs=1e-3)
     assert snapped.z_m == pytest.approx(5.0, abs=1e-3)
     assert snapped.pitch_rad == pytest.approx(0.0, abs=1e-4)
     assert snapped.roll_rad == pytest.approx(0.0, abs=1e-4)
@@ -185,7 +188,7 @@ def test_snap_sloped_ground_updates_pitch_and_z() -> None:
     expected_z = 10.0 * math.tan(math.radians(pitch_deg)) + 2.0
     assert snapped.z_m == pytest.approx(expected_z, abs=5e-3)
     # math3d convention: positive pitch_deg in the slope (uphill +x) -> body
-    # pitch is the negative (nose-up). See module docstring of physics.py.
+    # pitch is the negative (nose-up). See module docstring of ground_snap.py.
     assert snapped.pitch_rad == pytest.approx(-math.radians(pitch_deg), abs=5e-3)
     assert snapped.roll_rad == pytest.approx(0.0, abs=5e-3)
 
@@ -197,7 +200,6 @@ def test_snap_off_mesh_returns_input_unchanged() -> None:
     out = snapper.snap(state, VehicleConfig())
 
     assert out == state
-    assert snapper.anchor_offset_m is None
 
 
 def test_snap_translation_threshold_rejects_jump() -> None:

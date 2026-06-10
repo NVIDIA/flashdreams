@@ -1,0 +1,73 @@
+schema_version: 1
+description: FlashDreams video-quality regression case catalog.
+
+suites:
+  - calibration
+  - per_commit
+  - nightly
+  - quarantine
+  - vlm_experimental
+
+default_hf_dataset: nvidia/flashdreams-video-quality-regression
+
+# Minimal case shape: id, description, suites, metrics, assets, and thresholds.
+# Add generation and windows only when a model runner or windowed metric needs them.
+cases:
+  - id: synthetic_core_metric_sentinels
+    description: Synthetic evaluate-only clips that exercise blank, blur, and stripe metrics without model inference.
+    suites: [calibration, per_commit]
+    metrics: [decode_metadata, grey_blank, sharpness, stripe]
+    source:
+      type: synthetic
+      fps: 8
+      frames: 16
+      height: 64
+      width: 64
+      seed: 17
+    assets:
+      known_good: synthetic://textured_motion
+      # known_bad clips are calibration fixtures. They should fail exactly the
+      # listed thresholds, proving the selected metrics catch known failure modes
+      # without turning those bad outputs into production golden references.
+      known_bad:
+        - id: grey_blank
+          path: synthetic://grey_blank
+          expected_failures: [luma_std_min, saturation_min, grey_ratio_max, sharpness_min]
+        - id: blurry_gradient
+          path: synthetic://blurry_gradient
+          expected_failures: [sharpness_min]
+        - id: horizontal_stripes
+          path: synthetic://horizontal_stripes
+          expected_failures: [stripe_axis_max, stripe_row_autocorr_max]
+      sha256: {}
+    thresholds:
+      - id: luma_std_min
+        metric: luma_std
+        op: ">="
+        value: 0.08
+        severity: critical
+      - id: saturation_min
+        metric: saturation_mean
+        op: ">="
+        value: 0.05
+        severity: critical
+      - id: grey_ratio_max
+        metric: grey_pixel_ratio
+        op: "<="
+        value: 0.90
+        severity: critical
+      - id: sharpness_min
+        metric: laplacian_variance
+        op: ">="
+        value: 0.07
+        severity: critical
+      - id: stripe_axis_max
+        metric: fft_axis_energy_ratio
+        op: "<="
+        value: 0.55
+        severity: critical
+      - id: stripe_row_autocorr_max
+        metric: row_autocorr_peak
+        op: "<="
+        value: 0.60
+        severity: critical

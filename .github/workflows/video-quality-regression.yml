@@ -1,0 +1,95 @@
+name: Video Quality Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Suite to run.
+        required: true
+        default: calibration
+        type: choice
+        options:
+          - calibration
+          - per_commit
+          - nightly
+          - quarantine
+          - vlm_experimental
+      case_id:
+        description: Optional single case id.
+        required: false
+        type: string
+      hf_revision:
+        description: Optional Hugging Face asset revision override.
+        required: false
+        type: string
+      evaluate_only:
+        description: Run metrics on known-good/known-bad clips without inference.
+        required: true
+        default: true
+        type: boolean
+      upload_report:
+        description: Upload run artifacts.
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "17 7 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: evaluate-only metrics
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-video-quality-venv
+      UV_LINK_MODE: copy
+      UV_PYTHON: "3.10"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: video-quality
+
+      - name: Install CPU dependencies
+        run: |
+          uv venv --clear
+          uv sync --extra dev --no-install-package transformer-engine-torch
+
+      - name: Run video-quality regression
+        env:
+          CASE_ID: ${{ github.event.inputs.case_id || '' }}
+          EVALUATE_ONLY: ${{ github.event.inputs.evaluate_only || 'true' }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REVISION: ${{ github.event.inputs.hf_revision || '' }}
+          SELECTED_SUITE: ${{ github.event.inputs.suite || 'calibration' }}
+        run: |
+          args=(
+            --manifest configs/video_quality_cases.yml
+            --suite "${SELECTED_SUITE}"
+            --output-dir artifacts/video_quality
+          )
+          if [ -n "${CASE_ID}" ]; then
+            args+=(--case-id "${CASE_ID}")
+          fi
+          if [ -n "${HF_REVISION}" ]; then
+            args+=(--hf-revision "${HF_REVISION}")
+          fi
+          if [ "${EVALUATE_ONLY}" = "true" ]; then
+            args+=(--evaluate-only)
+          else
+            args+=(--no-evaluate-only)
+          fi
+          uv run --no-sync python -m tools.video_quality.run_regression "${args[@]}"
+
+      - name: Upload video-quality artifacts
+        if: ${{ always() && (github.event_name == 'schedule' || github.event.inputs.upload_report == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-quality-regression
+          path: artifacts/video_quality
+          if-no-files-found: error

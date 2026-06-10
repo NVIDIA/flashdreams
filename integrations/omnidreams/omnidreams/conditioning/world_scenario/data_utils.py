@@ -46,60 +46,6 @@ FLU_TO_RDF_MATRIX: NDArray[np.float32] = np.array(
 RDF_TO_FLU_MATRIX: NDArray[np.float32] = FLU_TO_RDF_MATRIX.T.astype(np.float32)
 
 
-def convert_pose_flu_to_rdf(pose_matrix: np.ndarray) -> np.ndarray:
-    """
-    Convert a 4x4 pose matrix from FLU to RDF coordinates.
-
-    This applies a basis change transformation:
-    - Position: p_rdf = R * p_flu
-    - Rotation: R_rdf = R * R_flu * R^T
-
-    Args:
-        pose_matrix: 4x4 transformation matrix in FLU coordinates.
-
-    Returns:
-        4x4 transformation matrix in RDF coordinates.
-    """
-    result = np.eye(4, dtype=np.float32)
-
-    # Convert position
-    result[:3, 3] = FLU_TO_RDF_MATRIX @ pose_matrix[:3, 3]
-
-    # Convert rotation: R_rdf = S * R_flu * S^T (double-sided transformation)
-    result[:3, :3] = FLU_TO_RDF_MATRIX @ pose_matrix[:3, :3] @ RDF_TO_FLU_MATRIX
-
-    return result
-
-
-def convert_position_flu_to_rdf(position: np.ndarray) -> np.ndarray:
-    """
-    Convert a 3D position from FLU to RDF coordinates.
-
-    Args:
-        position: Position vector [x, y, z] in FLU coordinates.
-
-    Returns:
-        Position vector [x, y, z] in RDF coordinates.
-    """
-    return (FLU_TO_RDF_MATRIX @ position.reshape(3)).astype(np.float32)
-
-
-def convert_quaternion_flu_to_rdf(quat_xyzw: np.ndarray) -> np.ndarray:
-    """
-    Convert a quaternion from FLU to RDF coordinates.
-
-    Args:
-        quat_xyzw: Quaternion [x, y, z, w] in FLU coordinates (scipy convention).
-
-    Returns:
-        Quaternion [x, y, z, w] in RDF coordinates (scipy convention).
-    """
-    rot_flu = Rotation.from_quat(quat_xyzw)
-    rot_matrix_flu = rot_flu.as_matrix()
-    rot_matrix_rdf = FLU_TO_RDF_MATRIX @ rot_matrix_flu @ RDF_TO_FLU_MATRIX
-    return Rotation.from_matrix(rot_matrix_rdf).as_quat().astype(np.float32)
-
-
 def convert_points_flu_to_rdf(points: NDArray[np.float32]) -> NDArray[np.float32]:
     """Convert an array of 3D points from FLU to OpenCV RDF coordinates."""
 

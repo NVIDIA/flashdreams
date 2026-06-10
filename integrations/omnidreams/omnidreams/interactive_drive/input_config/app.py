@@ -81,8 +81,7 @@ _ABS_NAMES = {
 _AXIS_LIVE_STEPS = ("device", "controls")
 # Max wheel rotation drawn in the live panel, degrees each direction.
 _WHEEL_MAX_DEG = 120.0
-# Live-panel canvas size. Fixed so populating it never reflows the window
-# (which previously shifted the device list under the cursor mid-click).
+# Live-panel canvas size. Fixed so populating it never reflows the window.
 _CANVAS_W = 690
 _CANVAS_H = 150
 # Minimum movement (fraction of an axis' full range) before a calibration
@@ -160,9 +159,8 @@ class ConfigApp:
         ttk.Label(live, textvariable=self.activity_var, foreground="#2f8f2f").pack(
             anchor="w"
         )
-        # Fixed-size canvas: a steering-wheel + pedal visualization plus a
-        # compact per-axis activity strip. Its dimensions are fixed, so the
-        # widgets above never shift when it starts drawing on device select.
+        # Fixed-size canvas: steering-wheel + pedal visualization plus a
+        # compact per-axis activity strip.
         self.live_canvas = tk.Canvas(
             live, width=_CANVAS_W, height=_CANVAS_H, highlightthickness=0
         )

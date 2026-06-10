@@ -232,12 +232,12 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     :attr:`RunnerConfig.offset_seed_by_global_rank` is set."""
 
     ckpt_path: Path | None = None
-    """Optional path to HY-WorldPlay's distilled
-    ``wan_distilled_model/model.pt``. When set, the runner reroutes the
-    transformer's ``checkpoint_path`` + ``state_dict_transform`` to load
-    the distilled weights at construction time. When ``None``, the
-    pipeline loads the base Wan 2.2 TI2V-5B safetensors and HY's
-    conditioners stay zero-init (strict identity, parity-safe)."""
+    """Local override for HY-WorldPlay's distilled
+    ``wan_distilled_model/model.pt``. When ``None`` (default), the
+    pipeline downloads the distilled WAN-5B checkpoint from HF
+    ``tencent/HY-WorldPlay``; set this to load a local copy instead, in
+    which case the runner reroutes the transformer's ``checkpoint_path``
+    to the given path at construction time."""
 
     memory_frames: int = 16
     """Total memory-frame budget per AR step (temporal context +
@@ -293,13 +293,13 @@ class HyWorldPlayWanI2VRunner(
     config: HyWorldPlayWanI2VRunnerConfig
 
     def __init__(self, config: HyWorldPlayWanI2VRunnerConfig) -> None:
-        """Route the distilled checkpoint into the pipeline, then defer to :class:`Runner`.
+        """Route a local checkpoint override into the pipeline, then defer to :class:`Runner`.
 
-        When ``config.ckpt_path`` is set, derives a copy of the runner
-        config with the transformer's ``checkpoint_path`` +
-        ``state_dict_transform`` rewritten to load HY's distilled
-        ``.pt`` (instead of the base Wan 2.2 TI2V-5B safetensors)
-        before the base ``__init__`` builds the pipeline.
+        The static pipeline already loads HY's distilled checkpoint by
+        default. When ``config.ckpt_path`` is set, derives a copy of the
+        runner config with the transformer's ``checkpoint_path`` rewritten
+        to the given local ``.pt`` before the base ``__init__`` builds the
+        pipeline.
         """
         if config.ckpt_path is not None:
             from flashdreams.infra.config import derive_config
@@ -392,9 +392,10 @@ class HyWorldPlayWanI2VRunner(
         # :mod:`hy_worldplay.config`), so the per-rollout payloads are
         # always bound: action labels for the AdaLN add, viewmats +
         # intrinsics for the PRoPE branch, and the memory-selection
-        # knobs for the FOV-overlap scorer. With zero-init weights (no
-        # ``ckpt_path``) each conditioner is a strict identity, so this
-        # is still parity-safe against the base Wan 2.2 TI2V-5B output.
+        # knobs for the FOV-overlap scorer. The default distilled
+        # checkpoint gives these conditioners trained weights; pointing
+        # ``ckpt_path`` at a base Wan 2.2 checkpoint instead falls back to
+        # their zero-init identity (parity-safe against the base output).
         self._bind_action_labels()
         self._bind_camera_data()
         self._bind_memory_config(device=device)

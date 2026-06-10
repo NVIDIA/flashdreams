@@ -13,14 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared tensor and workspace primitives for native pipeline components."""
+"""Shared tensor primitives for native pipeline components."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from functools import reduce
-from operator import mul
 
 import torch
 from torch import Tensor
@@ -75,7 +73,6 @@ class NativeTensorDescriptor:
     dtype: torch.dtype
     device: torch.device
     is_contiguous: bool
-    nbytes: int
 
 
 @dataclass(frozen=True)
@@ -121,43 +118,7 @@ class NativePreparedTensor:
     copied: bool
 
 
-@dataclass(frozen=True)
-class NativeWorkspaceRequest:
-    """Workspace tensor request to allocate before native graph capture."""
-
-    name: str
-    shape: tuple[int, ...]
-    dtype: torch.dtype
-    device: torch.device | str
-
-    def __post_init__(self) -> None:
-        if any(dim < 0 for dim in self.shape):
-            raise ValueError(f"{self.name}: workspace shape must be non-negative")
-        object.__setattr__(self, "device", torch.device(self.device))
-
-    @property
-    def nbytes(self) -> int:
-        return _numel(self.shape) * torch.empty((), dtype=self.dtype).element_size()
-
-    def allocate(self) -> "NativeWorkspace":
-        tensor = torch.empty(self.shape, dtype=self.dtype, device=self.device)
-        return NativeWorkspace(
-            name=self.name,
-            tensor=tensor,
-            nbytes=self.nbytes,
-        )
-
-
-@dataclass(frozen=True)
-class NativeWorkspace:
-    """Allocated workspace tensor and its requested byte size."""
-
-    name: str
-    tensor: Tensor
-    nbytes: int
-
-
-def describe_tensor(
+def _describe_tensor(
     tensor: Tensor,
     *,
     name: str,
@@ -178,16 +139,7 @@ def describe_tensor(
         dtype=tensor.dtype,
         device=tensor.device,
         is_contiguous=tensor.is_contiguous(),
-        nbytes=tensor.numel() * tensor.element_size(),
     )
-
-
-def validate_tensor(tensor: Tensor, spec: NativeTensorSpec) -> NativeTensorDescriptor:
-    """Validate tensor shape, dtype, device, layout, and contiguity."""
-
-    descriptor = describe_tensor(tensor, name=spec.name, layout=spec.layout)
-    _validate_descriptor(descriptor, spec)
-    return descriptor
 
 
 def prepare_tensor_for_native(
@@ -196,33 +148,20 @@ def prepare_tensor_for_native(
 ) -> NativePreparedTensor:
     """Validate and make a tensor contiguous when the native spec requires it."""
 
-    descriptor = describe_tensor(tensor, name=spec.name, layout=spec.layout)
+    descriptor = _describe_tensor(tensor, name=spec.name, layout=spec.layout)
     _validate_descriptor(descriptor, spec, check_contiguous=False)
     prepared = tensor
     copied = False
     if spec.require_contiguous and not tensor.is_contiguous():
         prepared = tensor.contiguous()
         copied = True
-        descriptor = describe_tensor(prepared, name=spec.name, layout=spec.layout)
+        descriptor = _describe_tensor(prepared, name=spec.name, layout=spec.layout)
     _validate_descriptor(descriptor, spec)
     return NativePreparedTensor(
         tensor=prepared,
         descriptor=descriptor,
         copied=copied,
     )
-
-
-def allocate_native_workspaces(
-    requests: Iterable[NativeWorkspaceRequest],
-) -> dict[str, NativeWorkspace]:
-    """Allocate named workspace tensors and reject duplicate names."""
-
-    workspaces: dict[str, NativeWorkspace] = {}
-    for request in requests:
-        if request.name in workspaces:
-            raise NativePrepError(f"Duplicate native workspace request: {request.name}")
-        workspaces[request.name] = request.allocate()
-    return workspaces
 
 
 def _validate_descriptor(
@@ -261,7 +200,3 @@ def _validate_descriptor(
             raise NativePrepError(
                 f"{spec.name}: axis {axis} size {size} must be divisible by {factor}"
             )
-
-
-def _numel(shape: Sequence[int]) -> int:
-    return reduce(mul, shape, 1)

@@ -25,38 +25,19 @@ from omnidreams.conditioning.world_scenario.data_types import (
 def build_lane_line_type(
     color: LaneLineColor | None = None,
     style: LaneLineStyle | None = None,
-    lane_type_hint: str | None = None,
 ) -> LaneLineType:
-    """
-    Build a LaneLineType instance.
+    """Build a LaneLineType from color and style.
 
     Args:
-        color: Optional color enum value
-        style: Optional style enum value
-        lane_type_hint: Optional hint string from data (e.g., "YELLOW SOLID_SINGLE") - only used if color/style not provided
+        color: Lane line color, or ``None`` to default to UNKNOWN.
+        style: Lane line style, or ``None`` to default to UNKNOWN.
 
     Returns:
-        LaneLineType instance
+        A LaneLineType; missing color or style defaults to UNKNOWN.
     """
-    # If we have both color and style, just use them directly
     if color and style:
         return LaneLineType(color=color, style=style)
 
-    # If we have a lane_type_hint but missing color/style, try to parse it
-    if lane_type_hint and (not color or not style):
-        # Normalize the hint (replace underscores with spaces)
-        normalized_hint = lane_type_hint.replace("_", " ").upper()
-        parts = normalized_hint.split(" ", 1)
-        if len(parts) == 2:
-            color_str, style_str = parts
-            try:
-                parsed_color = LaneLineColor[color_str] if not color else color
-                parsed_style = LaneLineStyle[style_str] if not style else style
-                return LaneLineType(color=parsed_color, style=parsed_style)
-            except (KeyError, ValueError):
-                pass
-
-    # Fallback to UNKNOWN if missing
     if not color:
         color = LaneLineColor.UNKNOWN
     if not style:

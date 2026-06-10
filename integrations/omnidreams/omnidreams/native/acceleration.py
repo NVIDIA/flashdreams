@@ -98,7 +98,9 @@ class NativeBackendSelection:
         raise NativeAccelerationUnavailable(self.reason)
 
 
-def require_extension_symbols(*symbols: str) -> NativeAvailabilityCheck:
+def require_extension_symbols(
+    *symbols: str,
+) -> Callable[[ModuleType], tuple[bool, str]]:
     """Return an availability check for extension symbols needed by a component."""
 
     def check(extension: ModuleType) -> tuple[bool, str]:
@@ -131,7 +133,7 @@ def select_native_extension(
     extension_error: Callable[[], Exception | None],
     availability_check: NativeAvailabilityCheck | None = None,
 ) -> NativeBackendSelection:
-    """Resolve native use for one component without changing caller behavior."""
+    """Resolve native use for one component."""
 
     if config.mode == "disabled":
         return NativeBackendSelection(
