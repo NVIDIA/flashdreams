@@ -48,5 +48,5 @@ Documentation
    :maxdepth: 1
 
    /developer_guides/index
-   CLI and API reference </api/index>
+   /api/index
    /troubleshooting

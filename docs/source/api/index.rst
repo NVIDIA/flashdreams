@@ -13,8 +13,8 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-API reference
-===================================
+CLI and API Reference
+=====================
 
 Reference pages for the FlashDreams command-line interface and Python APIs.
 
