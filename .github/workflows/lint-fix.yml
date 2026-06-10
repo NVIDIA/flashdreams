@@ -41,6 +41,8 @@ jobs:
         working-directory: pr-branch
         env:
           PRE_COMMIT_HOME: ${{ runner.temp }}/pre-commit
+          UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
         run: |
           set -euo pipefail
 
@@ -58,8 +60,11 @@ jobs:
           run_hook() {
             local hook_id="$1"
             local status=0
+            local before_diff="${RUNNER_TEMP}/${hook_id}.before.diff"
+            local after_diff="${RUNNER_TEMP}/${hook_id}.after.diff"
 
             echo "::group::pre-commit ${hook_id}"
+            git diff --binary > "${before_diff}"
             set +e
             uvx --from pre-commit==4.3.0 pre-commit run \
               --config "${config}" \
@@ -71,8 +76,16 @@ jobs:
 
             if [ "${status}" -eq 0 ]; then
               echo "- \`${hook_id}\`: clean" >> "${GITHUB_STEP_SUMMARY}"
-            else
+            elif [ "${status}" -eq 1 ]; then
+              git diff --binary > "${after_diff}"
+              if cmp -s "${before_diff}" "${after_diff}"; then
+                echo "- \`${hook_id}\`: failed without producing automatic fixes" >> "${GITHUB_STEP_SUMMARY}"
+                return 1
+              fi
               echo "- \`${hook_id}\`: exited with ${status}; this is expected when files are rewritten" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              echo "- \`${hook_id}\`: failed with ${status}" >> "${GITHUB_STEP_SUMMARY}"
+              return "${status}"
             fi
           }
 
