@@ -21,7 +21,7 @@ SPDX-License-Identifier: Apache-2.0
    subpages (community/* except the marketing landing `community/index`),
    the viewcode source listings under _modules/*, and the generated
    search / genindex / py-modindex pages. Everything else (homepage,
-   community landing, quickstart, models gallery + per-model pages) is
+   community landing, models gallery + per-model pages) is
    marketing.
 #}
 {% set _fd_is_reference = pagename == 'documentation'
@@ -29,6 +29,7 @@ SPDX-License-Identifier: Apache-2.0
                           or pagename.startswith('developer_guides/')
                           or pagename.startswith('models/')
                           or pagename.startswith('community/')
+                          or pagename.startswith('quickstart/')
                           or pagename.startswith('_modules/')
                           or pagename in ('search', 'genindex', 'py-modindex') %}
 
