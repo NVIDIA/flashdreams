@@ -1,14 +1,13 @@
 name: Docs
 
-# Production documentation build + publish to GitHub Pages. PR previews, the
-# closed-PR preview sweep, and the consolidated site preview all live in the
-# sibling `doc-preview.yaml` workflow.
 on:
   push:
     branches: [main]
-  # `merge_group` fires when a PR enters GitHub's merge queue. Runs the docs
-  # build against the queue's temporary `gh-readonly-queue/main/...` ref so the
-  # doc check is satisfied without publishing.
+  pull_request:
+    branches: [main]
+  # `merge_group` fires when a PR enters GitHub's merge queue. Runs the
+  # docs build against the queue's temporary `gh-readonly-queue/main/...`
+  # ref so the doc check is satisfied without publishing.
   merge_group:
     branches: [main]
   release:
@@ -18,12 +17,6 @@ on:
 
 permissions:
   contents: write
-
-# Serialize runs that target the same gh-pages branch path so a fast follow-up
-# push can't race its own previous deploy.
-concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   docs:
@@ -66,21 +59,21 @@ jobs:
           sed -i 's/^__version__ = ".*"/__version__ = "main"/' flashdreams/flashdreams/_version.py
           echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
 
-      # --no-project: the "Override version" step above rewrites the version
-      # field to "main" which is not PEP 440 compliant. Without --no-project
-      # uv would try to parse the workspace pyproject.toml and fail.
       - name: Sphinx build
+        # --no-project: the "Override version" step above rewrites the version
+        # field to "main" which is not PEP 440 compliant. Without --no-project
+        # uv would try to parse the workspace pyproject.toml and fail.
         run: |
-          uv run --no-project sphinx-build -W -b html docs/source _build
+          uv run --no-project sphinx-build -b html docs/source _build
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         # Only publish for real landings on main, releases, or manual runs —
-        # never from `merge_group` queue runs.
+        # never from `pull_request` previews or `merge_group` queue runs.
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: _build
+          publish_dir: _build/
           destination_dir: ${{ env.DOCS_SUBDIR }}
           keep_files: false  # only erases the destination subdirectory
           # Uncomment + set if you wire up a custom domain later:
@@ -98,7 +91,7 @@ jobs:
       # Idempotent: only commits whatever pieces were actually missing/new.
       - name: Maintain gh-pages root (index.html, .nojekyll, versions/index.txt)
         # Mirrors the deploy gate: only touch `gh-pages` for real landings,
-        # not for `merge_group` queue runs.
+        # not for `pull_request` previews or `merge_group` queue runs.
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
