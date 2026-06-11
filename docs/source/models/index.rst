@@ -194,58 +194,103 @@ Each model page also carries interactive per-device profiling charts
 :doc:`/models/wan21`), rendered from the same per-recipe markdown files
 under ``_static/performance/`` that the tables below cite.
 
-Autoregressive results
-~~~~~~~~~~~~~~~~~~~~~~~~
+Per-step latency
+~~~~~~~~~~~~~~~~
 
-Per-AR-step latency at steady state, across the three devices we
-profile against. Each cell is the median of the AR-2-onward window
-(warm-up steps dropped, steady-state CUDA graph captured) of a single
-run on that device. Lower is better.
+Steady-state per-step latency across the three devices we profile
+against, with each FlashDreams number paired against the upstream
+runner for the same checkpoint. Each cell is the median of the
+AR-2-onward window (warm-up steps dropped, steady-state CUDA graph
+captured) of a single run on that device. Bidirectional recipes
+(``wan21-*``) are treated as a single large-windowed causal rollout, so
+their per-step number lines up with the streaming variants in the same
+table. The FlashDreams runner calls the same model code paths as the
+upstream library but in a different inference environment (KV caches
+managed by ``flashdreams.infra``, ring attention provided by
+``flashdreams.core``, and a CUDA graph captured per recipe); for an
+apples-to-apples comparison both sides are forced to the cuDNN
+attention backend under matched runtime settings. Lower latency is
+better; speedup is ``(upstream − FlashDreams) ÷ FlashDreams`` expressed
+as a percentage, so a positive value means FlashDreams is faster (e.g.
+a 432 ms → 344 ms step is ``+26%``). A blank upstream cell means no
+matched upstream run is published for that device yet.
 
 .. container:: fd-compare fd-compare-numeric
 
    .. list-table::
       :header-rows: 1
-      :widths: 36 16 16 16 16
+      :widths: 26 9 13 14 11 27
 
       * - Recipe (runner slug)
-        - H100 (ms)
-        - GB200 (ms)
-        - GB300 (ms)
-        - Source
+        - GPU
+        - Upstream (ms)
+        - FlashDreams (ms)
+        - Speedup
+        - Baseline
       * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - H100
+        - 432
         - 344
+        - +26%
+        - Official Self-Forcing runner
+      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - GB200
+        - 350
         - 203
+        - +72%
+        - Official Self-Forcing runner
+      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - GB300
+        - 251
         - 171
-        - ``_static/performance/self_forcing/perf-0521.md``
+        - +47%
+        - Official Self-Forcing runner
+      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - GB300
+        - 362
+        - 171
+        - +112%
+        - FastVideo runner (landing-page hero)
       * - ``lingbot-world-fast`` (4×GPU, Ulysses)
+        - H100
+        - 1950
         - 629
+        - +210%
+        - Official LingBot-World runner
+      * - ``lingbot-world-fast`` (4×GPU, Ulysses)
+        - GB200
+        - 1113
         - 449
+        - +148%
+        - Official LingBot-World runner
+      * - ``lingbot-world-fast`` (4×GPU, Ulysses)
+        - GB300
+        - —
         - 394
-        - ``_static/performance/lingbot_world/perf-0521.md``
-
-Bidirectional results
-~~~~~~~~~~~~~~~~~~~~~~~
-
-Bidirectional recipes are treated as a single large-windowed causal
-rollout in FlashDreams (see each integration's README for the full
-statement). Reporting per-step ms lines up the bidirectional reference
-with the streaming variants above. Measured on a single GPU.
-
-.. container:: fd-compare fd-compare-numeric
-
-   .. list-table::
-      :header-rows: 1
-      :widths: 40 18 18 18
-
-      * - Recipe (runner slug)
-        - H100 (ms)
-        - GB200 (ms)
-        - GB300 (ms)
+        - —
+        - —
       * - ``wan21-t2v-1.3b-480p``
+        - H100
+        - 1290
         - 1040
+        - +24%
+        - FastVideo runner
+      * - ``wan21-t2v-1.3b-480p``
+        - GB200
+        - —
         - 441
+        - —
+        - —
+      * - ``wan21-t2v-1.3b-480p``
+        - GB300
+        - 534
         - 382
+        - +40%
+        - FastVideo runner (landing-page hero)
+
+Sources: ``_static/performance/self_forcing/perf-0521.md``,
+``_static/performance/lingbot_world/perf-0521.md``, and
+``_static/performance/wan21/perf-0521.md``.
 
 Super-resolution results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -284,78 +329,6 @@ official FlashVSR runner; source
         - 372.5
         - 528.2
 
-Versus upstream
-~~~~~~~~~~~~~~~
-
-The FlashDreams runner calls the same model code paths as the upstream
-library it integrates with, but in a different inference environment:
-KV caches managed by ``flashdreams.infra``, ring attention provided by
-``flashdreams.core``, and a CUDA graph captured per recipe. For an
-apples-to-apples comparison, both sides are forced to the cuDNN
-attention backend under matched runtime settings. Lower is better; a
-ratio greater than 1 means FlashDreams is faster.
-
-.. container:: fd-compare fd-compare-numeric
-
-   .. list-table::
-      :header-rows: 1
-      :widths: 30 10 16 16 12 16
-
-      * - Recipe (runner slug)
-        - GPU
-        - Upstream (ms)
-        - FlashDreams (ms)
-        - Ratio
-        - Baseline
-      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
-        - H100
-        - 432
-        - 344
-        - 1.26×
-        - Official Self-Forcing runner
-      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
-        - GB200
-        - 350
-        - 203
-        - 1.72×
-        - Official Self-Forcing runner
-      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
-        - GB300
-        - 251
-        - 171
-        - 1.47×
-        - Official Self-Forcing runner
-      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
-        - GB300
-        - 362
-        - 171
-        - 2.12×
-        - FastVideo runner (landing-page hero)
-      * - ``lingbot-world-fast`` (4×GPU)
-        - H100
-        - 1950
-        - 629
-        - 3.10×
-        - Official LingBot-World runner
-      * - ``lingbot-world-fast`` (4×GPU)
-        - GB200
-        - 1113
-        - 449
-        - 2.48×
-        - Official LingBot-World runner
-      * - ``wan21-t2v-1.3b-480p``
-        - GB300
-        - 534
-        - 382
-        - 1.40×
-        - FastVideo runner (landing-page hero)
-      * - ``wan21-t2v-1.3b-480p``
-        - H100
-        - 1290
-        - 1040
-        - 1.24×
-        - FastVideo runner
-
 How the benchmarks were gathered
 --------------------------------
 
@@ -385,7 +358,7 @@ parallelism across 4 GPUs):
    uv run torchrun --nproc_per_node=4 --no-python \
        flashdreams-run lingbot-world-fast --total-blocks 21
 
-The upstream baseline in `Versus upstream`_ runs the same checkpoint
+The upstream baseline in `Per-step latency`_ runs the same checkpoint
 under the upstream library's own runner; per-integration instructions
 live under ``integrations/<name>/tests/parity_check/``.
 
