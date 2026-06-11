@@ -1,5 +1,4 @@
-Contributing to FlashDreams
-===========================
+# Contributing to FlashDreams
 
 Thanks for your interest in contributing to **FlashDreams**. This project
 is developed openly on GitHub and released under the
