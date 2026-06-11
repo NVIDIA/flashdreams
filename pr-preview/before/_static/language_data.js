@@ -13,14 +13,8 @@ var EnglishStemmer=function(){var a=new BaseStemmer,c=[["arsen",-1,-1],["commun"
 window.Stemmer = EnglishStemmer;
 
 
-var splitQuery = (query) => {
-  const tokens = [];
-  const re = /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu;
-  for (const term of query.match(re) || []) {
-    tokens.push(term);
-    if (term.includes("-"))
-      for (const part of term.split("-")) if (part) tokens.push(part);
-  }
-  return tokens;
-};
+var splitQuery = (query) =>
+  query.match(
+    /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu
+  ) || [];
 
