@@ -161,29 +161,34 @@ copybutton_prompt_is_regexp = True
 # Sphinx's stock search tokenizer (``\w+``) splits on every non-word character,
 # so a hyphenated command like ``flashdreams-run`` is indexed *and* queried as
 # the two unrelated words ``flashdreams`` + ``run``. Searching the command then
-# matches every page mentioning either half and buries the real hit.
+# ranks every page where "run" merely appears in a heading above the pages that
+# actually document the command.
 #
-# We register an English search language whose tokenizer keeps the hyphenated
-# token while still emitting its parts: ``flashdreams-run`` matches the command
-# as a cohesive, high-ranked term, and a bare ``flashdreams`` query keeps
-# working. The JS query splitter (Sphinx embeds it verbatim as ``splitQuery``
-# in language_data.js, overriding the stock one in searchtools.js) mirrors the
-# Python indexer so both sides tokenize identically.
+# We register an English search language with deliberately *asymmetric*
+# tokenizers:
+#
+#   * Index side (``split``): emit the cohesive token *and* its parts, so a
+#     page containing only ``flashdreams-run`` is still found by a bare
+#     ``flashdreams`` or ``run`` query (recall is preserved).
+#
+#   * Query side (``js_splitter_code``, embedded by Sphinx as ``splitQuery`` in
+#     language_data.js and overriding the stock one in searchtools.js): emit the
+#     cohesive token *only*. A hyphenated search then matches purely on the
+#     intact token, so an incidental "run" heading on some unrelated page can no
+#     longer pull it to the top of the results.
+#
+# The two sides need not be identical — they only need every query token to be
+# findable in the index, which the index-side parts guarantee.
+
 
 class _SearchEnglishHyphenated(SearchEnglish):
     _word_re = re.compile(r"\w+(?:-\w+)*")
 
     js_splitter_code = r"""
-var splitQuery = (query) => {
-  const tokens = [];
-  const re = /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu;
-  for (const term of query.match(re) || []) {
-    tokens.push(term);
-    if (term.includes("-"))
-      for (const part of term.split("-")) if (part) tokens.push(part);
-  }
-  return tokens;
-};
+var splitQuery = (query) =>
+  query.match(
+    /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu
+  ) || [];
 """
 
     def split(self, input: str) -> list[str]:
@@ -193,6 +198,7 @@ var splitQuery = (query) => {
             if "-" in token:
                 tokens.extend(part for part in token.split("-") if part)
         return tokens
+
 
 _search_languages["en"] = _SearchEnglishHyphenated
 
