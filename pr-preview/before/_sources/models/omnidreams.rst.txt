@@ -16,14 +16,27 @@
 NVIDIA OmniDreams
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
-     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf" target="_blank" rel="noopener noreferrer">Tech report</a>
-     <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
-     <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
+      :color: primary
+
+      Blog page
+
+   .. button-link:: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf
+      :color: primary
+
+      Tech report
+
+   .. button-link:: https://huggingface.co/nvidia/omni-dreams-models/
+      :color: primary
+
+      Model page
+
+   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams
+      :color: primary
+
+      Official code
 
 OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
@@ -59,8 +72,8 @@ Installation
 Running the method
 ------------------
 
-To run OmniDreams, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run OmniDreams, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 

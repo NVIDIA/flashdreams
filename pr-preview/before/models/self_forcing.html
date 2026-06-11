@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -402,11 +402,12 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="self-forcing">
 <h1>Self-Forcing<a class="headerlink" href="#self-forcing" title="Link to this heading">#</a></h1>
-<div class="model-link-row">
-  <a class="model-link-button" href="https://self-forcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
-  <a class="model-link-button" href="https://arxiv.org/abs/2506.08009" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-  <a class="model-link-button" href="https://github.com/guandeh17/Self-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>Self-Forcing is a text-to-video (T2V) model based on <a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>.
+<div class="fd-cta-row docutils container">
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://self-forcing.github.io/"><span>Project page</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://arxiv.org/abs/2506.08009"><span>arXiv paper</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/guandeh17/Self-Forcing"><span>Official code</span></a></p>
+</div>
+<p>Self-Forcing is a text-to-video (T2V) model based on <a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>.
 It uses a training paradigm for autoregressive video diffusion that simulates
 inference-time rollout during training with KV caching, reducing the train-test
 gap and enabling efficient streaming generation quality.</p>
@@ -431,8 +432,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run Self-Forcing, launch one of the registered runner slugs via
-<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. For example:</p>
+<p>To run Self-Forcing, launch one of the registered runner slugs. For
+example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>self-forcing-wan2.1-t2v-1.3b<span class="w"> </span><span class="se">\</span>

@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -71,7 +71,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Add a new method" href="new_integration.html" />
+    <link rel="next" title="Interactive-drive latency tuning" href="latency_tuning.html" />
     <link rel="prev" title="Inference pipeline overview" href="inference_pipeline_overview.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -346,13 +346,14 @@ SPDX-License-Identifier: Apache-2.0
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="latency_tuning.html">Interactive-drive latency tuning</a></li>
 <li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../api/cli.html">CLI</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
@@ -360,6 +361,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 </ul>
 </div>
 </nav></div>
@@ -406,7 +408,7 @@ SPDX-License-Identifier: Apache-2.0
     <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
     
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer guides</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Guides</a></li>
     
     <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Config system</span></li>
   </ul>
@@ -428,13 +430,13 @@ SPDX-License-Identifier: Apache-2.0
   <section id="config-system">
 <h1>Config system<a class="headerlink" href="#config-system" title="Link to this heading">#</a></h1>
 <p>FlashDreams configuration is built around simple, strongly-typed Python <code class="docutils literal notranslate"><span class="pre">dataclass</span></code> objects.
-This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>,
-allowing to easily compose different model components variants and nest configurations to define the complete
+This configuration system is similar to the one employed in <a class="reference external" href="https://github.com/nerfstudio-project/nerfstudio">nerfstudio</a>.
+It allows you to easily plug in different permutations of model components and nest configurations to define the complete
 inference pipeline.</p>
 <section id="base-components">
 <h2>Base components<a class="headerlink" href="#base-components" title="Link to this heading">#</a></h2>
-<p>All configurable components in FlashDreams - such as the encoder, transformer, scheduler, and decoder -
-have a corresponding configuration dataclass in <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>.
+<p>All configurable components in FlashDreams (such as the encoder, transformer, scheduler, and decoder)
+have a corresponding configuration dataclass and can be found under <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>.
 As outlined in the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>, the main entry point for defining an integration
 is the <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig" title="flashdreams.infra.pipeline.StreamInferencePipelineConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code></a>.</p>
 <p>These config objects are modular and nestable.
@@ -463,9 +465,8 @@ A typical pipeline config defines the architecture by composing other config dat
 </section>
 <section id="creating-new-configs">
 <h2>Creating new configs<a class="headerlink" href="#creating-new-configs" title="Link to this heading">#</a></h2>
-<p>To create a brand new model component, a corresponding config with the associated parameters to be exposed has to be created.</p>
-<p>To create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>, a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class has to be defined.
-Before the model definition, the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code>, which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class, has to be defined using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
+<p>If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.</p>
+<p>Let’s say you want to create a new encoder called <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code>. You can create a new <code class="docutils literal notranslate"><span class="pre">Encoder</span></code> class that extends the base class. Before the model definition, you define the actual <code class="docutils literal notranslate"><span class="pre">MyEncoderConfig</span></code> which points to the <code class="docutils literal notranslate"><span class="pre">MyEncoder</span></code> class using the <code class="docutils literal notranslate"><span class="pre">_target</span></code> field.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">Encoder</span>
 
@@ -500,9 +501,7 @@ Before the model definition, the actual <code class="docutils literal notranslat
         <span class="o">...</span>
 </pre></div>
 </div>
-<p>Alternatively, it’s not always required to define a complete configuration from scratch.
-One can use <a class="reference internal" href="../api/infra.html#flashdreams.infra.config.derive_config" title="flashdreams.infra.config.derive_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">flashdreams.infra.config.derive_config()</span></code></a> to create concise variants from existing configs,
-allowing to inherit the base settings and to only override specific fields:</p>
+<p>Alternatively, you do not always have to write a complete configuration from scratch. You can use <a class="reference internal" href="../api/infra.html#flashdreams.infra.config.derive_config" title="flashdreams.infra.config.derive_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">flashdreams.infra.config.derive_config()</span></code></a> to create concise variants from existing configs. This allows you to inherit the base settings and only override the specific fields you want to change:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">derive_config</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">my_project.configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyBasePipelineConfig</span>
 
@@ -517,9 +516,8 @@ allowing to inherit the base settings and to only override specific fields:</p>
 </section>
 <section id="modifying-from-cli">
 <h2>Modifying from CLI<a class="headerlink" href="#modifying-from-cli" title="Link to this heading">#</a></h2>
-<p>To simply play with the parameters of an existing model without having to specify a new one, one can employ CLI arguments, which are powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>.</p>
-<p>Because the FlashDreams configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> automatically generates a comprehensive command-line interface.
-The <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> cli command can be used to dynamically override any nested dataclass field.</p>
+<p>Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface, powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>, exposes every nested dataclass field as a flag.</p>
+<p>Because configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> generates the CLI automatically. Each shipped model is a named runner slug; pass any nested field as a flag to override it.</p>
 <p>For example, to list all existing configurable parameters for a model:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
 </pre></div>
@@ -556,11 +554,11 @@ For end-to-end examples of defining custom pipeline configurations, see <a class
       </div>
     </a>
     <a class="right-next"
-       href="new_integration.html"
+       href="latency_tuning.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Add a new method</p>
+        <p class="prev-next-title">Interactive-drive latency tuning</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

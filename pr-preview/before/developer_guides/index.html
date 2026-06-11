@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Developer guides &#8212; FlashDreams v0.1.0</title>
+    <title>Developer Guides &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -346,13 +346,14 @@ SPDX-License-Identifier: Apache-2.0
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Developer guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="latency_tuning.html">Interactive-drive latency tuning</a></li>
 <li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../api/cli.html">CLI</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
@@ -360,6 +361,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 </ul>
 </div>
 </nav></div>
@@ -405,7 +407,7 @@ SPDX-License-Identifier: Apache-2.0
     
     <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Developer guides</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Developer Guides</span></li>
   </ul>
 </nav>
 </div>
@@ -423,18 +425,59 @@ SPDX-License-Identifier: Apache-2.0
                 <article class="bd-article">
                   
   <section id="developer-guides">
-<h1>Developer guides<a class="headerlink" href="#developer-guides" title="Link to this heading">#</a></h1>
-<p>Use these guides after the quick start to understand the runtime, choose a
-developer workflow, configure runs, build serving applications, or add a new
-model integration.</p>
-<section id="guides">
-<h2>Guides<a class="headerlink" href="#guides" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a></p></li>
-<li><p><a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a></p></li>
-<li><p><a class="reference internal" href="latency_tuning.html"><span class="doc">Interactive-drive latency tuning</span></a></p></li>
-<li><p><a class="reference internal" href="new_integration.html"><span class="doc">Add a new method</span></a></p></li>
-</ul>
+<h1>Developer Guides<a class="headerlink" href="#developer-guides" title="Link to this heading">#</a></h1>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Inference pipeline overview</div>
+<p class="sd-card-text">The end-to-end computation flow: warmup, CUDA-graph capture,
+the autoregressive-step body, the ring-attention shard group,
+and finalize. The mental model the rest of the project assumes.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Config system</div>
+<p class="sd-card-text">How every overridable field is surfaced as a CLI flag, how
+recipe defaults compose, and how to layer overrides on top.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="config_system.html"><span class="doc">Config system</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Interactive-drive latency tuning</div>
+<p class="sd-card-text">The supported knobs for <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> latency: model and
+backend choice, resolution, chunk-size constraints, FP8 and native
+acceleration, transport, and the validated GB300 reference.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="latency_tuning.html"><span class="doc">Interactive-drive latency tuning</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Add a new method</div>
+<p class="sd-card-text">The entry-point surface a new recipe ships against: what to
+subclass, what to register, and where the parity tests live.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="new_integration.html"><span class="doc">Add a new method</span></a></div>
+</div>
+</div>
+</div>
+<section id="where-these-guides-fit">
+<h2>Where these guides fit<a class="headerlink" href="#where-these-guides-fit" title="Link to this heading">#</a></h2>
+<p>These guides are conceptual. For a specific recipe, see its per-model
+page under <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>; for the per-symbol reference, see
+<a class="reference internal" href="../api/index.html"><span class="doc">CLI and API Reference</span></a>; and for the two-command path from install to a
+generated clip, see <a class="reference internal" href="../quickstart/index.html"><span class="doc">Get Started</span></a>.</p>
 <div class="toctree-wrapper compound">
 </div>
 </section>
@@ -487,7 +530,7 @@ model integration.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#guides">Guides</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-these-guides-fit">Where these guides fit</a></li>
 </ul>
   </nav></div>
 

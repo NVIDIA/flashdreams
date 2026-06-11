@@ -16,13 +16,22 @@
 Self-Forcing
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://self-forcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2506.08009" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/guandeh17/Self-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://self-forcing.github.io/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2506.08009
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/guandeh17/Self-Forcing
+      :color: primary
+
+      Official code
 
 Self-Forcing is a text-to-video (T2V) model based on :doc:`Wan2.1 </models/wan21>`.
 It uses a training paradigm for autoregressive video diffusion that simulates
@@ -57,8 +66,8 @@ Installation
 Running the method
 ------------------
 
-To run Self-Forcing, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run Self-Forcing, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 

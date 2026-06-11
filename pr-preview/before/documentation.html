@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -71,7 +71,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="_static/js/supported_models_nav.js?v=8e3938d4"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Developer guides" href="developer_guides/index.html" />
+    <link rel="next" title="Developer Guides" href="developer_guides/index.html" />
     <link rel="prev" title="Get Started" href="quickstart/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -342,13 +342,14 @@ SPDX-License-Identifier: Apache-2.0
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1 has-children"><a class="reference internal" href="developer_guides/index.html">Developer guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="developer_guides/latency_tuning.html">Interactive-drive latency tuning</a></li>
 <li class="toctree-l2"><a class="reference internal" href="developer_guides/new_integration.html">Add a new method</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="api/index.html">CLI and API reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/cli.html">CLI</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/infra.html">Infra</a></li>
@@ -356,6 +357,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="api/serving.html">Serving</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
 </ul>
 </div>
 </nav></div>
@@ -417,11 +419,6 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="documentation">
 <h1>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">#</a></h1>
-<p>The FlashDreams documentation is organized into two sections.
-The <strong>developer guides</strong> section contains guides that teach you how to understand, extend, and build on FlashDreams,
-combining conceptual explanation with worked code examples.
-The <strong>CLI and API reference</strong> section contains the complete technical reference for every public
-class, function, and command-line flag.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -433,18 +430,29 @@ Developer guides</div>
 FlashDreams, combining conceptual explanation with worked code
 examples.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="developer_guides/index.html"><span class="doc">Developer guides</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="developer_guides/index.html"><span class="doc">Developer Guides</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-CLI and API reference</div>
+CLI and API Reference</div>
 <p class="sd-card-text">Complete reference for the <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI, the core
 runtime, the infrastructure layer, the pipelines and runners,
 and the serving components.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="api/index.html"><span class="doc">API reference</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="api/index.html"><span class="doc">CLI and API Reference</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Troubleshooting</div>
+<p class="sd-card-text">Common first-run failures (e.g. CUDA build mismatches, disk and
+cache limits, Hugging Face authentication, GPU memory)
+each with the likely cause and the next step to try.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a></div>
 </div>
 </div>
 </div>
@@ -476,7 +484,7 @@ and the serving components.</p>
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Developer guides</p>
+        <p class="prev-next-title">Developer Guides</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

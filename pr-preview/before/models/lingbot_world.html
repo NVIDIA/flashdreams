@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -402,10 +402,11 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="lingbot-world">
 <h1>LingBot-World<a class="headerlink" href="#lingbot-world" title="Link to this heading">#</a></h1>
-<div class="model-link-row">
-  <a class="model-link-button" href="https://technology.robbyant.com/lingbot-world" target="_blank" rel="noopener noreferrer">Project page</a>
-  <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>Introduced by <a class="reference external" href="https://technology.robbyant.com/">Robbyant</a>, LingBot-World is a camera-controllable image-to-video
+<div class="fd-cta-row docutils container">
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://technology.robbyant.com/lingbot-world"><span>Project page</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/robbyant/lingbot-world"><span>Official code</span></a></p>
+</div>
+<p>Introduced by <a class="reference external" href="https://technology.robbyant.com/">Robbyant</a>, LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support.</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
@@ -432,8 +433,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run LingBot-World, launch one of the registered runner slugs via
-<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. For example:</p>
+<p>To run LingBot-World, launch one of the registered runner slugs. For
+example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
@@ -447,8 +448,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">LingBot-World repository</a>.
 Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>. Note the single GPU command might run
 out of memory for large <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p>
-<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
-(taking 4 GPUs as an example):</p>
+<p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
+4 GPUs as an example):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>

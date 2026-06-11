@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=99c6d8b4" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=23666067" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -402,11 +402,12 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="wan2-1">
 <h1>Wan2.1<a class="headerlink" href="#wan2-1" title="Link to this heading">#</a></h1>
-<div class="model-link-row">
-  <a class="model-link-button" href="https://wan.video/" target="_blank" rel="noopener noreferrer">Project page</a>
-  <a class="model-link-button" href="https://arxiv.org/abs/2503.20314" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-  <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
-</div><p>Wan2.1 is a bidirectional video generation model, supporting both
+<div class="fd-cta-row docutils container">
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://wan.video/"><span>Project page</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://arxiv.org/abs/2503.20314"><span>arXiv paper</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/Wan-Video/Wan2.1"><span>Official code</span></a></p>
+</div>
+<p>Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.</p>
 <section id="requirements">
 <h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading">#</a></h2>
@@ -424,8 +425,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run Wan2.1, launch one of the registered runner slugs via
-<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. For example:</p>
+<p>To run Wan2.1, launch one of the registered runner slugs. For example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
@@ -433,8 +433,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 <span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">832</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">480</span>
 </pre></div>
 </div>
-<p>For multi-GPU inference, use <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> on top of <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">flashdreams-run</span></code>
-(taking 4 GPUs as an example):</p>
+<p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
+4 GPUs as an example):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
