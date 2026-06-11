@@ -22,13 +22,6 @@ on:
     # `auto` mode) can remove the published preview when a PR is merged or
     # abandoned. The other three are the default `pull_request` set.
     types: [opened, reopened, synchronize, closed]
-  push:
-    # The two site branches drive the consolidated preview: a push to the
-    # integration line (`dev/aidanf/flashdreams-site`) or any topic branch
-    # (`dev/aidanf/flashdreams_site/*`) rebuilds it.
-    branches:
-      - 'dev/aidanf/flashdreams-site'
-      - 'dev/aidanf/flashdreams_site/*'
   workflow_dispatch:
 
 permissions:
@@ -117,20 +110,24 @@ jobs:
 
   # Build a single preview that stacks every `dev/aidanf/flashdreams_site/*`
   # topic branch on top of the `dev/aidanf/flashdreams-site` integration line,
-  # so reviewers see the combined site without opening N preview tabs. Triggered
-  # by pushes to any of those branches (and manual runs). Branches that conflict
-  # are skipped — not fatal — and reported in the job summary. Published to
-  # `gh-pages:pr-preview/consolidated/`, a sibling of the per-PR previews that
-  # the sweep above leaves alone (it only removes numeric `pr-<N>` dirs).
+  # so reviewers see the combined site without opening N preview tabs. Runs only
+  # when a topic-branch PR (head `dev/aidanf/flashdreams_site/*`) or the `-site`
+  # PR itself is opened/updated, plus manual dispatch — a branch with no open PR
+  # triggers nothing. Branches that conflict are skipped (not fatal) and reported
+  # in the job summary. Published to `gh-pages:pr-preview/consolidated/`, a
+  # sibling of the per-PR previews.
   consolidated-preview:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' &&
-       (github.ref == 'refs/heads/dev/aidanf/flashdreams-site' ||
-        startsWith(github.ref, 'refs/heads/dev/aidanf/flashdreams_site/')))
+      (github.event_name == 'pull_request' &&
+       github.event.action != 'closed' &&
+       (github.head_ref == 'dev/aidanf/flashdreams-site' ||
+        startsWith(github.head_ref, 'dev/aidanf/flashdreams_site/')))
     runs-on: ubuntu-latest
+    # One shared output dir (`pr-preview/consolidated/`), so serialize all runs
+    # regardless of which PR triggered them.
     concurrency:
-      group: gh-pages-mutation
+      group: docs-consolidated
       cancel-in-progress: false
     permissions:
       contents: write
@@ -163,16 +160,27 @@ jobs:
             fi
           done
 
+          # Render a markdown bullet list, or "_(none)_" for an empty set. Kept
+          # as a function so empty arrays don't trip `set -e` (a bare
+          # `[ -n "$b" ] && echo` returns nonzero on the empty-string case).
+          render_list() {
+            if [ "$#" -eq 0 ]; then
+              echo "- _(none)_"
+            else
+              for b in "$@"; do echo "- \`$b\`"; done
+            fi
+          }
+
           {
             echo "## Consolidated site preview"
             echo ""
             echo "Base: \`dev/aidanf/flashdreams-site\`"
             echo ""
             echo "### Merged (${#merged[@]})"
-            for b in "${merged[@]:-}"; do [ -n "$b" ] && echo "- \`$b\`"; done
+            render_list "${merged[@]}"
             echo ""
             echo "### Skipped — merge conflict (${#skipped[@]})"
-            for b in "${skipped[@]:-}"; do [ -n "$b" ] && echo "- \`$b\`"; done
+            render_list "${skipped[@]}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: astral-sh/setup-uv@v4
