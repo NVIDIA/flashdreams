@@ -52,7 +52,7 @@ FlashDreams
                :color: secondary
                :outline:
 
-               Community
+               Contribute
 
       .. container:: fd-split-visual
 
@@ -336,4 +336,4 @@ invocation, the checkpoint source, and the per-recipe knobs.
    Get Started <quickstart/index>
    Documentation <documentation>
    models/index
-   community/index
+   Contribute <community/index>

@@ -92,7 +92,7 @@ Response times
 --------------
 
 The maintainers aim for a first review on every PR within
-**two business days** (see the :doc:`contribute` guide for the
+**two business days** (see the :doc:`community/index` guide for the
 canonical statement). Issues have no formal service-level agreement.
 
 Commercial support
