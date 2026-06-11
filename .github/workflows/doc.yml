@@ -1,28 +1,14 @@
 name: Docs
 
+# Production documentation build + publish to GitHub Pages. PR previews, the
+# closed-PR preview sweep, and the consolidated site preview all live in the
+# sibling `doc-preview.yaml` workflow.
 on:
   push:
     branches: [main]
-  pull_request:
-    # Globs cover any sub-branch off the public-website integration line.
-    # Two conventions coexist today: the older `dev/aidanf/flashdreams-site-*`
-    # (`-site` itself, `-site-merge`, `-site-placeholders`) and the newer
-    # path-style `dev/aidanf/flashdreams_site/*` (e.g. `flashdreams_site/community`
-    # for the community-area topic branch). Both shapes are matched so
-    # topic-branch PRs into either set get preview builds. Production
-    # deploy gates below stay `main`-only so staging-branch PRs only get
-    # preview builds.
-    branches:
-      - main
-      - 'dev/aidanf/flashdreams-site*'
-      - 'dev/aidanf/flashdreams_site/*'
-    # `closed` is included so the cleanup step (rossjrw/pr-preview-action in
-    # `auto` mode) can remove the published preview when a PR is merged or
-    # abandoned. The other three are the default `pull_request` set.
-    types: [opened, reopened, synchronize, closed]
-  # `merge_group` fires when a PR enters GitHub's merge queue. Runs the
-  # docs build against the queue's temporary `gh-readonly-queue/main/...`
-  # ref so the doc check is satisfied without publishing.
+  # `merge_group` fires when a PR enters GitHub's merge queue. Runs the docs
+  # build against the queue's temporary `gh-readonly-queue/main/...` ref so the
+  # doc check is satisfied without publishing.
   merge_group:
     branches: [main]
   release:
@@ -32,12 +18,9 @@ on:
 
 permissions:
   contents: write
-  # Lets `rossjrw/pr-preview-action` post / update the sticky preview-URL
-  # comment on the PR.
-  pull-requests: write
 
 # Serialize runs that target the same gh-pages branch path so a fast follow-up
-# push to a PR can't race its own previous preview deploy.
+# push can't race its own previous deploy.
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: false
@@ -46,30 +29,17 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      # On `pull_request: closed` we only need to remove the existing preview,
-      # so every build-side step is gated with `if: github.event.action !=
-      # 'closed'`. The `rossjrw/pr-preview-action` step below runs
-      # unconditionally for PR events and picks deploy-vs-remove from the
-      # event action.
-      #
-      # `actions/checkout` is the exception: it runs on `closed` too. The
-      # cleanup path delegates to `JamesIves/github-pages-deploy-action`, which
-      # operates on the runner workspace and aborts with "fatal: not in a git
-      # directory" if the workspace was never checked out. We can skip the
-      # submodule fetch on `closed` (the removal doesn't need them).
       - uses: actions/checkout@v4
         with:
-          submodules: ${{ github.event.action == 'closed' && 'false' || 'recursive' }}
+          submodules: recursive
 
       - uses: astral-sh/setup-uv@v4
-        if: github.event.action != 'closed'
 
       # The doc build only needs `flashdreams` to be importable. The heavy
       # GPU stack (transformer-engine, pynvml, cv2, mediapy, boto3/botocore)
       # is mocked via `autodoc_mock_imports` in `docs/source/conf.py`, so we
       # install only the Sphinx toolchain + a minimal CPU-only dep set.
       - name: Install dependencies
-        if: github.event.action != 'closed'
         env:
           # Pull torch/torchvision from PyTorch's CPU-only index.
           UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
@@ -82,7 +52,6 @@ jobs:
       # source of truth) so we can deploy under `versions/<version>/` on
       # releases (mirrors gsplat's layout).
       - name: Get version + subdirectory
-        if: github.event.action != 'closed'
         run: |
           VERSION=$(python -c "import re, pathlib; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('flashdreams/flashdreams/_version.py').read_text()); print(m.group(1))")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
@@ -97,27 +66,17 @@ jobs:
           sed -i 's/^__version__ = ".*"/__version__ = "main"/' flashdreams/flashdreams/_version.py
           echo "DOCS_SUBDIR=main" >> $GITHUB_ENV
 
-      # On PR preview builds, render the banner as `pr-<number>` so a reviewer
-      # opening the preview URL immediately sees they're not on a stable doc.
-      # The preview itself is published under `pr-preview/pr-<number>/` by
-      # the `rossjrw/pr-preview-action` step below.
-      - name: Override version for PR previews
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
-        run: |
-          sed -i 's/^__version__ = ".*"/__version__ = "pr-${{ github.event.number }}"/' flashdreams/flashdreams/_version.py
-
       # --no-project: the "Override version" step above rewrites the version
       # field to "main" which is not PEP 440 compliant. Without --no-project
       # uv would try to parse the workspace pyproject.toml and fail.
       - name: Sphinx build
-        if: github.event.action != 'closed'
         run: |
           uv run --no-project sphinx-build -W -b html docs/source _build
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         # Only publish for real landings on main, releases, or manual runs —
-        # never from `pull_request` previews or `merge_group` queue runs.
+        # never from `merge_group` queue runs.
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -126,28 +85,6 @@ jobs:
           keep_files: false  # only erases the destination subdirectory
           # Uncomment + set if you wire up a custom domain later:
           # cname: docs.flashdreams.nvidia.com
-
-      # Per-PR preview deploy. In `auto` mode this action:
-      #   - on opened/reopened/synchronize → pushes `_build/` to
-      #     `gh-pages:pr-preview/pr-<number>/` and posts/updates a sticky
-      #     comment with the preview URL.
-      #   - on closed → deletes that subdirectory from `gh-pages`.
-      # The umbrella-dir (`pr-preview/`) is sibling to `main/` and `versions/`,
-      # and the main/release deploy above uses `keep_files: false` scoped to
-      # its own destination_dir, so previews and stable docs don't clobber
-      # each other.
-      #
-      # PRs from forks: the GITHUB_TOKEN is read-only on fork PRs, so this
-      # step will fail to push. That's expected — same-repo branches get
-      # previews; fork PRs don't.
-      - name: Deploy PR preview
-        if: github.event_name == 'pull_request'
-        uses: rossjrw/pr-preview-action@v1
-        with:
-          source-dir: ./_build
-          preview-branch: gh-pages
-          umbrella-dir: pr-preview
-          action: auto
 
       # Maintain root-level files on the gh-pages branch in a single clone:
       # - `.nojekyll`        — disables Jekyll so Sphinx's _static/ assets are
@@ -161,7 +98,7 @@ jobs:
       # Idempotent: only commits whatever pieces were actually missing/new.
       - name: Maintain gh-pages root (index.html, .nojekyll, versions/index.txt)
         # Mirrors the deploy gate: only touch `gh-pages` for real landings,
-        # not for `pull_request` previews or `merge_group` queue runs.
+        # not for `merge_group` queue runs.
         if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
