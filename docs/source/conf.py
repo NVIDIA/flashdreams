@@ -84,7 +84,7 @@ html_theme_options = {
     # Marketing-layout pages have no sidebar and therefore no secondary sidebar items.
     "secondary_sidebar_items": {
         "index": [],
-        "get_started": ["page-toc"],
+        "quickstart/index": ["page-toc"],
         "community/*": ["page-toc"],
         "community/index": [],
         "models/*": ["page-toc"],
@@ -127,7 +127,7 @@ html_theme_options = {
 # Wire the left-sidebar nav-tree only for certain pages.
 html_sidebars = {
     "index": [],
-    "get_started": [],
+    "quickstart/index": [],
     "community/*": ["sidebar-nav-bs"],
     "community/index": [],
     "models/*": ["sidebar-nav-bs"],

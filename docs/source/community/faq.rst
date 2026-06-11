@@ -36,7 +36,7 @@ from the same set.
 Any CUDA-capable GPU with enough memory for the chosen checkpoint
 should run the streaming recipes; smaller GPUs may need to drop
 multi-GPU recipes back to a single device. See the
-:doc:`/get_started` for the cheapest path to a working clip,
+:doc:`/quickstart/index` for the cheapest path to a working clip,
 and the :doc:`Models page </models/index>` for the profiled
 configurations.
 
