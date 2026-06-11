@@ -3,10 +3,14 @@
 #
 # Sphinx configuration for the FlashDreams documentation site.
 
+import re
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+
+from sphinx.search import languages as _search_languages
+from sphinx.search.en import SearchEnglish
 
 # Ensure autodoc imports the in-repo package (flashdreams/flashdreams/*)
 # instead of any older site-packages install missing newer modules.
@@ -151,6 +155,46 @@ html_js_files = ["js/image_zoom.js", "js/supported_models_nav.js"]
 # Strip Python REPL prompts and shell prompts when copying snippets.
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
+
+# -- Search: keep hyphenated terms intact ------------------------------------
+#
+# Sphinx's stock search tokenizer (``\w+``) splits on every non-word character,
+# so a hyphenated command like ``flashdreams-run`` is indexed *and* queried as
+# the two unrelated words ``flashdreams`` + ``run``. Searching the command then
+# matches every page mentioning either half and buries the real hit.
+#
+# We register an English search language whose tokenizer keeps the hyphenated
+# token while still emitting its parts: ``flashdreams-run`` matches the command
+# as a cohesive, high-ranked term, and a bare ``flashdreams`` query keeps
+# working. The JS query splitter (Sphinx embeds it verbatim as ``splitQuery``
+# in language_data.js, overriding the stock one in searchtools.js) mirrors the
+# Python indexer so both sides tokenize identically.
+
+class _SearchEnglishHyphenated(SearchEnglish):
+    _word_re = re.compile(r"\w+(?:-\w+)*")
+
+    js_splitter_code = r"""
+var splitQuery = (query) => {
+  const tokens = [];
+  const re = /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu;
+  for (const term of query.match(re) || []) {
+    tokens.push(term);
+    if (term.includes("-"))
+      for (const part of term.split("-")) if (part) tokens.push(part);
+  }
+  return tokens;
+};
+"""
+
+    def split(self, input: str) -> list[str]:
+        tokens: list[str] = []
+        for token in self._word_re.findall(input):
+            tokens.append(token)
+            if "-" in token:
+                tokens.extend(part for part in token.split("-") if part)
+        return tokens
+
+_search_languages["en"] = _SearchEnglishHyphenated
 
 # -- Autodoc -----------------------------------------------------------------
 
