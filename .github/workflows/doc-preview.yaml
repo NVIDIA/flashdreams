@@ -60,7 +60,9 @@ jobs:
       - name: Sphinx build
         run: |
           sed -i 's/^__version__ = ".*"/__version__ = "site-before"/' flashdreams/flashdreams/_version.py
-          uv run --no-project sphinx-build -W -b html docs/source _build
+          # `-d` keeps Sphinx's doctree cache out of `_build/` so it isn't
+          # deployed (it's ~half the output size and never served).
+          uv run --no-project sphinx-build -W -d /tmp/doctrees-before -b html docs/source _build
 
       # `keep_files: false` is scoped to destination_dir, so this only ever
       # rewrites `pr-preview/before/` — never `after/`, `main/`, or `versions/`.
@@ -147,7 +149,9 @@ jobs:
       - name: Sphinx build
         run: |
           sed -i 's/^__version__ = ".*"/__version__ = "site-after"/' flashdreams/flashdreams/_version.py
-          uv run --no-project sphinx-build -W -b html docs/source _build
+          # `-d` keeps Sphinx's doctree cache out of `_build/` so it isn't
+          # deployed (it's ~half the output size and never served).
+          uv run --no-project sphinx-build -W -d /tmp/doctrees-after -b html docs/source _build
 
       - name: Deploy "after" preview
         uses: peaceiris/actions-gh-pages@v4
