@@ -1,0 +1,653 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>flashdreams.core.distributed &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=b497ea16" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+
+    <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=fd10adb8"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/flashdreams/core/distributed';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="../../../_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="../../../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  
+  
+  <body data-default-mode="light">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="../../../_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="../../../_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">flashdreams.core.distributed</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for flashdreams.core.distributed</h1><div class="highlight"><pre>
+<span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);</span>
+<span class="c1"># you may not use this file except in compliance with the License.</span>
+<span class="c1"># You may obtain a copy of the License at</span>
+<span class="c1">#</span>
+<span class="c1"># http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c1"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS,</span>
+<span class="c1"># WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span>
+<span class="c1"># See the License for the specific language governing permissions and</span>
+<span class="c1"># limitations under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Distributed-training initialization helpers.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">atexit</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">ctypes</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">pynvml</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="c1"># Side effect: install the stdlib-``logging`` filter that demotes benign</span>
+<span class="c1"># Inductor autotuner-fallback ERROR records to WARNING so first-run</span>
+<span class="c1"># warmup doesn&#39;t look like a hard failure. Pulled in here (rather than</span>
+<span class="c1"># from ``flashdreams.core.__init__``) because every FlashDreams entry</span>
+<span class="c1"># point that talks to torch.distributed already imports this module at</span>
+<span class="c1"># process start, and the filter is process-global and idempotent.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">log_filters</span>  <span class="c1"># noqa: F401</span>
+
+<span class="n">DEFAULT_LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_safe_destroy_pg</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tear down the default process group on interpreter exit.</span>
+
+<span class="sd">    Registered via :func:`atexit.register` from :func:`init` so NCCL stops</span>
+<span class="sd">    printing the ``destroy_process_group() was not called before program</span>
+<span class="sd">    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``</span>
+<span class="sd">    invocation. Best-effort: never raises, so a teardown failure cannot</span>
+<span class="sd">    mask the original exit code or exception.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">():</span>
+            <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 -- best-effort cleanup at exit</span>
+        <span class="k">pass</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">is_distributed_initialized</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True when torch distributed is available and initialized.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the torch distributed global rank, or 0 outside distributed runs.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">()</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank_from_env</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the launch-provided rank, or 0 when unavailable.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;RANK&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_global_rank_for_logging</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the best available global rank for early process logging.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">get_global_rank</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">get_global_rank_from_env</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">world_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Keep rank 0 log levels intact and demote other ranks to DEBUG.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">world_rank</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">world_rank</span> <span class="o">=</span> <span class="n">get_global_rank_for_logging</span><span class="p">()</span>
+
+    <span class="n">log_level</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;LOGURU_LEVEL&quot;</span><span class="p">,</span> <span class="n">DEFAULT_LOG_LEVEL</span><span class="p">)</span>
+    <span class="n">debug_level</span> <span class="o">=</span> <span class="n">logger</span><span class="o">.</span><span class="n">level</span><span class="p">(</span><span class="s2">&quot;DEBUG&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">demote_non_rank0</span><span class="p">(</span><span class="n">record</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">world_rank</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">record</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">])(</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">no</span><span class="p">,</span>
+                <span class="n">debug_level</span><span class="o">.</span><span class="n">icon</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">patcher</span><span class="o">=</span><span class="n">demote_non_rank0</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">log_level</span><span class="p">)</span>
+
+
+<span class="n">configure_loguru_for_distributed</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="Device">
+<a class="viewcode-back" href="../../../api/core.html#flashdreams.core.distributed.Device">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Device</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Lightweight wrapper around an NVML device handle for CPU-affinity queries.&quot;&quot;&quot;</span>
+
+    <span class="n">_nvml_affinity_elements</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">((</span><span class="n">os</span><span class="o">.</span><span class="n">cpu_count</span><span class="p">()</span> <span class="ow">or</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">64</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Bind to the NVML handle for the GPU at ``device_idx``.&quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle</span> <span class="o">=</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetHandleByIndex</span><span class="p">(</span><span class="n">device_idx</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Device.get_name">
+<a class="viewcode-back" href="../../../api/core.html#flashdreams.core.distributed.Device.get_name">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the marketing name reported by NVML for this device.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetName</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Device.get_cpu_affinity">
+<a class="viewcode-back" href="../../../api/core.html#flashdreams.core.distributed.Device.get_cpu_affinity">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_cpu_affinity</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the indices of CPUs ideally affined to this GPU per NVML.&quot;&quot;&quot;</span>
+        <span class="n">affinity_string</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetCpuAffinity</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle</span><span class="p">,</span> <span class="n">Device</span><span class="o">.</span><span class="n">_nvml_affinity_elements</span>
+        <span class="p">):</span>
+            <span class="c1"># NVML returns a sequence of 64-bit affinity bitmasks, low word first.</span>
+            <span class="n">affinity_string</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{:064b}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">j</span><span class="p">)</span> <span class="o">+</span> <span class="n">affinity_string</span>
+        <span class="n">affinity_list</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">affinity_string</span><span class="p">]</span>
+        <span class="n">affinity_list</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>  <span class="c1"># so core 0 is in the 0th element of the list</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">affinity_list</span><span class="p">)</span> <span class="k">if</span> <span class="n">e</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">]</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="init">
+<a class="viewcode-back" href="../../../api/core.html#flashdreams.core.distributed.init">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">init</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize distributed training.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()</span>
+
+    <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlInit</span><span class="p">()</span>
+    <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">Device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">sched_setaffinity</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">get_cpu_affinity</span><span class="p">())</span>
+    <span class="k">except</span> <span class="p">(</span><span class="n">pynvml</span><span class="o">.</span><span class="n">NVMLError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to set device affinity: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;TORCH_NCCL_BLOCKING_WAIT&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;0&quot;</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;TORCH_NCCL_ASYNC_ERROR_HANDLING&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+    <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">set_device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+        <span class="n">timeout_seconds</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC&quot;</span><span class="p">,</span> <span class="mi">1800</span><span class="p">)</span>
+        <span class="n">timeout_timedelta</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">timeout_seconds</span><span class="p">))</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span>
+            <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">,</span>
+            <span class="n">init_method</span><span class="o">=</span><span class="s2">&quot;env://&quot;</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">timeout_timedelta</span><span class="p">,</span>
+            <span class="n">device_id</span><span class="o">=</span><span class="n">local_rank</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Always destroy the process group on interpreter shutdown so NCCL</span>
+        <span class="c1"># does not warn about a leaked group at the end of every run; the</span>
+        <span class="c1"># handler is idempotent if a caller (e.g. a long-lived gRPC server)</span>
+        <span class="c1"># already destroyed the group explicitly before exiting.</span>
+        <span class="n">atexit</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">_safe_destroy_pg</span><span class="p">)</span>
+        <span class="n">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">get_global_rank</span><span class="p">())</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Initialized distributed inference with local rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2"> with timeout </span><span class="si">{</span><span class="n">timeout_seconds</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Bump cudaLimitMaxL2FetchGranularity (id=0x05) to 128 bytes for better bandwidth.</span>
+    <span class="n">_libcudart</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">CDLL</span><span class="p">(</span><span class="s2">&quot;libcudart.so&quot;</span><span class="p">)</span>
+    <span class="n">p_value</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">cast</span><span class="p">((</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span> <span class="o">*</span> <span class="mi">1</span><span class="p">)(),</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">POINTER</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">))</span>
+    <span class="n">_libcudart</span><span class="o">.</span><span class="n">cudaDeviceSetLimit</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mh">0x05</span><span class="p">),</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mi">128</span><span class="p">))</span>
+    <span class="n">_libcudart</span><span class="o">.</span><span class="n">cudaDeviceGetLimit</span><span class="p">(</span><span class="n">p_value</span><span class="p">,</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mh">0x05</span><span class="p">))</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Inference with </span><span class="si">{</span><span class="n">dist</span><span class="o">.</span><span class="n">get_world_size</span><span class="p">()</span><span class="si">}</span><span class="s2"> GPUs.&quot;</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

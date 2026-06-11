@@ -1,0 +1,743 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../../" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>flashdreams.infra.diffusion.scheduler.fm &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+<link href="../../../../../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=b497ea16" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../../../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
+<link rel="preload" as="script" href="../../../../../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+
+    <script src="../../../../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../../../_static/copybutton.js?v=fd10adb8"></script>
+    <script src="../../../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/flashdreams/infra/diffusion/scheduler/fm';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="../../../../../_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="../../../../../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <link rel="index" title="Index" href="../../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="../../../../../_static/searchtools.js"></script>
+    <script src="../../../../../_static/language_data.js"></script>
+    <script src="../../../../../searchindex.js"></script>
+  
+  </head>
+  
+  
+  <body data-default-mode="light">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../../index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="../../../../../_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="../../../../../_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../../community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">flashdreams.infra.diffusion.scheduler.fm</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for flashdreams.infra.diffusion.scheduler.fm</h1><div class="highlight"><pre>
+<span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);</span>
+<span class="c1"># you may not use this file except in compliance with the License.</span>
+<span class="c1"># You may obtain a copy of the License at</span>
+<span class="c1">#</span>
+<span class="c1"># http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c1"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS,</span>
+<span class="c1"># WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span>
+<span class="c1"># See the License for the specific language governing permissions and</span>
+<span class="c1"># limitations under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Flow-matching scheduler.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FlowPredictor</span><span class="p">,</span>
+    <span class="n">Scheduler</span><span class="p">,</span>
+    <span class="n">SchedulerConfig</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_warp</span><span class="p">(</span><span class="n">sigmas</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">shift</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``shift * s / (1 + (shift - 1) * s)`` -- DiffSynth schedule warp.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">shift</span> <span class="o">*</span> <span class="n">sigmas</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="p">(</span><span class="n">shift</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">sigmas</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="FlowMatchSchedulerConfig">
+<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchSchedulerConfig</span><span class="p">(</span><span class="n">SchedulerConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the flow-matching scheduler.&quot;&quot;&quot;</span>
+
+    <span class="n">_target</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="s2">&quot;FlowMatchScheduler&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">FlowMatchScheduler</span>
+    <span class="p">)</span>
+
+    <span class="n">num_inference_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Must equal ``len(denoising_timesteps)``.&quot;&quot;&quot;</span>
+
+    <span class="n">shift</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">8.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Schedule warp factor.&quot;&quot;&quot;</span>
+
+    <span class="n">denoising_timesteps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">750</span><span class="p">,</span> <span class="mi">500</span><span class="p">,</span> <span class="mi">250</span><span class="p">]</span>
+    <span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-step diffusion timesteps in ``[0, num_train_timesteps]``.&quot;&quot;&quot;</span>
+
+    <span class="n">warp_denoising_step</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Map ``denoising_timesteps`` through the warped sigma schedule.&quot;&quot;&quot;</span>
+
+    <span class="n">num_train_timesteps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Length of the training sigma table.&quot;&quot;&quot;</span>
+
+    <span class="n">sigma_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream</span>
+<span class="sd">    Wan / Lingbot ships ``0.999``.&quot;&quot;&quot;</span>
+
+    <span class="n">sigma_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bottom of the linspace before warping. Reserved for upstream parity;</span>
+<span class="sd">    only ``0.0`` is exercised.&quot;&quot;&quot;</span>
+
+    <span class="n">extra_one_step</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;If ``True``, build the schedule from</span>
+<span class="sd">    ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /</span>
+<span class="sd">    upstream Wan); ``False`` uses ``N`` points and is kept for non-Wan</span>
+<span class="sd">    recipes.&quot;&quot;&quot;</span>
+
+    <span class="n">timestep_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.</span>
+<span class="sd">    ``torch.int64``) when the network&#39;s time embedding is sensitive to the</span>
+<span class="sd">    fractional part of the warped timestep — upstream Wan stores</span>
+<span class="sd">    ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to</span>
+<span class="sd">    ``float64`` internally.&quot;&quot;&quot;</span>
+
+    <span class="n">enable_tqdm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether to enable tqdm progress bar.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="FlowMatchScheduler">
+<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchScheduler</span><span class="p">(</span><span class="n">Scheduler</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Flow-matching scheduler with self-forcing renoise (DiffSynth-style).</span>
+
+<span class="sd">    Each iteration converts the predicted flow to an ``x0`` estimate, then</span>
+<span class="sd">    re-noises at the same sigma to feed the next iteration. The final</span>
+<span class="sd">    ``x0`` is returned::</span>
+
+<span class="sd">        x_t = initial_noise</span>
+<span class="sd">        for t in denoising_step_list:</span>
+<span class="sd">            v = predict_flow(x_t, t)</span>
+<span class="sd">            x0 = x_t - sigma(t) * v</span>
+<span class="sd">            x_t = (1 - sigma(t)) * x0 + sigma(t) * eps</span>
+<span class="sd">        return x0</span>
+
+<span class="sd">    Example:</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        scheduler = FlowMatchSchedulerConfig(</span>
+<span class="sd">            num_inference_steps=4,</span>
+<span class="sd">            shift=8.0,</span>
+<span class="sd">            denoising_timesteps=[1000, 750, 500, 250],</span>
+<span class="sd">        ).setup().to(&quot;cuda&quot;)</span>
+<span class="sd">        clean = scheduler.sample(initial_noise=noise, predict_flow=fn)</span>
+
+<span class="sd">    Schedule buffers are pinned to fp32 even after ``module.to(bf16)``;</span>
+<span class="sd">    integer timesteps like 1000 would otherwise round to 1024.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">denoising_step_list</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">denoising_sigmas</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">_full_sigmas</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="n">_full_timesteps</span><span class="p">:</span> <span class="n">Tensor</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FlowMatchSchedulerConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">FlowMatchSchedulerConfig</span> <span class="o">=</span> <span class="n">config</span>
+
+        <span class="n">N</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">num_train_timesteps</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">num_inference_steps</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">denoising_timesteps</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;num_inference_steps (</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">num_inference_steps</span><span class="si">}</span><span class="s2">) must equal &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;len(denoising_timesteps) (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">denoising_timesteps</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+        <span class="c1"># Full warped schedule: identical to DiffSynth&#39;s</span>
+        <span class="c1">#   sigmas = linspace(1, 0, N + 1)[:-1]</span>
+        <span class="c1">#   sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)</span>
+        <span class="c1"># (matches reference exactly in fp32).</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">extra_one_step</span><span class="p">:</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+            <span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">sigmas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+                <span class="n">config</span><span class="o">.</span><span class="n">sigma_max</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">sigma_min</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+            <span class="p">)</span>
+        <span class="n">full_sigmas</span> <span class="o">=</span> <span class="n">_warp</span><span class="p">(</span><span class="n">sigmas</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">shift</span><span class="p">)</span>
+        <span class="n">full_timesteps</span> <span class="o">=</span> <span class="n">full_sigmas</span> <span class="o">*</span> <span class="n">N</span>
+
+        <span class="c1"># Pre-resolve per-step (sigma, timestep) so sample() does no</span>
+        <span class="c1"># per-step argmin. Replicates the legacy resolution exactly:</span>
+        <span class="c1">#   - warp_denoising_step=True: denoising_step_list[i] is read</span>
+        <span class="c1">#     from a (full_timesteps ++ [0.0]) buffer at index</span>
+        <span class="c1">#     N - denoising_timesteps[i]. The legacy then argmin&#39;s that</span>
+        <span class="c1">#     value against the 1000-entry full_timesteps to get sigma.</span>
+        <span class="c1">#     For idx in [0, N), the answer is full_sigmas[idx]; the</span>
+        <span class="c1">#     idx==N corner (only hit when denoising_timesteps[i]==0)</span>
+        <span class="c1">#     argmin&#39;s 0.0 to the smallest entry, full_sigmas[N-1].</span>
+        <span class="c1">#   - warp_denoising_step=False: denoising_step_list[i] is the</span>
+        <span class="c1">#     raw int; legacy argmin&#39;s it against full_timesteps and</span>
+        <span class="c1">#     returns the snapped sigma.</span>
+        <span class="n">idxs</span> <span class="o">=</span> <span class="p">[</span><span class="n">N</span> <span class="o">-</span> <span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">denoising_timesteps</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">warp_denoising_step</span><span class="p">:</span>
+            <span class="n">step_list</span> <span class="o">=</span> <span class="p">[</span><span class="n">full_timesteps</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="k">if</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="n">N</span> <span class="k">else</span> <span class="mf">0.0</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">idxs</span><span class="p">]</span>
+            <span class="n">sigma_list</span> <span class="o">=</span> <span class="p">[</span><span class="n">full_sigmas</span><span class="p">[</span><span class="n">idx</span> <span class="k">if</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="n">N</span> <span class="k">else</span> <span class="n">N</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">idxs</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">step_list</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">denoising_timesteps</span><span class="p">]</span>
+            <span class="n">snapped_idx</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="nb">int</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">argmin</span><span class="p">((</span><span class="n">full_timesteps</span> <span class="o">-</span> <span class="n">t</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">())</span><span class="o">.</span><span class="n">item</span><span class="p">())</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">step_list</span>
+            <span class="p">]</span>
+            <span class="n">sigma_list</span> <span class="o">=</span> <span class="p">[</span><span class="n">full_sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">snapped_idx</span><span class="p">]</span>
+
+        <span class="c1"># Buffers move with .to(device) but are pinned to fp32 by the</span>
+        <span class="c1"># ``_apply`` override below -- a stray ``model.to(bf16)`` would</span>
+        <span class="c1"># otherwise round integer timesteps (1000 -&gt; 1024) and quantize</span>
+        <span class="c1"># the sigma table.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;denoising_step_list&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">step_list</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">timestep_dtype</span><span class="p">),</span>
+            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;denoising_sigmas&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">sigma_list</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Full table only used by add_noise (rare path, called from</span>
+        <span class="c1"># finalize when context_noise &gt; 0).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;_full_sigmas&quot;</span><span class="p">,</span> <span class="n">full_sigmas</span><span class="p">,</span> <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;_full_timesteps&quot;</span><span class="p">,</span> <span class="n">full_timesteps</span><span class="p">,</span> <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="c1"># Pinned to fp32 by ``_apply`` regardless of the parent module&#39;s dtype.</span>
+    <span class="n">_FP32_BUFFERS</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;denoising_step_list&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;denoising_sigmas&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;_full_sigmas&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;_full_timesteps&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Move buffers with the parent ``.to(...)`` but keep them fp32.</span>
+
+<span class="sd">        ``fn`` may be a lossy bf16 cast; snapshot the fp32 originals before</span>
+<span class="sd">        ``super()._apply`` (which would overwrite them) and restore them</span>
+<span class="sd">        with a pure device move afterward.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">saved</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_FP32_BUFFERS</span><span class="p">}</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_apply</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="n">recurse</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">original</span> <span class="ow">in</span> <span class="n">saved</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">target_device</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">device</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">target_device</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+<div class="viewcode-block" id="FlowMatchScheduler.sample">
+<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_noise</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">predict_flow</span><span class="p">:</span> <span class="n">FlowPredictor</span><span class="p">,</span>
+        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the self-forcing flow-match denoising loop.</span>
+
+<span class="sd">        Iteration 0 trusts ``initial_noise`` as the ``sigma=1`` sample;</span>
+<span class="sd">        later iterations re-noise the previous ``x0`` estimate to the new</span>
+<span class="sd">        sigma before the network forward. Schedule arithmetic auto-promotes</span>
+<span class="sd">        to fp32; the result is cast back to ``initial_noise.dtype``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">input_dtype</span> <span class="o">=</span> <span class="n">initial_noise</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">sigmas</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">denoising_sigmas</span>
+        <span class="n">timesteps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">denoising_step_list</span>
+
+        <span class="n">noisy</span> <span class="o">=</span> <span class="n">initial_noise</span>
+        <span class="n">clean</span><span class="p">:</span> <span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span>
+            <span class="nb">range</span><span class="p">(</span><span class="n">timesteps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+            <span class="n">disable</span><span class="o">=</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">enable_tqdm</span><span class="p">,</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;FlowMatchScheduler&quot;</span><span class="p">,</span>
+        <span class="p">):</span>
+            <span class="n">sigma</span> <span class="o">=</span> <span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="c1"># Schedule buffers are pinned to fp32 (to preserve integer</span>
+            <span class="c1"># timestep values under a stray `module.to(bf16)`), but the</span>
+            <span class="c1"># network expects timesteps in the input dtype so that</span>
+            <span class="c1"># downstream modulation / Linear layers stay consistent.</span>
+            <span class="n">timestep</span> <span class="o">=</span> <span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">input_dtype</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">clean</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">noisy</span><span class="p">)</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
+                <span class="n">noisy</span> <span class="o">=</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
+            <span class="n">flow</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">noisy</span><span class="p">,</span> <span class="n">timestep</span><span class="p">)</span>
+            <span class="n">clean</span> <span class="o">=</span> <span class="n">noisy</span> <span class="o">-</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">flow</span>
+        <span class="k">assert</span> <span class="n">clean</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;denoising_step_list is empty&quot;</span>
+        <span class="k">return</span> <span class="n">clean</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FlowMatchScheduler.add_noise">
+<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.add_noise">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_noise</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">clean_input</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply the forward corruption at an arbitrary timestep.</span>
+
+<span class="sd">        Snaps ``timestep`` to the nearest entry of the warped training table</span>
+<span class="sd">        and uses it as sigma in the standard lerp.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">timestep</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(),</span> <span class="sa">f</span><span class="s2">&quot;expected scalar timestep, got </span><span class="si">{</span><span class="n">timestep</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">full_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_full_timesteps</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmin</span><span class="p">((</span><span class="n">full_t</span> <span class="o">-</span> <span class="n">timestep</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">full_t</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span><span class="o">.</span><span class="n">abs</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">sigma</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_full_sigmas</span><span class="o">.</span><span class="n">index_select</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>
+        <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">clean_input</span><span class="p">)</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean_input</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">clean_input</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
+<script defer src="../../../../../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
