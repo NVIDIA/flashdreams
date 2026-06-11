@@ -1,0 +1,929 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Contributing to FlashDreams &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1a293280" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+
+    <script src="../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=fd10adb8"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'community/contribute';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Getting help" href="support.html" />
+    <link rel="prev" title="Community" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  
+  
+  <body data-default-mode="light">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="../_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="../_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Contributing to FlashDreams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="support.html">Getting help</a></li>
+<li class="toctree-l1"><a class="reference internal" href="discord.html">Discord</a></li>
+<li class="toctree-l1"><a class="reference internal" href="faq.html">FAQ</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Community</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Contributing to FlashDreams</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="contributing-to-flashdreams">
+<h1>Contributing to FlashDreams<a class="headerlink" href="#contributing-to-flashdreams" title="Link to this heading">#</a></h1>
+<p>Thanks for your interest in contributing to <strong>FlashDreams</strong>. This project
+is developed openly on GitHub and released under the
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/LICENSE">Apache License 2.0</a>. Outside contributions — bug reports,
+feature requests, performance improvements, new model integrations,
+documentation fixes — are genuinely welcome, and this guide explains how
+they fit in alongside the project’s day-to-day work.</p>
+<p>We have intentionally kept the process light. If something below is
+unclear or feels heavier than it should be, that’s a bug; please file an
+issue and we’ll fix it.</p>
+<section id="table-of-contents">
+<h2>Table of contents<a class="headerlink" href="#table-of-contents" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="#ways-to-contribute">Ways to contribute</a></p></li>
+<li><p><a class="reference internal" href="#project-governance">Project governance</a></p></li>
+<li><p><a class="reference internal" href="#developer-certificate-of-origin-dco">Developer Certificate of Origin (DCO)</a></p></li>
+<li><p><a class="reference internal" href="#submitting-a-pull-request">Submitting a pull request</a></p></li>
+<li><p><a class="reference internal" href="#code-review-and-merge">Code review and merge</a></p></li>
+<li><p><a class="reference internal" href="#coding-conventions">Coding conventions</a></p></li>
+<li><p><a class="reference internal" href="#testing">Testing</a></p></li>
+<li><p><a class="reference internal" href="#dependency-version-bounds">Dependency version bounds</a></p></li>
+<li><p><a class="reference internal" href="#working-with-a-single-integration-package">Working with a single integration package</a></p></li>
+<li><p><a class="reference internal" href="#licensing-of-contributions">Licensing of contributions</a></p></li>
+<li><p><a class="reference internal" href="#reporting-issues">Reporting issues</a></p></li>
+<li><p><a class="reference internal" href="#code-of-conduct">Code of Conduct</a></p></li>
+</ol>
+</section>
+<section id="ways-to-contribute">
+<h2>Ways to contribute<a class="headerlink" href="#ways-to-contribute" title="Link to this heading">#</a></h2>
+<p>There are several useful ways to help out, ordered roughly from “low
+overhead” to “high overhead”:</p>
+<ul class="simple">
+<li><p><strong>Try FlashDreams and tell us what broke.</strong> A clear bug report — what
+you ran, what you expected, what you saw — is one of the most valuable
+contributions a project of this kind can receive.</p></li>
+<li><p><strong>Improve documentation.</strong> README clarifications, integration walkthroughs,
+performance notes, and FAQ entries all land easily and benefit every
+future user.</p></li>
+<li><p><strong>Fix bugs.</strong> Issues labelled <code class="docutils literal notranslate"><span class="pre">good</span> <span class="pre">first</span> <span class="pre">issue</span></code> are a friendly
+starting point. Larger fixes are welcome too — please leave a comment
+on the relevant issue first so we can avoid duplicate work.</p></li>
+<li><p><strong>Add or extend integrations.</strong> New video-generation models, new schedulers,
+new integrations. For non-trivial features, please open a design issue
+before sending the PR (see <a class="reference internal" href="#submitting-a-pull-request">Submitting a pull request</a>).</p></li>
+<li><p><strong>Performance work.</strong> FlashDreams cares about latency and throughput
+on NVIDIA GPUs. Numbers and reproducible benchmarks make these PRs
+easy to evaluate.</p></li>
+</ul>
+</section>
+<section id="project-governance">
+<h2>Project governance<a class="headerlink" href="#project-governance" title="Link to this heading">#</a></h2>
+<p>FlashDreams was developed inside NVIDIA’s Simulation &amp; Imitation
+Learning group, and at the time of release NVIDIA holds the
+maintainer and admin roles on the
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams"><code class="docutils literal notranslate"><span class="pre">NVIDIA/flashdreams</span></code></a> repository.
+That includes the <code class="docutils literal notranslate"><span class="pre">main</span></code> branch protections, release tags, the package
+publishing keys, and the right to merge.</p>
+<p>We treat that as a starting point, not an endpoint. Our intent — modelled
+on projects like <a class="reference external" href="https://github.com/shader-slang/slang">Slang</a>, which
+moved from a single-vendor home to community governance once it grew an
+external user base — is to open governance up as a contributor community
+develops. Concretely, that means:</p>
+<ul class="simple">
+<li><p><strong>CODEOWNERS is the source of truth for review responsibility.</strong> As
+contributors take long-term ownership of a subsystem, they get added
+there and become required reviewers for changes in that area, NVIDIA
+employee or not.</p></li>
+<li><p><strong>Decisions happen in public.</strong> Significant design changes are
+discussed in GitHub issues, pull requests, or
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/discussions">Discussions</a>.
+Internal NVIDIA roadmap planning that touches the public project will
+surface as a public issue before it lands.</p></li>
+<li><p><strong>Release notes credit external contributors</strong> by name and PR.</p></li>
+<li><p><strong>Open path to maintainer.</strong> Contributors who consistently land
+high-quality work in an area, participate in reviews, and engage with
+the issue tracker can be invited to become maintainers. There is no
+fixed time bar; sustained good judgment is what we look for.</p></li>
+</ul>
+<p>If you have feedback on governance — including things you’d like to see
+formalised faster — please open a Discussion. We’d rather hear it than
+not.</p>
+</section>
+<section id="developer-certificate-of-origin-dco">
+<h2>Developer Certificate of Origin (DCO)<a class="headerlink" href="#developer-certificate-of-origin-dco" title="Link to this heading">#</a></h2>
+<p><strong>This project will only accept contributions under the Apache-2.0
+license.</strong> By submitting a pull request you agree that your
+contribution is licensed under the Apache License, Version 2.0 (see
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/LICENSE">LICENSE</a>).</p>
+<p>All contributions to FlashDreams are made under the
+<a class="reference external" href="https://developercertificate.org/">Developer Certificate of Origin</a>.
+This is a lightweight, well-understood mechanism (used by the Linux
+kernel, GitLab, NVIDIA TensorRT, and many other projects) that lets you
+attest that you have the right to submit your contribution under the
+project’s license — without requiring a separate Contributor License
+Agreement.</p>
+<p>Full text of the <a class="reference external" href="https://developercertificate.org/">Developer Certificate of Origin</a>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Developer</span> <span class="n">Certificate</span> <span class="n">of</span> <span class="n">Origin</span>
+<span class="n">Version</span> <span class="mf">1.1</span>
+
+<span class="n">Copyright</span> <span class="p">(</span><span class="n">C</span><span class="p">)</span> <span class="mi">2004</span><span class="p">,</span> <span class="mi">2006</span> <span class="n">The</span> <span class="n">Linux</span> <span class="n">Foundation</span> <span class="ow">and</span> <span class="n">its</span> <span class="n">contributors</span><span class="o">.</span>
+
+<span class="n">Everyone</span> <span class="ow">is</span> <span class="n">permitted</span> <span class="n">to</span> <span class="n">copy</span> <span class="ow">and</span> <span class="n">distribute</span> <span class="n">verbatim</span> <span class="n">copies</span> <span class="n">of</span> <span class="n">this</span>
+<span class="n">license</span> <span class="n">document</span><span class="p">,</span> <span class="n">but</span> <span class="n">changing</span> <span class="n">it</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">allowed</span><span class="o">.</span>
+
+
+<span class="n">Developer</span><span class="s1">&#39;s Certificate of Origin 1.1</span>
+
+<span class="n">By</span> <span class="n">making</span> <span class="n">a</span> <span class="n">contribution</span> <span class="n">to</span> <span class="n">this</span> <span class="n">project</span><span class="p">,</span> <span class="n">I</span> <span class="n">certify</span> <span class="n">that</span><span class="p">:</span>
+
+<span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="n">The</span> <span class="n">contribution</span> <span class="n">was</span> <span class="n">created</span> <span class="ow">in</span> <span class="n">whole</span> <span class="ow">or</span> <span class="ow">in</span> <span class="n">part</span> <span class="n">by</span> <span class="n">me</span> <span class="ow">and</span> <span class="n">I</span>
+    <span class="n">have</span> <span class="n">the</span> <span class="n">right</span> <span class="n">to</span> <span class="n">submit</span> <span class="n">it</span> <span class="n">under</span> <span class="n">the</span> <span class="nb">open</span> <span class="n">source</span> <span class="n">license</span>
+    <span class="n">indicated</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">file</span><span class="p">;</span> <span class="ow">or</span>
+
+<span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="n">The</span> <span class="n">contribution</span> <span class="ow">is</span> <span class="n">based</span> <span class="n">upon</span> <span class="n">previous</span> <span class="n">work</span> <span class="n">that</span><span class="p">,</span> <span class="n">to</span> <span class="n">the</span> <span class="n">best</span>
+    <span class="n">of</span> <span class="n">my</span> <span class="n">knowledge</span><span class="p">,</span> <span class="ow">is</span> <span class="n">covered</span> <span class="n">under</span> <span class="n">an</span> <span class="n">appropriate</span> <span class="nb">open</span> <span class="n">source</span>
+    <span class="n">license</span> <span class="ow">and</span> <span class="n">I</span> <span class="n">have</span> <span class="n">the</span> <span class="n">right</span> <span class="n">under</span> <span class="n">that</span> <span class="n">license</span> <span class="n">to</span> <span class="n">submit</span> <span class="n">that</span>
+    <span class="n">work</span> <span class="k">with</span> <span class="n">modifications</span><span class="p">,</span> <span class="n">whether</span> <span class="n">created</span> <span class="ow">in</span> <span class="n">whole</span> <span class="ow">or</span> <span class="ow">in</span> <span class="n">part</span>
+    <span class="n">by</span> <span class="n">me</span><span class="p">,</span> <span class="n">under</span> <span class="n">the</span> <span class="n">same</span> <span class="nb">open</span> <span class="n">source</span> <span class="n">license</span> <span class="p">(</span><span class="n">unless</span> <span class="n">I</span> <span class="n">am</span>
+    <span class="n">permitted</span> <span class="n">to</span> <span class="n">submit</span> <span class="n">under</span> <span class="n">a</span> <span class="n">different</span> <span class="n">license</span><span class="p">),</span> <span class="k">as</span> <span class="n">indicated</span>
+    <span class="ow">in</span> <span class="n">the</span> <span class="n">file</span><span class="p">;</span> <span class="ow">or</span>
+
+<span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="n">The</span> <span class="n">contribution</span> <span class="n">was</span> <span class="n">provided</span> <span class="n">directly</span> <span class="n">to</span> <span class="n">me</span> <span class="n">by</span> <span class="n">some</span> <span class="n">other</span>
+    <span class="n">person</span> <span class="n">who</span> <span class="n">certified</span> <span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="ow">and</span> <span class="n">I</span> <span class="n">have</span> <span class="ow">not</span> <span class="n">modified</span>
+    <span class="n">it</span><span class="o">.</span>
+
+<span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="n">I</span> <span class="n">understand</span> <span class="ow">and</span> <span class="n">agree</span> <span class="n">that</span> <span class="n">this</span> <span class="n">project</span> <span class="ow">and</span> <span class="n">the</span> <span class="n">contribution</span>
+    <span class="n">are</span> <span class="n">public</span> <span class="ow">and</span> <span class="n">that</span> <span class="n">a</span> <span class="n">record</span> <span class="n">of</span> <span class="n">the</span> <span class="n">contribution</span> <span class="p">(</span><span class="n">including</span> <span class="nb">all</span>
+    <span class="n">personal</span> <span class="n">information</span> <span class="n">I</span> <span class="n">submit</span> <span class="k">with</span> <span class="n">it</span><span class="p">,</span> <span class="n">including</span> <span class="n">my</span> <span class="n">sign</span><span class="o">-</span><span class="n">off</span><span class="p">)</span> <span class="ow">is</span>
+    <span class="n">maintained</span> <span class="n">indefinitely</span> <span class="ow">and</span> <span class="n">may</span> <span class="n">be</span> <span class="n">redistributed</span> <span class="n">consistent</span> <span class="k">with</span>
+    <span class="n">this</span> <span class="n">project</span> <span class="ow">or</span> <span class="n">the</span> <span class="nb">open</span> <span class="n">source</span> <span class="n">license</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="n">involved</span><span class="o">.</span>
+</pre></div>
+</div>
+<p>Pull requests without DCO sign-off will be asked to rebase before merge.
+This is a hard gate; please don’t take a polite ping personally.</p>
+<p>NVIDIA contributors and external contributors follow the <em>same</em> DCO
+process. NVIDIA-internal IP review, where applicable, is handled by
+NVIDIA reviewers on your behalf — you do not need to engage with it as
+an outside contributor.</p>
+<section id="signing-your-work">
+<h3>Signing Your Work<a class="headerlink" href="#signing-your-work" title="Link to this heading">#</a></h3>
+<p>We require that all contributors sign-off on their commits. This
+certifies that the contribution is your original work, or you have
+rights to submit it under the same license, or a compatible license.
+Any contribution which contains commits that are not Signed-Off will
+not be accepted.</p>
+<p>To sign off on a commit, use the <code class="docutils literal notranslate"><span class="pre">--signoff</span></code> (or <code class="docutils literal notranslate"><span class="pre">-s</span></code>) option when
+committing your changes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>git<span class="w"> </span>commit<span class="w"> </span>-s<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add cool feature.&quot;</span>
+</pre></div>
+</div>
+<p>This will append the following trailer to your commit message:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Signed</span><span class="o">-</span><span class="n">off</span><span class="o">-</span><span class="n">by</span><span class="p">:</span> <span class="n">Your</span> <span class="n">Name</span> <span class="o">&lt;</span><span class="n">your</span><span class="nd">@email</span><span class="o">.</span><span class="n">com</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">user.name</span></code> and <code class="docutils literal notranslate"><span class="pre">user.email</span></code> git config values must be set to your
+real name and a verifiable email address — sign-offs from anonymous or
+pseudonymous identities cannot be accepted.</p>
+</section>
+</section>
+<section id="submitting-a-pull-request">
+<h2>Submitting a pull request<a class="headerlink" href="#submitting-a-pull-request" title="Link to this heading">#</a></h2>
+<p>The short version:</p>
+<ol class="arabic">
+<li><p>Fork the repo on GitHub and create a feature branch from <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
+<li><p>Make your changes. Keep PRs small and focused; a 200-line PR that
+does one thing reviews much faster than a 2000-line PR that does ten.</p></li>
+<li><p>Add or update tests where it makes sense. Every test must carry
+exactly one CI tier marker (<code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.ci_cpu</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.ci_gpu</span></code>, or <code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.manual</span></code>); see
+<a class="reference internal" href="#testing">Testing</a> below. The project enforces this at collection
+time – pytest will error if a test is missing a marker.</p></li>
+<li><p>Run the project’s checks locally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>-a<span class="w">       </span><span class="c1"># format + lint + type-check</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w">         </span><span class="c1"># CPU tests (no GPU required)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Sign off your commits (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">commit</span> <span class="pre">--signoff</span></code>) and push to your fork.</p></li>
+<li><p>Open a pull request against <code class="docutils literal notranslate"><span class="pre">main</span></code>. Fill in the PR template, include
+any context a reviewer would need that isn’t obvious from the diff,
+and link the issue your PR resolves if there is one.</p></li>
+</ol>
+<p>For larger features (a new integration, a substantial refactor, a new
+integration), please open an issue first to discuss the design. This
+saves everyone time and gives you a chance to surface trade-offs before
+investing implementation effort.</p>
+</section>
+<section id="code-review-and-merge">
+<h2>Code review and merge<a class="headerlink" href="#code-review-and-merge" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Every pull request requires CI to pass and at least one approving
+review from a maintainer or designated CODEOWNER for the touched area.</p></li>
+<li><p>For changes that span multiple subsystems, expect reviews from each
+affected CODEOWNER.</p></li>
+<li><p>We squash-merge to keep <code class="docutils literal notranslate"><span class="pre">main</span></code>’s history readable. The PR title and
+description become the squash commit message — please make them
+descriptive and reviewer-facing.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> is gated by GitHub’s <strong>merge queue</strong>. Once your PR is approved
+and CI is green, click “Merge when ready” — GitHub will rebase your
+branch on top of <code class="docutils literal notranslate"><span class="pre">main</span></code> plus any earlier queued PRs, re-run the
+required checks against that combined state, and only land the merge
+if everything is still green. You do not need to manually rebase or
+re-run CI when another PR lands first. PRs that would conflict or
+fail after rebase are kicked back out of the queue automatically.
+Maintainers: do not enable “Require branches to be up to date before
+merging” alongside the queue — they’re redundant, and enabling both
+reintroduces the rebase-storm problem the queue exists to solve.</p></li>
+<li><p>If a review comment is unclear, ask. We’d rather have a 30-second
+clarifying exchange than a misunderstanding turning into rework.</p></li>
+</ul>
+<p>We aim for an initial review on every PR within two business days. If
+your PR has been quiet longer than that, please feel free to leave a
+short ping comment.</p>
+</section>
+<section id="coding-conventions">
+<h2>Coding conventions<a class="headerlink" href="#coding-conventions" title="Link to this heading">#</a></h2>
+<ul>
+<li><p>Python 3.10+. Type-annotate new code; the project type-checks with
+<a class="reference external" href="https://docs.astral.sh/ty/"><code class="docutils literal notranslate"><span class="pre">ty</span></code></a>.</p></li>
+<li><p>Formatting is enforced by <code class="docutils literal notranslate"><span class="pre">ruff</span></code> via pre-commit (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pre-commit</span> <span class="pre">run</span> <span class="pre">-a</span></code>). The CI will reject unformatted code; running pre-commit
+locally is the easiest way to avoid surprises.</p></li>
+<li><p>Prefer small, well-named functions over long functions with comments
+explaining each block. Comments should explain <em>why</em>, not <em>what</em>.</p></li>
+<li><p>Tests live in <code class="docutils literal notranslate"><span class="pre">flashdreams/tests/</span></code> and <code class="docutils literal notranslate"><span class="pre">integrations/*/tests/</span></code>. Use
+<code class="docutils literal notranslate"><span class="pre">pytest</span></code> and prefer existing fixtures over hand-rolled setup. See
+<a class="reference internal" href="#testing">Testing</a> for marker requirements.</p></li>
+<li><p>Every source file added by a contribution must include the SPDX
+header used elsewhere in the project:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);</span>
+<span class="c1"># you may not use this file except in compliance with the License.</span>
+<span class="c1"># You may obtain a copy of the License at</span>
+<span class="c1">#</span>
+<span class="c1"># http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c1"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS,</span>
+<span class="c1"># WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span>
+<span class="c1"># See the License for the specific language governing permissions and</span>
+<span class="c1"># limitations under the License.</span>
+</pre></div>
+</div>
+<p>External contributors should add their own copyright line <em>above</em> the
+NVIDIA line if they wish to be attributed; both attributions are
+retained.</p>
+</li>
+</ul>
+</section>
+<section id="testing">
+<h2>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h2>
+<p>Every test function must be marked with exactly one <strong>CI tier marker</strong>.
+A pytest plugin (<code class="docutils literal notranslate"><span class="pre">flashdreams._pytest_plugins.marker_enforcement</span></code>)
+enforces this at collection time – tests without a marker are
+rejected, and tests with both <code class="docutils literal notranslate"><span class="pre">ci_cpu</span></code> and <code class="docutils literal notranslate"><span class="pre">ci_gpu</span></code> are rejected.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Marker</p></th>
+<th class="head"><p>When to use</p></th>
+<th class="head"><p>CI runner</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.ci_cpu</span></code></p></td>
+<td><p>Pure CPU logic, no GPU or <code class="docutils literal notranslate"><span class="pre">libGL</span></code> needed</p></td>
+<td><p>CPU runner</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.ci_gpu</span></code></p></td>
+<td><p>Needs CUDA, <code class="docutils literal notranslate"><span class="pre">libGL</span></code>, or transitive <code class="docutils literal notranslate"><span class="pre">cv2</span></code></p></td>
+<td><p>GPU runner (RTX Pro 6000)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&#64;pytest.mark.manual</span></code></p></td>
+<td><p>Heavy (OOM risk), flaky, needs credentials or large downloads</p></td>
+<td><p>Not run in CI</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Use a module-level <code class="docutils literal notranslate"><span class="pre">pytestmark</span></code> when every test in a file shares the
+same marker:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+
+<span class="n">pytestmark</span> <span class="o">=</span> <span class="n">pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">ci_cpu</span>
+</pre></div>
+</div>
+<p>Use per-function markers when tests in the same file have different
+tiers:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">ci_cpu</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_basic_math</span><span class="p">():</span> <span class="o">...</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">ci_gpu</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_cudagraph_path</span><span class="p">():</span> <span class="o">...</span>
+</pre></div>
+</div>
+<p>Running tests locally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w">          </span><span class="c1"># CPU-safe tests only</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_gpu<span class="w">          </span><span class="c1"># GPU tests only (needs CUDA)</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not manual&quot;</span><span class="w">    </span><span class="c1"># everything that runs in CI</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w">                    </span><span class="c1"># all tests including manual</span>
+</pre></div>
+</div>
+</section>
+<section id="dependency-version-bounds">
+<h2>Dependency version bounds<a class="headerlink" href="#dependency-version-bounds" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">flashdreams/pyproject.toml</span></code> declares minimum version bounds for all
+runtime dependencies. These bounds reflect the oldest versions we believe
+are compatible based on API analysis.</p>
+<p><strong>CI tests run against the pinned versions in <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code></strong>, not against
+the declared minimums. This means:</p>
+<ul class="simple">
+<li><p>We guarantee correctness at the locked versions.</p></li>
+<li><p>We expect the package to work at the declared minimum bounds, but do
+not continuously validate this in CI.</p></li>
+<li><p>If you encounter breakage with a version that satisfies the declared
+bounds but differs from the lock file, please
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/issues">open an issue</a>. We will
+either fix compatibility or bump the bound in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>.</p></li>
+</ul>
+</section>
+<section id="working-with-a-single-integration-package">
+<h2>Working with a single integration package<a class="headerlink" href="#working-with-a-single-integration-package" title="Link to this heading">#</a></h2>
+<p>The workspace contains many integration packages under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code>.
+A full <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> installs dependencies for <em>all</em> of them. If you only
+need one (e.g. you’re working on <code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>), use <code class="docutils literal notranslate"><span class="pre">--package</span></code> to sync
+only that package’s dependencies:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Only install omnidreams + its deps (skips unrelated heavy packages)</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>omnidreams<span class="w"> </span>--extra<span class="w"> </span>dev
+
+<span class="c1"># Run a script/test from that integration only</span>
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>omnidreams<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-m<span class="w"> </span>ci_gpu
+</pre></div>
+</div>
+<p>This avoids pulling in (and compiling) dependencies that other
+integrations require but yours does not, further reducing setup time.</p>
+<p>Available integration packages:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">integrations</span><span class="o">/</span><span class="n">causal_forcing</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">cosmos_predict2</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">fastvideo_causal_wan22</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">flashvsr</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">lingbot</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">omnidreams</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">self_forcing</span>
+<span class="n">integrations</span><span class="o">/</span><span class="n">wan21</span>
+</pre></div>
+</div>
+</section>
+<section id="licensing-of-contributions">
+<h2>Licensing of contributions<a class="headerlink" href="#licensing-of-contributions" title="Link to this heading">#</a></h2>
+<p>By submitting a pull request to this repository, you agree that your
+contribution is licensed under the
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/LICENSE">Apache License, Version 2.0</a>, the same license under which
+FlashDreams is distributed. The DCO sign-off described above is your
+attestation that you have the right to make that grant.</p>
+<p>Third-party code (i.e. code you did not write yourself, but that you
+have the right to redistribute under a compatible license) may be
+contributed only if:</p>
+<ol class="arabic simple">
+<li><p>its license is compatible with Apache-2.0;</p></li>
+<li><p>its origin and license are clearly recorded in
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/REUSE.toml"><code class="docutils literal notranslate"><span class="pre">REUSE.toml</span></code></a> and
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/THIRD-PARTY-NOTICES"><code class="docutils literal notranslate"><span class="pre">THIRD-PARTY-NOTICES</span></code></a>;</p></li>
+<li><p>its files retain whatever attribution headers the upstream license
+requires.</p></li>
+</ol>
+<p>If you are not sure whether something is contributable, please ask in
+an issue before sending the code — it’s much easier to sort out
+upfront.</p>
+</section>
+<section id="reporting-issues">
+<h2>Reporting issues<a class="headerlink" href="#reporting-issues" title="Link to this heading">#</a></h2>
+<p>Use <a class="reference external" href="https://github.com/NVIDIA/flashdreams/issues">GitHub Issues</a> to report
+functional defects and to request improvements. Please do not include
+confidential or customer information.</p>
+<p>Do not file security vulnerabilities as public issues. Follow the coordinated
+disclosure process in
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+</section>
+<section id="code-of-conduct">
+<h2>Code of Conduct<a class="headerlink" href="#code-of-conduct" title="Link to this heading">#</a></h2>
+<p>This project follows the
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a>.
+By participating in this project — including issues, discussions, and
+pull requests — you agree to abide by it. Please report concerns to the
+maintainers via the address listed in the Code of Conduct.</p>
+<hr class="docutils" />
+<p>Thanks again for contributing. The project is more useful, more correct,
+and more interesting because outside contributors take the time to send
+their work upstream. We appreciate it.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Community</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="support.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Getting help</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#table-of-contents">Table of contents</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ways-to-contribute">Ways to contribute</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-governance">Project governance</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#developer-certificate-of-origin-dco">Developer Certificate of Origin (DCO)</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#signing-your-work">Signing Your Work</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#submitting-a-pull-request">Submitting a pull request</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review-and-merge">Code review and merge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coding-conventions">Coding conventions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-version-bounds">Dependency version bounds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#working-with-a-single-integration-package">Working with a single integration package</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#licensing-of-contributions">Licensing of contributions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reporting-issues">Reporting issues</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-of-conduct">Code of Conduct</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,572 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Troubleshooting &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=1a293280" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=fd10adb8"></script>
+    <script src="_static/design-tabs.js?v=f930bc37"></script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'troubleshooting';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="_static/searchtools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script src="searchindex.js"></script>
+  
+  </head>
+  
+  
+  <body data-default-mode="light" class="fd-page-landing fd-page-plain">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="community/index.html">
+    Community
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    <div class="fd-landing-main">
+      <section id="troubleshooting">
+<h1>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h1>
+<p>Use this page for common first-run failures before opening an issue. Each
+entry lists the visible symptom, the most likely cause, and the next concrete
+step to try.</p>
+<section id="cuda-or-pytorch-build-mismatch">
+<h2>CUDA or PyTorch build mismatch<a class="headerlink" href="#cuda-or-pytorch-build-mismatch" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A CUDA extension fails to build or load.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span> <span class="pre">--manifest</span> <span class="pre">example_world_model_perf.yaml</span></code> exits instead
+of falling back to the default PyTorch path.</p></li>
+<li><p>Errors mention <code class="docutils literal notranslate"><span class="pre">nvcc</span></code>, a CUDA version, a GPU architecture, or missing CUDA
+libraries.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The OmniDreams perf manifest uses native DiT and LightVAE acceleration with
+<code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code>. That path requires a source checkout,
+<code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain with <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> matching the installed PyTorch build,
+and a Blackwell-class GPU (SM 12.0) or newer.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Start with the non-perf OmniDreams launch in <a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>. If you
+need the perf manifest, prepare the pinned third-party sources first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
+</pre></div>
+</div>
+<p>Then verify that the machine has the required GPU and a CUDA toolchain that
+matches the PyTorch build before launching:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__, torch.version.cuda)&quot;</span>
+nvcc<span class="w"> </span>--version
+</pre></div>
+</div>
+</section>
+<section id="disk-or-cache-exhaustion">
+<h2>Disk or cache exhaustion<a class="headerlink" href="#disk-or-cache-exhaustion" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A first run fails while downloading or loading checkpoints.</p></li>
+<li><p>The process reports no space left on device, stops mid-load, or leaves a
+partial Hugging Face cache.</p></li>
+<li><p>Output video or stats files are missing after an interrupted run.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Model checkpoints and example assets are cached on first use. LingBot-World
+downloads a checkpoint of about 70 GB under <code class="docutils literal notranslate"><span class="pre">$HF_HOME</span></code> and its docs recommend
+keeping about 200 GB free for the model plus Hugging Face cache. Example data
+and generated outputs also consume local disk under paths such as
+<code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/&lt;NN&gt;/</span></code> and <code class="docutils literal notranslate"><span class="pre">outputs/</span></code>.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Check free space on both the repository filesystem and the Hugging Face cache
+filesystem. If the default cache location is too small, point <code class="docutils literal notranslate"><span class="pre">HF_HOME</span></code> at a
+larger volume before running the model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/path/to/large/cache
+</pre></div>
+</div>
+<p>Then rerun the same command so the downloader can reuse or repair the cache.</p>
+</section>
+<section id="model-download-or-authentication-failure">
+<h2>Model download or authentication failure<a class="headerlink" href="#model-download-or-authentication-failure" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>A download returns 401, 403, not found, or gated-repository errors.</p></li>
+<li><p>OmniDreams scene or checkpoint downloads fail before the demo starts.</p></li>
+<li><p>LingBot-World fails while fetching the model checkpoint from Hugging Face.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Most model runs need Hugging Face authentication. OmniDreams requires an
+<code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to the <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-scenes</span></code> dataset and
+the <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> model repository. Other model pages also
+document first-run downloads from Hugging Face.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Export a valid token in the same shell that launches FlashDreams:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+</pre></div>
+</div>
+<p>If the token is already set, confirm that the account behind it can open the
+model or dataset page referenced by the failing command, then rerun the
+FlashDreams command.</p>
+</section>
+<section id="gpu-out-of-memory">
+<h2>GPU out of memory<a class="headerlink" href="#gpu-out-of-memory" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>The run exits with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">out</span> <span class="pre">of</span> <span class="pre">memory</span></code> or the Python process is killed
+during model load or generation.</p></li>
+<li><p>LingBot-World runs out of memory on a single GPU when using large
+<code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p></li>
+<li><p>Multi-GPU commands fail after one or more ranks report memory pressure.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The selected model, resolution, rollout length, or GPU count does not fit the
+available VRAM. The model pages list minimum VRAM expectations: Self-Forcing is
+about 24 GB, OmniDreams is about 48 GB, and LingBot-World is about 120 GB.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Use a smaller documented run first: reduce <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code>, lower
+<code class="docutils literal notranslate"><span class="pre">--pixel-height</span></code> and <code class="docutils literal notranslate"><span class="pre">--pixel-width</span></code> where the model page exposes those
+flags, or use the documented multi-GPU <code class="docutils literal notranslate"><span class="pre">torchrun</span> <span class="pre">--nproc_per_node=&lt;N&gt;</span></code>
+launch. For LingBot-World, also try the documented efficient streaming preset
+<code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-taehv-window15-sink3</span></code>.</p>
+</section>
+<section id="webrtc-connection-or-video-does-not-appear">
+<h2>WebRTC connection or video does not appear<a class="headerlink" href="#webrtc-connection-or-video-does-not-appear" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/request_session</span></code> is not reachable from the browser.</p></li>
+<li><p>The page loads but video never appears.</p></li>
+<li><p>The server seems idle before printing the connection URL.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>The WebRTC servers open their HTTP port only after model load and warmup. On a
+remote or cloud GPU instance, the server port may not be reachable directly at
+the host IP. If <code class="docutils literal notranslate"><span class="pre">/request_session</span></code> loads but video does not appear, the
+browser may be hiding local IPs in WebRTC ICE candidates with mDNS hostnames.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Wait until the server prints <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
+For remote machines, forward the documented port and open the local URL:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
+</pre></div>
+</div>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>. If the page loads but the
+video still does not appear, follow the browser-specific WebRTC setting in
+<a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> or <a class="reference internal" href="models/lingbot_world.html"><span class="doc">LingBot-World</span></a>.</p>
+</section>
+<section id="triton-autotuning-or-warmup-looks-stuck">
+<h2>Triton autotuning or warmup looks stuck<a class="headerlink" href="#triton-autotuning-or-warmup-looks-stuck" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p>The first launch takes several minutes.</p></li>
+<li><p>Logs mention Triton autotuning or CUDA-graph warmup.</p></li>
+<li><p>Later runs are much faster than the first run.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p>Cold runs include one-time setup. The quickstart and model pages document that
+first launches can include downloads, Triton autotuning, CUDA-graph warmup, and
+for OmniDreams native acceleration, first-use extension compilation.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Let the first launch finish if it is still making progress. Subsequent launches
+reuse caches. For quick validation, use the small documented demo values such
+as <code class="docutils literal notranslate"><span class="pre">--total-blocks</span> <span class="pre">7</span></code> for Self-Forcing or inspect a runner without loading the
+model by using <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> as described below.</p>
+</section>
+<section id="no-instantiate-prints-a-config-but-does-not-run">
+<h2><code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> prints a config but does not run<a class="headerlink" href="#no-instantiate-prints-a-config-but-does-not-run" title="Link to this heading">#</a></h2>
+<p><strong>Symptoms:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> prints <code class="docutils literal notranslate"><span class="pre">Resolved</span> <span class="pre">config</span> <span class="pre">for</span> <span class="pre">...</span></code> and exits without
+downloading checkpoints, warming up, or writing an output video.</p></li>
+<li><p>No files appear under <code class="docutils literal notranslate"><span class="pre">outputs/</span></code>.</p></li>
+</ul>
+<p><strong>Likely cause:</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> is a diagnostic flag. It resolves and prints the runner
+configuration, then returns before creating the runner or calling
+<code class="docutils literal notranslate"><span class="pre">runner.run()</span></code>.</p>
+<p><strong>Fix or next step:</strong></p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> only when you want to confirm that a runner slug and
+CLI overrides parse correctly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--no-instantiate<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv
+</pre></div>
+</div>
+<p>Remove the flag for a real generation run, or use <code class="docutils literal notranslate"><span class="pre">--help</span></code> on the runner
+slug to inspect all supported options.</p>
+</section>
+</section>
+
+    </div>
+    
+    
+    
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
