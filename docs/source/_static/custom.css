@@ -1722,7 +1722,7 @@ div.admonition.note > .admonition-title::after {
     }
 }
 
-/* -- Image hover-to-zoom (JS-driven overlay) ----------------------------- */
+/* -- Image click-to-zoom (JS-driven overlay) ----------------------------- */
 
 img.zoomable,
 .zoomable img,
@@ -1740,11 +1740,13 @@ img.zoomable,
     background: rgba(0, 0, 0, 0.55);
     opacity: 0;
     pointer-events: none;
+    cursor: zoom-out;
     transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .img-zoom-overlay.visible {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .img-zoom-clone {
