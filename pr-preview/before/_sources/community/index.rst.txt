@@ -32,7 +32,7 @@ Community
 
       .. grid:: 1 2 2 2
          :gutter: 3
-         :margin: 0 0 4 0
+         :margin: 0
 
          .. grid-item-card:: Join the Discord!
             :class-card: fd-feature
