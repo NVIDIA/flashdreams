@@ -748,8 +748,10 @@ body.fd-page-landing .fd-hero-band .fd-hero-lede > p {
     font-size: var(--fd-text-lg);
     line-height: 1.5;
     color: var(--fd-text-muted);
-    max-width: 52rem;
-    margin: 0 auto var(--fd-space-5);
+}
+
+body.fd-page-landing .fd-hero-band > .fd-hero-lede {
+    max-width: var(--fd-max-content);
 }
 
 /* Hero CTA row — centered + larger primary button so the call to action
