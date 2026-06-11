@@ -123,7 +123,7 @@ FlashDreams may carry their own licenses — please check those
 separately.
 
 Contributing back is welcome but not required. See
-:doc:`contribute` if you'd like to upstream a fix or improvement.
+:doc:`/community/index` if you'd like to upstream a fix or improvement.
 
 Don't see your question?
 ------------------------
