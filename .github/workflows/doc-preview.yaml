@@ -1,136 +1,85 @@
 name: Docs preview
 
-# Everything preview-related for the docs site, split out from `doc.yml` (which
-# only handles the production publish to `gh-pages`). Two jobs:
-#   - preview              per-PR doc preview (deploy on open/sync, remove on close)
-#   - consolidated-preview a single preview stacking all topic branches
-# Neither ever publishes production docs — they only write under
-# `gh-pages:pr-preview/`.
+# Two fixed previews for reviewing the public-website work, kept under
+# `gh-pages:pr-preview/`. Replaces the old per-PR `pr-preview/pr-<N>/` previews,
+# which accumulated one directory per PR and ate gh-pages space:
+#   - before  the WIP integration branch `dev/aidanf/flashdreams-site` as-is.
+#   - after   that branch with every `dev/aidanf/flashdreams_site/*` topic
+#             branch merged in (the consolidated site).
+# Neither publishes production docs — `doc.yml` owns that.
+#
+# Triggers (no noise, no double-fire):
+#   - pull_request to `dev/aidanf/flashdreams-site` → a topic-branch PR updated
+#     the merge set → rebuild `after`.
+#   - push to `dev/aidanf/flashdreams-site` → the integration line itself moved
+#     (direct push or a topic PR landing) → rebuild `before` and `after`.
+#   - workflow_dispatch → rebuild both on demand.
+# A topic branch with no open PR matches neither trigger, so nothing runs.
 on:
   pull_request:
-    # Globs cover any sub-branch off the public-website integration line.
-    # Two conventions coexist today: the older `dev/aidanf/flashdreams-site-*`
-    # (`-site` itself, `-site-merge`, `-site-placeholders`) and the newer
-    # path-style `dev/aidanf/flashdreams_site/*` (e.g. `flashdreams_site/community`
-    # for the community-area topic branch). Both shapes are matched so
-    # topic-branch PRs into either set get preview builds.
-    branches:
-      - main
-      - 'dev/aidanf/flashdreams-site*'
-      - 'dev/aidanf/flashdreams_site/*'
-    # `closed` is included so the cleanup step (rossjrw/pr-preview-action in
-    # `auto` mode) can remove the published preview when a PR is merged or
-    # abandoned. The other three are the default `pull_request` set.
-    types: [opened, reopened, synchronize, closed]
+    branches: [dev/aidanf/flashdreams-site]
+  push:
+    branches: [dev/aidanf/flashdreams-site]
   workflow_dispatch:
 
 permissions:
   contents: write
-  # Lets `rossjrw/pr-preview-action` post / update the sticky preview-URL
-  # comment on the PR.
-  pull-requests: write
-
-# Serialize runs that target the same ref so a fast follow-up push to a PR
-# can't race its own previous preview deploy.
-concurrency:
-  group: docs-preview-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
-  # Per-PR preview. Builds the docs (which also validates they compile on PRs)
-  # and hands `_build/` to rossjrw/pr-preview-action in `auto` mode:
-  #   - opened/reopened/synchronize → publish to `gh-pages:pr-preview/pr-<N>/`
-  #     and post/update a sticky comment with the preview URL.
-  #   - closed → delete that subdirectory from `gh-pages`.
-  preview:
-    if: github.event_name == 'pull_request'
+  # "before": the integration branch exactly as it is. Only rebuilt when `-site`
+  # itself moves (push) or on manual dispatch — a topic-branch PR doesn't change
+  # `-site`, so it leaves this preview alone.
+  before:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Shared with `after` so the two never push to gh-pages at the same instant.
+    concurrency:
+      group: docs-site-preview
+      cancel-in-progress: false
     steps:
-      # On `pull_request: closed` we only need to remove the existing preview,
-      # so every build-side step is gated with `if: github.event.action !=
-      # 'closed'`. The `rossjrw/pr-preview-action` step below runs
-      # unconditionally and picks deploy-vs-remove from the event action.
-      #
-      # `actions/checkout` is the exception: it runs on `closed` too. The
-      # cleanup path delegates to `JamesIves/github-pages-deploy-action`, which
-      # operates on the runner workspace and aborts with "fatal: not in a git
-      # directory" if the workspace was never checked out. We skip the submodule
-      # fetch on `closed` (the removal doesn't need them).
       - uses: actions/checkout@v4
         with:
-          submodules: ${{ github.event.action == 'closed' && 'false' || 'recursive' }}
+          ref: dev/aidanf/flashdreams-site
+          submodules: recursive
 
       - uses: astral-sh/setup-uv@v4
-        if: github.event.action != 'closed'
 
-      # The doc build only needs `flashdreams` to be importable. The heavy
-      # GPU stack (transformer-engine, pynvml, cv2, mediapy, boto3/botocore)
-      # is mocked via `autodoc_mock_imports` in `docs/source/conf.py`, so we
-      # install only the Sphinx toolchain + a minimal CPU-only dep set.
+      # The doc build only needs `flashdreams` importable; the heavy GPU stack is
+      # mocked via `autodoc_mock_imports` in `docs/source/conf.py`, so install
+      # only the Sphinx toolchain + a minimal CPU-only dep set.
       - name: Install dependencies
-        if: github.event.action != 'closed'
         env:
-          # Pull torch/torchvision from PyTorch's CPU-only index.
           UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
           UV_INDEX_STRATEGY: unsafe-best-match
         run: |
           uv sync --only-group docs --only-group docs-ci --python 3.12
           uv pip install --no-deps ./flashdreams
 
-      # Render the banner as `pr-<number>` so a reviewer opening the preview URL
-      # immediately sees they're not on a stable doc.
-      - name: Override version for PR previews
-        if: github.event.action != 'closed'
-        run: |
-          sed -i 's/^__version__ = ".*"/__version__ = "pr-${{ github.event.number }}"/' flashdreams/flashdreams/_version.py
-
-      # --no-project: the "Override version" step above rewrites the version
-      # field to a non-PEP-440 string; without it uv would try to parse the
-      # workspace pyproject.toml and fail.
+      # --no-project: the banner override writes a non-PEP-440 version string, so
+      # uv must not try to parse the workspace pyproject.toml.
       - name: Sphinx build
-        if: github.event.action != 'closed'
         run: |
+          sed -i 's/^__version__ = ".*"/__version__ = "site-before"/' flashdreams/flashdreams/_version.py
           uv run --no-project sphinx-build -W -b html docs/source _build
 
-      # The umbrella-dir (`pr-preview/`) is sibling to `main/` and `versions/`,
-      # and the production deploy in `doc.yml` uses `keep_files: false` scoped to
-      # its own destination_dir, so previews and stable docs don't clobber each
-      # other.
-      #
-      # PRs from forks: the GITHUB_TOKEN is read-only on fork PRs, so this step
-      # will fail to push. That's expected — same-repo branches get previews;
-      # fork PRs don't.
-      - name: Deploy PR preview
-        uses: rossjrw/pr-preview-action@v1
+      # `keep_files: false` is scoped to destination_dir, so this only ever
+      # rewrites `pr-preview/before/` — never `after/`, `main/`, or `versions/`.
+      - name: Deploy "before" preview
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          source-dir: ./_build
-          preview-branch: gh-pages
-          umbrella-dir: pr-preview
-          action: auto
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: _build
+          destination_dir: pr-preview/before
+          keep_files: false
 
-  # Build a single preview that stacks every `dev/aidanf/flashdreams_site/*`
-  # topic branch on top of the `dev/aidanf/flashdreams-site` integration line,
-  # so reviewers see the combined site without opening N preview tabs. Runs only
-  # when a topic-branch PR (head `dev/aidanf/flashdreams_site/*`) or the `-site`
-  # PR itself is opened/updated, plus manual dispatch — a branch with no open PR
-  # triggers nothing. Branches that conflict are skipped (not fatal) and reported
-  # in the job summary. Published to `gh-pages:pr-preview/consolidated/`, a
-  # sibling of the per-PR previews.
-  consolidated-preview:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.action != 'closed' &&
-       (github.head_ref == 'dev/aidanf/flashdreams-site' ||
-        startsWith(github.head_ref, 'dev/aidanf/flashdreams_site/')))
+  # "after": every `dev/aidanf/flashdreams_site/*` topic branch merged on top of
+  # `-site`. Conflicting branches are skipped (not fatal) and reported in the job
+  # summary, which also lists both preview URLs.
+  after:
     runs-on: ubuntu-latest
-    # One shared output dir (`pr-preview/consolidated/`), so serialize all runs
-    # regardless of which PR triggered them.
     concurrency:
-      group: docs-consolidated
+      group: docs-site-preview
       cancel-in-progress: false
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -172,11 +121,12 @@ jobs:
           }
 
           {
-            echo "## Consolidated site preview"
+            echo "## Site preview"
             echo ""
-            echo "Base: \`dev/aidanf/flashdreams-site\`"
+            echo "- **before** — \`dev/aidanf/flashdreams-site\` as-is: \`pr-preview/before/\`"
+            echo "- **after** — with topic branches merged: \`pr-preview/after/\`"
             echo ""
-            echo "### Merged (${#merged[@]})"
+            echo "### Merged into \"after\" (${#merged[@]})"
             render_list "${merged[@]}"
             echo ""
             echo "### Skipped — merge conflict (${#skipped[@]})"
@@ -185,7 +135,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
-      # Mirrors the `preview` job's minimal CPU-only install.
+      # Mirrors the `before` job's minimal CPU-only install.
       - name: Install dependencies
         env:
           UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
@@ -194,21 +144,15 @@ jobs:
           uv sync --only-group docs --only-group docs-ci --python 3.12
           uv pip install --no-deps ./flashdreams
 
-      - name: Override version banner
-        run: |
-          sed -i 's/^__version__ = ".*"/__version__ = "consolidated-site"/' flashdreams/flashdreams/_version.py
-
       - name: Sphinx build
         run: |
+          sed -i 's/^__version__ = ".*"/__version__ = "site-after"/' flashdreams/flashdreams/_version.py
           uv run --no-project sphinx-build -W -b html docs/source _build
 
-      # Publish under a fixed `pr-preview/consolidated/` dir. `keep_files: false`
-      # is scoped to destination_dir, so this never clobbers the per-PR previews,
-      # `main/`, or `versions/`.
-      - name: Deploy consolidated preview
+      - name: Deploy "after" preview
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: _build
-          destination_dir: pr-preview/consolidated
+          destination_dir: pr-preview/after
           keep_files: false
