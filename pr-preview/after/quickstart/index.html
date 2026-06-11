@@ -71,7 +71,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Installation" href="installation.html" />
+    <link rel="next" title="Documentation" href="../documentation.html" />
     <link rel="prev" title="FlashDreams" href="../index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -85,7 +85,7 @@ SPDX-License-Identifier: Apache-2.0
   </head>
   
   
-  <body data-default-mode="light" class="fd-page-landing fd-page-plain">
+  <body data-default-mode="light">
 
   
   
@@ -187,7 +187,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <li class="nav-item ">
   <a class="nav-link nav-internal" href="../community/index.html">
-    Contribute
+    Community
   </a>
 </li>
 
@@ -236,6 +236,10 @@ SPDX-License-Identifier: Apache-2.0
     </div>
   
 
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
   
 </div>
 
@@ -286,7 +290,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <li class="nav-item ">
   <a class="nav-link nav-internal" href="../community/index.html">
-    Contribute
+    Community
   </a>
 </li>
 
@@ -337,30 +341,242 @@ SPDX-License-Identifier: Apache-2.0
         
         
   
-    <div class="fd-landing-main">
-      <section id="get-started">
-<h1>Get Started<a class="headerlink" href="#get-started" title="Link to this heading">#</a></h1>
-<p>Start here for the shortest path to a first successful run.</p>
-<ul class="simple">
-<li><p><a class="reference internal" href="installation.html"><span class="doc">Install FlashDreams</span></a></p></li>
-<li><p><a class="reference internal" href="first_world_model.html"><span class="doc">Launch your first model</span></a></p></li>
-</ul>
-<div class="toctree-wrapper compound">
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Get Started</span></li>
+  </ul>
+</nav>
 </div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="get-started">
+<h1>Get Started<a class="headerlink" href="#get-started" title="Link to this heading">#</a></h1>
+<p>Welcome to FlashDreams! This page will guide you from a fresh checkout
+of the repository all the way to your first generated clip, running on a
+single CUDA-capable GPU.</p>
+<section id="install">
+<h2>Install<a class="headerlink" href="#install" title="Link to this heading">#</a></h2>
+<p>FlashDreams uses the <code class="docutils literal notranslate"><span class="pre">uv</span></code> python package manager. Installation
+instructions for <code class="docutils literal notranslate"><span class="pre">uv</span></code> are available in the <a class="reference external" href="https://docs.astral.sh/uv/getting-started/installation/">Astral documentation</a>.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed, clone the repository and synchronise the workspace
+environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/NVIDIA/flashdreams.git
+<span class="nb">cd</span><span class="w"> </span>flashdreams
+uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>runners
+</pre></div>
+</div>
+<p>The unified runner CLI is then available through <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
+</pre></div>
+</div>
+<section id="speeding-up-cuda-builds">
+<h3>Speeding up CUDA builds<a class="headerlink" href="#speeding-up-cuda-builds" title="Link to this heading">#</a></h3>
+<p>The first synchronisation compiles CUDA extensions from source, which
+can be slow. Restricting compilation to the local GPU architecture and
+parallelising build jobs reduces wall time substantially:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">CUDA_ARCH</span><span class="o">=</span><span class="k">$(</span>nvidia-smi<span class="w"> </span>--query-gpu<span class="o">=</span>compute_cap<span class="w"> </span>--format<span class="o">=</span>csv,noheader<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;.&#39;</span><span class="k">)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NVTE_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">BLOCK_SPARSE_ATTN_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">MAX_JOBS</span><span class="o">=</span><span class="m">8</span>
+</pre></div>
+</div>
+<p>The <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds">Contributing Guide</a>
+documents each variable in full and recommends an <code class="docutils literal notranslate"><span class="pre">.envrc</span></code> setup.</p>
+</section>
+<section id="use-flashdreams-as-a-library">
+<h3>Use FlashDreams as a library<a class="headerlink" href="#use-flashdreams-as-a-library" title="Link to this heading">#</a></h3>
+<p>If you only need FlashDreams as a dependency in another project rather
+than running the shipped recipes, install it from PyPI instead:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>flashdreams
+</pre></div>
+</div>
+<p>Or track the current <code class="docutils literal notranslate"><span class="pre">main</span></code> branch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/NVIDIA/flashdreams.git&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="hugging-face-authentication">
+<h2>Hugging Face authentication<a class="headerlink" href="#hugging-face-authentication" title="Link to this heading">#</a></h2>
+<p>Most checkpoints download from Hugging Face on first run, so set this up
+before launching a model. Export an access token before your first run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+<span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">  </span><span class="c1"># optional cache location override</span>
+</pre></div>
+</div>
+<p>For more environment and container details, see the project
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/README.md">README</a>.</p>
+</section>
+<section id="run-your-first-model">
+<h2>Run your first model<a class="headerlink" href="#run-your-first-model" title="Link to this heading">#</a></h2>
+<p>Two reference paths cover the two primary usage modes: offline long
+rollouts and interactive serving.</p>
+<section id="offline-inference-with-self-forcing">
+<h3>Offline inference with Self-Forcing<a class="headerlink" href="#offline-inference-with-self-forcing" title="Link to this heading">#</a></h3>
+<p>Launch an offline streaming run against the
+<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> Wan 2.1 1.3B T2V recipe with
+the TAEHV decoder:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+</pre></div>
+</div>
+<p>The first invocation downloads checkpoints from Hugging Face into
+<code class="docutils literal notranslate"><span class="pre">HF_HOME</span></code>. First runs take some time (Triton autotuning +
+CUDA-graph warmup) but subsequent runs reuse the local cache and finish
+far sooner. Output lands at
+<code class="docutils literal notranslate"><span class="pre">outputs/self-forcing-wan2.1-t2v-1.3b-taehv.mp4</span></code> (16 FPS, 480×832 by
+default). See <a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> for <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code>,
+measured runtimes, and multi-GPU guidance.</p>
+</section>
+<section id="interactive-serving-with-lingbot-world">
+<h3>Interactive serving with LingBot-World<a class="headerlink" href="#interactive-serving-with-lingbot-world" title="Link to this heading">#</a></h3>
+<p>Launch the <a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> camera-controlled
+I2V recipe with the bundled example data:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="where-to-next">
+<h2>Where to next<a class="headerlink" href="#where-to-next" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped recipe with its CLI slug,
+checkpoint source, and per-recipe knobs, alongside steady-state
+per-step latency numbers and reproducer commands.</p></li>
+<li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>: drive a world model in real time with the
+<code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> demo.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>: the generation
+loop end to end: KV cache, ring attention, CUDA-graph capture.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a>: the configuration layer
+every recipe shares.</p></li>
+<li><p><a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a new method</span></a>: adding a new model or
+method as a plugin.</p></li>
+<li><p><a class="reference internal" href="../api/index.html"><span class="doc">CLI and API Reference</span></a>: Reference docs for the
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI and the FlashDreams Python API.</p></li>
+<li><p><a class="reference internal" href="../troubleshooting.html"><span class="doc">Troubleshooting</span></a>: common first-run failures and fixes.</p></li>
+</ul>
+</section>
 <section id="project-and-support">
 <h2>Project and support<a class="headerlink" href="#project-and-support" title="Link to this heading">#</a></h2>
+<p>FlashDreams is developed in the open on GitHub, and contributions are
+welcome. If you hit a bug or have a feature request, open an issue; if
+you have a fix or improvement, send a pull request. Browsing existing
+issues and pull requests is also a good way to see what others are
+working on.</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams">GitHub repository</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/issues">Issues</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/pulls">Pull requests</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams">GitHub repository</a>: source,
+releases, and documentation.</p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/issues">Issues</a>: report bugs
+or request features.</p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/pulls">Pull requests</a>: review
+work in progress or contribute your own.</p></li>
 </ul>
 </section>
 </section>
 
-    </div>
-    
-    
-    
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">FlashDreams</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../documentation.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Documentation</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#speeding-up-cuda-builds">Speeding up CUDA builds</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-flashdreams-as-a-library">Use FlashDreams as a library</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hugging-face-authentication">Hugging Face authentication</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-your-first-model">Run your first model</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#offline-inference-with-self-forcing">Offline inference with Self-Forcing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#interactive-serving-with-lingbot-world">Interactive serving with LingBot-World</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-to-next">Where to next</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-and-support">Project and support</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
   
 
       </main>

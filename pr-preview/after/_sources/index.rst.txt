@@ -52,7 +52,7 @@ FlashDreams
                :color: secondary
                :outline:
 
-               Contribute
+               Community
 
       .. container:: fd-split-visual
 
@@ -205,7 +205,7 @@ autoregressive video and world models: multiple integrated models across
 streaming and bidirectional recipes, multi-GPU execution, and one CLI
 to drive them all.
 
-The :doc:`Get Started guide </quickstart/index>` walks from a fresh
+The :doc:`Get Started guide <quickstart/index>` walks from a fresh
 checkout to a generated frame on a single GPU.
 
 .. container:: fd-cta-row
@@ -300,4 +300,4 @@ invocation, the checkpoint source, and the per-recipe knobs.
    Get Started <quickstart/index>
    Documentation <documentation>
    models/index
-   Contribute <community/index>
+   community/index
