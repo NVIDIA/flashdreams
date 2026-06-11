@@ -22,9 +22,10 @@ with ``torch.compile`` acceleration.
 from __future__ import annotations
 
 import gc
+import html
 import json
 import os
-import sys
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,20 +68,18 @@ from lingbot_va.transformer import LingbotVATransformerConfig
 from lingbot_va.utils import data_seq_to_patch, get_mesh_id, resolve_prompt
 
 
-# Stub flash_attn before any upstream imports
-import importlib.util as _ilu
-import types as _types
+def _prompt_clean(text: str) -> str:
+    """Clean prompt text (inlined from diffusers prompt_clean)."""
+    try:
+        import ftfy
+        text = ftfy.fix_text(text)
+    except ImportError:
+        pass
+    text = html.unescape(html.unescape(text))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-def _stub_module(name: str) -> None:
-    if name in sys.modules:
-        return
-    mod = _types.ModuleType(name)
-    mod.__spec__ = _ilu.spec_from_loader(name, loader=None)
-    mod.flash_attn_func = None  # type: ignore[attr-defined]
-    sys.modules[name] = mod
 
-_stub_module("flash_attn")
-_stub_module("flash_attn_interface")
 
 
 @dataclass(kw_only=True)
@@ -225,9 +224,7 @@ class LingbotVARobotwinRunner(
     # ------------------------------------------------------------------
 
     def _encode_prompt(self, prompt: str, device: torch.device, dtype: torch.dtype):
-        from diffusers.pipelines.wan.pipeline_wan import prompt_clean
-
-        prompt = prompt_clean(prompt)
+        prompt = _prompt_clean(prompt)
         text_inputs = self._tokenizer(
             [prompt],
             padding="max_length",
@@ -556,8 +553,6 @@ class LingbotVARobotwinRunner(
                 self._streaming_vae_half.vae.to("cpu")
             # Move all models except VAE to CPU
             self._transformer.network.to("cpu")
-            if self._streaming_vae_half:
-                self._streaming_vae_half.vae.to("cpu")
             if hasattr(self, '_text_encoder') and self._text_encoder is not None:
                 self._text_encoder.to("cpu")
             del self._transformer

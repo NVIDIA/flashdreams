@@ -69,20 +69,41 @@ class DualChunkKVCache:
     @property
     def n_cached_tokens(self) -> int:
         """Number of committed tokens visible to attention."""
-        return min(self._n_committed, self.window_slots) * self.slot_size
+        return self._n_committed * self.slot_size
+
+    @property
+    def _is_full(self) -> bool:
+        """Whether the buffer has reached capacity."""
+        return self._n_committed >= self.window_slots
 
     def _write_offset(self) -> int:
-        """Start position for the current (uncommitted) slot."""
-        idx = self._n_committed % self.window_slots
-        return idx * self.slot_size
+        """Start position for the current (uncommitted) slot.
+
+        In filling phase, appends after the last committed slot.
+        In steady-state (full), always writes to the last slot position
+        (after the left-shift in ``commit_slot`` made room).
+        """
+        if self._is_full:
+            return (self.window_slots - 1) * self.slot_size
+        return self._n_committed * self.slot_size
+
+    def _roll_left(self) -> None:
+        """Shift the buffer left by one slot, discarding the oldest."""
+        tokens_to_keep = (self.window_slots - 1) * self.slot_size
+        self._k[:, :tokens_to_keep] = self._k[:, self.slot_size : self.slot_size + tokens_to_keep].clone()
+        self._v[:, :tokens_to_keep] = self._v[:, self.slot_size : self.slot_size + tokens_to_keep].clone()
 
     def write_primary(self, k: Tensor, v: Tensor) -> None:
         """Write primary (video) KV into the current slot.
+
+        If the buffer is full, shifts left first to evict the oldest slot.
 
         Args:
             k: Shape ``[batch, primary_chunk, heads, head_dim]``.
             v: Same shape as ``k``.
         """
+        if self._is_full:
+            self._roll_left()
         pos = self._write_offset()
         self._k[:, pos : pos + self.primary_chunk] = k
         self._v[:, pos : pos + self.primary_chunk] = v
@@ -105,20 +126,22 @@ class DualChunkKVCache:
     def commit_slot(self) -> None:
         """Finalize the current slot and advance the write pointer.
 
-        If the buffer is full, the oldest slot is overwritten on the
-        next write (circular buffer via modular indexing).
+        In filling phase, increments the committed count. In steady-state
+        the count stays at ``window_slots`` (the oldest slot was already
+        evicted by ``_roll_left`` in ``write_primary``).
         """
         assert self._primary_written
-        self._n_committed += 1
+        if not self._is_full:
+            self._n_committed += 1
         self._primary_written = False
 
     def cached_k(self) -> Tensor:
-        """Return all committed K tokens."""
+        """Return all committed K tokens in temporal order."""
         n = self.n_cached_tokens
         return self._k[:, :n]
 
     def cached_v(self) -> Tensor:
-        """Return all committed V tokens."""
+        """Return all committed V tokens in temporal order."""
         n = self.n_cached_tokens
         return self._v[:, :n]
 
