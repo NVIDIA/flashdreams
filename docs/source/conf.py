@@ -120,8 +120,7 @@ html_theme_options = {
     "navbar_center": ["navbar-nav"],
     "navbar_end": ["theme-switcher"],
     "navbar_persistent": ["search-button"],
-    # Keep the navbar at depth 1 to only show top-level landings/sections
-    "show_nav_level": 1,
+    "show_nav_level": 2,
 }
 
 # Wire the left-sidebar nav-tree only for certain pages.
