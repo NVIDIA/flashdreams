@@ -16,8 +16,9 @@
 Get Started
 ===========
 
-This page covers the path from a fresh checkout of the repository to a
-generated clip on a single CUDA-capable GPU.
+Welcome to FlashDreams! This page will guide you from a fresh checkout
+of the repository all the way to your first generated clip, running on a
+single CUDA-capable GPU.
 
 Install
 -------
@@ -41,38 +42,8 @@ The unified runner CLI is then available through ``uv run``:
 
    uv run flashdreams-run --help
 
-Library-only install
-~~~~~~~~~~~~~~~~~~~~
-
-For projects that consume FlashDreams as a dependency rather than
-running the shipped recipes, install from PyPI:
-
-.. code-block:: bash
-
-   pip install flashdreams
-
-Or the current ``main`` branch:
-
-.. code-block:: bash
-
-   pip install "git+https://github.com/NVIDIA/flashdreams.git"
-
-Hugging Face authentication
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Most checkpoints download from Hugging Face on first run. Export an
-access token before launching:
-
-.. code-block:: bash
-
-   export HF_TOKEN=<your-hf-token>
-   export HF_HOME=~/.cache/huggingface  # optional cache location override
-
-For more environment and container details, see the project
-`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
-
 Speeding up CUDA builds
-~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The first synchronisation compiles CUDA extensions from source, which
 can be slow. Restricting compilation to the local GPU architecture and
@@ -88,6 +59,36 @@ parallelising build jobs reduces wall time substantially:
 The `Contributing Guide
 <https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds>`_
 documents each variable in full and recommends an ``.envrc`` setup.
+
+Use FlashDreams as a library
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you only need FlashDreams as a dependency in another project rather
+than running the shipped recipes, install it from PyPI instead:
+
+.. code-block:: bash
+
+   pip install flashdreams
+
+Or track the current ``main`` branch:
+
+.. code-block:: bash
+
+   pip install "git+https://github.com/NVIDIA/flashdreams.git"
+
+Hugging Face authentication
+---------------------------
+
+Most checkpoints download from Hugging Face on first run, so set this up
+before launching a model. Export an access token before your first run:
+
+.. code-block:: bash
+
+   export HF_TOKEN=<your-hf-token>
+   export HF_HOME=~/.cache/huggingface  # optional cache location override
+
+For more environment and container details, see the project
+`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
 
 Run your first model
 --------------------
@@ -132,25 +133,33 @@ I2V recipe with the bundled example data:
 Where to next
 -------------
 
-- :doc:`/models/index` — every shipped recipe with its CLI slug,
-  checkpoint source, and per-recipe knobs, alongside the benchmark
-  numbers.
-- :doc:`/models/omnidreams` — drive a world model in real time with the
+- :doc:`/models/index`: every shipped recipe with its CLI slug,
+  checkpoint source, and per-recipe knobs, alongside steady-state
+  per-step latency numbers and reproducer commands.
+- :doc:`/models/omnidreams`: drive a world model in real time with the
   ``interactive-drive`` demo.
-- :doc:`/developer_guides/inference_pipeline_overview` — the generation
+- :doc:`/developer_guides/inference_pipeline_overview`: the generation
   loop end to end: KV cache, ring attention, CUDA-graph capture.
-- :doc:`/developer_guides/config_system` — the configuration layer
+- :doc:`/developer_guides/config_system`: the configuration layer
   every recipe shares.
-- :doc:`/developer_guides/new_integration` — adding a new model or
+- :doc:`/developer_guides/new_integration`: adding a new model or
   method as a plugin.
-- :doc:`/api/index` — Python API and CLI reference.
-- :doc:`/models/index` — steady-state per-step latency numbers
-  with reproducer commands.
-- :doc:`/troubleshooting` — common first-run failures and fixes.
+- :doc:`CLI and API Reference </api/index>`: Reference docs for the
+  ``flashdreams-run`` CLI and the FlashDreams Python API.
+- :doc:`/troubleshooting`: common first-run failures and fixes.
 
 Project and support
 -------------------
 
-- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_
-- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_
-- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_
+FlashDreams is developed in the open on GitHub, and contributions are
+welcome. If you hit a bug or have a feature request, open an issue; if
+you have a fix or improvement, send a pull request. Browsing existing
+issues and pull requests is also a good way to see what others are
+working on.
+
+- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_: source,
+  releases, and documentation.
+- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_: report bugs
+  or request features.
+- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_: review
+  work in progress or contribute your own.
