@@ -1429,6 +1429,20 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* ----- 9. Reference-docs model-page components --------------------------- */
 
+/* Models index: reclaim the empty left gutter.
+   `models/index` renders in the reference scaffold but has its primary
+   (left) sidebar disabled (`html_sidebars["models/index"] = []`). pydata
+   still caps the article at its 60em reading measure and centers it
+   (`.bd-content { justify-content: center }`), so the freed-up left column
+   sits empty while the wide benchmark tables + interactive charts read
+   cramped. `fd-page-wide` (set on <body> in layout.html) drops the reading
+   cap on this page so the content fills the main track — still bounded by
+   the outer `.bd-page-width`, and the right page-TOC is a separate grid
+   track, so nothing collides. */
+body.fd-page-wide .bd-main .bd-content .bd-article-container {
+    max-width: none;
+}
+
 /* Used by the per-model RST pages under `models/*.rst` (raw HTML blocks
    that render the "Blog / Model page / Code / arXiv" link row and the
    side-by-side teaser-video card). Kept here so the page authors don't
