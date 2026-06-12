@@ -154,6 +154,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--synthetic-model",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override the world-model manifest's synthetic_model setting. "
+            "Synthetic mode uses local default-initialized model weights and "
+            "synthetic embeddings while keeping the manifest's performance knobs."
+        ),
+    )
+    parser.add_argument(
         "--official-hdmap-dir",
         type=Path,
         default=None,
@@ -468,6 +478,8 @@ def prepare_config_and_backend(
         if config.manifest_path is None:
             raise SystemExit("--manifest is required for the omnidreams backend")
         manifest = load_world_model_manifest(config.manifest_path)
+        if args.synthetic_model is not None:
+            manifest = replace(manifest, synthetic_model=bool(args.synthetic_model))
         if args.official_hdmap_dir is not None:
             manifest = replace(
                 manifest, debug_condition_frame_dir=args.official_hdmap_dir.resolve()

@@ -27,9 +27,17 @@ class WorldModelManifestTest(unittest.TestCase):
             self.assertEqual(manifest.num_frames_per_block, 8)
             self.assertEqual(manifest.denoising_steps, [1000, 500])
             self.assertEqual(manifest.resolution_wh, (1280, 704))
+            self.assertFalse(manifest.synthetic_model)
             self.assertEqual(manifest.native_dit_acceleration, "disabled")
             self.assertEqual(manifest.native_vae_encoder, "disabled")
             self.assertIsNone(manifest.native_vae_fp8_state_path)
+
+    def test_loads_synthetic_model_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text("synthetic_model: true\n", encoding="utf-8")
+            manifest = load_world_model_manifest(path)
+            self.assertTrue(manifest.synthetic_model)
 
     def test_loads_native_dit_knobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
