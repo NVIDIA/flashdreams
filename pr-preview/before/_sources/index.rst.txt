@@ -27,11 +27,13 @@ FlashDreams
 
          .. container:: fd-hero-lede
 
-            A high-performance inference and serving library for
-            interactive autoregressive video and world models,
-            and a general platform for real-time world-model applications
-            across gaming, autonomous vehicles, robotics, simulated
-            or virtual environments, and more!
+            FlashDreams is an inference and serving runtime for turning
+            autoregressive video and world models into live, controllable
+            simulations. It runs the model in a continuous loop, carrying
+            state forward and streaming frames while new actions or sensor
+            inputs change what happens next, whether the application is a
+            game world, an autonomous-vehicle simulator, robotic policy
+            testing, or a virtual training environment.
 
          .. container:: fd-cta-row
 
